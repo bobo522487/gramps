@@ -6,7 +6,7 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.6 |
+| 文档版本 | 1.7 |
 | 文档状态 | 当前实现说明 |
 | 最后更新 | 2026-10-21 |
 | 目标部署（未实现） | Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动 `pg` + `attachDatabasePool`，本地 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev` |
@@ -29,7 +29,7 @@
 | 数据表 | 6 张 | 见 §1.1 |
 | Route Handler | 3 个 | 见 §1.3 |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest 单测 6 个文件 + 真实 PostgreSQL 集成测试 4 个文件（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
+| 测试 | Vitest 单测 7 个文件 39 个用例 + 真实 PostgreSQL 集成测试 8 个文件 61 个用例（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
 | CI | `pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` | `.github/workflows/ci.yml` |
 
 ### 1.1 当前数据表
@@ -46,6 +46,7 @@
 - `getOrgWithRoleBySlug(userId, slug)`、`getProjectScopeByRef(userId, ref)` 在解析 URL 时同时按当前用户过滤；非成员或不存在的公开 ID 返回 404。
 - 迁移为两阶段：`0003` 增加可空列并删除 `api_keys`，随后在迁移之外执行 `pnpm db:backfill-ids` 回填，最后 `0004` 设置 `NOT NULL` 与唯一索引。迁移文件本身不含数据修复。
 - `0005_remove_billing_and_tier` 删除 `organizations` 的 5 个 Stripe 字段与 `projects.tier`；`0000`–`0004` 作为历史迁移保持原样。
+- `0006_cheerful_surge` 增加 `org_members (org_id, user_id)` 唯一索引、角色/状态 `CHECK`、待处理邀请的 `(org_id, lower(email))` 部分唯一索引与查询索引，并允许 `activity_logs.org_id` 为空（账号级事件）。已有重复成员或重复待处理邀请的库需先人工清理，否则迁移会失败。
 
 ### 1.3 当前 Route Handler
 
@@ -53,14 +54,15 @@
 - `GET /api/orgs/[orgId]/projects`
 - `GET /api/user`（DTO 仅为 `{ id, name, email }`）
 
-没有 `/api/health`，也没有 Stripe 相关路由。
+三个路由未登录时都返回 `401 { error: 'Unauthorized' }`；组织级项目列表先校验成员，非成员返回 403。客户端 `lib/fetcher.ts` 对非 2xx 响应抛错，错误对象带 `status`。没有 `/api/health`，也没有 Stripe 相关路由。
 
 ### 1.4 测试与 CI
 
-- `pnpm test:unit`（`pnpm test`）：6 个 Vitest 文件，不连接数据库。
-- `pnpm test:integration`：4 个文件，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 从空库执行全部迁移，每个测试文件开始前清空业务表。
+- `pnpm test:unit`（`pnpm test`）：7 个 Vitest 文件 39 个用例，不连接数据库。
+- `pnpm test:integration`：8 个文件 61 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 从空库执行全部迁移，每个测试用例开始前清空业务表。
+- 集成测试覆盖查询与约束、注册/建组织/移除成员/删号事务、账号与成员 Server Action、API 401、公开 ID 成员过滤与项目 slug 冲突重试。
 - CI 使用 `postgres:18-alpine` service，执行迁移漂移检查（`pnpm db:generate` 后迁移目录必须无变化），最后构建。
-- 尚无 Playwright/E2E。`tests/security-regressions.test.ts` 与 `tests/design-system.test.ts` 仍包含源码字符串断言，但会话撤销、公开 ID 成员过滤、跨组织读写与数据库唯一约束已由集成测试覆盖。
+- 尚无 Playwright/E2E。`tests/security-regressions.test.ts` 与 `tests/design-system.test.ts` 仍包含源码字符串断言，但关键安全与数据完整性行为已由集成测试覆盖。
 
 ---
 
@@ -70,13 +72,13 @@
 
 | 模块 | 目标（PRD） | 当前实现 | 状态 |
 |---|---|---|---|
-| 认证 | 即时登录（无邮件确认）、JWT 会话 + `token_version`、改密、进程内限流、4 角色 | 注册/登录/登出、改密、删号、内存限流 | 🟡 部分 |
-| 组织与成员 | 默认组织（触发器）、邀请链接 7 天、角色管理、组织停用 | 默认组织（应用层）、多组织、公开 ID 与目标一致、邀请记录、移除成员、改名 | 🟡 部分 |
-| 云谱空间 | 谱系/谱文/谱书三棵分类树 | 部署型 project（region/status/health）+ 20 位 ref（与目标一致）+ 谱系/谱文/谱书占位页；无分类 | 🟡 语义不同 |
+| 认证 | 即时登录（无邮件确认）、JWT 会话 + `token_version`、改密、进程内限流、4 角色 | 注册（单事务）/登录/登出、改密（当前设备重签）、删号、内存限流 | 🟡 部分 |
+| 组织与成员 | 默认组织（触发器）、邀请链接 7 天、角色管理、组织停用 | 默认组织（应用层单事务）、建组织（单事务）、多组织、公开 ID 与目标一致、邀请记录、移除成员（最后一个 owner 保护）、改名 | 🟡 部分 |
+| 云谱空间 | 谱系/谱文/谱书三棵分类树 | 部署型 project（region/status/health）+ 20 位 ref（与目标一致）+ 谱系/谱文/谱书占位页；项目创建唯一冲突重试；无分类 | 🟡 语义不同 |
 | 谱系与人丁 | `FR-LIN-1` ~ `FR-LIN-13` | 无表、无页面、无 Action | ⬜ 未实现 |
 | 谱文 | `FR-ART-1` ~ `FR-ART-5` | 无 | ⬜ 未实现 |
 | 谱书与编目 | `FR-BOOK-1` ~ `FR-BOOK-8` | 无 | ⬜ 未实现 |
-| 审计 / 活动记录 | 目标设计不建审计表；关键动作写结构化日志 | 可变的 `activity_logs` | ➕ 目标外已有 |
+| 审计 / 活动记录 | 目标设计不建审计表；关键动作写结构化日志 | 可变的 `activity_logs`；账号级事件 `org_id` 为空 | ➕ 目标外已有 |
 | 界面语言 | 简体中文 | 全站中文，品牌“云谱”；无 i18n 框架 | ✅ |
 | 工程工具链 | Biome + Vitest + Playwright E2E | Biome + Vitest（单测 + 真实 PostgreSQL 集成测试），无 E2E | 🟡 部分 |
 
@@ -95,7 +97,7 @@
 | `FR-AUTH-3` 会话保持 | ✅ | JWT Cookie 1 天有效，`proxy.ts` 在剩余 < 6 小时时滑动续期；`getUser()` 校验 `token_version` 与 `deleted_at` |
 | `FR-AUTH-4` 登出 | ✅ | 删除当前 `session` Cookie；其它设备会话不受影响 |
 | `FR-AUTH-5` 登录失败限流 | ✅ | 登录 10 次/15 分钟（IP + 邮箱）的进程内滑窗；重启清零、多实例不共享，与目标的 best-effort 语义一致 |
-| `FR-AUTH-6` 修改密码 | 🟡 | 登录态可改密，验证旧密码并递增 `token_version`；但当前设备也不会重签，所有会话失效后需重新登录，与目标“当前设备保持登录”有差异 |
+| `FR-AUTH-6` 修改密码 | ✅ | 登录态可改密，验证旧密码并递增 `token_version`；成功后用新版本重签当前设备，其他设备旧会话失效 |
 
 额外已有：修改密码、删除账号、账号安全页、活动日志。
 
@@ -103,12 +105,12 @@
 
 | FR | 状态 | 当前行为 / 差异 |
 |---|---|---|
-| `FR-ORG-1` 注册即得默认组织 | 🟡 | 注册后由应用层创建默认组织并加入 `owner`；不是数据库触发器，也不是单事务 |
-| `FR-ORG-2` 新建额外组织 | 🟡 | 可创建组织；slug 由服务端生成（20 位 `[0-9a-z]`，与目标一致）；建组织与 owner 成员关系不在同一事务 |
+| `FR-ORG-1` 注册即得默认组织 | ✅ | 注册在单个事务内创建用户、默认组织与 `owner` 成员关系；无效邀请不写入任何行。机制是应用层事务，不是数据库触发器 |
+| `FR-ORG-2` 新建额外组织 | ✅ | 单事务写入组织、owner 成员与活动日志；slug 由服务端生成（20 位 `[0-9a-z]`，与目标一致） |
 | `FR-ORG-3` 多组织切换 | ✅ | 一个账号可属于多个组织，控制台顶部提供组织切换 |
-| `FR-ORG-4` 邀请成员 | 🟡 | 有邀请记录与接受逻辑；没有一次性 token、过期时间或可复制的邀请链接 |
+| `FR-ORG-4` 邀请成员 | 🟡 | 有邀请记录与接受逻辑；没有一次性 token、过期时间或可复制的邀请链接；仍允许邀请 `owner` |
 | `FR-ORG-5` 修改成员角色 | ⬜ | 没有改角色、转让所有权；角色只有 owner/member |
-| `FR-ORG-6` 移除成员 | ✅ | owner 可移除成员；未实现“最后一个 owner 不可移除”的保护 |
+| `FR-ORG-6` 移除成员 | ✅ | owner 可移除成员；事务内锁定组织并拒绝移除最后一个 owner，也不能移除自己 |
 | `FR-ORG-7` 组织设置 | 🟡 | 改名仅 owner（服务端校验）；slug 不可修改，与目标一致；设置页对非 owner 未隐藏操作入口 |
 | `FR-ORG-8` 组织停用 | ⬜ | `organizations` 表没有 `status` 字段 |
 
@@ -138,15 +140,14 @@
 
 ## 5. 已知实现风险（记录，不在文档 P0 修复）
 
-1. **注册默认组织非原子**：`createUser → createOrg → addOrgMember` 分多步执行；中途失败会留下无组织用户，与目标设计的“触发器保证原子性”不同。
-2. **邀请缺少 token / 过期 / 可复制链接**：`invitations` 表只有 `status`，没有 `token_hash`、`expires_at`。目标设计不要求邮件，但要求一次性链接，当前尚未实现。
-3. **限流是进程内内存实现**：重启清零，多实例不共享；目标设计接受这一 best-effort 限制，不把它当作安全边界。
-4. **没有最后一个 owner 保护**：移除成员或删除组织时，可能产生无 owner 组织。
-5. **组织删除是硬删除**：会级联删除项目；没有目标设计中的软删/回收站。
-6. **没有 RLS**：隔离依赖应用层 `orgId` 校验；所有新增查询都必须带组织条件。
-7. **无自助密码找回**：目标设计与当前实现都没有邮件通道；忘记密码只能由运维人工重置。
-8. **改密会登出当前设备**：`updatePassword` 递增 `token_version` 后不重签当前 Cookie，与目标“当前设备保持登录”不一致。
-9. **目标设计不建审计表**：关键动作只写结构化日志；日志保留期外的逐条追溯依赖软删与 PITR/备份，无法回答细粒度“谁改了什么”。
+1. **邀请缺少 token / 过期 / 可复制链接**：`invitations` 表只有 `status`，没有 `token_hash`、`expires_at`；当前仍允许邀请 `owner`。目标设计不要求邮件，但要求一次性链接且禁止邀请 owner，尚未实现。
+2. **限流是进程内内存实现**：重启清零，多实例不共享；目标设计接受这一 best-effort 限制，不把它当作安全边界。
+3. **最后一个 owner 保护只在应用层**：移除成员与删号在事务内锁定组织并校验，但数据库没有“组织至少一个 owner”的约束；绕过服务层直接写库仍可能产生无 owner 组织。
+4. **组织删除是硬删除**：会级联删除项目；没有目标设计中的软删/回收站。
+5. **没有 RLS**：隔离依赖应用层 `orgId` 校验；所有新增查询都必须带组织条件。
+6. **无自助密码找回**：目标设计与当前实现都没有邮件通道；忘记密码只能由运维人工重置。
+7. **目标设计不建审计表**：关键动作只写结构化日志；日志保留期外的逐条追溯依赖软删与 PITR/备份，无法回答细粒度“谁改了什么”。
+8. **`0006` 唯一索引对历史重复数据敏感**：已有重复成员或重复待处理邀请的库必须先清理数据，否则迁移失败；当前仓库尚无生产数据。
 
 > `getUser()` 仍返回完整 `users` 行；`GET /api/user` 与根布局 SWR fallback 已收窄为 `SessionUser`（`{ id, name, email }`）。新增对外出口必须显式挑字段，不能直接序列化整行。
 
@@ -154,16 +155,16 @@
 
 ## 6. 路线决策（2026-10-21）
 
-| # | 决策 |
-|---|---|
-| D1/D2 | 目标为家谱 M1；按当前仓库状态（无生产部署证据）采用基础层重置，Phase 3 前确认；若已有生产数据则改走扩展-收缩 |
-| D3 | UUIDv7 在创建家谱表之前一次性替换 `serial` |
-| D4 | 新家谱表从第一天启用 RLS；先补齐 `organization_member` 策略缺口 |
-| D5 | 先落权限字符串矩阵，再扩到 4 个角色 |
-| D6 | 修改邮箱要求当前密码 |
-| D7 | 保留 `activity_logs` 作为产品活动流并修复多组织归属；不把它当审计表 |
-| D8 | M1 过渡期保留 3 个内部只读 API，补 401 与契约文档；选择器改用 RSC fallback 后再收敛 |
-| D9 | 邀请使用一次性 token + 7 天过期，禁止邀请 owner |
+| # | 决策 | 状态 |
+|---|---|---|
+| D1/D2 | 目标为家谱 M1；按当前仓库状态（无生产部署证据）采用基础层重置，Phase 3 前确认；若已有生产数据则改走扩展-收缩 | 待 Phase 3 前确认 |
+| D3 | UUIDv7 在创建家谱表之前一次性替换 `serial` | 未开始（Phase 3） |
+| D4 | 新家谱表从第一天启用 RLS；先补齐 `organization_member` 策略缺口 | 未开始（Phase 3） |
+| D5 | 先落权限字符串矩阵，再扩到 4 个角色 | 未开始 |
+| D6 | 修改邮箱要求当前密码 | 已实现 |
+| D7 | 保留 `activity_logs` 作为产品活动流并修复多组织归属；不把它当审计表 | 已实现：账号级事件 `org_id` 为空，组织级事件归属单个组织 |
+| D8 | M1 过渡期保留 3 个内部只读 API，补 401 与契约文档；选择器改用 RSC fallback 后再收敛 | 部分实现：三个路由未登录均返回 401，契约见 §1.3；RSC fallback 与 API 收敛未开始 |
+| D9 | 邀请使用一次性 token + 7 天过期，禁止邀请 owner | 未实现 |
 
 ## 7. 更新规则
 

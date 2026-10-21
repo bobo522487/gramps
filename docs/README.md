@@ -54,9 +54,10 @@
 | 控制台路由 | `/dashboard/org/[orgSlug]`（项目 / 团队 / 组织设置）与 `/dashboard/project/[projectRef]`（概览 / 谱系 / 谱文 / 谱书 / 项目设置）；公开 ID 为 20 位 `[0-9a-z]` |
 | 数据隔离 | 应用层按成员关系校验，**没有 RLS**；slug/ref 查询按当前用户过滤 |
 | 数据表 | 6 张：`users`、`organizations`、`org_members`、`projects`、`activity_logs`、`invitations` |
-| Route Handler | 3 个：`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user` |
+| 数据库约束 | 成员 `(org_id, user_id)` 唯一；角色/状态 `CHECK`；待处理邀请 `(org_id, lower(email))` 部分唯一；账号级活动日志允许 `org_id` 为空 |
+| Route Handler | 3 个：`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`；未登录统一 401 |
 | 代码检查 | Biome |
-| 测试 | Vitest 单测 6 个文件 + 真实 PostgreSQL 集成测试 4 个文件（另有 1 个 stub），没有 Playwright/E2E |
+| 测试 | Vitest 单测 7 个文件 39 个用例 + 真实 PostgreSQL 集成测试 8 个文件 61 个用例（另有 1 个 stub），没有 Playwright/E2E |
 | CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` |
 
 家谱目标中的谱系、人丁、谱文、谱书、分类、RLS、软删，当前都**没有实现**；project 侧边栏中的谱系 / 谱文 / 谱书只是占位页。

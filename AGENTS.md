@@ -14,6 +14,7 @@
 - 组织（organization）→ 项目（project），组织与项目各有独立控制台界面。
 - 组织与项目使用 20 位公开 ID（`organizations.slug`、`projects.ref`）作为 URL；数字主键仅内部使用。
 - 用户登录、组织成员管理、邀请记录、活动日志。
+- 注册、创建组织、移除成员、删除账号等多步写操作在单个数据库事务内完成；失败不会留下半成品数据。
 - 界面全部为简体中文，品牌“云谱”，不引入 i18n 框架。
 - 营销首页、登录/注册、控制台界面。
 
@@ -38,7 +39,7 @@
 | 认证 | bcrypt + JWT HS256 Cookie |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 检查/格式化 | Biome |
-| 测试 | Vitest（单测 + 真实 PostgreSQL 集成测试） |
+| 测试 | Vitest：单测 7 文件/39 用例；真实 PostgreSQL 集成测试 8 文件/61 用例 |
 
 ---
 
@@ -112,7 +113,7 @@ components/
 └── ui/                       # shadcn/ui 基础组件
 lib/
 ├── auth/                     # session、permissions、rate-limit、schema、actions
-├── db/                       # schema、queries、drizzle、migrations、seed、setup、回填/分步迁移脚本
+├── db/                       # schema、queries、services（事务流程）、errors、drizzle、migrations、seed/setup/回填脚本
 ├── org/actions.ts            # 组织相关 Server Action
 ├── project/actions.ts        # 项目相关 Server Action
 ├── ids.ts                    # 20 位公开 ID 生成与校验
@@ -170,6 +171,7 @@ export const renameOrgAction = validatedActionWithUser(
 );
 ```
 
+- 多步写操作（注册、建组织、移除成员、删号）放在 `lib/db/services.ts`，整个流程使用一个 `db.transaction`；不要在 Action 里串联多个独立写操作。事务内的权限判断必须用锁定读（`FOR UPDATE`）重新校验，不能只依赖事务外的 `checkOrgRole`。
 - 返回 `{ error }` / `{ success }` 等 `ActionState` 字段，不把异常堆栈抛给 UI。
 - 返回给 UI 的文案一律使用简体中文；内部日志、API JSON 错误保持英文。
 - 写成功后按需 `revalidatePath`；组织级变化用 `/dashboard` layout 或 `/dashboard/org/${slug}`，项目设置用 `/dashboard/project/${ref}`。
@@ -187,7 +189,9 @@ getUser()（权威校验：查库比对 token_version + deleted_at）
 
 - `proxy.ts` 不是授权边界；不要只靠它保护资源。
 - `getUser()` 返回完整 `users` 行；**不要直接 `Response.json(user)`**。对外出口（API、SWR fallback、客户端组件 props）只传 `SessionUser`，即 `{ id, name, email }`。
-- 修改密码、删除账号会递增 `token_version`，旧 Cookie 自动失效。
+- 修改密码、删除账号会递增 `token_version`，旧 Cookie 自动失效；改密成功后会用新版本重签当前设备。
+- 修改邮箱必须验证当前密码，邮箱归一化为小写后写入；重复邮箱转换为中文冲突提示。
+- 账号区布局 `app/(dashboard)/dashboard/(account)/layout.tsx` 统一 `getUser()` 并 `redirect('/sign-in')`；账号页不要各自猜认证状态。
 - 不要使用 `getSession()` 之类的“只读 Cookie”方案做鉴权。
 - Cookie 使用 `Secure`；本地开发请使用 `http://localhost:3000`，不要用 IP/非 localhost 域名。
 
@@ -214,7 +218,8 @@ getProjectById(projectId);
 - 查询集中在 `lib/db/queries.ts`；不要在页面里拼 SQL。
 - 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。
 - 当前 ID 是 `serial` 整数主键 + 20 位公开 `slug`/`ref`，不是 UUIDv7。
-- 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引，唯一冲突（PG `23505`）最多重试 5 次。
+- 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 slug/ref 冲突时每次重试重新生成，最多尝试 5 次。
+- `0006` 起数据库已约束成员 `(org_id, user_id)` 唯一、角色/状态 `CHECK`、待处理邀请 `(org_id, lower(email))` 部分唯一；捕获 `23505`/`23514` 时转换为中文提示，不要吞掉或重试成重复数据。
 - 当前只有 `users.deleted_at`；业务表**没有**软删。不要假设删除可恢复。
 - 当前没有 `withOrg`、`app_rw`、RLS claims。
 
@@ -227,6 +232,8 @@ getProjectById(projectId);
 | `GET /api/orgs` | 当前用户的组织列表，DTO 为 `{ id, name, slug, role }` |
 | `GET /api/orgs/[orgId]/projects` | 组织内项目列表，先校验成员；DTO 为 `{ id, name, ref, status }` |
 | `GET /api/user` | 当前用户，DTO 为 `{ id, name, email }` |
+
+三个路由未登录时都返回 `401 { error: 'Unauthorized' }`；`lib/fetcher.ts` 对非 2xx 抛错，错误对象带 `status`。客户端退出登录时要同时清空 `/api/user` 的 SWR 缓存。
 
 新增 API Route 时：
 
@@ -296,7 +303,7 @@ logger.error('failed to update project', error);
 | # | 规则 |
 |---|---|
 | 1 | 组织级查询必须带 `orgId`，不能只按子资源 ID 查 |
-| 2 | 组织级写操作必须先 `checkOrgRole`/`requireOrgAccess` |
+| 2 | 组织级写操作必须先 `checkOrgRole`/`requireOrgAccess`；事务流程在事务内锁定读重新校验角色 |
 | 3 | 角色只有 `owner` / `member`，不要自行添加目标设计中的 admin/editor/viewer |
 | 4 | 主键是 `serial` 整数，不是 UUIDv7 |
 | 5 | 当前没有 RLS；不要假设数据库会兜底隔离 |
@@ -306,6 +313,9 @@ logger.error('failed to update project', error);
 | 9 | 不要在迁移里夹带数据修复逻辑；另写可重复执行的脚本（公开 ID 回填见 `lib/db/backfill-public-ids.ts`） |
 | 10 | 新表如果属于组织范围，必须带 `org_id` 并在所有查询中过滤 |
 | 11 | 公开 ID（slug/ref）查询必须同时按 `userId` 过滤，不能先查后判 |
+| 12 | 多步写必须使用单个事务；失败时不能留下半成品数据 |
+| 13 | 修改邮箱必须验证当前密码，并在写入前归一化邮箱 |
+| 14 | 不要绕过唯一约束/`CHECK` 直接写库；冲突转换为中文 `ActionState` |
 
 ### 7.1 加一张表的顺序
 
@@ -349,10 +359,10 @@ logger.error('failed to update project', error);
 2. 对应 domain：lib/<org|project>/actions.ts 或新建 lib/<domain>/actions.ts
 3. 用 validatedActionWithUser 包装
 4. 校验用户与组织角色（checkOrgRole）
-5. 调 lib/db/queries.ts 的查询/写入
+5. 单步 CRUD 调 lib/db/queries.ts；多步写放进 lib/db/services.ts 的单个 db.transaction，并在事务内锁定读重新校验权限
 6. 写 activity log（如属于业务动作）
 7. revalidatePath
-8. 返回 ActionState
+8. 返回 ActionState；预期失败返回中文文案，不抛异常
 9. 补测试：未登录、越权、成功路径；涉及真实 SQL 或事务的行为补 `tests/integration`
 ```
 
@@ -387,9 +397,10 @@ logger.error('failed to update project', error);
 ```text
 1. 先读 lib/auth/session.ts 与 lib/db/queries.ts 的 getUser()
 2. 注意 tokenVersion 撤销语义
-3. 修改密码/删除账号必须递增 tokenVersion
-4. 更新/新增 tests/session.test.ts 或 security-regressions.test.ts
-5. 不要在 proxy.ts 里做需要数据库的校验
+3. 修改密码/删除账号必须递增 tokenVersion；改密后重签当前设备
+4. 删除账号要清理该用户的全部组织成员关系，并阻止删除唯一 owner 的组织归属
+5. 更新/新增 tests/session.test.ts、security-regressions.test.ts 或 tests/integration
+6. 不要在 proxy.ts 里做需要数据库的校验
 ```
 
 ---
@@ -416,6 +427,7 @@ docs(setup): 对齐当前环境变量
 
 - [ ] `pnpm check && pnpm typecheck && pnpm test` 全绿
 - [ ] 涉及真实 SQL / 约束 / 成员隔离的改动补了 `pnpm test:integration`
+- [ ] 多步写/事务流程有集成测试，失败路径不会留下半成品数据
 - [ ] CI 的 `pnpm test:integration` 与迁移漂移检查能通过
 - [ ] 新增的组织级查询/写入都带 `orgId` 且做了成员校验
 - [ ] 公开 ID 查询带 `userId` 过滤，非成员返回 404
@@ -454,6 +466,9 @@ docs(setup): 对齐当前环境变量
 | 12 | 删除组织/成员无备份 | 硬删除不可恢复 | 操作前确认；生产走工单/备份 |
 | 13 | 以为已有 RLS/软删 | 实际没有，误删即丢失 | 以当前 schema 为准 |
 | 14 | 只按公开 ID 查组织/项目 | 猜到 slug/ref 即可跨组织读取 | 查询同时带 `userId`，失败一律 404 |
+| 15 | 注册/建组织/移除成员拆成多个独立写操作 | 中途失败留下孤儿用户或无成员组织 | 放进 `lib/db/services.ts` 的单个事务 |
+| 16 | 修改邮箱不归一化、不验当前密码 | 大写邮箱无法登录、账号可被接管 | 复用 `normalizedEmail` 并要求当前密码 |
+| 17 | 只靠应用层判断最后一个 owner | 绕过服务层直接写库仍可产生无主组织 | 事务内锁定校验；未来补数据库约束 |
 
 ---
 

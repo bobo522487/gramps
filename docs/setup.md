@@ -98,7 +98,7 @@ cp .env.example .env
 
 ### 4.1 当前模型
 
-Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为 `0000`–`0005`）。
+Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为 `0000`–`0006`）。
 
 当前 6 张表：
 
@@ -108,7 +108,7 @@ Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为
 | `organizations` | 组织；`slug` 为 20 位公开 ID，用于控制台 URL |
 | `org_members` | 用户与组织的关系、角色 |
 | `projects` | 组织下的项目；`ref` 为 20 位公开 ID，用于控制台 URL |
-| `activity_logs` | 用户活动日志 |
+| `activity_logs` | 用户活动日志；账号级事件的 `org_id` 为空 |
 | `invitations` | 邀请记录（无 token/过期时间） |
 
 `organizations.slug` 与 `projects.ref` 都是 `varchar(20)`、非空、全局唯一，字符集为 `[0-9a-z]`；数字 `serial` 主键仍是内部外键。`projects.slug`（可读 slug）仍然存在，但只用于展示，不进入 URL。
@@ -117,10 +117,12 @@ Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为
 
 `0005_remove_billing_and_tier` 已删除 `organizations` 的 5 个 Stripe 字段（`stripe_customer_id`、`stripe_subscription_id`、`stripe_product_id`、`plan_name`、`subscription_status`）与 `projects.tier`；历史迁移 `0000`–`0004` 保持原样。
 
+`0006_cheerful_surge` 增加 `org_members (org_id, user_id)` 唯一索引、`org_members`/`invitations` 角色与状态 `CHECK`、待处理邀请的 `(org_id, lower(email))` 部分唯一索引、常用查询索引，并允许 `activity_logs.org_id` 为空（账号级事件）。如果已有库中存在重复成员或同一组织下重复的待处理邀请，需要先人工清理，否则唯一索引会创建失败。
+
 当前数据库**没有**：
 
 - RLS、`app_rw` 角色、org 隔离策略。
-- 注册触发器；默认组织由应用层创建。
+- 注册触发器；默认组织由应用层在单个事务内创建。
 - 家谱业务表（`lineage`、`node`、`article`、`book`、`book_catalog`、`folder`）。
 - 软删（除 `users.deleted_at` 外，业务表没有 `deleted_at`）。
 - 支付、套餐、订阅相关表或字段。
@@ -147,13 +149,13 @@ pnpm db:migrate:until 0003_public_ids
 # 3. 回填 20 位 slug/ref（幂等，可重复执行）
 pnpm db:backfill-ids
 
-# 4. 执行剩余迁移（0004：NOT NULL + 唯一索引；0005：删除计费字段）
+# 4. 执行剩余迁移（0004：NOT NULL + 唯一索引；0005：删除计费字段；0006：约束与索引）
 pnpm db:migrate
 ```
 
-已经完成 `0004` 回填的库可以直接执行 `pnpm db:migrate` 应用 `0005`；`0005` 只删除列与唯一约束，不改写数据。
+已经完成 `0004` 回填的库可以直接执行 `pnpm db:migrate` 应用 `0005`、`0006`；两者只改结构，不改写数据。执行 `0006` 前先确认没有重复成员或重复待处理邀请，否则唯一索引会失败。
 
-全新/空库不需要分步：`pnpm db:migrate` 会在同一事务内执行 `0003`–`0005`，随后执行 `pnpm db:seed`。
+全新/空库不需要分步：`pnpm db:migrate` 会在同一事务内执行 `0003`–`0006`，随后执行 `pnpm db:seed`。
 
 ### 4.3 种子数据
 
@@ -227,7 +229,8 @@ pnpm db:seed
 | 有效期 | 1 天 |
 | 续期 | `proxy.ts` 在剩余 < 6 小时时重新签发 1 天 Cookie |
 | 权威校验 | `getUser()` 查库校验 `token_version` 与 `deleted_at` |
-| 撤销 | 修改密码、删除账号时递增 `token_version`，旧 Cookie 立即失效 |
+| 撤销 | 修改密码时递增 `token_version` 并重签当前设备，其他设备立即失效；删除账号时递增版本并清除 Cookie |
+| 修改邮箱 | 需要当前密码；邮箱归一化为小写后写入；重复邮箱返回中文冲突提示 |
 | 角色 | `owner` / `member` |
 | 限流 | 进程内滑动窗口：登录 10 次/15 分钟（IP + 邮箱），注册 5 次/小时（IP） |
 
@@ -265,7 +268,7 @@ pnpm test:integration
 
 - 测试 helper 拒绝名称不以 `_test` 结尾的数据库，避免误清开发/生产数据。
 - `globalSetup` 在测试库上执行全部迁移；迁移已应用时是幂等的。
-- 每个测试文件开始前 `TRUNCATE` 6 张业务表并重置自增 ID。
+- 每个测试用例开始前（`beforeEach`）`TRUNCATE` 6 张业务表并重置自增 ID。
 - 测试文件串行执行，避免共享库竞争。
 
 ### 7.2 CI
@@ -286,7 +289,7 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成
 
 ### 7.3 测试覆盖
 
-单测 6 个文件（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
+单测 7 个文件 39 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
 
 | 文件 | 关注点 |
 |---|---|
@@ -294,17 +297,22 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成
 | `tests/session.test.ts` | JWT 签名/过期、`tokenVersion` 撤销、软删用户 |
 | `tests/rate-limit.test.ts` | 滑动窗口限流与中文提示 |
 | `tests/ids.test.ts` | 20 位公开 ID 的长度/字符集与校验 |
+| `tests/fetcher.test.ts` | 非 2xx 响应抛错并保留 `status` |
 | `tests/security-regressions.test.ts` | 密码回显、计时攻击、组织越权、公开 ID 查询的成员过滤、`/api/user` DTO |
 | `tests/design-system.test.ts` | 设计令牌边界、状态/角色/区域中文映射、项目列表 DTO |
 
-集成测试 4 个文件，使用真实 PostgreSQL：
+集成测试 8 个文件 61 个用例，使用真实 PostgreSQL：
 
 | 文件 | 关注点 |
 |---|---|
-| `tests/integration/migrations.test.ts` | 空库迁移、当前业务表与公开 ID/组织索引 |
+| `tests/integration/migrations.test.ts` | 空库迁移、业务表/索引、`0006` 约束与 `activity_logs.org_id` 可空 |
 | `tests/integration/session.test.ts` | `getUser()` 的 `token_version` 撤销、软删用户、缺失/无效会话 |
 | `tests/integration/org-scope.test.ts` | 公开 ID 的成员过滤、跨组织读写拒绝 |
-| `tests/integration/constraints.test.ts` | 唯一邮箱/slug/ref、外键、组织删除级联 |
+| `tests/integration/constraints.test.ts` | 唯一邮箱/slug/ref、成员唯一、角色/状态 `CHECK`、待处理邀请部分唯一、外键级联 |
+| `tests/integration/services.test.ts` | 注册/邀请、建组织、移除成员、删号事务与权限/回滚 |
+| `tests/integration/actions.test.ts` | 注册、登录/登出、改密、改邮箱、删号、移除成员的 Action 行为与数据库副作用 |
+| `tests/integration/api-auth.test.ts` | `/api/user` 与 `/api/orgs` 未登录返回 401 |
+| `tests/integration/projects.test.ts` | 项目创建时 slug 冲突后重新生成并重试 |
 
 公共 helper 位于 `tests/helpers/`：测试库连接与清理、用户/组织/项目/邀请工厂、会话签名。
 
@@ -351,11 +359,13 @@ pnpm start
 | `pnpm db:seed` 报邮箱唯一约束 | 种子已执行过 | 重置本地库后再执行，或直接使用已有 `test@test.com` |
 | 登录后立刻掉线 | Cookie 被清除、域名/Secret 变化、`AUTH_SECRET` 改变 | 检查 Cookie 与 `AUTH_SECRET` 是否变化 |
 | 访问 `/dashboard/org/[orgSlug]` 或 `/dashboard/project/[projectRef]` 返回 404 | 当前用户不是成员、公开 ID 不存在或格式非法 | 用该组织成员账号登录；确认 slug/ref 为 20 位 `[0-9a-z]` |
+| 组织 API 返回 401 | 未登录或会话已失效 | 重新登录；三个 API 未登录统一返回 401 |
 | 组织 API 返回 403 / 404 | 非成员、组织 ID 非数字或不存在 | 先确认成员关系；不要绕过 `getOrgRole` |
 | 已有数据的库执行 `pnpm db:migrate` 报 `column "slug" contains null values` | `0004` 在 `0003` 之后立即执行，缺少回填 | 按 §4.2 分步执行：`migrate:until 0003` → `db:backfill-ids` → `db:migrate` |
+| 执行 `0006` 报 duplicate key | 历史库存在重复成员或重复待处理邀请 | 先人工清理重复数据，再执行迁移 |
 | 限流很快失效 | 限流是进程内内存实现 | 重启后清零；多实例不共享；生产需替换为共享存储（P1） |
 | 集成测试报 `database name must end with "_test"` | `TEST_POSTGRES_URL` 指向了开发库或生产库 | 创建独立 `gramps_test` 库，设置专用 `TEST_POSTGRES_URL` |
-| 修改密码后其他设备退出 | `tokenVersion` 被递增 | 预期行为；所有旧会话失效 |
+| 修改密码后其他设备退出 | `tokenVersion` 被递增 | 预期行为；当前设备已重签保持登录，其他设备旧会话失效 |
 
 ---
 
@@ -363,7 +373,7 @@ pnpm start
 
 - 没有邮箱确认、密码重置或持久化账号锁定。
 - 角色只有 `owner` / `member`；没有目标设计中的 `admin` / `editor` / `viewer`。
-- 邀请不会发送邮件，也没有 token/过期时间。
+- 邀请不会发送邮件，也没有 token/过期时间；仍允许邀请 `owner`。
 - 没有 RLS；隔离完全依赖应用层组织校验。
 - 没有家谱业务功能（谱系、人丁、谱文、谱书、分类）。
 - 限流为单进程内存实现，不适合多实例生产环境。
