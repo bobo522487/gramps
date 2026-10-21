@@ -1,5 +1,7 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
+  check,
+  index,
   integer,
   pgTable,
   serial,
@@ -34,17 +36,25 @@ export const organizations = pgTable(
   (t) => [uniqueIndex('organizations_slug_idx').on(t.slug)]
 );
 
-export const orgMembers = pgTable('org_members', {
-  id: serial('id').primaryKey(),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  orgId: integer('org_id')
-    .notNull()
-    .references(() => organizations.id),
-  role: varchar('role', { length: 50 }).notNull(),
-  joinedAt: timestamp('joined_at').notNull().defaultNow(),
-});
+export const orgMembers = pgTable(
+  'org_members',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    orgId: integer('org_id')
+      .notNull()
+      .references(() => organizations.id),
+    role: varchar('role', { length: 50 }).notNull(),
+    joinedAt: timestamp('joined_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('org_members_org_user_idx').on(t.orgId, t.userId),
+    index('org_members_user_idx').on(t.userId),
+    check('org_members_role_check', sql`${t.role} in ('owner', 'member')`),
+  ]
+);
 
 export const projects = pgTable(
   'projects',
@@ -66,33 +76,59 @@ export const projects = pgTable(
   (t) => [
     uniqueIndex('projects_org_slug_idx').on(t.orgId, t.slug),
     uniqueIndex('projects_ref_idx').on(t.ref),
+    check(
+      'projects_status_check',
+      sql`${t.status} in ('ACTIVE', 'PAUSED', 'ARCHIVED')`
+    ),
+    check('projects_health_check', sql`${t.health} in ('HEALTHY', 'DEGRADED')`),
   ]
 );
 
-export const activityLogs = pgTable('activity_logs', {
-  id: serial('id').primaryKey(),
-  orgId: integer('org_id')
-    .notNull()
-    .references(() => organizations.id),
-  userId: integer('user_id').references(() => users.id),
-  action: text('action').notNull(),
-  timestamp: timestamp('timestamp').notNull().defaultNow(),
-  ipAddress: varchar('ip_address', { length: 45 }),
-});
+export const activityLogs = pgTable(
+  'activity_logs',
+  {
+    id: serial('id').primaryKey(),
+    // Nullable so account-level events (sign-out, deletion) don't need a
+    // misleading org attribution when the user belongs to several orgs.
+    orgId: integer('org_id').references(() => organizations.id),
+    userId: integer('user_id').references(() => users.id),
+    action: text('action').notNull(),
+    timestamp: timestamp('timestamp').notNull().defaultNow(),
+    ipAddress: varchar('ip_address', { length: 45 }),
+  },
+  (t) => [
+    index('activity_logs_org_idx').on(t.orgId),
+    index('activity_logs_user_idx').on(t.userId),
+  ]
+);
 
-export const invitations = pgTable('invitations', {
-  id: serial('id').primaryKey(),
-  orgId: integer('org_id')
-    .notNull()
-    .references(() => organizations.id),
-  email: varchar('email', { length: 255 }).notNull(),
-  role: varchar('role', { length: 50 }).notNull(),
-  invitedBy: integer('invited_by')
-    .notNull()
-    .references(() => users.id),
-  invitedAt: timestamp('invited_at').notNull().defaultNow(),
-  status: varchar('status', { length: 20 }).notNull().default('pending'),
-});
+export const invitations = pgTable(
+  'invitations',
+  {
+    id: serial('id').primaryKey(),
+    orgId: integer('org_id')
+      .notNull()
+      .references(() => organizations.id),
+    email: varchar('email', { length: 255 }).notNull(),
+    role: varchar('role', { length: 50 }).notNull(),
+    invitedBy: integer('invited_by')
+      .notNull()
+      .references(() => users.id),
+    invitedAt: timestamp('invited_at').notNull().defaultNow(),
+    status: varchar('status', { length: 20 }).notNull().default('pending'),
+  },
+  (t) => [
+    index('invitations_org_idx').on(t.orgId),
+    uniqueIndex('invitations_pending_org_email_idx')
+      .on(t.orgId, sql`lower(${t.email})`)
+      .where(sql`${t.status} = 'pending'`),
+    check('invitations_role_check', sql`${t.role} in ('owner', 'member')`),
+    check(
+      'invitations_status_check',
+      sql`${t.status} in ('pending', 'accepted')`
+    ),
+  ]
+);
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   orgMembers: many(orgMembers),

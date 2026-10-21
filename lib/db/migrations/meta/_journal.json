@@ -43,6 +43,13 @@
       "when": 1792584597627,
       "tag": "0005_remove_billing_and_tier",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792596410216,
+      "tag": "0006_cheerful_surge",
+      "breakpoints": true
     }
   ]
 }
