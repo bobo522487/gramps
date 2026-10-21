@@ -25,7 +25,7 @@
 - 没有 `/api/health`、Playwright E2E、Vercel 项目配置。
 - 没有 10 张家谱业务表，也没有 `public/` 或目标迁移目录结构。
 
-当前仓库**已有**自建 JWT 会话（bcrypt + jose）、7 张表，以及本地 `next dev` 开发方式；本地数据库由 `pnpm db:setup` 生成的 Docker PostgreSQL 16.4 提供。当前实现已移除 Stripe、套餐、计费与订阅，与目标设计一致。
+当前仓库**已有**自建 JWT 会话（bcrypt + jose）、7 张表，以及本地 `next dev` 开发方式；本地数据库由 `pnpm db:setup` 生成的 Docker PostgreSQL 18 提供。当前实现已移除 Stripe、套餐、计费与订阅，与目标设计一致。
 
 因此本文中的 Compose 片段、迁移顺序、Vercel 与 Neon 配置都不能直接套用，目标读者是未来实现家谱 M1 的开发者。
 

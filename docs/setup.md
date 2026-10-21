@@ -53,7 +53,7 @@ pnpm dev
 `lib/db/setup.ts` 是一个交互式脚本：
 
 1. 询问使用本地 Docker Postgres 还是远程 Postgres。
-   - 本地：创建 `docker-compose.yml`，启动 `postgres:16.4-alpine`，端口 `54322`。
+   - 本地：创建 `docker-compose.yml`，启动 `postgres:18-alpine`，端口 `54322`。
    - 远程：要求输入 `POSTGRES_URL`。
 2. 生成随机 `AUTH_SECRET`。
 3. 写入项目根目录的 `.env`。
@@ -111,6 +111,8 @@ Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为
 | `invitations` | 邀请记录（无 token/过期时间） |
 
 `organizations.slug` 与 `projects.ref` 都是 `varchar(20)`、非空、全局唯一，字符集为 `[0-9a-z]`；数字 `serial` 主键仍是内部外键。`projects.slug`（可读 slug）仍然存在，但只用于展示，不进入 URL。
+
+本地 `pnpm db:setup` 启动 PostgreSQL 18；当前主键仍是 `serial`，尚未启用目标设计的 `uuidv7()`。
 
 `0005_remove_billing_and_tier` 已删除 `organizations` 的 5 个 Stripe 字段（`stripe_customer_id`、`stripe_subscription_id`、`stripe_product_id`、`plan_name`、`subscription_status`）与 `projects.tier`；历史迁移 `0000`–`0004` 保持原样。
 

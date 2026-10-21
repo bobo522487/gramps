@@ -58,7 +58,7 @@ async function setupLocalPostgres() {
   const dockerComposeContent = `
 services:
   postgres:
-    image: postgres:16.4-alpine
+    image: postgres:18-alpine
     container_name: next_saas_starter_postgres
     environment:
       POSTGRES_DB: postgres
@@ -67,7 +67,7 @@ services:
     ports:
       - "54322:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
 
 volumes:
   postgres_data:
