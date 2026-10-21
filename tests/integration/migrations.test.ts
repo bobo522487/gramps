@@ -55,7 +55,24 @@ describe('migrations', () => {
         'organizations_slug_idx',
         'projects_ref_idx',
         'projects_org_slug_idx',
+        'org_members_org_user_idx',
+        'org_members_user_idx',
+        'activity_logs_org_idx',
+        'activity_logs_user_idx',
+        'invitations_org_idx',
+        'invitations_pending_org_email_idx',
       ])
     );
+  });
+
+  it('keeps activity logs attributable to users without an org', async () => {
+    const rows = await getTestSql()<
+      { is_nullable: string }[]
+    >`SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'activity_logs'
+        AND column_name = 'org_id'`;
+
+    expect(rows[0]?.is_nullable).toBe('YES');
   });
 });

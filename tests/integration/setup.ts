@@ -1,4 +1,4 @@
-import { afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeEach } from 'vitest';
 import { closeDb } from '@/lib/db/drizzle';
 import { TEST_AUTH_SECRET } from '../helpers/auth';
 import {
@@ -10,7 +10,7 @@ import {
 process.env.AUTH_SECRET = TEST_AUTH_SECRET;
 process.env.POSTGRES_URL = getTestDatabaseUrl();
 
-beforeAll(async () => {
+beforeEach(async () => {
   await resetDatabase();
 });
 

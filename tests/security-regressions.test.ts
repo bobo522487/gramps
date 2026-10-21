@@ -56,7 +56,7 @@ describe('auth actions source guards', () => {
   it('equalizes sign-in timing for unknown emails', () => {
     // Without the dummy comparison, response time reveals registered emails
     expect(actionsSource).toMatch(
-      /if \(!userWithOrg\) \{[\s\S]*?comparePasswords\(\s*password,\s*DUMMY_PASSWORD_HASH\s*\)/
+      /if \(!foundUser\) \{[\s\S]*?comparePasswords\(\s*password,\s*DUMMY_PASSWORD_HASH\s*\)/
     );
   });
 
