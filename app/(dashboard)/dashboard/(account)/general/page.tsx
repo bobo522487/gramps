@@ -1,8 +1,8 @@
 'use client';
 
 import { Loader2, UserCog } from 'lucide-react';
-import { Suspense, useActionState } from 'react';
-import useSWR from 'swr';
+import { Suspense, useActionState, useEffect } from 'react';
+import useSWR, { mutate } from 'swr';
 import { PageHeader } from '@/components/console/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,8 +45,31 @@ function AccountForm({
           name="email"
           type="email"
           placeholder="请输入邮箱"
-          defaultValue={emailValue}
+          defaultValue={state.email || emailValue}
         />
+        {state.fieldErrors?.email && (
+          <p className="mt-1 text-xs text-destructive">
+            {state.fieldErrors.email}
+          </p>
+        )}
+      </div>
+      <div>
+        <Label htmlFor="currentPassword" className="mb-2">
+          当前密码
+        </Label>
+        <Input
+          id="currentPassword"
+          name="currentPassword"
+          type="password"
+          autoComplete="current-password"
+          placeholder="仅修改邮箱时需要"
+          maxLength={100}
+        />
+        {state.fieldErrors?.currentPassword && (
+          <p className="mt-1 text-xs text-destructive">
+            {state.fieldErrors.currentPassword}
+          </p>
+        )}
       </div>
     </>
   );
@@ -54,6 +77,15 @@ function AccountForm({
 
 function AccountFormWithData({ state }: { state: ActionState }) {
   const { data: user } = useSWR<SessionUser>('/api/user', fetcher);
+
+  useEffect(() => {
+    if (state.success) {
+      // revalidatePath refreshes the RSC tree, but the user menu reads this
+      // endpoint through SWR and needs its cache invalidated too.
+      void mutate('/api/user');
+    }
+  }, [state.success]);
+
   return (
     <AccountForm
       state={state}

@@ -55,7 +55,7 @@ export function validatedActionWithUser<S extends z.ZodTypeAny, T>(
   return async (_prevState: ActionState, formData: FormData) => {
     const user = await getUser();
     if (!user) {
-      throw new Error('User is not authenticated');
+      return { error: '登录已失效，请重新登录。' };
     }
 
     const result = schema.safeParse(Object.fromEntries(formData));

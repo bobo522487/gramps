@@ -12,19 +12,9 @@ import {
 } from '@/lib/auth/rate-limit';
 import { signInSchema, signUpSchema } from '@/lib/auth/schemas';
 import { comparePasswords, hashPassword, setSession } from '@/lib/auth/session';
-import {
-  acceptInvitation,
-  addOrgMember,
-  createOrg,
-  createUser,
-  findPendingInvitation,
-  findUserWithOrgByEmail,
-  getOrgById,
-  getUser,
-  getUserWithOrg,
-  logActivity,
-} from '@/lib/db/queries';
-import { ActivityType, type User } from '@/lib/db/schema';
+import { findUserByEmail, getUser, logActivity } from '@/lib/db/queries';
+import { ActivityType } from '@/lib/db/schema';
+import { registerAccount } from '@/lib/db/services';
 
 // bcrypt of a throwaway value. Unknown emails are compared against it so the
 // response time doesn't reveal whether an account exists.
@@ -39,16 +29,14 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     return { error: RATE_LIMIT_ERROR, email };
   }
 
-  const userWithOrg = await findUserWithOrgByEmail(email);
-  if (!userWithOrg) {
+  const foundUser = await findUserByEmail(email);
+  if (!foundUser) {
     await comparePasswords(password, DUMMY_PASSWORD_HASH);
     return {
       error: '邮箱或密码不正确，请重试。',
       email,
     };
   }
-
-  const { user: foundUser, organization: foundOrg } = userWithOrg;
 
   const isPasswordValid = await comparePasswords(
     password,
@@ -64,7 +52,8 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
 
   await Promise.all([
     setSession(foundUser),
-    logActivity(foundOrg?.id, foundUser.id, ActivityType.SIGN_IN),
+    // Account-level event: the user may belong to several organizations.
+    logActivity(null, foundUser.id, ActivityType.SIGN_IN),
   ]);
 
   const redirectTo = formData.get('redirect') as string | null;
@@ -77,7 +66,7 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
   return redirect('/dashboard');
 });
 
-export const signUp = validatedAction(signUpSchema, async (data, _formData) => {
+export const signUp = validatedAction(signUpSchema, async (data) => {
   const { email, password, inviteId } = data;
 
   const ip = await getClientIp();
@@ -85,73 +74,31 @@ export const signUp = validatedAction(signUpSchema, async (data, _formData) => {
     return { error: RATE_LIMIT_ERROR, email };
   }
 
-  const existingUser = await findUserWithOrgByEmail(email);
-  if (existingUser) {
-    return {
-      error: '创建账号失败，请重试。',
-      email,
-    };
-  }
-
   const passwordHash = await hashPassword(password);
+  const result = await registerAccount({
+    email,
+    passwordHash,
+    inviteId,
+    ipAddress: ip === 'unknown' ? '' : ip,
+  });
 
-  const createdUser = await createUser(email, passwordHash);
-  if (!createdUser) {
-    return {
-      error: '创建账号失败，请重试。',
-      email,
-    };
+  if (!result.ok) {
+    return result.reason === 'invalid_invitation'
+      ? { error: '邀请无效或已过期。', email }
+      : { error: '创建账号失败，请重试。', email };
   }
 
-  let orgId: number;
-  let userRole: string;
-
-  if (inviteId) {
-    const invitation = await findPendingInvitation(inviteId);
-    if (!invitation || invitation.email !== email) {
-      return { error: '邀请无效或已过期。', email };
-    }
-
-    orgId = invitation.orgId;
-    userRole = invitation.role;
-
-    await acceptInvitation(invitation.id);
-    await logActivity(orgId, createdUser.id, ActivityType.ACCEPT_INVITATION);
-
-    const invitedOrg = await getOrgById(orgId);
-    if (!invitedOrg) {
-      return {
-        error: '创建组织失败，请重试。',
-        email,
-      };
-    }
-  } else {
-    const newOrg = await createOrg(`${email.split('@')[0]} 的组织`);
-    if (!newOrg) {
-      return {
-        error: '创建组织失败，请重试。',
-        email,
-      };
-    }
-
-    orgId = newOrg.id;
-    userRole = 'owner';
-
-    await logActivity(orgId, createdUser.id, ActivityType.CREATE_ORG);
-  }
-
-  await Promise.all([
-    addOrgMember({ userId: createdUser.id, orgId, role: userRole }),
-    logActivity(orgId, createdUser.id, ActivityType.SIGN_UP),
-    setSession(createdUser),
-  ]);
-
+  await setSession(result.user);
   return redirect('/dashboard');
 });
 
 export async function signOut() {
-  const user = (await getUser()) as User;
-  const userWithOrg = await getUserWithOrg(user.id);
-  await logActivity(userWithOrg?.orgId, user.id, ActivityType.SIGN_OUT);
+  const user = await getUser();
+
+  if (user) {
+    await logActivity(null, user.id, ActivityType.SIGN_OUT);
+  }
+
+  // Always clear the cookie, even when the session was already invalid.
   (await cookies()).delete('session');
 }

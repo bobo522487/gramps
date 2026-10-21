@@ -2,6 +2,7 @@
 
 import 'server-only';
 
+import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
@@ -15,15 +16,16 @@ import {
   updateAccountSchema,
   updatePasswordSchema,
 } from '@/lib/auth/schemas';
-import { comparePasswords, hashPassword } from '@/lib/auth/session';
+import { comparePasswords, hashPassword, setSession } from '@/lib/auth/session';
+import type { ActionState } from '@/lib/auth/types';
+import { isUniqueViolation } from '@/lib/db/errors';
 import {
-  getUserWithOrg,
   logActivity,
-  softDeleteUser,
   updateUserPassword,
   updateUserProfile,
 } from '@/lib/db/queries';
 import { ActivityType } from '@/lib/db/schema';
+import { deleteUserAccount } from '@/lib/db/services';
 
 export const updatePassword = validatedActionWithUser(
   updatePasswordSchema,
@@ -60,12 +62,15 @@ export const updatePassword = validatedActionWithUser(
     }
 
     const newPasswordHash = await hashPassword(newPassword);
-    const userWithOrg = await getUserWithOrg(user.id);
+    const updated = await updateUserPassword(user.id, newPasswordHash);
 
-    await Promise.all([
-      updateUserPassword(user.id, newPasswordHash),
-      logActivity(userWithOrg?.orgId, user.id, ActivityType.UPDATE_PASSWORD),
-    ]);
+    await logActivity(null, user.id, ActivityType.UPDATE_PASSWORD);
+
+    // The version bump revokes other devices; re-sign this one so the user
+    // who just changed the password is not logged out immediately.
+    if (updated) {
+      await setSession({ ...user, tokenVersion: updated.tokenVersion });
+    }
 
     return {
       success: '密码已更新。',
@@ -91,11 +96,18 @@ export const deleteAccount = validatedActionWithUser(
       return { error: '密码不正确，账号删除失败。' };
     }
 
-    const userWithOrg = await getUserWithOrg(user.id);
+    const result = await deleteUserAccount({
+      userId: user.id,
+      ipAddress: ip === 'unknown' ? '' : ip,
+    });
 
-    await logActivity(userWithOrg?.orgId, user.id, ActivityType.DELETE_ACCOUNT);
-
-    await softDeleteUser(user.id, userWithOrg?.orgId);
+    if (!result.ok) {
+      return {
+        error: `你是「${result.orgNames.join(
+          '、'
+        )}」的唯一所有者，请先转让所有权或删除该组织。`,
+      };
+    }
 
     (await cookies()).delete('session');
     return redirect('/sign-in');
@@ -104,15 +116,55 @@ export const deleteAccount = validatedActionWithUser(
 
 export const updateAccount = validatedActionWithUser(
   updateAccountSchema,
-  async (data, _, user) => {
-    const { name, email } = data;
-    const userWithOrg = await getUserWithOrg(user.id);
+  async (data, _, user): Promise<ActionState> => {
+    const { name, email, currentPassword } = data;
+    const emailChanged = email !== user.email;
 
-    await Promise.all([
-      updateUserProfile({ userId: user.id, name, email }),
-      logActivity(userWithOrg?.orgId, user.id, ActivityType.UPDATE_ACCOUNT),
-    ]);
+    if (emailChanged) {
+      const ip = await getClientIp();
+      if (
+        !checkRateLimit(`update-account:${ip}:${user.id}`, 5, 15 * 60 * 1000)
+          .allowed
+      ) {
+        return { error: RATE_LIMIT_ERROR, name, email };
+      }
 
-    return { name, success: '账号信息已更新。' };
+      if (!currentPassword) {
+        return {
+          error: '修改邮箱需要输入当前密码。',
+          name,
+          email,
+          fieldErrors: { currentPassword: '请输入当前密码' },
+        };
+      }
+
+      if (!(await comparePasswords(currentPassword, user.passwordHash))) {
+        return {
+          error: '当前密码不正确。',
+          name,
+          email,
+          fieldErrors: { currentPassword: '当前密码不正确' },
+        };
+      }
+    }
+
+    try {
+      await updateUserProfile({ userId: user.id, name, email });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return {
+          error: '该邮箱已被使用。',
+          name,
+          email,
+          fieldErrors: { email: '该邮箱已被使用' },
+        };
+      }
+      throw error;
+    }
+
+    await logActivity(null, user.id, ActivityType.UPDATE_ACCOUNT);
+    revalidatePath('/dashboard', 'layout');
+
+    return { name, email, success: '账号信息已更新。' };
   }
 );

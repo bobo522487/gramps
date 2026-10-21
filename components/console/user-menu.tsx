@@ -29,7 +29,9 @@ export function UserMenu() {
 
   async function handleSignOut() {
     await signOut();
-    mutate('/api/user');
+    // /api/user now answers 401 after sign-out; clear the cached user instead
+    // of keeping stale data from a failed revalidation.
+    await mutate('/api/user', null, { revalidate: false });
     router.push('/');
   }
 

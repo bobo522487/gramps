@@ -13,30 +13,28 @@ import {
   renameOrgSchema,
 } from '@/lib/auth/schemas';
 import {
-  addOrgMember,
   createInvitation,
-  createOrg,
   deleteOrg,
   findPendingInvitationByEmail,
   getOrgById,
   isUserInOrgByEmail,
   logActivity,
-  removeMemberFromOrg,
   renameOrg,
 } from '@/lib/db/queries';
 import { ActivityType } from '@/lib/db/schema';
+import {
+  createOrganizationForOwner,
+  removeOrgMemberInTransaction,
+} from '@/lib/db/services';
 
 export const createOrgAction = validatedActionWithUser(
   createOrgSchema,
   async (data, _, user) => {
     const { name } = data;
-    const created = await createOrg(name);
-    if (!created) {
-      return { error: '创建组织失败' };
-    }
-
-    await addOrgMember({ userId: user.id, orgId: created.id, role: 'owner' });
-    await logActivity(created.id, user.id, ActivityType.CREATE_ORG);
+    const created = await createOrganizationForOwner({
+      userId: user.id,
+      name,
+    });
 
     revalidatePath('/dashboard', 'layout');
     return {
@@ -119,21 +117,29 @@ export const inviteOrgMember = validatedActionWithUser(
   }
 );
 
+const REMOVE_MEMBER_ERRORS = {
+  org_not_found: '组织不存在',
+  forbidden: '只有所有者可以移除组织成员',
+  member_not_found: '该成员不在此组织中',
+  self_removal: '不能移除自己，请先转让所有权',
+  last_owner: '不能移除最后一个所有者',
+} as const;
+
 export const removeOrgMember = validatedActionWithUser(
   removeOrgMemberSchema,
   async (data, _, user) => {
     const { orgId, memberId } = data;
 
-    if ((await checkOrgRole(user.id, orgId, 'owner')) !== null) {
-      return { error: '只有所有者可以移除组织成员' };
+    const result = await removeOrgMemberInTransaction({
+      orgId,
+      memberId,
+      actorId: user.id,
+    });
+
+    if (!result.ok) {
+      return { error: REMOVE_MEMBER_ERRORS[result.reason] };
     }
 
-    const removedOrgId = await removeMemberFromOrg({ memberId, orgId });
-    if (!removedOrgId) {
-      return { error: '该成员不在此组织中' };
-    }
-
-    await logActivity(orgId, user.id, ActivityType.REMOVE_ORG_MEMBER);
     revalidatePath('/dashboard', 'layout');
     return { success: '已移除组织成员' };
   }

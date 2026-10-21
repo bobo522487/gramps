@@ -65,12 +65,15 @@ export const deleteAccountSchema = z.object({
 export const updateAccountSchema = z.object({
   name: z
     .string({ required_error: '请输入姓名' })
+    .trim()
     .min(1, '请输入姓名')
     .max(100, '姓名不能超过 100 个字符'),
-  email: z
-    .string({ required_error: '请输入邮箱' })
-    .email('邮箱格式不正确')
-    .max(255, '邮箱不能超过 255 个字符'),
+  email: normalizedEmail,
+  // Required by the action only when the email address actually changes.
+  currentPassword: z
+    .string({ invalid_type_error: '密码格式不正确' })
+    .max(100, '密码不能超过 100 个字符')
+    .optional(),
 });
 
 export const removeOrgMemberSchema = z.object({
@@ -83,10 +86,7 @@ export const removeOrgMemberSchema = z.object({
 
 export const inviteOrgMemberSchema = z.object({
   orgId,
-  email: z
-    .string({ required_error: '请输入邮箱' })
-    .email('邮箱格式不正确')
-    .max(255, '邮箱不能超过 255 个字符'),
+  email: normalizedEmail,
   role: z.enum(['member', 'owner'], {
     required_error: '请选择角色',
     invalid_type_error: '请选择角色',
