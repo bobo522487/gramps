@@ -46,7 +46,7 @@
 |---|---|
 | 框架 | Next.js 16.4 App Router + React 19.1 |
 | 语言 | TypeScript（`strict: true`） |
-| 数据库 | PostgreSQL + Drizzle ORM + postgres.js |
+| 数据库 | PostgreSQL + Drizzle ORM；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` |
 | 认证 | 邮箱 + 密码；bcrypt；JWT HS256 存 `session` Cookie，1 天有效 |
 | 会话撤销 | `users.token_version` 比对；改密/删号时递增 |
 | 组织角色 | `owner` / `member` |
@@ -55,9 +55,11 @@
 | 数据隔离 | 应用层按成员关系校验，**没有 RLS**；slug/ref 查询按当前用户过滤 |
 | 数据表 | 6 张：`users`、`organizations`、`org_members`、`projects`、`activity_logs`、`invitations` |
 | 数据库约束 | 成员 `(org_id, user_id)` 唯一；角色/状态 `CHECK`；待处理邀请 `(org_id, lower(email))` 部分唯一；账号级活动日志允许 `org_id` 为空 |
-| Route Handler | 3 个：`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`；未登录统一 401 |
+| Route Handler | 4 个：`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`；业务路由未登录统一 401 |
+| 请求上下文 | `getSessionUser`/scope 按请求缓存；日志自动带 `request_id`；API 记录 `duration_ms` |
+| 环境校验 | `lib/config.ts` 用 Zod 校验；`instrumentation.ts` 在服务启动时失败即退出 |
 | 代码检查 | Biome |
-| 测试 | Vitest 单测 7 个文件 39 个用例 + 真实 PostgreSQL 集成测试 8 个文件 61 个用例（另有 1 个 stub），没有 Playwright/E2E |
+| 测试 | Vitest 单测 9 个文件 46 个用例 + 真实 PostgreSQL 集成测试 9 个文件 63 个用例（另有 1 个 stub），没有 Playwright/E2E |
 | CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` |
 
 家谱目标中的谱系、人丁、谱文、谱书、分类、RLS、软删，当前都**没有实现**；project 侧边栏中的谱系 / 谱文 / 谱书只是占位页。
@@ -106,7 +108,7 @@
 
 3. **目标数字与现状数字分开**
    - 目标设计可以说“10 张业务表 + `auth.users`、6 个模块”。
-   - 当前实现必须说“6 张表、3 个 Route Handler”。
+   - 当前实现必须说“6 张表、4 个 Route Handler”。
    - 不允许在同一段里混用两套数字。
 
 4. **代码变化时同步状态**

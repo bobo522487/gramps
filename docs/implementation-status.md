@@ -6,10 +6,10 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.7 |
+| 文档版本 | 1.8 |
 | 文档状态 | 当前实现说明 |
 | 最后更新 | 2026-10-21 |
-| 目标部署（未实现） | Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动 `pg` + `attachDatabasePool`，本地 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev` |
+| 目标部署（未验证） | Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`VERCEL` 环境用 `pg` + `attachDatabasePool`），本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev` |
 
 ---
 
@@ -19,17 +19,18 @@
 |---|---|---|
 | 框架 | Next.js 16.4.0、React 19.1.0 | `package.json` |
 | 语言 | TypeScript `strict: true` | `tsconfig.json` |
-| 数据库 | PostgreSQL + Drizzle 0.43 + postgres.js | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
+| 数据库 | PostgreSQL + Drizzle 0.43；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
 | 认证 | 邮箱 + 密码，bcrypt，JWT HS256 | `lib/auth/session.ts` |
 | 会话 | `session` Cookie，1 天有效；剩余 < 6 小时时由 `proxy.ts` 滑动续期 | `lib/auth/session.ts`、`proxy.ts` |
-| 会话撤销 | 校验 `users.token_version` 与 `deleted_at` | `lib/db/queries.ts` `getUser()` |
+| 会话撤销 | 校验 `users.token_version` 与 `deleted_at`；`getSessionUser()` 按请求缓存 | `lib/auth/context.ts` |
 | 角色 | `owner` / `member` | `lib/auth/permissions.ts` |
-| 数据隔离 | 应用层成员校验；无 RLS | `lib/auth/permissions.ts`、`lib/db/queries.ts` |
+| 数据隔离 | 应用层成员校验；无 RLS；查询按领域拆分到 `lib/db/queries/*` | `lib/auth/permissions.ts`、`lib/db/queries/` |
 | 界面 | 简体中文，品牌“云谱”；无 i18n 框架 | `app/layout.tsx`、各页面组件 |
 | 数据表 | 6 张 | 见 §1.1 |
-| Route Handler | 3 个 | 见 §1.3 |
+| Route Handler | 4 个 | 见 §1.3 |
+| 配置与日志 | Zod 启动校验；结构化日志自动带 `request_id`/`user_id`；API 记录 `duration_ms` | `lib/config.ts`、`instrumentation.ts`、`lib/server/request-context.ts`、`lib/api.ts` |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest 单测 7 个文件 39 个用例 + 真实 PostgreSQL 集成测试 8 个文件 61 个用例（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
+| 测试 | Vitest 单测 9 个文件 46 个用例 + 真实 PostgreSQL 集成测试 9 个文件 63 个用例（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
 | CI | `pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` | `.github/workflows/ci.yml` |
 
 ### 1.1 当前数据表
@@ -43,24 +44,26 @@
 - `organizations.slug` 与 `projects.ref` 是 20 位 `[0-9a-z]` 公开 ID，由 `lib/ids.ts` 生成，各自有全局唯一索引；数字 `serial` 主键继续作为内部外键。
 - 目标设计文档自 2026-10-21 起采用同一规范：`organization.slug` 与 `project.ref` 都是 20 位随机公开 ID，服务端生成且不可修改；URL 标识符不再存在当前/目标差异。
 - 控制台地址：`/dashboard/org/[orgSlug]`（Projects / Team / Org settings）与 `/dashboard/project/[projectRef]`（Overview / Lineages / Articles / Books / Project settings）。
-- `getOrgWithRoleBySlug(userId, slug)`、`getProjectScopeByRef(userId, ref)` 在解析 URL 时同时按当前用户过滤；非成员或不存在的公开 ID 返回 404。
+- `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)` 在 `lib/auth/context.ts` 中解析 URL：先取 `getSessionUser()`，再用 `getOrgWithRoleBySlug(userId, slug)` / `getProjectScopeByRef(userId, ref)` 同时按当前用户过滤；非成员或不存在的公开 ID 返回 404。两个 helper 与 `getSessionUser` 都用 React `cache()` 做请求级记忆化。
 - 迁移为两阶段：`0003` 增加可空列并删除 `api_keys`，随后在迁移之外执行 `pnpm db:backfill-ids` 回填，最后 `0004` 设置 `NOT NULL` 与唯一索引。迁移文件本身不含数据修复。
 - `0005_remove_billing_and_tier` 删除 `organizations` 的 5 个 Stripe 字段与 `projects.tier`；`0000`–`0004` 作为历史迁移保持原样。
 - `0006_cheerful_surge` 增加 `org_members (org_id, user_id)` 唯一索引、角色/状态 `CHECK`、待处理邀请的 `(org_id, lower(email))` 部分唯一索引与查询索引，并允许 `activity_logs.org_id` 为空（账号级事件）。已有重复成员或重复待处理邀请的库需先人工清理，否则迁移会失败。
 
 ### 1.3 当前 Route Handler
 
+- `GET /api/health`（数据库 `SELECT 1`；正常 200、不可用 503）
 - `GET /api/orgs`
 - `GET /api/orgs/[orgId]/projects`
 - `GET /api/user`（DTO 仅为 `{ id, name, email }`）
 
-三个路由未登录时都返回 `401 { error: 'Unauthorized' }`；组织级项目列表先校验成员，非成员返回 403。客户端 `lib/fetcher.ts` 对非 2xx 响应抛错，错误对象带 `status`。没有 `/api/health`，也没有 Stripe 相关路由。
+三个业务路由未登录时都返回 `401 { error: 'Unauthorized' }`；组织级项目列表先校验成员，非成员返回 403。客户端 `lib/fetcher.ts` 对非 2xx 响应抛错，错误对象带 `status`。所有路由通过 `withApiLogging()` 导出：生成或透传 `x-request-id`，记录 `duration_ms`，未捕获异常返回 JSON 500。没有 Stripe 相关路由。
 
 ### 1.4 测试与 CI
 
-- `pnpm test:unit`（`pnpm test`）：7 个 Vitest 文件 39 个用例，不连接数据库。
-- `pnpm test:integration`：8 个文件 61 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 从空库执行全部迁移，每个测试用例开始前清空业务表。
-- 集成测试覆盖查询与约束、注册/建组织/移除成员/删号事务、账号与成员 Server Action、API 401、公开 ID 成员过滤与项目 slug 冲突重试。
+- `pnpm test:unit`（`pnpm test`）：9 个 Vitest 文件 46 个用例，不连接数据库。
+- `pnpm test:integration`：9 个文件 63 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 从空库执行全部迁移，每个测试用例开始前清空业务表。
+- 集成测试覆盖查询与约束、注册/建组织/移除成员/删号事务、账号与成员 Server Action、API 401、健康检查、公开 ID 成员过滤与项目 slug 冲突重试。
+- 单元测试覆盖配置校验、请求日志上下文与 API 401；集成测试覆盖健康检查的 200 与 `x-request-id` 透传。
 - CI 使用 `postgres:18-alpine` service，执行迁移漂移检查（`pnpm db:generate` 后迁移目录必须无变化），最后构建。
 - 尚无 Playwright/E2E。`tests/security-regressions.test.ts` 与 `tests/design-system.test.ts` 仍包含源码字符串断言，但关键安全与数据完整性行为已由集成测试覆盖。
 
@@ -94,7 +97,7 @@
 |---|---|---|
 | `FR-AUTH-1` 邮箱密码注册 | 🟡 | 注册可用，注册后直接登录（与目标的“无邮件确认”一致）；密码只校验长度 8–100，不要求字母 + 数字 |
 | `FR-AUTH-2` 邮箱密码登录 | ✅ | 登录路径与目标一致 |
-| `FR-AUTH-3` 会话保持 | ✅ | JWT Cookie 1 天有效，`proxy.ts` 在剩余 < 6 小时时滑动续期；`getUser()` 校验 `token_version` 与 `deleted_at` |
+| `FR-AUTH-3` 会话保持 | ✅ | JWT Cookie 1 天有效，`proxy.ts` 在剩余 < 6 小时时滑动续期；`getSessionUser()` 校验 `token_version` 与 `deleted_at` |
 | `FR-AUTH-4` 登出 | ✅ | 删除当前 `session` Cookie；其它设备会话不受影响 |
 | `FR-AUTH-5` 登录失败限流 | ✅ | 登录 10 次/15 分钟（IP + 邮箱）的进程内滑窗；重启清零、多实例不共享，与目标的 best-effort 语义一致 |
 | `FR-AUTH-6` 修改密码 | ✅ | 登录态可改密，验证旧密码并递增 `token_version`；成功后用新版本重签当前设备，其他设备旧会话失效 |
@@ -111,7 +114,7 @@
 | `FR-ORG-4` 邀请成员 | 🟡 | 有邀请记录与接受逻辑；没有一次性 token、过期时间或可复制的邀请链接；仍允许邀请 `owner` |
 | `FR-ORG-5` 修改成员角色 | ⬜ | 没有改角色、转让所有权；角色只有 owner/member |
 | `FR-ORG-6` 移除成员 | ✅ | owner 可移除成员；事务内锁定组织并拒绝移除最后一个 owner，也不能移除自己 |
-| `FR-ORG-7` 组织设置 | 🟡 | 改名仅 owner（服务端校验）；slug 不可修改，与目标一致；设置页对非 owner 未隐藏操作入口 |
+| `FR-ORG-7` 组织设置 | 🟡 | 改名仅 owner（服务端校验）；slug 不可修改，与目标一致；非 owner 看到只读状态与说明；删除组织有二次确认对话框 |
 | `FR-ORG-8` 组织停用 | ⬜ | `organizations` 表没有 `status` 字段 |
 
 额外已有：删除组织（硬删除，级联项目）。
@@ -149,7 +152,7 @@
 7. **目标设计不建审计表**：关键动作只写结构化日志；日志保留期外的逐条追溯依赖软删与 PITR/备份，无法回答细粒度“谁改了什么”。
 8. **`0006` 唯一索引对历史重复数据敏感**：已有重复成员或重复待处理邀请的库必须先清理数据，否则迁移失败；当前仓库尚无生产数据。
 
-> `getUser()` 仍返回完整 `users` 行；`GET /api/user` 与根布局 SWR fallback 已收窄为 `SessionUser`（`{ id, name, email }`）。新增对外出口必须显式挑字段，不能直接序列化整行。
+> `getSessionUser()` 仍返回完整 `users` 行；`GET /api/user` 与根布局 SWR fallback 已收窄为 `SessionUser`（`{ id, name, email }`）。新增对外出口必须显式挑字段，不能直接序列化整行。
 
 ---
 
@@ -163,7 +166,7 @@
 | D5 | 先落权限字符串矩阵，再扩到 4 个角色 | 未开始 |
 | D6 | 修改邮箱要求当前密码 | 已实现 |
 | D7 | 保留 `activity_logs` 作为产品活动流并修复多组织归属；不把它当审计表 | 已实现：账号级事件 `org_id` 为空，组织级事件归属单个组织 |
-| D8 | M1 过渡期保留 3 个内部只读 API，补 401 与契约文档；选择器改用 RSC fallback 后再收敛 | 部分实现：三个路由未登录均返回 401，契约见 §1.3；RSC fallback 与 API 收敛未开始 |
+| D8 | M1 过渡期保留 3 个内部只读 API，补 401 与契约文档；选择器改用 RSC fallback 后再收敛 | 部分实现：三个路由未登录均返回 401，契约见 §1.3；根布局/组织布局/项目布局已提供 SWR fallback，API 收敛未开始 |
 | D9 | 邀请使用一次性 token + 7 天过期，禁止邀请 owner | 未实现 |
 
 ## 7. 更新规则

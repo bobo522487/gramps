@@ -68,9 +68,10 @@ pnpm dev
 
 | 变量 | 必填 | 示例 | 说明 |
 |---|:--:|---|---|
-| `POSTGRES_URL` | ✅ | `postgres://postgres:postgres@localhost:54322/postgres` | Drizzle/postgres.js 连接串；缺失时首次查询即抛错 |
-| `AUTH_SECRET` | ✅ | `openssl rand -hex 32` 生成 | JWT HS256 签名密钥；缺失时首次签发/校验 token 即抛错 |
+| `POSTGRES_URL` | ✅ | `postgres://postgres:postgres@localhost:54322/postgres` | 数据库连接串，必须是 `postgres://` 或 `postgresql://` |
+| `AUTH_SECRET` | ✅ | `openssl rand -hex 32` 生成 | JWT HS256 签名密钥，至少 32 字符 |
 | `TEST_POSTGRES_URL` | — | `postgres://postgres:postgres@localhost:54322/gramps_test` | `pnpm test:integration` 专用库；名称必须以 `_test` 结尾。未设置时回退到 `POSTGRES_URL`，同样要求库名以 `_test` 结尾 |
+| `BASE_URL` | — | `http://localhost:3000` | 应用对外地址；必须是合法 URL |
 | `LOG_LEVEL` | — | `debug` / `info` / `warn` / `error` | 默认开发 `debug`、生产 `info` |
 | `NODE_ENV` | — | `development` / `production` | Next.js 与日志默认级别使用 |
 
@@ -85,12 +86,19 @@ cp .env.example .env
 
 ### 3.2 配置校验方式
 
-当前仓库**没有**统一的 Zod 配置模块，也**没有**启动时集中校验。行为是：
+`lib/config.ts` 用 Zod 校验 `POSTGRES_URL`、`AUTH_SECRET`（≥32 字符）、`LOG_LEVEL`、`BASE_URL`，并缓存校验结果。
 
-- `POSTGRES_URL` 缺失：`lib/db/drizzle.ts` 在第一次建库连接时抛错。
-- `AUTH_SECRET` 缺失：`lib/auth/session.ts` 在第一次签发或校验 JWT 时抛错。
+- 服务启动时 `instrumentation.ts` 调用 `getServerConfig()`；配置缺失或非法会记录错误并阻止启动（`next build` 阶段跳过）。
+- `lib/db/drizzle.ts` 也通过 `getServerConfig()` 读取连接串；测试与脚本在首次查询前设置环境变量即可。
+- 单元测试可使用 `resetServerConfig()` 清除缓存后重新校验。
 
-因此启动成功不代表环境变量齐全；请在第一次登录/查询前确认。
+### 3.3 数据库驱动
+
+`lib/db/drizzle.ts` 按运行环境选择驱动：
+
+- 本地/CI：`postgres.js`。
+- Vercel（`process.env.VERCEL` 存在）：`pg` Pool + `attachDatabasePool`，便于 Fluid compute 复用连接。
+- 两条路径共用同一套 Drizzle schema 与查询代码；Vercel 分支尚未在真实部署中验证。
 
 ---
 
@@ -228,13 +236,14 @@ pnpm db:seed
 | 会话 | JWT HS256，HttpOnly Cookie `session`，`SameSite=Lax`，`Secure` |
 | 有效期 | 1 天 |
 | 续期 | `proxy.ts` 在剩余 < 6 小时时重新签发 1 天 Cookie |
-| 权威校验 | `getUser()` 查库校验 `token_version` 与 `deleted_at` |
+| 权威校验 | `getSessionUser()` 查库校验 `token_version` 与 `deleted_at`；按请求缓存 |
+| 请求上下文 | `getOrgContext` / `getProjectContext` 复用会话与成员 scope；公开 ID 失败返回 404 |
 | 撤销 | 修改密码时递增 `token_version` 并重签当前设备，其他设备立即失效；删除账号时递增版本并清除 Cookie |
 | 修改邮箱 | 需要当前密码；邮箱归一化为小写后写入；重复邮箱返回中文冲突提示 |
 | 角色 | `owner` / `member` |
 | 限流 | 进程内滑动窗口：登录 10 次/15 分钟（IP + 邮箱），注册 5 次/小时（IP） |
 
-> `proxy.ts` 只是路由门禁：它验证 JWT 签名并做跳转，不是授权边界。所有 Server Action、RSC 数据读取和 API Route 都必须再走 `getUser()` 与组织成员校验。
+> `proxy.ts` 只是路由门禁：它验证 JWT 签名并做跳转，不是授权边界。所有 Server Action、RSC 数据读取和 API Route 都必须再走 `getSessionUser()` 与组织成员校验。
 
 ### 6.3 界面语言
 
@@ -289,29 +298,32 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成
 
 ### 7.3 测试覆盖
 
-单测 7 个文件 39 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
+单测 9 个文件 46 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
 
 | 文件 | 关注点 |
 |---|---|
 | `tests/auth-schemas.test.ts` | 邮箱归一化、密码边界、中文校验消息 |
 | `tests/session.test.ts` | JWT 签名/过期、`tokenVersion` 撤销、软删用户 |
+| `tests/config.test.ts` | 环境变量校验与缓存 |
+| `tests/request-context.test.ts` | `AsyncLocalStorage` 请求上下文、日志字段注入、并发隔离 |
 | `tests/rate-limit.test.ts` | 滑动窗口限流与中文提示 |
 | `tests/ids.test.ts` | 20 位公开 ID 的长度/字符集与校验 |
 | `tests/fetcher.test.ts` | 非 2xx 响应抛错并保留 `status` |
 | `tests/security-regressions.test.ts` | 密码回显、计时攻击、组织越权、公开 ID 查询的成员过滤、`/api/user` DTO |
 | `tests/design-system.test.ts` | 设计令牌边界、状态/角色/区域中文映射、项目列表 DTO |
 
-集成测试 8 个文件 61 个用例，使用真实 PostgreSQL：
+集成测试 9 个文件 63 个用例，使用真实 PostgreSQL：
 
 | 文件 | 关注点 |
 |---|---|
 | `tests/integration/migrations.test.ts` | 空库迁移、业务表/索引、`0006` 约束与 `activity_logs.org_id` 可空 |
-| `tests/integration/session.test.ts` | `getUser()` 的 `token_version` 撤销、软删用户、缺失/无效会话 |
+| `tests/integration/session.test.ts` | `getSessionUser()` 的 `token_version` 撤销、软删用户、缺失/无效会话 |
 | `tests/integration/org-scope.test.ts` | 公开 ID 的成员过滤、跨组织读写拒绝 |
 | `tests/integration/constraints.test.ts` | 唯一邮箱/slug/ref、成员唯一、角色/状态 `CHECK`、待处理邀请部分唯一、外键级联 |
 | `tests/integration/services.test.ts` | 注册/邀请、建组织、移除成员、删号事务与权限/回滚 |
 | `tests/integration/actions.test.ts` | 注册、登录/登出、改密、改邮箱、删号、移除成员的 Action 行为与数据库副作用 |
 | `tests/integration/api-auth.test.ts` | `/api/user` 与 `/api/orgs` 未登录返回 401 |
+| `tests/integration/health.test.ts` | `/api/health` 数据库探活与 `x-request-id` |
 | `tests/integration/projects.test.ts` | 项目创建时 slug 冲突后重新生成并重试 |
 
 公共 helper 位于 `tests/helpers/`：测试库连接与清理、用户/组织/项目/邀请工厂、会话签名。
@@ -336,7 +348,7 @@ pnpm start
 - `next.config.ts` 没有设置 `output: 'standalone'`。
 - 仓库没有 `public/` 目录。
 - 没有 Dockerfile，也没有纳入版本管理的部署 Compose（`db:setup` 生成的 Compose 只用于本地 PostgreSQL）。
-- 没有 Vercel 项目配置、Neon 连接或健康检查端点 `/api/health`。
+- 没有 Vercel 项目配置或 Neon 连接；`/api/health` 已实现，生产驱动分支（`pg` + `attachDatabasePool`）已接入但尚未在真实 Vercel 部署中验证。
 
 目标架构选择 **Vercel + 自定义域名 + Neon**：应用由 Vercel 构建与运行，数据库使用 Neon PostgreSQL 18+，生产驱动为 `pg` Pool + `attachDatabasePool`，本地开发用 `postgres.js`；本地 Docker 只跑 PostgreSQL、应用用 `next dev`。迁移对 Neon 直连执行，不放进 Vercel 构建。完整蓝图见 [ops-target.md](./ops-target.md)。
 
@@ -352,8 +364,8 @@ pnpm start
 
 | 现象 | 可能原因 | 处理 |
 |---|---|---|
-| 启动或首次查询报 `POSTGRES_URL environment variable is not set` | 没有 `.env` 或变量为空 | 运行 `pnpm db:setup` 或手动创建 `.env` |
-| 首次登录报 `AUTH_SECRET environment variable is not set` | 缺少 JWT 密钥 | 在 `.env` 写入 `AUTH_SECRET` |
+| 启动报 `Invalid environment configuration: POSTGRES_URL ...` | 没有 `.env` 或连接串不是 `postgres://`/`postgresql://` | 运行 `pnpm db:setup` 或手动修正 `.env` |
+| 启动报 `Invalid environment configuration: AUTH_SECRET ...` | 缺少 JWT 密钥或长度不足 32 | 用 `openssl rand -hex 32` 生成并写入 `.env` |
 | `pnpm db:setup` 卡在 Docker | Docker 未启动 | 启动 Docker Desktop/daemon |
 | `pnpm db:migrate` 连接失败 | 本地 Postgres 未启动、端口不对 | 检查 `docker compose ps` 与 `POSTGRES_URL` 的端口 54322 |
 | `pnpm db:seed` 报邮箱唯一约束 | 种子已执行过 | 重置本地库后再执行，或直接使用已有 `test@test.com` |
@@ -377,6 +389,7 @@ pnpm start
 - 没有 RLS；隔离完全依赖应用层组织校验。
 - 没有家谱业务功能（谱系、人丁、谱文、谱书、分类）。
 - 限流为单进程内存实现，不适合多实例生产环境。
-- 没有 Playwright/E2E，也没有 `/api/health`。
+- 没有 Playwright/E2E。
+- `/api/health` 与 Vercel 数据库驱动分支已实现，但未在真实 Vercel/Neon 环境验证。
 
 目标设计的差异与后续待办见 [implementation-status.md](./implementation-status.md)。

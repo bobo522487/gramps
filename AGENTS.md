@@ -35,7 +35,7 @@
 |---|---|
 | 框架 | Next.js 16.4 App Router + React 19.1 |
 | 语言 | TypeScript（`strict: true`） |
-| 数据库 | PostgreSQL + Drizzle ORM + postgres.js |
+| 数据库 | PostgreSQL + Drizzle ORM（本地/CI `postgres.js`；Vercel 环境 `pg` + `attachDatabasePool`） |
 | 认证 | bcrypt + JWT HS256 Cookie |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 检查/格式化 | Biome |
@@ -102,27 +102,39 @@ app/
 │   ├── org/[orgSlug]/        # projects、team、settings
 │   └── project/[projectRef]/ # overview、lineages、articles、books、settings
 └── api/
+    ├── health/
     ├── orgs/
     ├── orgs/[orgId]/projects/
     └── user/
 components/
-├── console/                  # 控制台框架、导航、组织/项目选择器、scope context
+├── console/                  # 控制台框架、导航、组织/项目选择器、scope context、路由错误边界
 ├── org/                      # 组织成员/设置
 ├── project/                  # 项目设置/工作区
 ├── marketing/                # 营销页组件
 └── ui/                       # shadcn/ui 基础组件
 lib/
-├── auth/                     # session、permissions、rate-limit、schema、actions
-├── db/                       # schema、queries、services（事务流程）、errors、drizzle、migrations、seed/setup/回填脚本
+├── auth/                     # session、context（请求级会话/scope）、permissions、rate-limit、schema、actions
+├── db/
+│   ├── queries/              # 按领域拆分的查询：users、organizations、invitations、projects、activity
+│   ├── services.ts           # 多步事务流程
+│   ├── schema.ts             # Drizzle schema
+│   ├── drizzle.ts            # 连接单例（本地 postgres.js / Vercel pg）
+│   ├── errors.ts             # PG 错误码识别
+│   └── migrations/           # drizzle-kit 迁移
 ├── org/actions.ts            # 组织相关 Server Action
 ├── project/actions.ts        # 项目相关 Server Action
+├── server/request-context.ts # AsyncLocalStorage 请求日志上下文
+├── api.ts                    # Route Handler 日志/request_id/500 包装
+├── config.ts                 # Zod 环境变量校验
+├── errors.ts                 # ActionState 错误码构造
 ├── ids.ts                    # 20 位公开 ID 生成与校验
 ├── logger.ts
 ├── fetcher.ts
 ├── utils.ts
 └── ui/status.ts
 hooks/
-tests/                        # Vitest
+tests/                        # Vitest 单测 + 真实 PostgreSQL 集成测试
+instrumentation.ts            # 启动时校验配置并注册日志上下文
 proxy.ts                      # Next 16 路由门禁
 ```
 
@@ -143,9 +155,10 @@ proxy.ts                      # Next 16 路由门禁
 
 ### 5.1 读
 
-- 页面默认是 Server Component，直接在服务端调用 `lib/db/queries.ts`。
+- 页面默认是 Server Component，直接在服务端调用 `lib/db/queries/<domain>.ts`。
 - 客户端组件只接收已序列化的 props；不要在客户端直接查库。
-- 组织/项目布局在服务端解析 scope：`getOrgWithRoleBySlug(user.id, orgSlug)`、`getProjectScopeByRef(user.id, projectRef)`，再把 scope 传给 `ConsoleFrame`；客户端不再解析 pathname。
+- 组织/项目布局用 `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)` 解析 scope：内部先 `getSessionUser()`，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤，失败 `notFound()`。`getSessionUser` 与两个 context helper 用 React `cache()` 做请求级记忆化。
+- 页面需要 scope 时调用 `getOrgContext` / `getProjectContext`（返回 `null`）或 `require*Context`（404/重定向）；**不要再自行 `getSessionUser()` + 查询 scope**。
 - 页面内的数据查询仍按数字 `orgId` 过滤；scope 里的 `id` 来自服务端校验过的成员关系。
 
 ### 5.2 写
@@ -172,7 +185,7 @@ export const renameOrgAction = validatedActionWithUser(
 ```
 
 - 多步写操作（注册、建组织、移除成员、删号）放在 `lib/db/services.ts`，整个流程使用一个 `db.transaction`；不要在 Action 里串联多个独立写操作。事务内的权限判断必须用锁定读（`FOR UPDATE`）重新校验，不能只依赖事务外的 `checkOrgRole`。
-- 返回 `{ error }` / `{ success }` 等 `ActionState` 字段，不把异常堆栈抛给 UI。
+- 返回 `{ error }` / `{ success }` 等 `ActionState` 字段，不把异常堆栈抛给 UI。新代码的错误可带稳定 `code`（见 `lib/errors.ts` 的 `actionError()`）。
 - 返回给 UI 的文案一律使用简体中文；内部日志、API JSON 错误保持英文。
 - 写成功后按需 `revalidatePath`；组织级变化用 `/dashboard` layout 或 `/dashboard/org/${slug}`，项目设置用 `/dashboard/project/${ref}`。
 - 涉及组织/项目/成员的写操作，**必须在服务端做成员/角色校验**，不能只靠按钮禁用或 URL 里的公开 ID。
@@ -182,16 +195,16 @@ export const renameOrgAction = validatedActionWithUser(
 ```
 proxy.ts（路由门禁，验证 JWT 签名/过期）
    ↓
-getUser()（权威校验：查库比对 token_version + deleted_at）
+getSessionUser()（权威校验：查库比对 token_version + deleted_at，按请求缓存）
    ↓
 页面 / Action / API Route 内的组织成员校验
 ```
 
 - `proxy.ts` 不是授权边界；不要只靠它保护资源。
-- `getUser()` 返回完整 `users` 行；**不要直接 `Response.json(user)`**。对外出口（API、SWR fallback、客户端组件 props）只传 `SessionUser`，即 `{ id, name, email }`。
+- `getSessionUser()` 返回完整 `users` 行；**不要直接 `Response.json(user)`**。对外出口（API、SWR fallback、客户端组件 props）只传 `SessionUser`，即 `{ id, name, email }`。
 - 修改密码、删除账号会递增 `token_version`，旧 Cookie 自动失效；改密成功后会用新版本重签当前设备。
 - 修改邮箱必须验证当前密码，邮箱归一化为小写后写入；重复邮箱转换为中文冲突提示。
-- 账号区布局 `app/(dashboard)/dashboard/(account)/layout.tsx` 统一 `getUser()` 并 `redirect('/sign-in')`；账号页不要各自猜认证状态。
+- 账号区布局 `app/(dashboard)/dashboard/(account)/layout.tsx` 统一 `requireUser()`（内部 `redirect('/sign-in')`）；账号页不要各自猜认证状态。
 - 不要使用 `getSession()` 之类的“只读 Cookie”方案做鉴权。
 - Cookie 使用 `Secure`；本地开发请使用 `http://localhost:3000`，不要用 IP/非 localhost 域名。
 
@@ -208,14 +221,14 @@ getProjectById(projectId, orgId);
 getProjectById(projectId);
 ```
 
-- URL 里的 `[orgSlug]` / `[projectRef]` 是 20 位公开 ID；布局先用 `isPublicId()` 校验格式，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤。非成员、不存在的 ID 一律 404。
+- URL 里的 `[orgSlug]` / `[projectRef]` 是 20 位公开 ID；`requireOrgContext` / `requireProjectContext` 先用 `isPublicId()` 校验格式，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤。非成员、不存在的 ID 一律 404。
 - 公开 ID 不是授权凭证：能猜到 slug/ref 不等于能访问，解析查询必须带 `userId`。
 - Server Action 的入参仍是数字 `orgId` / `projectId`，来自服务端 scope，不要新增按公开 ID 写入的入口。
 - 不要信任客户端传来的角色；角色只从数据库成员关系读取。
 
 ### 5.5 数据访问
 
-- 查询集中在 `lib/db/queries.ts`；不要在页面里拼 SQL。
+- 查询集中在 `lib/db/queries/<domain>.ts`（users、organizations、invitations、projects、activity）；不要在页面里拼 SQL。
 - 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。
 - 当前 ID 是 `serial` 整数主键 + 20 位公开 `slug`/`ref`，不是 UUIDv7。
 - 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 slug/ref 冲突时每次重试重新生成，最多尝试 5 次。
@@ -225,23 +238,25 @@ getProjectById(projectId);
 
 ### 5.6 API Route
 
-当前 3 个 Route Handler：
+当前 4 个 Route Handler：
 
 | 路由 | 说明 |
 |---|---|
+| `GET /api/health` | 数据库 `SELECT 1`；健康 200、不可用 503；不要求登录 |
 | `GET /api/orgs` | 当前用户的组织列表，DTO 为 `{ id, name, slug, role }` |
 | `GET /api/orgs/[orgId]/projects` | 组织内项目列表，先校验成员；DTO 为 `{ id, name, ref, status }` |
 | `GET /api/user` | 当前用户，DTO 为 `{ id, name, email }` |
 
-三个路由未登录时都返回 `401 { error: 'Unauthorized' }`；`lib/fetcher.ts` 对非 2xx 抛错，错误对象带 `status`。客户端退出登录时要同时清空 `/api/user` 的 SWR 缓存。
+三个业务路由未登录时都返回 `401 { error: 'Unauthorized' }`；`lib/fetcher.ts` 对非 2xx 抛错，错误对象带 `status`。所有路由用 `withApiLogging()` 包装：生成/透传 `x-request-id`、记录 `duration_ms`、异常返回 JSON 500。客户端退出登录时要同时清空 `/api/user` 的 SWR 缓存。
 
 新增 API Route 时：
 
-1. `getUser()`，未登录返回 401。
-2. 校验路径参数与请求体（Zod）。
-3. 组织级资源先 `getOrgRole`，非成员返回 403/404。
-4. 返回显式 DTO，不返回整行数据库记录。
-5. 不要把 Server Action 的逻辑复制两份；能复用 query 就复用。
+1. 用 `withApiLogging('<route-name>', handler)` 导出 `GET`/`POST`。
+2. `getSessionUser()`，未登录返回 401。
+3. 校验路径参数与请求体（Zod）。
+4. 组织级资源先 `getOrgRole`，非成员返回 403/404。
+5. 返回显式 DTO，不返回整行数据库记录。
+6. 不要把 Server Action 的逻辑复制两份；能复用 query 就复用。
 
 ---
 
@@ -271,7 +286,7 @@ logger.warn('organization access denied', { orgId, userId });
 logger.error('failed to update project', error);
 ```
 
-- `lib/logger.ts` 输出结构化 JSON。
+- `lib/logger.ts` 输出结构化 JSON；服务端日志会自动带上当前请求的 `request_id`、`user_id` 等上下文（`lib/server/request-context.ts`）。API 日志还包含 `duration_ms`。
 - 不要在业务代码里散落 `console.log`；`lib/logger.ts` 内部除外。
 - 不要记录密码、token、身份证、完整住址。
 
@@ -323,7 +338,7 @@ logger.error('failed to update project', error);
 1. lib/db/schema.ts 增加 Drizzle 定义
 2. pnpm db:generate → 人工 review SQL
 3. pnpm db:migrate
-4. lib/db/queries.ts 增加带 orgId 的查询
+4. lib/db/queries/<domain>.ts 增加带 orgId 的查询
 5. 更新 setup.md / implementation-status.md 的当前状态
 6. 需要时补 Vitest 覆盖组织隔离；涉及真实 SQL、约束或事务的行为放进 `tests/integration`
 ```
@@ -359,7 +374,7 @@ logger.error('failed to update project', error);
 2. 对应 domain：lib/<org|project>/actions.ts 或新建 lib/<domain>/actions.ts
 3. 用 validatedActionWithUser 包装
 4. 校验用户与组织角色（checkOrgRole）
-5. 单步 CRUD 调 lib/db/queries.ts；多步写放进 lib/db/services.ts 的单个 db.transaction，并在事务内锁定读重新校验权限
+5. 单步 CRUD 调 lib/db/queries/<domain>.ts；多步写放进 lib/db/services.ts 的单个 db.transaction，并在事务内锁定读重新校验权限
 6. 写 activity log（如属于业务动作）
 7. revalidatePath
 8. 返回 ActionState；预期失败返回中文文案，不抛异常
@@ -372,8 +387,8 @@ logger.error('failed to update project', error);
 1. 组织页放在 app/(dashboard)/dashboard/org/[orgSlug]/...；
    project 页放在 app/(dashboard)/dashboard/project/[projectRef]/...；
    账号页放在 app/(dashboard)/dashboard/(account)/...
-2. page.tsx 是 RSC；先 getUser()
-3. 组织页用 getOrgWithRoleBySlug，project 页用 getProjectScopeByRef（都带 userId）
+2. page.tsx 是 RSC；用 requireOrgContext / requireProjectContext（内部含会话与成员校验）
+3. 布局负责解析 scope，页面复用 context，不要重复查询
 4. 数据查询必须带数字 orgId
 5. 交互部分拆成 'use client' 子组件，只收 props
 6. 需要时加 loading.tsx / error.tsx
@@ -383,8 +398,8 @@ logger.error('failed to update project', error);
 ### 9.3 加一个 API Route
 
 ```text
-1. app/api/.../route.ts
-2. getUser()；401
+1. app/api/.../route.ts，用 withApiLogging 包装导出
+2. getSessionUser()；401
 3. Zod 校验参数/请求体
 4. 组织资源：getOrgRole；403/404
 5. 查询必须带 orgId
@@ -395,7 +410,7 @@ logger.error('failed to update project', error);
 ### 9.4 改认证
 
 ```text
-1. 先读 lib/auth/session.ts 与 lib/db/queries.ts 的 getUser()
+1. 先读 lib/auth/session.ts 与 lib/auth/context.ts 的 getSessionUser()
 2. 注意 tokenVersion 撤销语义
 3. 修改密码/删除账号必须递增 tokenVersion；改密后重签当前设备
 4. 删除账号要清理该用户的全部组织成员关系，并阻止删除唯一 owner 的组织归属
@@ -441,7 +456,7 @@ docs(setup): 对齐当前环境变量
 
 1. **越权**：能否通过猜 ID 访问别的组织。
 2. **信息泄露**：是否返回了整行用户/密钥/内部错误。
-3. **认证语义**：`getUser()` 是否是权威校验；tokenVersion 是否正确。
+3. **认证语义**：`getSessionUser()` 是否是权威校验；tokenVersion 是否正确。
 4. **错误处理**：401/403/404 是否合理。
 5. **迁移**：是否可重复、可回滚、是否影响现有数据。
 6. 命名与风格。
@@ -452,10 +467,10 @@ docs(setup): 对齐当前环境变量
 
 | # | 陷阱 | 现象 | 正确做法 |
 |---|---|---|---|
-| 1 | 只靠 `proxy.ts` 保护 | 绕过路由直接调 Action/API | 每个入口都 `getUser()` + 成员校验 |
+| 1 | 只靠 `proxy.ts` 保护 | 绕过路由直接调 Action/API | 每个入口都 `getSessionUser()` + 成员校验 |
 | 2 | 按子资源 ID 直接查 | 跨组织读取 | 查询同时带 `orgId` |
 | 3 | 返回整行 `user` | `password_hash` 泄露 | 显式 DTO |
-| 4 | 只读 Cookie 做鉴权 | 伪造/过期 token 通过 | `getUser()` 查库 |
+| 4 | 只读 Cookie 做鉴权 | 伪造/过期 token 通过 | `getSessionUser()` 查库 |
 | 5 | 忘记 `tokenVersion` | 改密后旧会话仍有效 | 改密/删号递增版本 |
 | 6 | 在客户端判断角色 | 改前端即可越权 | 服务端 `checkOrgRole` |
 | 7 | 依赖内存限流做安全边界 | 重启清零、多实例失效 | 视为辅助；生产换共享存储 |
@@ -480,7 +495,7 @@ docs(setup): 对齐当前环境变量
 - 数据隔离：PostgreSQL RLS + `app_rw` + 复合外键。
 - 数据模型：UUIDv7（数据库生成）、ltree、软删、10 张业务表 + `auth.users`；不建审计表，关键动作写结构化日志。
 - 接口：RSC + Server Action + `/api/health`。
-- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动 `pg` + `attachDatabasePool`，本地 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`（[部署蓝图](docs/ops-target.md)）。
+- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`），但尚未做真实 Vercel/Neon 部署验证；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`（[部署蓝图](docs/ops-target.md)）。
 
 需要实现时：
 
