@@ -1,33 +1,29 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
-import { db } from '../drizzle';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import type { DbTransaction } from '../drizzle';
+import type { Invitation } from '../schema';
 import { invitations } from '../schema';
 
-export async function findPendingInvitationByEmail(
+/** Pending invites are accepted_at IS NULL, not expired and not deleted. */
+export async function findPendingInvitationInTx(
+  tx: DbTransaction,
   email: string,
-  orgId: number
-) {
-  const rows = await db
+  orgId: string
+): Promise<Invitation | null> {
+  const rows = await tx
     .select()
     .from(invitations)
     .where(
       and(
-        eq(invitations.email, email),
         eq(invitations.orgId, orgId),
-        eq(invitations.status, 'pending')
+        sql`lower(${invitations.email}) = ${email}`,
+        isNull(invitations.acceptedAt),
+        isNull(invitations.deletedAt),
+        gt(invitations.expiresAt, new Date())
       )
     )
     .limit(1);
 
   return rows[0] ?? null;
-}
-
-export async function createInvitation(params: {
-  orgId: number;
-  email: string;
-  role: string;
-  invitedBy: number;
-}) {
-  await db.insert(invitations).values({ ...params, status: 'pending' });
 }

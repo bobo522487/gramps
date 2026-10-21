@@ -1,27 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-
-const orgDirectory = vi.hoisted(() => ({
-  // userId -> memberships, so tests can stage cross-org users
-  memberships: {} as Record<
-    number,
-    { organization: { id: number }; role: string }[]
-  >,
-}));
-
-vi.mock('@/lib/db/queries/organizations', () => ({
-  getOrgRoleForUser: async (userId: number, orgId: number) =>
-    orgDirectory.memberships[userId]?.find(
-      (membership) => membership.organization.id === orgId
-    )?.role ?? null,
-}));
-
-vi.mock('next/navigation', () => ({
-  redirect: (path: string) => {
-    throw new Error(`REDIRECT ${path}`);
-  },
-}));
+import { describe, expect, it } from 'vitest';
 
 const read = (path: string) =>
   readFileSync(resolve(import.meta.dirname, path), 'utf8');
@@ -30,14 +9,18 @@ const actionsSource = [
   read('../lib/auth/actions/session.ts'),
   read('../lib/auth/actions/account.ts'),
   read('../lib/org/actions.ts'),
+  read('../lib/project/actions.ts'),
 ].join('\n');
-const orgActionsSource = read('../lib/org/actions.ts');
-const projectActionsSource = read('../lib/project/actions.ts');
-const middlewareTypes = read('../lib/auth/types.ts');
+const actionTypes = read('../lib/auth/types.ts');
 const userRouteSource = read('../app/api/user/route.ts');
 const rootLayoutSource = read('../app/layout.tsx');
+const contextSource = read('../lib/auth/context.ts');
+const orgQueriesSource = read('../lib/db/queries/organizations.ts');
+const projectQueriesSource = read('../lib/db/queries/projects.ts');
+const usersQueriesSource = read('../lib/db/queries/users.ts');
+const drizzleSource = read('../lib/db/drizzle.ts');
 
-describe('auth actions source guards', () => {
+describe('auth action source guards', () => {
   it('never echoes password fields back in action state', () => {
     // Return-position shorthand properties would leak plaintext credentials
     // into the RSC payload, e.g. `return { error, password }`.
@@ -63,7 +46,7 @@ describe('auth actions source guards', () => {
   });
 
   it('does not include password fields in shared ActionState', () => {
-    expect(middlewareTypes).not.toMatch(/password/i);
+    expect(actionTypes).not.toMatch(/password/i);
   });
 
   it('never serializes the full user row to the browser', () => {
@@ -77,78 +60,48 @@ describe('auth actions source guards', () => {
       '{ id: user.id, name: user.name, email: user.email }'
     );
   });
-
-  it('org member actions enforce owner role server-side', () => {
-    expect(orgActionsSource).toContain("checkOrgRole(user.id, orgId, 'owner')");
-    expect(orgActionsSource).toContain('只有所有者可以邀请组织成员');
-  });
-
-  it('org-scoped writes never trust a bare id without membership check', () => {
-    // Every mutation in org/project actions must call checkOrgRole first
-    for (const source of [orgActionsSource, projectActionsSource]) {
-      const mutations = (source.match(/export const \w+Action/g) ?? []).length;
-      const checks = (source.match(/checkOrgRole/g) ?? []).length;
-      expect(checks).toBeGreaterThanOrEqual(mutations);
-    }
-  });
 });
 
-describe('cross-organization isolation', () => {
-  const queriesSource = [
-    read('../lib/db/queries/organizations.ts'),
-    read('../lib/db/queries/projects.ts'),
-  ].join('\n');
-  const contextSource = read('../lib/auth/context.ts');
-
-  const functionBody = (name: string) => {
-    const start = queriesSource.indexOf(`export async function ${name}`);
-    expect(start, `${name} is missing from queries.ts`).toBeGreaterThan(-1);
-    const rest = queriesSource.slice(start);
+describe('authorization invariants', () => {
+  const functionBody = (source: string, name: string) => {
+    const start = source.indexOf(`export async function ${name}`);
+    expect(start, `${name} is missing`).toBeGreaterThan(-1);
+    const rest = source.slice(start);
     const next = rest.indexOf('\nexport ', 1);
     return next === -1 ? rest : rest.slice(0, next);
   };
 
   it('pairs every single-project lookup with the owning orgId', () => {
-    for (const name of ['getProjectById', 'updateProject', 'deleteProject']) {
-      expect(functionBody(name)).toMatch(/eq\(projects\.orgId, orgId\)/);
-    }
+    expect(functionBody(projectQueriesSource, 'getProjectById')).toContain(
+      'eq(projects.orgId, orgId)'
+    );
   });
 
   it('resolves public ids through membership-scoped joins', () => {
-    // Slug/ref URLs are guessable; the user join is the authorization gate
-    const orgScope = functionBody('getOrgWithRoleBySlug');
+    const orgScope = functionBody(orgQueriesSource, 'getOrgWithRoleBySlug');
     expect(orgScope).toContain('eq(orgMembers.userId, userId)');
     expect(orgScope).toContain('eq(organizations.slug, slug)');
 
-    const projectScope = functionBody('getProjectScopeByRef');
+    const projectScope = functionBody(
+      projectQueriesSource,
+      'getProjectScopeByRef'
+    );
     expect(projectScope).toContain('eq(orgMembers.userId, userId)');
     expect(projectScope).toContain('eq(projects.ref, ref)');
-    expect(projectScope).not.toContain('getProjects(');
   });
 
-  it('rejects a non-member who guesses another org id', async () => {
-    orgDirectory.memberships = {
-      1: [{ organization: { id: 1 }, role: 'member' }],
-      2: [],
-    };
-    const { checkOrgRole, requireOrgAccess } = await import(
-      '@/lib/auth/permissions'
-    );
-
-    expect(await checkOrgRole(2, 1, 'member')).toBe('你不是该组织的成员');
-    await expect(
-      requireOrgAccess({ id: 2 } as never, 1, 'owner')
-    ).rejects.toThrow('REDIRECT /dashboard');
+  it('runs every business query as app_rw with verified JWT claims', () => {
+    // RLS only protects the app if SET LOCAL role and claims are set in the
+    // same transaction; a session-level SET would leak into pooled requests.
+    expect(drizzleSource).toContain('set local role app_rw');
+    expect(drizzleSource).toContain("set_config('request.jwt.claims'");
   });
 
-  it('rejects a member who tries an owner-only action', async () => {
-    orgDirectory.memberships = {
-      1: [{ organization: { id: 1 }, role: 'member' }],
-    };
-    const { checkOrgRole } = await import('@/lib/auth/permissions');
-
-    expect(await checkOrgRole(1, 1, 'member')).toBeNull();
-    expect(await checkOrgRole(1, 1, 'owner')).toBe('只有所有者可以执行此操作');
+  it('reaches auth.users only through SECURITY DEFINER functions', () => {
+    expect(usersQueriesSource).toContain('auth.find_user_by_email');
+    expect(usersQueriesSource).toContain('auth.get_session_user');
+    expect(usersQueriesSource).not.toMatch(/from\(users\)/);
+    expect(usersQueriesSource).not.toMatch(/insert\(users\)/);
   });
 
   it('keeps public-id routes behind the membership gate', () => {
@@ -159,14 +112,11 @@ describe('cross-organization isolation', () => {
     );
     expect(contextSource).toMatch(/notFound\(\)/);
 
-    const orgLayout = read(
-      '../app/(dashboard)/dashboard/org/[orgSlug]/layout.tsx'
-    );
-    expect(orgLayout).toContain('requireOrgContext(orgSlug)');
-
-    const projectLayout = read(
-      '../app/(dashboard)/dashboard/project/[projectRef]/layout.tsx'
-    );
-    expect(projectLayout).toContain('requireProjectContext(projectRef)');
+    expect(
+      read('../app/(dashboard)/dashboard/org/[orgSlug]/layout.tsx')
+    ).toContain('requireOrgContext(orgSlug)');
+    expect(
+      read('../app/(dashboard)/dashboard/project/[projectRef]/layout.tsx')
+    ).toContain('requireProjectContext(projectRef)');
   });
 });

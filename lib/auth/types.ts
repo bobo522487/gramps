@@ -3,7 +3,7 @@
 
 /** The only user fields safe to serialize to the browser. */
 export type SessionUser = {
-  id: number;
+  id: string;
   name: string | null;
   email: string;
 };
@@ -17,8 +17,10 @@ export type ActionState = {
   /** Validation messages keyed by form field name (e.g. `email`). */
   fieldErrors?: Record<string, string>;
   name?: string;
-  orgId?: number;
+  orgId?: string;
   orgSlug?: string;
-  projectId?: number;
+  projectId?: string;
   projectRef?: string;
+  /** One-time sign-up/accept link shown to the inviter. */
+  inviteUrl?: string;
 };

@@ -4,40 +4,48 @@ import 'server-only';
 
 import { revalidatePath } from 'next/cache';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
-import { checkOrgRole } from '@/lib/auth/permissions';
 import {
   createProjectSchema,
   deleteProjectSchema,
   updateProjectSchema,
 } from '@/lib/auth/schemas';
-import { logActivity } from '@/lib/db/queries/activity';
 import {
-  createProject,
-  deleteProject,
-  updateProject,
-} from '@/lib/db/queries/projects';
-import { ActivityType } from '@/lib/db/schema';
+  createProjectInTransaction,
+  deleteProjectInTransaction,
+  type ProjectUpdates,
+  updateProjectInTransaction,
+} from '@/lib/db/services';
+
+const PROJECT_ERRORS = {
+  forbidden: '你没有管理云谱空间的权限',
+  not_found: '云谱空间不存在或已归档',
+  conflict: '项目创建失败，请重试。',
+} as const;
 
 export const createProjectAction = validatedActionWithUser(
   createProjectSchema,
   async (data, _, user) => {
-    const { orgId, name, region } = data;
+    const result = await createProjectInTransaction({
+      userId: user.id,
+      orgId: data.orgId,
+      input: {
+        name: data.name,
+        primaryName: data.primaryName,
+        primarySurname: data.primarySurname,
+        hallCode: data.hallCode,
+        countriesRegions: data.countriesRegions,
+      },
+    });
 
-    if ((await checkOrgRole(user.id, orgId, 'member')) !== null) {
-      return { error: '你没有在该组织中创建项目的权限' };
+    if (!result.ok) {
+      return { error: PROJECT_ERRORS[result.reason] };
     }
 
-    const project = await createProject({ orgId, name, region });
-    if (!project) {
-      return { error: '创建项目失败' };
-    }
-
-    await logActivity(orgId, user.id, ActivityType.CREATE_PROJECT);
     revalidatePath('/dashboard', 'layout');
     return {
-      success: '项目已创建',
-      projectId: project.id,
-      projectRef: project.ref,
+      success: '云谱空间已创建',
+      projectId: result.project.id,
+      projectRef: result.project.ref,
     };
   }
 );
@@ -45,39 +53,54 @@ export const createProjectAction = validatedActionWithUser(
 export const updateProjectAction = validatedActionWithUser(
   updateProjectSchema,
   async (data, _, user) => {
-    const { orgId, projectId, name, status } = data;
-
-    if ((await checkOrgRole(user.id, orgId, 'owner')) !== null) {
-      return { error: '只有所有者可以修改项目' };
+    const updates: ProjectUpdates = {};
+    if (data.name !== undefined) {
+      updates.name = data.name;
+    }
+    if (data.primaryName !== undefined) {
+      updates.primaryName = data.primaryName;
+    }
+    if (data.primarySurname !== undefined) {
+      updates.primarySurname = data.primarySurname;
+    }
+    if (data.hallCode !== undefined) {
+      updates.hallCode = data.hallCode;
+    }
+    if (data.countriesRegions !== undefined) {
+      updates.countriesRegions = data.countriesRegions;
     }
 
-    const updated = await updateProject(projectId, orgId, { name, status });
-    if (!updated) {
-      return { error: '项目不存在于该组织' };
+    const result = await updateProjectInTransaction({
+      userId: user.id,
+      orgId: data.orgId,
+      projectId: data.projectId,
+      updates,
+    });
+
+    if (!result.ok) {
+      return { error: PROJECT_ERRORS[result.reason] };
     }
 
-    revalidatePath(`/dashboard/project/${updated.ref}`, 'layout');
     revalidatePath('/dashboard', 'layout');
-    return { success: '项目已更新' };
+    revalidatePath(`/dashboard/project/${result.project.ref}`, 'layout');
+    return { success: '云谱空间已更新' };
   }
 );
 
 export const deleteProjectAction = validatedActionWithUser(
   deleteProjectSchema,
   async (data, _, user) => {
-    const { orgId, projectId } = data;
+    const result = await deleteProjectInTransaction({
+      userId: user.id,
+      orgId: data.orgId,
+      projectId: data.projectId,
+    });
 
-    if ((await checkOrgRole(user.id, orgId, 'owner')) !== null) {
-      return { error: '只有所有者可以删除项目' };
+    if (!result.ok) {
+      return { error: PROJECT_ERRORS[result.reason] };
     }
 
-    const deleted = await deleteProject(projectId, orgId);
-    if (!deleted) {
-      return { error: '项目不存在于该组织' };
-    }
-
-    await logActivity(orgId, user.id, ActivityType.DELETE_PROJECT);
     revalidatePath('/dashboard', 'layout');
-    return { success: '项目已删除' };
+    return { success: '云谱空间已删除' };
   }
 );

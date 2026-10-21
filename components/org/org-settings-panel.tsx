@@ -27,7 +27,7 @@ export function OrgSettingsPanel({
   projectCount,
   isOwner,
 }: {
-  orgId: number;
+  orgId: string;
   orgName: string;
   orgSlug: string;
   projectCount: number;
@@ -114,26 +114,26 @@ export function OrgSettingsPanel({
 
       <Card size="dense" className="border-destructive/30">
         <CardHeader>
-          <CardTitle className="text-destructive">删除组织</CardTitle>
+          <CardTitle className="text-destructive">归档组织</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
-            删除 <span className="font-medium">{orgName}</span> 将同时移除{' '}
-            {projectCount} 个项目、成员与活动记录，且不可恢复。
+            归档 <span className="font-medium">{orgName}</span> 后，组织及其{' '}
+            {projectCount} 个云谱空间会从控制台移除，成员将无法继续访问。
           </p>
           {isOwner ? (
             <Dialog>
               <DialogTrigger asChild>
                 <Button variant="destructive" size="xs">
-                  删除组织
+                  归档组织
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>确认删除组织？</DialogTitle>
+                  <DialogTitle>确认归档组织？</DialogTitle>
                   <DialogDescription>
-                    删除「{orgName}」将同时移除 {projectCount}{' '}
-                    个项目、成员与活动记录，且不可恢复。
+                    归档「{orgName}」后，组织及其 {projectCount}{' '}
+                    个云谱空间会从控制台移除，成员将无法继续访问。
                   </DialogDescription>
                 </DialogHeader>
                 <form action={deleteAction} className="space-y-3">
@@ -155,7 +155,7 @@ export function OrgSettingsPanel({
                       size="xs"
                       disabled={isDeleting}
                     >
-                      {isDeleting ? '删除中…' : '确认删除'}
+                      {isDeleting ? '归档中…' : '确认归档'}
                     </Button>
                   </DialogFooter>
                 </form>
@@ -163,7 +163,7 @@ export function OrgSettingsPanel({
             </Dialog>
           ) : (
             <p className="text-xs text-muted-foreground">
-              只有组织所有者可以删除组织。
+              只有组织所有者可以归档组织。
             </p>
           )}
         </CardContent>

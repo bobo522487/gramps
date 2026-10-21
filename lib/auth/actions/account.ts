@@ -59,15 +59,15 @@ export const updatePassword = validatedActionWithUser(
     }
 
     const newPasswordHash = await hashPassword(newPassword);
-    const updated = await updateUserPassword(user.id, newPasswordHash);
-
-    await logActivity(null, user.id, ActivityType.UPDATE_PASSWORD);
+    const tokenVersion = await updateUserPassword(user.id, newPasswordHash);
 
     // The version bump revokes other devices; re-sign this one so the user
     // who just changed the password is not logged out immediately.
-    if (updated) {
-      await setSession({ ...user, tokenVersion: updated.tokenVersion });
+    if (tokenVersion !== null) {
+      await setSession({ id: user.id, tokenVersion });
     }
+
+    await logActivity(user.id, null, ActivityType.UPDATE_PASSWORD);
 
     return {
       success: '密码已更新。',
@@ -95,14 +95,14 @@ export const deleteAccount = validatedActionWithUser(
 
     const result = await deleteUserAccount({
       userId: user.id,
-      ipAddress: ip === 'unknown' ? '' : ip,
+      ipAddress: ip === 'unknown' ? undefined : ip,
     });
 
     if (!result.ok) {
       return {
         error: `你是「${result.orgNames.join(
           '、'
-        )}」的唯一所有者，请先转让所有权或删除该组织。`,
+        )}」的唯一所有者，请先转让所有权或归档该组织。`,
       };
     }
 
@@ -115,7 +115,7 @@ export const updateAccount = validatedActionWithUser(
   updateAccountSchema,
   async (data, _, user): Promise<ActionState> => {
     const { name, email, currentPassword } = data;
-    const emailChanged = email !== user.email;
+    const emailChanged = email !== user.email.toLowerCase();
 
     if (emailChanged) {
       const ip = await getClientIp();
@@ -159,7 +159,7 @@ export const updateAccount = validatedActionWithUser(
       throw error;
     }
 
-    await logActivity(null, user.id, ActivityType.UPDATE_ACCOUNT);
+    await logActivity(user.id, null, ActivityType.UPDATE_ACCOUNT);
     revalidatePath('/dashboard', 'layout');
 
     return { name, email, success: '账号信息已更新。' };

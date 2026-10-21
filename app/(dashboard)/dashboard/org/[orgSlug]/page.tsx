@@ -1,6 +1,7 @@
 import type { ProjectView } from '@/components/project/project-workspace';
 import { ProjectWorkspace } from '@/components/project/project-workspace';
 import { requireOrgContext } from '@/lib/auth/context';
+import { hasPermission } from '@/lib/auth/permissions';
 import { getProjects } from '@/lib/db/queries/projects';
 
 export default async function OrgProjectsPage({
@@ -10,14 +11,15 @@ export default async function OrgProjectsPage({
 }) {
   const { orgSlug } = await params;
   const context = await requireOrgContext(orgSlug);
-  const projects = await getProjects(context.organization.id);
+  const projects = await getProjects(context.user.id, context.organization.id);
   const views: ProjectView[] = projects.map((project) => ({
     id: project.id,
     name: project.name,
     ref: project.ref,
-    region: project.region,
-    status: project.status,
-    health: project.health,
+    primaryName: project.primaryName,
+    primarySurname: project.primarySurname,
+    hallCode: project.hallCode,
+    countriesRegions: project.countriesRegions,
     createdAt: project.createdAt.toISOString().slice(0, 10),
     createdAtIso: project.createdAt.toISOString(),
   }));
@@ -26,7 +28,7 @@ export default async function OrgProjectsPage({
     <ProjectWorkspace
       orgId={context.organization.id}
       projects={views}
-      isOwner={context.role === 'owner'}
+      canManage={hasPermission(context.role, 'project.write')}
     />
   );
 }

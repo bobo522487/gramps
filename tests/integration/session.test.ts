@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSessionUser } from '@/lib/auth/context';
@@ -53,7 +54,7 @@ describe('getSessionUser against PostgreSQL', () => {
   });
 
   it('returns null for a user that no longer exists', async () => {
-    session.token = await signSessionFor(999_999, 0);
+    session.token = await signSessionFor(randomUUID(), 0);
 
     expect(await getSessionUser()).toBeNull();
   });

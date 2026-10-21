@@ -11,14 +11,17 @@ export default async function OrgSettingsPage({
 }) {
   const { orgSlug } = await params;
   const context = await requireOrgContext(orgSlug);
-  const projectCount = await countProjects(context.organization.id);
+  const projectCount = await countProjects(
+    context.user.id,
+    context.organization.id
+  );
 
   return (
     <section className="space-y-4 p-4 lg:p-6">
       <PageHeader
         icon={Settings}
         title="组织设置"
-        description={`重命名组织，或将组织连同 ${projectCount} 个项目、成员与活动记录一并删除。`}
+        description={`重命名组织，或归档组织及其 ${projectCount} 个云谱空间。`}
       />
       <OrgSettingsPanel
         orgId={context.organization.id}

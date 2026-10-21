@@ -5,33 +5,29 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import type { ActionState } from '@/lib/auth/types';
 import { updateProjectAction } from '@/lib/project/actions';
-import { statusLabel } from '@/lib/ui/status';
-
-const STATUSES = ['ACTIVE', 'PAUSED', 'ARCHIVED'] as const;
 
 export function ProjectSettingsPanel({
   orgId,
   projectId,
   name,
-  status,
+  primaryName,
+  primarySurname,
+  hallCode,
+  countriesRegions,
   projectRef,
-  isOwner,
+  canManage,
 }: {
-  orgId: number;
-  projectId: number;
+  orgId: string;
+  projectId: string;
   name: string;
-  status: string;
+  primaryName: string;
+  primarySurname: string;
+  hallCode: string | null;
+  countriesRegions: string | null;
   projectRef: string;
-  isOwner: boolean;
+  canManage: boolean;
 }) {
   const [state, action, isPending] = useActionState<ActionState, FormData>(
     updateProjectAction,
@@ -41,7 +37,7 @@ export function ProjectSettingsPanel({
   return (
     <Card size="dense" className="max-w-2xl">
       <CardHeader>
-        <CardTitle>项目设置</CardTitle>
+        <CardTitle>空间设置</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="mb-4 flex items-center justify-between gap-4 rounded-md border bg-surface px-3 py-2">
@@ -51,33 +47,68 @@ export function ProjectSettingsPanel({
         <form action={action} noValidate className="space-y-3">
           <input type="hidden" name="orgId" value={orgId} />
           <input type="hidden" name="projectId" value={projectId} />
+          <div>
+            <Label htmlFor="project-name">空间名称</Label>
+            <Input
+              id="project-name"
+              name="name"
+              defaultValue={name}
+              maxLength={100}
+              className="mt-1"
+              size="sm"
+              disabled={!canManage}
+            />
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label htmlFor="project-name">名称</Label>
+              <Label htmlFor="project-primary-surname">主姓氏</Label>
               <Input
-                id="project-name"
-                name="name"
-                defaultValue={name}
-                maxLength={100}
+                id="project-primary-surname"
+                name="primarySurname"
+                defaultValue={primarySurname}
+                maxLength={30}
                 className="mt-1"
                 size="sm"
-                disabled={!isOwner}
+                disabled={!canManage}
               />
             </div>
             <div>
-              <Label>状态</Label>
-              <Select name="status" defaultValue={status} disabled={!isOwner}>
-                <SelectTrigger className="mt-1" size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {statusLabel(s)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="project-primary-name">主姓名</Label>
+              <Input
+                id="project-primary-name"
+                name="primaryName"
+                defaultValue={primaryName}
+                maxLength={60}
+                className="mt-1"
+                size="sm"
+                disabled={!canManage}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="project-hall">郡望 / 堂号</Label>
+              <Input
+                id="project-hall"
+                name="hallCode"
+                defaultValue={hallCode ?? ''}
+                maxLength={60}
+                className="mt-1"
+                size="sm"
+                disabled={!canManage}
+              />
+            </div>
+            <div>
+              <Label htmlFor="project-regions">国家 / 地区</Label>
+              <Input
+                id="project-regions"
+                name="countriesRegions"
+                defaultValue={countriesRegions ?? ''}
+                maxLength={100}
+                className="mt-1"
+                size="sm"
+                disabled={!canManage}
+              />
             </div>
           </div>
           {state.error ? (
@@ -86,7 +117,7 @@ export function ProjectSettingsPanel({
           {state.success ? (
             <p className="text-xs text-primary">{state.success}</p>
           ) : null}
-          {isOwner ? (
+          {canManage ? (
             <Button
               type="submit"
               variant="outline"
@@ -97,7 +128,7 @@ export function ProjectSettingsPanel({
             </Button>
           ) : (
             <p className="text-xs text-muted-foreground">
-              只有组织所有者可以修改项目设置。
+              只有所有者或管理员可以修改空间设置。
             </p>
           )}
         </form>

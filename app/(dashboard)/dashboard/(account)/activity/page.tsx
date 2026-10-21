@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertCircle,
+  Archive,
   Building2,
   CheckCircle,
   FolderKanban,
@@ -31,11 +32,13 @@ const iconMap: Record<ActivityType, LucideIcon> = {
   [ActivityType.UPDATE_ACCOUNT]: Settings,
   [ActivityType.CREATE_ORG]: Building2,
   [ActivityType.RENAME_ORG]: Pencil,
-  [ActivityType.DELETE_ORG]: Trash2,
+  [ActivityType.ARCHIVE_ORG]: Archive,
   [ActivityType.REMOVE_ORG_MEMBER]: UserMinus,
+  [ActivityType.UPDATE_MEMBER_ROLE]: UserCog,
   [ActivityType.INVITE_ORG_MEMBER]: Mail,
   [ActivityType.ACCEPT_INVITATION]: CheckCircle,
   [ActivityType.CREATE_PROJECT]: FolderKanban,
+  [ActivityType.UPDATE_PROJECT]: Pencil,
   [ActivityType.DELETE_PROJECT]: Trash2,
 };
 
@@ -70,18 +73,22 @@ function formatAction(action: ActivityType): string {
       return '你创建了组织';
     case ActivityType.RENAME_ORG:
       return '你重命名了组织';
-    case ActivityType.DELETE_ORG:
-      return '你删除了组织';
+    case ActivityType.ARCHIVE_ORG:
+      return '你归档了组织';
     case ActivityType.REMOVE_ORG_MEMBER:
       return '你移除了组织成员';
+    case ActivityType.UPDATE_MEMBER_ROLE:
+      return '你调整了成员角色';
     case ActivityType.INVITE_ORG_MEMBER:
       return '你邀请了组织成员';
     case ActivityType.ACCEPT_INVITATION:
       return '你接受了一个邀请';
     case ActivityType.CREATE_PROJECT:
-      return '你创建了项目';
+      return '你创建了云谱空间';
+    case ActivityType.UPDATE_PROJECT:
+      return '你更新了云谱空间';
     case ActivityType.DELETE_PROJECT:
-      return '你删除了项目';
+      return '你删除了云谱空间';
     default:
       return '发生未知操作';
   }

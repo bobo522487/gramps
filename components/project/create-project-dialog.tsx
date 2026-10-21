@@ -15,33 +15,15 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import type { ActionState } from '@/lib/auth/types';
 import { createProjectAction } from '@/lib/project/actions';
-import { regionLabel } from '@/lib/ui/status';
-
-export const PROJECT_REGIONS = [
-  'us-east-1',
-  'us-west-2',
-  'eu-west-1',
-  'eu-central-1',
-  'ap-northeast-1',
-  'ap-southeast-1',
-  'sa-east-1',
-];
 
 export function CreateProjectDialog({
   orgId,
   open,
   onOpenChange,
 }: {
-  orgId: number;
+  orgId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -64,36 +46,76 @@ export function CreateProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>新建项目</DialogTitle>
+          <DialogTitle>新建云谱空间</DialogTitle>
           <DialogDescription>
-            项目隶属于当前组织，用于承载谱系、谱文与谱书。
+            空间隶属于当前组织，用于承载谱系、谱文与谱书。
           </DialogDescription>
         </DialogHeader>
         <form action={action} noValidate className="space-y-4">
           <input type="hidden" name="orgId" value={orgId} />
           <div>
-            <Label htmlFor="project-name">名称</Label>
+            <Label htmlFor="project-name">空间名称</Label>
             <Input
               id="project-name"
               name="name"
-              placeholder="我的家谱"
+              placeholder="例如：颍川陈氏云谱"
               maxLength={100}
             />
+            {state.fieldErrors?.name ? (
+              <p className="mt-1 text-xs text-destructive">
+                {state.fieldErrors.name}
+              </p>
+            ) : null}
           </div>
-          <div>
-            <Label>区域</Label>
-            <Select name="region" defaultValue="us-east-1">
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder="选择区域" />
-              </SelectTrigger>
-              <SelectContent>
-                {PROJECT_REGIONS.map((region) => (
-                  <SelectItem key={region} value={region}>
-                    {regionLabel(region)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="project-primary-surname">主姓氏</Label>
+              <Input
+                id="project-primary-surname"
+                name="primarySurname"
+                placeholder="陈"
+                maxLength={30}
+              />
+              {state.fieldErrors?.primarySurname ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {state.fieldErrors.primarySurname}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <Label htmlFor="project-primary-name">主姓名</Label>
+              <Input
+                id="project-primary-name"
+                name="primaryName"
+                placeholder="陈寔"
+                maxLength={60}
+              />
+              {state.fieldErrors?.primaryName ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {state.fieldErrors.primaryName}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="project-hall">郡望 / 堂号</Label>
+              <Input
+                id="project-hall"
+                name="hallCode"
+                placeholder="颍川堂"
+                maxLength={60}
+              />
+            </div>
+            <div>
+              <Label htmlFor="project-regions">国家 / 地区</Label>
+              <Input
+                id="project-regions"
+                name="countriesRegions"
+                placeholder="中国福建"
+                maxLength={100}
+              />
+            </div>
           </div>
           {state.error && (
             <p className="text-sm text-destructive">{state.error}</p>
@@ -105,7 +127,7 @@ export function CreateProjectDialog({
               </Button>
             </DialogClose>
             <Button type="submit" variant="brand" disabled={isPending}>
-              {isPending ? '创建中…' : '创建项目'}
+              {isPending ? '创建中…' : '创建空间'}
             </Button>
           </DialogFooter>
         </form>

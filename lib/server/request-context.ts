@@ -7,8 +7,8 @@ export type RequestLogContext = {
   request_id?: string;
   method?: string;
   path?: string;
-  user_id?: number;
-  org_id?: number;
+  user_id?: string;
+  org_id?: string;
   duration_ms?: number;
 };
 

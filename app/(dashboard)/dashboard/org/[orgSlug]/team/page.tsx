@@ -5,6 +5,7 @@ import type { MemberView } from '@/components/org/members-panel';
 import { MembersPanel } from '@/components/org/members-panel';
 import { Badge } from '@/components/ui/badge';
 import { requireOrgContext } from '@/lib/auth/context';
+import { hasPermission } from '@/lib/auth/permissions';
 import { getOrgWithMembersById } from '@/lib/db/queries/organizations';
 
 export default async function OrgTeamPage({
@@ -14,17 +15,20 @@ export default async function OrgTeamPage({
 }) {
   const { orgSlug } = await params;
   const context = await requireOrgContext(orgSlug);
-  const org = await getOrgWithMembersById(context.organization.id);
+  const org = await getOrgWithMembersById(
+    context.user.id,
+    context.organization.id
+  );
   if (!org) {
     notFound();
   }
 
-  const members: MemberView[] = org.orgMembers.map((member) => ({
+  const members: MemberView[] = org.members.map((member) => ({
     id: member.id,
-    name: member.user.name,
-    email: member.user.email,
+    name: member.name,
+    email: member.email,
     role: member.role,
-    joinedAt: member.joinedAt.toISOString().slice(0, 10),
+    joinedAt: member.createdAt.toISOString().slice(0, 10),
   }));
 
   return (
@@ -38,7 +42,9 @@ export default async function OrgTeamPage({
       <MembersPanel
         orgId={context.organization.id}
         members={members}
-        isOwner={context.role === 'owner'}
+        canInvite={hasPermission(context.role, 'member.invite')}
+        canManage={hasPermission(context.role, 'member.manage')}
+        canManageAdmins={context.role === 'owner'}
       />
     </section>
   );

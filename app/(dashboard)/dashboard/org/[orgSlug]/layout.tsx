@@ -12,12 +12,11 @@ export default async function OrgWorkspaceLayout({
 }) {
   const { orgSlug } = await params;
   const context = await requireOrgContext(orgSlug);
-  const projects = await getProjects(context.organization.id);
+  const projects = await getProjects(context.user.id, context.organization.id);
   const projectFallback = projects.map((project) => ({
     id: project.id,
     name: project.name,
     ref: project.ref,
-    status: project.status,
   }));
 
   return (

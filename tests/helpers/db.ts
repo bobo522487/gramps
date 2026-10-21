@@ -58,7 +58,20 @@ export function getTestDb() {
 
 export async function resetDatabase() {
   await getTestSql().unsafe(
-    'TRUNCATE TABLE activity_logs, invitations, org_members, projects, organizations, users RESTART IDENTITY CASCADE'
+    `TRUNCATE TABLE
+       activity_logs,
+       book_catalog,
+       book,
+       article,
+       node,
+       lineage,
+       folder,
+       project,
+       invite,
+       organization_member,
+       organization,
+       auth.users
+     RESTART IDENTITY CASCADE`
   );
 }
 

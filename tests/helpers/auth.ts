@@ -1,7 +1,7 @@
 export const TEST_AUTH_SECRET =
   'integration-test-secret-value-long-enough-for-hs256';
 
-export async function signSessionFor(userId: number, tokenVersion?: number) {
+export async function signSessionFor(userId: string, tokenVersion?: number) {
   // Loaded lazily: the setup file imports this module before per-file
   // `next/headers` mocks are registered.
   const { signToken } = await import('@/lib/auth/session');

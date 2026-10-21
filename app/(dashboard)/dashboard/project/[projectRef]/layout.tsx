@@ -12,13 +12,12 @@ export default async function ProjectLayout({
 }) {
   const { projectRef } = await params;
   const context = await requireProjectContext(projectRef);
-  const projects = await getProjects(context.organization.id);
+  const projects = await getProjects(context.user.id, context.organization.id);
 
   const projectFallback = projects.map((project) => ({
     id: project.id,
     name: project.name,
     ref: project.ref,
-    status: project.status,
   }));
 
   return (

@@ -3,7 +3,6 @@ import 'server-only';
 import { compare, hash } from 'bcryptjs';
 import { jwtVerify, SignJWT } from 'jose';
 import { cookies } from 'next/headers';
-import type { NewUser } from '@/lib/db/schema';
 
 let cachedKey: Uint8Array | null = null;
 
@@ -32,7 +31,7 @@ export async function comparePasswords(
 }
 
 type SessionData = {
-  user: { id: number };
+  user: { id: string };
   /** Session token version; matched against users.token_version for revocation */
   tv?: number;
   expires: string;
@@ -58,10 +57,10 @@ export async function verifySessionToken(input: string) {
   });
 }
 
-export async function setSession(user: NewUser) {
+export async function setSession(user: { id: string; tokenVersion?: number }) {
   const expiresInOneDay = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const session: SessionData = {
-    user: { id: user.id! },
+    user: { id: user.id },
     tv: user.tokenVersion ?? 0,
     expires: expiresInOneDay.toISOString(),
   };

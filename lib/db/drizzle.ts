@@ -2,6 +2,7 @@ import 'server-only';
 
 import { attachDatabasePool } from '@vercel/functions';
 import dotenv from 'dotenv';
+import { type SQL, sql } from 'drizzle-orm';
 import { drizzle as drizzleNodePg } from 'drizzle-orm/node-postgres';
 import {
   drizzle as drizzlePostgres,
@@ -58,4 +59,44 @@ export async function closeDb() {
   }
   await instance.$client.end();
   instance = null;
+}
+
+export type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * Runs business queries as app_rw with the current user's claims so RLS is
+ * enforced. SET LOCAL is required: a session-level SET would leak the role
+ * and claims into the next request that borrows the pooled connection.
+ */
+export async function withOrg<T>(
+  userId: string,
+  fn: (tx: DbTransaction) => Promise<T>
+): Promise<T> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`set local role app_rw`);
+    await tx.execute(
+      sql`select set_config('request.jwt.claims', ${JSON.stringify({
+        sub: userId,
+        role: 'authenticated',
+      })}, true)`
+    );
+    return fn(tx);
+  });
+}
+
+type Executor = { execute: (query: SQL) => Promise<unknown> };
+
+/**
+ * Normalizes raw SQL results across postgres.js (array) and node-postgres
+ * ({ rows }) so auth functions work in both local/CI and Vercel.
+ */
+export async function queryRows<T>(
+  executor: Executor,
+  query: SQL
+): Promise<T[]> {
+  const result = await executor.execute(query);
+  if (Array.isArray(result)) {
+    return result as T[];
+  }
+  return (result as { rows: T[] }).rows;
 }

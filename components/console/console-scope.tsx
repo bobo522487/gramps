@@ -5,8 +5,8 @@ import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
 
 export type ConsoleScope = {
-  org: { id: number; name: string; slug: string; role: string };
-  project?: { id: number; name: string; ref: string };
+  org: { id: string; name: string; slug: string; role: string };
+  project?: { id: string; name: string; ref: string };
 };
 
 const ConsoleScopeContext = createContext<ConsoleScope | null>(null);
@@ -30,24 +30,23 @@ export function useConsoleScope() {
 }
 
 export type ConsoleOrg = {
-  id: number;
+  id: string;
   name: string;
   slug: string;
   role: string;
 };
 
 export type ConsoleProject = {
-  id: number;
+  id: string;
   name: string;
   ref: string;
-  status: string;
 };
 
 export function useConsoleOrgs() {
   return useSWR<ConsoleOrg[]>('/api/orgs', fetcher);
 }
 
-export function useConsoleProjects(orgId: number | null) {
+export function useConsoleProjects(orgId: string | null) {
   return useSWR<ConsoleProject[]>(
     orgId ? `/api/orgs/${orgId}/projects` : null,
     fetcher

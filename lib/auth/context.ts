@@ -1,15 +1,14 @@
 import 'server-only';
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
 import type { OrgRole } from '@/lib/auth/permissions';
+import { isOrgRole } from '@/lib/auth/permissions';
 import { verifyToken } from '@/lib/auth/session';
-import { db } from '@/lib/db/drizzle';
 import { getOrgWithRoleBySlug } from '@/lib/db/queries/organizations';
 import { getProjectScopeByRef } from '@/lib/db/queries/projects';
-import { users } from '@/lib/db/schema';
+import { getSessionUserById } from '@/lib/db/queries/users';
 import { isPublicId } from '@/lib/ids';
 import { addLogContext } from '@/lib/server/request-context';
 
@@ -21,7 +20,11 @@ export const getSessionUser = cache(async () => {
   }
 
   const sessionData = await verifyToken(sessionCookie.value);
-  if (!sessionData?.user || typeof sessionData.user.id !== 'number') {
+  if (
+    !sessionData?.user ||
+    typeof sessionData.user.id !== 'string' ||
+    !sessionData.user.id
+  ) {
     return null;
   }
 
@@ -29,26 +32,18 @@ export const getSessionUser = cache(async () => {
     return null;
   }
 
-  const rows = await db
-    .select({
-      user: users,
-      tokenVersion: sql<number>`coalesce(${users.tokenVersion}, 0)`,
-    })
-    .from(users)
-    .where(and(eq(users.id, sessionData.user.id), isNull(users.deletedAt)))
-    .limit(1);
-
-  if (rows.length === 0) {
+  const user = await getSessionUserById(sessionData.user.id);
+  if (!user || user.deletedAt) {
     return null;
   }
 
-  // Tokens issued before tokenVersion existed are treated as version 0
-  if ((sessionData.tv ?? 0) !== rows[0].tokenVersion) {
+  // Tokens issued before tokenVersion existed are treated as version 0.
+  if ((sessionData.tv ?? 0) !== user.tokenVersion) {
     return null;
   }
 
-  addLogContext({ user_id: rows[0].user.id });
-  return rows[0].user;
+  addLogContext({ user_id: user.id });
+  return user;
 });
 
 export async function requireUser() {
@@ -70,7 +65,7 @@ export const getOrgContext = cache(async (orgSlug: string) => {
   }
 
   const scope = await getOrgWithRoleBySlug(user.id, orgSlug);
-  if (!scope) {
+  if (!scope || !isOrgRole(scope.role)) {
     return null;
   }
 
@@ -110,7 +105,7 @@ export const getProjectContext = cache(async (projectRef: string) => {
   }
 
   const scope = await getProjectScopeByRef(user.id, projectRef);
-  if (!scope) {
+  if (!scope || !isOrgRole(scope.role)) {
     return null;
   }
 

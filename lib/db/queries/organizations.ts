@@ -1,133 +1,167 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
-import { db } from '../drizzle';
-import type { Organization, OrgDataWithMembers } from '../schema';
-import {
-  activityLogs,
-  invitations,
-  organizations,
-  orgMembers,
-  users,
-} from '../schema';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { queryRows, withOrg } from '../drizzle';
+import type { Organization } from '../schema';
+import { organizations, orgMembers } from '../schema';
+
+export type OrgMemberRecord = {
+  id: string;
+  userId: string;
+  role: string;
+  createdAt: Date;
+  name: string | null;
+  email: string;
+};
+
+export type OrgWithMembers = Organization & {
+  members: OrgMemberRecord[];
+};
 
 /** All organizations the user belongs to, with their role in each. */
-export async function getOrgsForUser(userId: number) {
-  return await db
-    .select({
-      organization: organizations,
-      role: orgMembers.role,
-    })
-    .from(orgMembers)
-    .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
-    .where(eq(orgMembers.userId, userId))
-    .orderBy(organizations.id);
+export async function getOrgsForUser(userId: string) {
+  return withOrg(userId, (tx) =>
+    tx
+      .select({
+        organization: organizations,
+        role: orgMembers.role,
+      })
+      .from(orgMembers)
+      .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
+      .where(
+        and(
+          eq(orgMembers.userId, userId),
+          isNull(orgMembers.deletedAt),
+          isNull(organizations.deletedAt)
+        )
+      )
+      .orderBy(organizations.createdAt)
+  );
 }
 
-export async function getOrgWithMembersById(
-  orgId: number
-): Promise<OrgDataWithMembers | null> {
-  const org = await getOrgById(orgId);
-  if (!org) {
-    return null;
-  }
-
-  const members = await db
-    .select({
-      id: orgMembers.id,
-      userId: orgMembers.userId,
-      role: orgMembers.role,
-      joinedAt: orgMembers.joinedAt,
-      orgId: orgMembers.orgId,
-      user: {
-        id: users.id,
-        name: users.name,
-        email: users.email,
-      },
-    })
-    .from(orgMembers)
-    .innerJoin(users, eq(orgMembers.userId, users.id))
-    .where(and(eq(orgMembers.orgId, org.id), isNull(users.deletedAt)));
-
-  return { ...org, orgMembers: members };
-}
-
-export async function getOrgById(orgId: number): Promise<Organization | null> {
-  const rows = await db
-    .select()
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1);
-  return rows[0] ?? null;
+export async function getOrgById(
+  userId: string,
+  orgId: string
+): Promise<Organization | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(organizations)
+      .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)))
+      .limit(1);
+    return rows[0] ?? null;
+  });
 }
 
 /** Resolves the org and the user's role in one membership-scoped lookup. */
-export async function getOrgWithRoleBySlug(userId: number, slug: string) {
-  const rows = await db
-    .select({
-      organization: organizations,
-      role: orgMembers.role,
-    })
-    .from(organizations)
-    .innerJoin(
-      orgMembers,
-      and(eq(orgMembers.orgId, organizations.id), eq(orgMembers.userId, userId))
-    )
-    .where(eq(organizations.slug, slug))
-    .limit(1);
+export async function getOrgWithRoleBySlug(userId: string, slug: string) {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({
+        organization: organizations,
+        role: orgMembers.role,
+      })
+      .from(organizations)
+      .innerJoin(
+        orgMembers,
+        and(
+          eq(orgMembers.orgId, organizations.id),
+          eq(orgMembers.userId, userId),
+          isNull(orgMembers.deletedAt)
+        )
+      )
+      .where(and(eq(organizations.slug, slug), isNull(organizations.deletedAt)))
+      .limit(1);
 
-  return rows[0] ?? null;
+    return rows[0] ?? null;
+  });
 }
 
-/** Single-row role lookup; do not fetch every organization to find one role. */
-export async function getOrgRoleForUser(
-  userId: number,
-  orgId: number
-): Promise<string | null> {
-  const rows = await db
-    .select({ role: orgMembers.role })
-    .from(orgMembers)
-    .where(and(eq(orgMembers.userId, userId), eq(orgMembers.orgId, orgId)))
-    .limit(1);
+/**
+ * Member names and emails live in auth.users, which app_rw cannot read
+ * directly; the SECURITY DEFINER function returns only this org's members.
+ */
+export async function getOrgWithMembersById(
+  userId: string,
+  orgId: string
+): Promise<OrgWithMembers | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(organizations)
+      .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)))
+      .limit(1);
+    const org = rows[0];
+    if (!org) {
+      return null;
+    }
 
-  return rows[0]?.role ?? null;
+    const members = await queryRows<{
+      id: string;
+      userId: string;
+      role: string;
+      createdAt: Date;
+      name: string | null;
+      email: string;
+    }>(tx, sql`select * from auth.list_org_members(${orgId}::uuid)`);
+
+    return {
+      ...org,
+      members: members.map((member) => ({
+        id: member.id,
+        userId: member.userId,
+        role: member.role,
+        createdAt: member.createdAt,
+        name: member.name,
+        email: member.email,
+      })),
+    };
+  });
 }
 
-export async function renameOrg(orgId: number, name: string) {
-  const rows = await db
-    .update(organizations)
-    .set({ name, updatedAt: new Date() })
-    .where(eq(organizations.id, orgId))
-    .returning();
-  return rows[0] ?? null;
+export async function renameOrg(
+  userId: string,
+  orgId: string,
+  name: string
+): Promise<Organization | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .update(organizations)
+      .set({ name })
+      .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)))
+      .returning();
+    return rows[0] ?? null;
+  });
 }
 
-/** Deleting the org cascades to projects via FKs. */
-export async function deleteOrg(orgId: number) {
-  await db.transaction(async (tx) => {
-    await tx.delete(orgMembers).where(eq(orgMembers.orgId, orgId));
-    await tx.delete(invitations).where(eq(invitations.orgId, orgId));
-    await tx.delete(activityLogs).where(eq(activityLogs.orgId, orgId));
-    await tx.delete(organizations).where(eq(organizations.id, orgId));
+/**
+ * Soft delete: app_rw has no DELETE grant. The org disappears from every
+ * navigation entry; content rows stay for a future restore/export flow.
+ */
+export async function archiveOrg(
+  userId: string,
+  orgId: string
+): Promise<Organization | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .update(organizations)
+      .set({ status: 'closed', deletedAt: new Date() })
+      .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)))
+      .returning();
+    return rows[0] ?? null;
   });
 }
 
 export async function isUserInOrgByEmail(
+  userId: string,
   email: string,
-  orgId: number
+  orgId: string
 ): Promise<boolean> {
-  const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .innerJoin(orgMembers, eq(users.id, orgMembers.userId))
-    .where(
-      and(
-        eq(users.email, email),
-        eq(orgMembers.orgId, orgId),
-        isNull(users.deletedAt)
-      )
-    )
-    .limit(1);
-
-  return rows.length > 0;
+  return withOrg(userId, async (tx) => {
+    const rows = await queryRows<{ found: boolean }>(
+      tx,
+      sql`select auth.is_user_in_org_by_email(${email}, ${orgId}::uuid) as found`
+    );
+    return rows[0]?.found ?? false;
+  });
 }

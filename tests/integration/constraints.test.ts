@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { deleteOrg } from '@/lib/db/queries/organizations';
 import {
   ActivityType,
   activityLogs,
+  folders,
   invitations,
   orgMembers,
-  projects,
+  users,
 } from '@/lib/db/schema';
-import { getTestDb } from '../helpers/db';
+import { getTestDb, getTestSql } from '../helpers/db';
 import {
   addMember,
   createInvitation,
@@ -18,12 +18,25 @@ import {
 } from '../helpers/factories';
 
 describe('database constraints', () => {
-  it('rejects duplicate user emails', async () => {
+  it('rejects duplicate user emails case-insensitively', async () => {
     const user = await createUser();
 
-    await expect(createUser({ email: user.email })).rejects.toMatchObject({
-      code: '23505',
-    });
+    await expect(
+      createUser({ email: user.email.toUpperCase() })
+    ).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it('allows reusing an email after the account is soft-deleted', async () => {
+    const user = await createUser({ email: 'reuse@example.com' });
+
+    await getTestDb()
+      .update(users)
+      .set({ deletedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    await expect(
+      createUser({ email: 'reuse@example.com' })
+    ).resolves.toBeDefined();
   });
 
   it('rejects duplicate organization slugs', async () => {
@@ -35,61 +48,107 @@ describe('database constraints', () => {
   });
 
   it('rejects project refs shared across organizations', async () => {
+    const owner = await createUser();
     const firstOrg = await createOrganization();
     const secondOrg = await createOrganization();
-    const project = await createProject({ orgId: firstOrg.id });
+    const project = await createProject({
+      orgId: firstOrg.id,
+      createdBy: owner.id,
+    });
 
     await expect(
-      createProject({ orgId: secondOrg.id, ref: project.ref })
-    ).rejects.toMatchObject({ code: '23505' });
-  });
-
-  it('rejects project slugs duplicated inside one organization', async () => {
-    const organization = await createOrganization();
-    const project = await createProject({ orgId: organization.id });
-
-    await expect(
-      createProject({ orgId: organization.id, slug: project.slug })
+      createProject({
+        orgId: secondOrg.id,
+        createdBy: owner.id,
+        ref: project.ref,
+      })
     ).rejects.toMatchObject({ code: '23505' });
   });
 
   it('rejects a project whose organization does not exist', async () => {
-    await expect(createProject({ orgId: 999_999 })).rejects.toMatchObject({
-      code: '23503',
-    });
+    const owner = await createUser();
+
+    await expect(
+      createProject({
+        orgId: '00000000-0000-0000-0000-000000000000',
+        createdBy: owner.id,
+      })
+    ).rejects.toMatchObject({ code: '23503' });
   });
 
-  it('cascades project deletion when the organization is deleted', async () => {
-    const organization = await createOrganization();
-    const project = await createProject({ orgId: organization.id });
-
-    await deleteOrg(organization.id);
-
-    const rows = await getTestDb()
-      .select()
-      .from(projects)
-      .where(eq(projects.id, project.id));
-    expect(rows).toHaveLength(0);
-  });
-
-  it('rejects duplicate memberships in one organization', async () => {
+  it('rejects duplicate active memberships', async () => {
     const user = await createUser();
     const organization = await createOrganization();
     await addMember({ userId: user.id, orgId: organization.id });
 
     await expect(
-      addMember({ userId: user.id, orgId: organization.id })
+      addMember({ userId: user.id, orgId: organization.id, role: 'editor' })
     ).rejects.toMatchObject({ code: '23505' });
   });
 
-  it('rejects a role outside owner/member', async () => {
+  it('allows re-adding a member after the previous membership is removed', async () => {
+    const user = await createUser();
+    const organization = await createOrganization();
+    const membership = await addMember({
+      userId: user.id,
+      orgId: organization.id,
+    });
+
+    await getTestDb()
+      .update(orgMembers)
+      .set({ deletedAt: new Date() })
+      .where(eq(orgMembers.id, membership.id));
+
+    await expect(
+      addMember({ userId: user.id, orgId: organization.id, role: 'editor' })
+    ).resolves.toBeDefined();
+  });
+
+  it('rejects a role outside owner/admin/editor/viewer', async () => {
     const user = await createUser();
     const organization = await createOrganization();
 
     await expect(
       getTestDb()
         .insert(orgMembers)
-        .values({ userId: user.id, orgId: organization.id, role: 'admin' })
+        .values({ userId: user.id, orgId: organization.id, role: 'member' })
+    ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('allows only one active owner per organization', async () => {
+    const first = await createUser();
+    const second = await createUser();
+    const organization = await createOrganization();
+    await addMember({
+      userId: first.id,
+      orgId: organization.id,
+      role: 'owner',
+    });
+
+    await expect(
+      addMember({
+        userId: second.id,
+        orgId: organization.id,
+        role: 'owner',
+      })
+    ).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it('rejects an owner-role invitation', async () => {
+    const owner = await createUser();
+    const organization = await createOrganization();
+
+    await expect(
+      getTestDb()
+        .insert(invitations)
+        .values({
+          orgId: organization.id,
+          email: 'owner@example.com',
+          role: 'owner',
+          tokenHash: 'f'.repeat(64),
+          expiresAt: new Date(Date.now() + 86_400_000),
+          createdBy: owner.id,
+        })
     ).rejects.toMatchObject({ code: '23514' });
   });
 
@@ -122,7 +181,7 @@ describe('database constraints', () => {
 
     await getTestDb()
       .update(invitations)
-      .set({ status: 'accepted' })
+      .set({ acceptedAt: new Date(), acceptedBy: invitedBy.id })
       .where(eq(invitations.id, first.id));
 
     await expect(
@@ -134,18 +193,47 @@ describe('database constraints', () => {
     ).resolves.toBeDefined();
   });
 
-  it('rejects an unknown project status', async () => {
+  it('allows a new invitation after the previous one is revoked', async () => {
+    const invitedBy = await createUser();
     const organization = await createOrganization();
+    const first = await createInvitation({
+      orgId: organization.id,
+      invitedBy: invitedBy.id,
+      email: 'revoked@example.com',
+    });
+
+    await getTestDb()
+      .update(invitations)
+      .set({ deletedAt: new Date() })
+      .where(eq(invitations.id, first.id));
 
     await expect(
-      getTestDb().insert(projects).values({
+      createInvitation({
         orgId: organization.id,
-        name: '非法状态',
-        slug: 'invalid-status',
-        ref: 'invalidstatus0000001',
-        status: 'BROKEN',
+        invitedBy: invitedBy.id,
+        email: 'revoked@example.com',
       })
-    ).rejects.toMatchObject({ code: '23514' });
+    ).resolves.toBeDefined();
+  });
+
+  it('rejects cross-organization references through composite foreign keys', async () => {
+    const owner = await createUser();
+    const projectOrg = await createOrganization();
+    const otherOrg = await createOrganization();
+    const project = await createProject({
+      orgId: projectOrg.id,
+      createdBy: owner.id,
+    });
+
+    await expect(
+      getTestDb().insert(folders).values({
+        orgId: otherOrg.id,
+        projectId: project.id,
+        kind: 0,
+        name: '跨组织文件夹',
+        createdBy: owner.id,
+      })
+    ).rejects.toMatchObject({ code: '23503' });
   });
 
   it('allows account-level activity rows without an organization', async () => {
@@ -162,5 +250,17 @@ describe('database constraints', () => {
 
     expect(log.orgId).toBeNull();
     expect(log.userId).toBe(user.id);
+  });
+
+  it('requires project primary fields', async () => {
+    const owner = await createUser();
+    const organization = await createOrganization();
+
+    await expect(
+      getTestSql()`
+        insert into project (organization_id, name, created_by)
+        values (${organization.id}::uuid, '缺少主姓名', ${owner.id}::uuid)
+      `
+    ).rejects.toMatchObject({ code: '23502' });
   });
 });

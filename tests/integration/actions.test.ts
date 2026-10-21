@@ -1,6 +1,10 @@
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { deleteAccount, updateAccount } from '@/lib/auth/actions/account';
+import {
+  deleteAccount,
+  updateAccount,
+  updatePassword,
+} from '@/lib/auth/actions/account';
 import { signOut, signUp } from '@/lib/auth/actions/session';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
 import {
@@ -10,14 +14,16 @@ import {
   orgMembers,
   users,
 } from '@/lib/db/schema';
-import { removeOrgMember } from '@/lib/org/actions';
+import { archiveOrganization } from '@/lib/db/services';
+import { createOrgAction, removeOrgMember } from '@/lib/org/actions';
 import { signSessionFor } from '../helpers/auth';
-import { getTestDb } from '../helpers/db';
+import { getTestDb, getTestSql } from '../helpers/db';
 import {
   addMember,
   createInvitation,
   createOrganization,
   createUser,
+  getPersonalOrg,
   TEST_PASSWORD,
 } from '../helpers/factories';
 
@@ -64,11 +70,18 @@ function form(fields: Record<string, string>) {
   return data;
 }
 
-async function authenticate(user: { id: number; tokenVersion: number }) {
+async function authenticate(user: { id: string; tokenVersion: number }) {
   sessionStore.values.set(
     'session',
     await signSessionFor(user.id, user.tokenVersion)
   );
+}
+
+async function countUsers() {
+  const rows = await getTestSql()<{ count: number }[]>`
+    SELECT count(*)::int AS count FROM auth.users
+  `;
+  return rows[0]?.count ?? 0;
 }
 
 beforeEach(() => {
@@ -106,18 +119,18 @@ describe('signUp action', () => {
     expect(memberships[0].role).toBe('owner');
   });
 
-  it('leaves no user when the invitation id is invalid', async () => {
+  it('leaves no user when the invitation token is invalid', async () => {
     const result = await signUp(
       {},
       form({
         email: 'ghost@example.com',
         password: 'sign-up-password',
-        inviteId: '999999',
+        invite: 'not-a-real-token',
       })
     );
 
     expect(result).toMatchObject({ error: '邀请无效或已过期。' });
-    expect(await getTestDb().select().from(users)).toHaveLength(0);
+    expect(await countUsers()).toBe(0);
   });
 
   it('joins the invited organization and accepts the invitation', async () => {
@@ -132,7 +145,7 @@ describe('signUp action', () => {
       orgId: organization.id,
       invitedBy: owner.id,
       email: 'invitee@example.com',
-      role: 'member',
+      role: 'editor',
     });
 
     await signUp(
@@ -140,7 +153,7 @@ describe('signUp action', () => {
       form({
         email: 'invitee@example.com',
         password: 'sign-up-password',
-        inviteId: String(invitation.id),
+        invite: invitation.token,
       })
     );
 
@@ -149,19 +162,21 @@ describe('signUp action', () => {
       .select()
       .from(users)
       .where(eq(users.email, 'invitee@example.com'));
-    const [membership] = await db
+    const memberships = await db
       .select()
       .from(orgMembers)
       .where(eq(orgMembers.userId, user.id));
 
-    expect(membership.orgId).toBe(organization.id);
-    expect(membership.role).toBe('member');
+    expect(memberships).toHaveLength(2);
+    expect(memberships.find((row) => row.orgId === organization.id)?.role).toBe(
+      'editor'
+    );
 
     const [accepted] = await db
       .select()
       .from(invitations)
       .where(eq(invitations.id, invitation.id));
-    expect(accepted.status).toBe('accepted');
+    expect(accepted.acceptedAt).not.toBeNull();
   });
 
   it('rejects a duplicate email without creating a second account', async () => {
@@ -172,8 +187,10 @@ describe('signUp action', () => {
       form({ email: 'taken@example.com', password: 'sign-up-password' })
     );
 
-    expect(result).toMatchObject({ error: '创建账号失败，请重试。' });
-    expect(await getTestDb().select().from(users)).toHaveLength(1);
+    expect(result).toMatchObject({
+      error: '该邮箱已被注册，请直接登录。',
+    });
+    expect(await countUsers()).toBe(1);
   });
 });
 
@@ -261,6 +278,8 @@ describe('updateAccount action', () => {
       success: '账号信息已更新。',
       email: 'new@example.com',
     });
+    expect(result).not.toHaveProperty('password');
+    expect(result).not.toHaveProperty('currentPassword');
 
     const [updated] = await getTestDb()
       .select()
@@ -268,6 +287,14 @@ describe('updateAccount action', () => {
       .where(eq(users.id, user.id));
     expect(updated.email).toBe('new@example.com');
     expect(updated.name).toBe('新名字');
+
+    const logs = await getTestDb()
+      .select()
+      .from(activityLogs)
+      .where(eq(activityLogs.userId, user.id));
+    expect(logs.map((log) => log.action)).toContain(
+      ActivityType.UPDATE_ACCOUNT
+    );
   });
 
   it('returns a field error instead of throwing on a duplicate email', async () => {
@@ -310,11 +337,61 @@ describe('updateAccount action', () => {
   });
 });
 
-describe('deleteAccount action', () => {
-  it('refuses to delete the only owner of an organization', async () => {
+describe('updatePassword action', () => {
+  it('bumps the token version, re-signs the device and logs the change', async () => {
     const user = await createUser();
-    const organization = await createOrganization({ name: '陈家宗族' });
-    await addMember({ userId: user.id, orgId: organization.id, role: 'owner' });
+    await authenticate(user);
+
+    const result = await updatePassword(
+      {},
+      form({
+        currentPassword: TEST_PASSWORD,
+        newPassword: 'a-brand-new-password',
+        confirmPassword: 'a-brand-new-password',
+      })
+    );
+
+    expect(result).toMatchObject({ success: '密码已更新。' });
+    expect(sessionStore.sets).toBe(1);
+
+    const [updated] = await getTestDb()
+      .select()
+      .from(users)
+      .where(eq(users.id, user.id));
+    expect(updated.tokenVersion).toBe(user.tokenVersion + 1);
+    expect(updated.passwordHash).not.toBe(user.passwordHash);
+
+    const logs = await getTestDb()
+      .select()
+      .from(activityLogs)
+      .where(eq(activityLogs.userId, user.id));
+    expect(logs.map((log) => log.action)).toContain(
+      ActivityType.UPDATE_PASSWORD
+    );
+  });
+
+  it('rejects a wrong current password without touching the session', async () => {
+    const user = await createUser();
+    await authenticate(user);
+
+    const result = await updatePassword(
+      {},
+      form({
+        currentPassword: 'wrong-password',
+        newPassword: 'a-brand-new-password',
+        confirmPassword: 'a-brand-new-password',
+      })
+    );
+
+    expect(result).toMatchObject({ error: '当前密码不正确。' });
+    expect(sessionStore.sets).toBe(0);
+  });
+});
+
+describe('deleteAccount action', () => {
+  it('refuses to delete the only owner of an active organization', async () => {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
     await authenticate(user);
 
     const result = await deleteAccount({}, form({ password: TEST_PASSWORD }));
@@ -329,14 +406,28 @@ describe('deleteAccount action', () => {
       .from(users)
       .where(eq(users.id, user.id));
     expect(unchanged.deletedAt).toBeNull();
+    expect(personal?.organization.name).toContain('test-');
   });
 
   it('removes every membership and revokes the session on success', async () => {
     const user = await createUser();
-    const firstOrg = await createOrganization();
-    const secondOrg = await createOrganization();
-    await addMember({ userId: user.id, orgId: firstOrg.id, role: 'member' });
-    await addMember({ userId: user.id, orgId: secondOrg.id, role: 'member' });
+    const personal = await getPersonalOrg(user.id);
+    await archiveOrganization({
+      userId: user.id,
+      orgId: personal?.organization.id as string,
+    });
+    const otherOwner = await createUser();
+    const organization = await createOrganization();
+    await addMember({
+      userId: otherOwner.id,
+      orgId: organization.id,
+      role: 'owner',
+    });
+    await addMember({
+      userId: user.id,
+      orgId: organization.id,
+      role: 'viewer',
+    });
     await authenticate(user);
 
     const result = await deleteAccount({}, form({ password: TEST_PASSWORD }));
@@ -346,9 +437,12 @@ describe('deleteAccount action', () => {
     expect(sessionStore.redirects).toContain('/sign-in');
 
     const db = getTestDb();
-    expect(
-      await db.select().from(orgMembers).where(eq(orgMembers.userId, user.id))
-    ).toHaveLength(0);
+    const memberships = await db
+      .select()
+      .from(orgMembers)
+      .where(eq(orgMembers.userId, user.id));
+    expect(memberships).toHaveLength(2);
+    expect(memberships.every((row) => row.deletedAt !== null)).toBe(true);
 
     const [deleted] = await db
       .select()
@@ -365,50 +459,75 @@ describe('deleteAccount action', () => {
       true
     );
   });
+
+  it('rejects a wrong password', async () => {
+    const user = await createUser();
+    await authenticate(user);
+
+    const result = await deleteAccount(
+      {},
+      form({ password: 'wrong-password' })
+    );
+
+    expect(result).toMatchObject({
+      error: '密码不正确，账号删除失败。',
+    });
+    expect(sessionStore.deletes).not.toContain('session');
+  });
 });
 
-describe('removeOrgMember action', () => {
-  it('rejects an actor who is not an owner', async () => {
+describe('org actions', () => {
+  it('creates an organization for the signed-in owner', async () => {
+    const user = await createUser();
+    await authenticate(user);
+
+    const result = await createOrgAction({}, form({ name: '颍川陈氏' }));
+
+    expect(result).toMatchObject({
+      success: '组织已创建',
+      orgSlug: expect.any(String),
+    });
+  });
+
+  it('rejects an actor without member.manage', async () => {
     const actor = await createUser();
     const target = await createUser();
     const organization = await createOrganization();
     await addMember({
       userId: actor.id,
       orgId: organization.id,
-      role: 'member',
+      role: 'viewer',
     });
     const targetMembership = await addMember({
       userId: target.id,
       orgId: organization.id,
+      role: 'editor',
     });
     await authenticate(actor);
 
     const result = await removeOrgMember(
       {},
       form({
-        orgId: String(organization.id),
-        memberId: String(targetMembership.id),
+        orgId: organization.id,
+        memberId: targetMembership.id,
       })
     );
 
-    expect(result).toMatchObject({ error: '只有所有者可以移除组织成员' });
+    expect(result).toMatchObject({
+      error: '只有所有者或管理员可以移除成员',
+    });
   });
 
   it('rejects self-removal by an owner', async () => {
     const owner = await createUser();
-    const organization = await createOrganization();
-    const membership = await addMember({
-      userId: owner.id,
-      orgId: organization.id,
-      role: 'owner',
-    });
+    const personal = await getPersonalOrg(owner.id);
     await authenticate(owner);
 
     const result = await removeOrgMember(
       {},
       form({
-        orgId: String(organization.id),
-        memberId: String(membership.id),
+        orgId: personal?.organization.id as string,
+        memberId: personal?.membership.id as string,
       })
     );
 
@@ -429,23 +548,24 @@ describe('removeOrgMember action', () => {
     const targetMembership = await addMember({
       userId: target.id,
       orgId: organization.id,
+      role: 'viewer',
     });
     await authenticate(owner);
 
     const result = await removeOrgMember(
       {},
       form({
-        orgId: String(organization.id),
-        memberId: String(targetMembership.id),
+        orgId: organization.id,
+        memberId: targetMembership.id,
       })
     );
 
     expect(result).toMatchObject({ success: '已移除组织成员' });
 
-    const remaining = await getTestDb()
+    const [removed] = await getTestDb()
       .select()
       .from(orgMembers)
-      .where(eq(orgMembers.orgId, organization.id));
-    expect(remaining.map((row) => row.id)).not.toContain(targetMembership.id);
+      .where(eq(orgMembers.id, targetMembership.id));
+    expect(removed.deletedAt).not.toBeNull();
   });
 });

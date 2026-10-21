@@ -18,11 +18,13 @@ describe('request log context', () => {
     await runWithRequestContext({ request_id: 'req-1' }, async () => {
       expect(getRequestContext()?.request_id).toBe('req-1');
 
-      addLogContext({ user_id: 7, org_id: 3 });
+      const userId = '0190a5b0-0000-7000-8000-000000000007';
+      const orgId = '0190a5b0-0000-7000-8000-000000000003';
+      addLogContext({ user_id: userId, org_id: orgId });
       expect(getRequestContext()).toMatchObject({
         request_id: 'req-1',
-        user_id: 7,
-        org_id: 3,
+        user_id: userId,
+        org_id: orgId,
       });
     });
 
@@ -34,7 +36,7 @@ describe('request log context', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await runWithRequestContext({ request_id: 'req-2' }, async () => {
-      addLogContext({ user_id: 9 });
+      addLogContext({ user_id: '0190a5b0-0000-7000-8000-000000000009' });
       logger.info('hello');
     });
 
@@ -42,7 +44,7 @@ describe('request log context', () => {
     expect(JSON.parse(log.mock.calls[0][0] as string)).toMatchObject({
       message: 'hello',
       request_id: 'req-2',
-      user_id: 9,
+      user_id: '0190a5b0-0000-7000-8000-000000000009',
     });
   });
 

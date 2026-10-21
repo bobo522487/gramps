@@ -1,243 +1,630 @@
 import 'server-only';
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, lte, sql } from 'drizzle-orm';
+import { createInviteToken, hashInviteToken } from '@/lib/auth/invite-token';
+import {
+  getOrgRoleInTx,
+  hasPermission,
+  type OrgRole,
+} from '@/lib/auth/permissions';
 import { generatePublicId } from '@/lib/ids';
-import { db } from './drizzle';
-import type { User } from './schema';
+import { type DbTransaction, db, queryRows, withOrg } from './drizzle';
+import { isRaisedException, isUniqueViolation } from './errors';
+import { logActivityInTx } from './queries/activity';
+import { findPendingInvitationInTx } from './queries/invitations';
 import {
   ActivityType,
-  activityLogs,
   invitations,
   organizations,
   orgMembers,
-  users,
+  type Project,
+  projects,
 } from './schema';
 
-type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-async function insertOrganization(tx: Transaction, name: string) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const [organization] = await tx
-      .insert(organizations)
-      .values({ name, slug: generatePublicId() })
-      .onConflictDoNothing({ target: organizations.slug })
-      .returning();
-
-    if (organization) {
-      return organization;
-    }
-  }
-
-  throw new Error('Failed to generate a unique organization slug');
-}
-
 export type RegisterAccountResult =
-  | { ok: true; user: User }
+  | {
+      ok: true;
+      user: {
+        id: string;
+        email: string;
+        name: string | null;
+        tokenVersion: number;
+        defaultOrganizationId: string;
+      };
+    }
   | { ok: false; reason: 'email_taken' | 'invalid_invitation' };
 
 /**
- * Creates the account, its organization (or invited membership), the
- * invitation update and the initial activity rows in one transaction.
- * An invalid invitation leaves no user behind.
+ * One SQL function call: user row, default org, invited membership and the
+ * activity rows commit or roll back together, so a bad invite leaves no user.
  */
 export async function registerAccount(params: {
   email: string;
+  name: string;
   passwordHash: string;
-  inviteId?: string;
+  inviteToken?: string;
   ipAddress?: string;
 }): Promise<RegisterAccountResult> {
-  const { email, passwordHash, inviteId, ipAddress = '' } = params;
+  const { email, name, passwordHash, inviteToken, ipAddress } = params;
+  const tokenHash = inviteToken ? hashInviteToken(inviteToken) : null;
 
-  return db.transaction(async (tx) => {
-    let invitation: typeof invitations.$inferSelect | null = null;
+  try {
+    const rows = await queryRows<{
+      id: string;
+      email: string;
+      name: string | null;
+      tokenVersion: number;
+      defaultOrganizationId: string;
+    }>(
+      db,
+      sql`
+        select id, email, name,
+               token_version as "tokenVersion",
+               default_organization_id as "defaultOrganizationId"
+        from auth.sign_up(${email}, ${name}, ${passwordHash}, ${tokenHash}, ${ipAddress ?? null})
+      `
+    );
 
-    if (inviteId) {
-      const id = Number(inviteId);
-      if (!Number.isInteger(id) || id <= 0) {
-        return { ok: false, reason: 'invalid_invitation' };
-      }
-
-      const [pending] = await tx
-        .select()
-        .from(invitations)
-        .where(and(eq(invitations.id, id), eq(invitations.status, 'pending')))
-        .for('update')
-        .limit(1);
-
-      if (!pending || pending.email.toLowerCase() !== email) {
-        return { ok: false, reason: 'invalid_invitation' };
-      }
-
-      invitation = pending;
+    const user = rows[0];
+    if (!user) {
+      return { ok: false, reason: 'invalid_invitation' };
     }
-
-    const [createdUser] = await tx
-      .insert(users)
-      .values({ email, passwordHash, role: 'member' })
-      .onConflictDoNothing({ target: users.email })
-      .returning();
-
-    if (!createdUser) {
+    return { ok: true, user };
+  } catch (error) {
+    if (isUniqueViolation(error)) {
       return { ok: false, reason: 'email_taken' };
     }
-
-    let orgId: number;
-    let memberRole: string;
-
-    if (invitation) {
-      orgId = invitation.orgId;
-      memberRole = invitation.role;
-
-      await tx
-        .update(invitations)
-        .set({ status: 'accepted' })
-        .where(
-          and(
-            eq(invitations.id, invitation.id),
-            eq(invitations.status, 'pending')
-          )
-        );
-    } else {
-      const organization = await insertOrganization(
-        tx,
-        `${email.split('@')[0]} 的组织`
-      );
-      orgId = organization.id;
-      memberRole = 'owner';
+    if (isRaisedException(error, 'invalid_invitation')) {
+      return { ok: false, reason: 'invalid_invitation' };
     }
-
-    await tx
-      .insert(orgMembers)
-      .values({ userId: createdUser.id, orgId, role: memberRole });
-
-    await tx.insert(activityLogs).values([
-      {
-        orgId: null,
-        userId: createdUser.id,
-        action: ActivityType.SIGN_UP,
-        ipAddress,
-      },
-      {
-        orgId,
-        userId: createdUser.id,
-        action: invitation
-          ? ActivityType.ACCEPT_INVITATION
-          : ActivityType.CREATE_ORG,
-        ipAddress,
-      },
-    ]);
-
-    return { ok: true, user: createdUser };
-  });
+    throw error;
+  }
 }
 
 export async function createOrganizationForOwner(params: {
-  userId: number;
+  userId: string;
   name: string;
   ipAddress?: string;
 }) {
-  const { userId, name, ipAddress = '' } = params;
+  const { userId, name, ipAddress } = params;
 
-  return db.transaction(async (tx) => {
-    const organization = await insertOrganization(tx, name);
+  return withOrg(userId, async (tx) => {
+    const rows = await queryRows<{ id: string; slug: string; name: string }>(
+      tx,
+      sql`select * from auth.create_organization(${name})`
+    );
+    const organization = rows[0];
+    if (!organization) {
+      return null;
+    }
 
-    await tx
-      .insert(orgMembers)
-      .values({ userId, orgId: organization.id, role: 'owner' });
-
-    await tx.insert(activityLogs).values({
-      orgId: organization.id,
+    await logActivityInTx(
+      tx,
       userId,
-      action: ActivityType.CREATE_ORG,
-      ipAddress,
-    });
-
+      organization.id,
+      ActivityType.CREATE_ORG,
+      ipAddress
+    );
     return organization;
   });
+}
+
+type OrgMutationFailure = 'not_found' | 'forbidden';
+
+export async function renameOrganization(params: {
+  userId: string;
+  orgId: string;
+  name: string;
+  ipAddress?: string;
+}): Promise<
+  { ok: true; slug: string } | { ok: false; reason: OrgMutationFailure }
+> {
+  const { userId, orgId, name, ipAddress } = params;
+
+  return withOrg(userId, async (tx) => {
+    const role = await getOrgRoleInTx(tx, userId, orgId);
+    if (!role || !hasPermission(role, 'org.settings')) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
+    const [organization] = await tx
+      .update(organizations)
+      .set({ name })
+      .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)))
+      .returning();
+
+    if (!organization) {
+      return { ok: false, reason: 'not_found' as const };
+    }
+
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.RENAME_ORG,
+      ipAddress
+    );
+    return { ok: true, slug: organization.slug };
+  });
+}
+
+export async function archiveOrganization(params: {
+  userId: string;
+  orgId: string;
+  ipAddress?: string;
+}): Promise<{ ok: true } | { ok: false; reason: OrgMutationFailure }> {
+  const { userId, orgId, ipAddress } = params;
+
+  return withOrg(userId, async (tx) => {
+    const role = await getOrgRoleInTx(tx, userId, orgId);
+    if (!role || !hasPermission(role, 'org.settings')) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
+    const [organization] = await tx
+      .update(organizations)
+      .set({ status: 'closed', deletedAt: new Date() })
+      .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)))
+      .returning();
+
+    if (!organization) {
+      return { ok: false, reason: 'not_found' as const };
+    }
+
+    // Pending links must stop working as soon as the org is closed.
+    await tx
+      .update(invitations)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(invitations.orgId, orgId),
+          isNull(invitations.acceptedAt),
+          isNull(invitations.deletedAt)
+        )
+      );
+
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.ARCHIVE_ORG,
+      ipAddress
+    );
+    return { ok: true };
+  });
+}
+
+export type InviteMemberResult =
+  | { ok: true; inviteUrl: string; expiresAt: Date }
+  | {
+      ok: false;
+      reason:
+        | 'forbidden'
+        | 'org_not_found'
+        | 'already_member'
+        | 'pending_exists';
+    };
+
+export async function inviteOrgMember(params: {
+  userId: string;
+  orgId: string;
+  email: string;
+  role: Exclude<OrgRole, 'owner'>;
+  ipAddress?: string;
+}): Promise<InviteMemberResult> {
+  const { userId, orgId, email, role, ipAddress } = params;
+  const { token, tokenHash } = createInviteToken();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  try {
+    return await withOrg(userId, async (tx) => {
+      const actorRole = await getOrgRoleInTx(tx, userId, orgId);
+      if (!actorRole || !hasPermission(actorRole, 'member.invite')) {
+        return { ok: false, reason: 'forbidden' as const };
+      }
+
+      const [organization] = await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(
+          and(eq(organizations.id, orgId), isNull(organizations.deletedAt))
+        )
+        .limit(1);
+      if (!organization) {
+        return { ok: false, reason: 'org_not_found' as const };
+      }
+
+      const alreadyMember = await queryRows<{ found: boolean }>(
+        tx,
+        sql`select auth.is_user_in_org_by_email(${email}, ${orgId}::uuid) as found`
+      );
+      if (alreadyMember[0]?.found) {
+        return { ok: false, reason: 'already_member' as const };
+      }
+
+      if (await findPendingInvitationInTx(tx, email, orgId)) {
+        return { ok: false, reason: 'pending_exists' as const };
+      }
+
+      // Expired invites no longer block a new one: the partial unique index
+      // does not look at expires_at, so retire them first.
+      await tx
+        .update(invitations)
+        .set({ deletedAt: new Date() })
+        .where(
+          and(
+            eq(invitations.orgId, orgId),
+            sql`lower(${invitations.email}) = ${email}`,
+            isNull(invitations.acceptedAt),
+            isNull(invitations.deletedAt),
+            lte(invitations.expiresAt, new Date())
+          )
+        );
+
+      await tx.insert(invitations).values({
+        orgId,
+        email,
+        role,
+        tokenHash,
+        expiresAt,
+        createdBy: userId,
+      });
+
+      await logActivityInTx(
+        tx,
+        userId,
+        orgId,
+        ActivityType.INVITE_ORG_MEMBER,
+        ipAddress
+      );
+
+      return {
+        ok: true as const,
+        inviteUrl: `/sign-up?invite=${token}`,
+        expiresAt,
+      };
+    });
+  } catch (error) {
+    // The partial unique index is the concurrency guard; the pre-check above
+    // only exists to avoid a failed statement in the common case.
+    if (isUniqueViolation(error)) {
+      return { ok: false, reason: 'pending_exists' };
+    }
+    throw error;
+  }
+}
+
+export type AcceptInviteResult =
+  | { ok: true; organizationId: string; role: OrgRole }
+  | { ok: false; reason: 'forbidden' | 'invalid_invitation' };
+
+export async function acceptInvite(params: {
+  userId: string;
+  token: string;
+  ipAddress?: string;
+}): Promise<AcceptInviteResult> {
+  const { userId, token, ipAddress } = params;
+
+  try {
+    return await withOrg(userId, async (tx) => {
+      const rows = await queryRows<{ organizationId: string; role: string }>(
+        tx,
+        sql`
+          select organization_id as "organizationId", role
+          from auth.accept_invite(${hashInviteToken(token)}, ${ipAddress ?? null})
+        `
+      );
+      const invite = rows[0];
+      if (
+        !invite ||
+        (invite.role !== 'admin' &&
+          invite.role !== 'editor' &&
+          invite.role !== 'viewer')
+      ) {
+        return { ok: false, reason: 'invalid_invitation' as const };
+      }
+      return {
+        ok: true as const,
+        organizationId: invite.organizationId,
+        role: invite.role,
+      };
+    });
+  } catch (error) {
+    if (isRaisedException(error, 'invalid_invitation')) {
+      return { ok: false, reason: 'invalid_invitation' };
+    }
+    if (isRaisedException(error, 'forbidden')) {
+      return { ok: false, reason: 'forbidden' };
+    }
+    throw error;
+  }
 }
 
 export type RemoveOrgMemberResult =
   | { ok: true }
   | {
       ok: false;
-      reason:
-        | 'org_not_found'
-        | 'forbidden'
-        | 'member_not_found'
-        | 'self_removal'
-        | 'last_owner';
+      reason: 'forbidden' | 'member_not_found' | 'self_removal' | 'last_owner';
     };
 
-/** Locks the org so concurrent removals can't leave it without an owner. */
+/** Locks active members so concurrent removals can't leave the org ownerless. */
 export async function removeOrgMemberInTransaction(params: {
-  orgId: number;
-  memberId: number;
-  actorId: number;
+  orgId: string;
+  memberId: string;
+  actorId: string;
   ipAddress?: string;
 }): Promise<RemoveOrgMemberResult> {
-  const { orgId, memberId, actorId, ipAddress = '' } = params;
+  const { orgId, memberId, actorId, ipAddress } = params;
 
-  return db.transaction(async (tx) => {
+  return withOrg(actorId, async (tx) => {
+    const actorRole = await getOrgRoleInTx(tx, actorId, orgId);
+    if (!actorRole || !hasPermission(actorRole, 'member.manage')) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
+    const members = await lockActiveMembers(tx, orgId);
+    const target = members.find((member) => member.id === memberId);
+    if (!target) {
+      return { ok: false, reason: 'member_not_found' as const };
+    }
+    if (target.userId === actorId) {
+      return { ok: false, reason: 'self_removal' as const };
+    }
+    if (target.role === 'owner') {
+      if (actorRole !== 'owner') {
+        return { ok: false, reason: 'forbidden' as const };
+      }
+      const ownerCount = members.filter(
+        (member) => member.role === 'owner'
+      ).length;
+      if (ownerCount <= 1) {
+        return { ok: false, reason: 'last_owner' as const };
+      }
+    } else if (actorRole === 'admin' && target.role === 'admin') {
+      // Only the owner manages admins.
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
+    await tx
+      .update(orgMembers)
+      .set({ deletedAt: new Date() })
+      .where(eq(orgMembers.id, target.id));
+
+    await logActivityInTx(
+      tx,
+      actorId,
+      orgId,
+      ActivityType.REMOVE_ORG_MEMBER,
+      ipAddress
+    );
+    return { ok: true as const };
+  });
+}
+
+export type UpdateMemberRoleResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | 'forbidden'
+        | 'member_not_found'
+        | 'owner_immutable'
+        | 'same_role';
+    };
+
+export async function updateOrgMemberRoleInTransaction(params: {
+  orgId: string;
+  memberId: string;
+  role: Exclude<OrgRole, 'owner'>;
+  actorId: string;
+  ipAddress?: string;
+}): Promise<UpdateMemberRoleResult> {
+  const { orgId, memberId, role, actorId, ipAddress } = params;
+
+  return withOrg(actorId, async (tx) => {
+    const actorRole = await getOrgRoleInTx(tx, actorId, orgId);
+    if (!actorRole || !hasPermission(actorRole, 'member.manage')) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
+    const members = await lockActiveMembers(tx, orgId);
+    const target = members.find((member) => member.id === memberId);
+    if (!target) {
+      return { ok: false, reason: 'member_not_found' as const };
+    }
+    if (target.role === 'owner') {
+      return { ok: false, reason: 'owner_immutable' as const };
+    }
+    // Admins manage editors/viewers; only the owner manages admins.
+    if (
+      actorRole === 'admin' &&
+      (target.role === 'admin' || role === 'admin')
+    ) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+    if (target.role === role) {
+      return { ok: false, reason: 'same_role' as const };
+    }
+
+    await tx
+      .update(orgMembers)
+      .set({ role })
+      .where(eq(orgMembers.id, target.id));
+
+    await logActivityInTx(
+      tx,
+      actorId,
+      orgId,
+      ActivityType.UPDATE_MEMBER_ROLE,
+      ipAddress
+    );
+    return { ok: true as const };
+  });
+}
+
+type LockedMember = { id: string; userId: string; role: string };
+
+async function lockActiveMembers(
+  tx: DbTransaction,
+  orgId: string
+): Promise<LockedMember[]> {
+  return tx
+    .select({
+      id: orgMembers.id,
+      userId: orgMembers.userId,
+      role: orgMembers.role,
+    })
+    .from(orgMembers)
+    .where(and(eq(orgMembers.orgId, orgId), isNull(orgMembers.deletedAt)))
+    .for('update');
+}
+
+export type ProjectInput = {
+  name: string;
+  primaryName: string;
+  primarySurname: string;
+  hallCode?: string | null;
+  countriesRegions?: string | null;
+};
+
+export type ProjectUpdates = Partial<ProjectInput>;
+
+export type ProjectMutationResult =
+  | { ok: true; project: Project }
+  | { ok: false; reason: 'forbidden' | 'not_found' | 'conflict' };
+
+export async function createProjectInTransaction(params: {
+  userId: string;
+  orgId: string;
+  input: ProjectInput;
+  ipAddress?: string;
+}): Promise<ProjectMutationResult> {
+  const { userId, orgId, input, ipAddress } = params;
+
+  return withOrg(userId, async (tx) => {
+    const role = await getOrgRoleInTx(tx, userId, orgId);
+    if (!role || !hasPermission(role, 'project.write')) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
     const [organization] = await tx
       .select({ id: organizations.id })
       .from(organizations)
-      .where(eq(organizations.id, orgId))
-      .for('update')
+      .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)))
       .limit(1);
-
     if (!organization) {
-      return { ok: false, reason: 'org_not_found' };
+      return { ok: false, reason: 'not_found' as const };
     }
 
-    const [actor] = await tx
-      .select({ role: orgMembers.role })
-      .from(orgMembers)
-      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, actorId)))
-      .limit(1);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // A fresh ref on every attempt: reusing a colliding one would loop.
+      const [project] = await tx
+        .insert(projects)
+        .values({
+          ...input,
+          orgId,
+          ref: generatePublicId(),
+          createdBy: userId,
+        })
+        .onConflictDoNothing()
+        .returning();
 
-    if (actor?.role !== 'owner') {
-      return { ok: false, reason: 'forbidden' };
-    }
-
-    const [target] = await tx
-      .select({
-        id: orgMembers.id,
-        userId: orgMembers.userId,
-        role: orgMembers.role,
-      })
-      .from(orgMembers)
-      .where(and(eq(orgMembers.id, memberId), eq(orgMembers.orgId, orgId)))
-      .limit(1);
-
-    if (!target) {
-      return { ok: false, reason: 'member_not_found' };
-    }
-
-    if (target.userId === actorId) {
-      return { ok: false, reason: 'self_removal' };
-    }
-
-    if (target.role === 'owner') {
-      const [ownerCount] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(orgMembers)
-        .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.role, 'owner')));
-
-      if ((ownerCount?.count ?? 0) <= 1) {
-        return { ok: false, reason: 'last_owner' };
+      if (project) {
+        await logActivityInTx(
+          tx,
+          userId,
+          orgId,
+          ActivityType.CREATE_PROJECT,
+          ipAddress
+        );
+        return { ok: true as const, project };
       }
     }
 
-    await tx.delete(orgMembers).where(eq(orgMembers.id, target.id));
+    return { ok: false, reason: 'conflict' as const };
+  });
+}
 
-    await tx.insert(activityLogs).values({
+export async function updateProjectInTransaction(params: {
+  userId: string;
+  orgId: string;
+  projectId: string;
+  updates: ProjectUpdates;
+  ipAddress?: string;
+}): Promise<ProjectMutationResult> {
+  const { userId, orgId, projectId, updates, ipAddress } = params;
+
+  return withOrg(userId, async (tx) => {
+    const role = await getOrgRoleInTx(tx, userId, orgId);
+    if (!role || !hasPermission(role, 'project.write')) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
+    const [project] = await tx
+      .update(projects)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(
+        and(
+          eq(projects.id, projectId),
+          eq(projects.orgId, orgId),
+          isNull(projects.deletedAt)
+        )
+      )
+      .returning();
+
+    if (!project) {
+      return { ok: false, reason: 'not_found' as const };
+    }
+
+    await logActivityInTx(
+      tx,
+      userId,
       orgId,
-      userId: actorId,
-      action: ActivityType.REMOVE_ORG_MEMBER,
-      ipAddress,
-    });
+      ActivityType.UPDATE_PROJECT,
+      ipAddress
+    );
+    return { ok: true as const, project };
+  });
+}
 
-    return { ok: true };
+export async function deleteProjectInTransaction(params: {
+  userId: string;
+  orgId: string;
+  projectId: string;
+  ipAddress?: string;
+}): Promise<{ ok: true } | { ok: false; reason: 'forbidden' | 'not_found' }> {
+  const { userId, orgId, projectId, ipAddress } = params;
+
+  return withOrg(userId, async (tx) => {
+    const role = await getOrgRoleInTx(tx, userId, orgId);
+    if (!role || !hasPermission(role, 'project.write')) {
+      return { ok: false, reason: 'forbidden' as const };
+    }
+
+    const rows = await tx
+      .update(projects)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(projects.id, projectId),
+          eq(projects.orgId, orgId),
+          isNull(projects.deletedAt)
+        )
+      )
+      .returning({ id: projects.id });
+
+    if (rows.length === 0) {
+      return { ok: false, reason: 'not_found' as const };
+    }
+
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.DELETE_PROJECT,
+      ipAddress
+    );
+    return { ok: true as const };
   });
 }
 
@@ -246,81 +633,80 @@ export type DeleteAccountResult =
   | { ok: false; reason: 'sole_owner'; orgNames: string[] };
 
 /**
- * Removes every membership the user has, revokes their sessions and
- * soft-deletes the account. Refuses when the user is the only owner of an
- * organization, because that would leave the org unmanageable.
+ * Removes every membership the user has, revokes sessions and soft-deletes
+ * the account. Refuses when the user is the only owner of an organization.
  */
 export async function deleteUserAccount(params: {
-  userId: number;
+  userId: string;
   ipAddress?: string;
 }): Promise<DeleteAccountResult> {
-  const { userId, ipAddress = '' } = params;
+  const { userId, ipAddress } = params;
 
-  return db.transaction(async (tx) => {
-    const [account] = await tx
-      .select({ id: users.id })
-      .from(users)
-      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
-      .for('update')
-      .limit(1);
-
-    if (!account) {
-      return { ok: true };
-    }
-
-    const ownedOrgs = await tx
-      .select({ orgId: organizations.id, name: organizations.name })
+  return withOrg(userId, async (tx) => {
+    const owned = await tx
+      .select({ orgId: orgMembers.orgId })
       .from(orgMembers)
-      .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
-      .where(and(eq(orgMembers.userId, userId), eq(orgMembers.role, 'owner')))
-      .orderBy(orgMembers.orgId);
+      .where(
+        and(
+          eq(orgMembers.userId, userId),
+          eq(orgMembers.role, 'owner'),
+          isNull(orgMembers.deletedAt)
+        )
+      )
+      .for('update');
 
     const soleOwnerOrgNames: string[] = [];
 
-    for (const org of ownedOrgs) {
-      await tx
-        .select({ id: organizations.id })
+    for (const { orgId } of owned) {
+      // Lock the org row and its owner rows: a concurrent transfer/removal
+      // cannot change the count between the check and the delete.
+      const [organization] = await tx
+        .select({ name: organizations.name })
         .from(organizations)
-        .where(eq(organizations.id, org.orgId))
+        .where(
+          and(eq(organizations.id, orgId), isNull(organizations.deletedAt))
+        )
         .for('update')
         .limit(1);
 
-      const [ownerCount] = await tx
-        .select({ count: sql<number>`count(*)::int` })
+      // Archived organizations no longer block account deletion.
+      if (!organization) {
+        continue;
+      }
+
+      const owners = await tx
+        .select({ id: orgMembers.id })
         .from(orgMembers)
         .where(
-          and(eq(orgMembers.orgId, org.orgId), eq(orgMembers.role, 'owner'))
-        );
+          and(
+            eq(orgMembers.orgId, orgId),
+            eq(orgMembers.role, 'owner'),
+            isNull(orgMembers.deletedAt)
+          )
+        )
+        .for('update');
 
-      if ((ownerCount?.count ?? 0) <= 1) {
-        soleOwnerOrgNames.push(org.name);
+      if (owners.length <= 1 && organization) {
+        soleOwnerOrgNames.push(organization.name);
       }
     }
 
     if (soleOwnerOrgNames.length > 0) {
-      return { ok: false, reason: 'sole_owner', orgNames: soleOwnerOrgNames };
+      return {
+        ok: false,
+        reason: 'sole_owner' as const,
+        orgNames: soleOwnerOrgNames,
+      };
     }
 
-    await tx.delete(orgMembers).where(eq(orgMembers.userId, userId));
-
-    await tx
-      .update(users)
-      .set({
-        deletedAt: sql`CURRENT_TIMESTAMP`,
-        // Keep the unique email usable for a future registration while
-        // staying inside varchar(255).
-        email: sql`left(${users.email}, 180) || '-' || ${users.id} || '-deleted'`,
-        tokenVersion: sql`${users.tokenVersion} + 1`,
-      })
-      .where(eq(users.id, userId));
-
-    await tx.insert(activityLogs).values({
-      orgId: null,
+    await logActivityInTx(
+      tx,
       userId,
-      action: ActivityType.DELETE_ACCOUNT,
-      ipAddress,
-    });
-
-    return { ok: true };
+      null,
+      ActivityType.DELETE_ACCOUNT,
+      ipAddress
+    );
+    await queryRows(tx, sql`select auth.soft_delete_user()`);
+    return { ok: true as const };
   });
 }

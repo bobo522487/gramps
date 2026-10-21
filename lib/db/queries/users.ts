@@ -1,37 +1,84 @@
 import 'server-only';
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
-import { db } from '../drizzle';
+import { sql } from 'drizzle-orm';
+import { db, queryRows, withOrg } from '../drizzle';
 import type { User } from '../schema';
-import { users } from '../schema';
 
-export async function findUserByEmail(email: string): Promise<User | null> {
-  const rows = await db
-    .select()
-    .from(users)
-    .where(and(eq(users.email, email), isNull(users.deletedAt)))
-    .limit(1);
+export type UserCredentials = Pick<
+  User,
+  'id' | 'email' | 'name' | 'passwordHash' | 'tokenVersion' | 'deletedAt'
+>;
+
+/** Login lookup; anonymous, so it goes through the SECURITY DEFINER function. */
+export async function findUserByEmail(
+  email: string
+): Promise<UserCredentials | null> {
+  const rows = await queryRows<UserCredentials>(
+    db,
+    sql`
+      select id, email, name,
+             password_hash as "passwordHash",
+             token_version as "tokenVersion",
+             deleted_at as "deletedAt"
+      from auth.find_user_by_email(${email})
+      where deleted_at is null
+      limit 1
+    `
+  );
   return rows[0] ?? null;
 }
 
-export async function updateUserPassword(userId: number, passwordHash: string) {
-  const rows = await db
-    .update(users)
-    .set({
-      passwordHash,
-      tokenVersion: sql`${users.tokenVersion} + 1`,
-    })
-    .where(eq(users.id, userId))
-    .returning({ tokenVersion: users.tokenVersion });
+/** Authoritative session lookup, scoped to the verified JWT subject. */
+export async function getSessionUserById(userId: string): Promise<User | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await queryRows<User>(
+      tx,
+      sql`
+        select id, email, name,
+               password_hash as "passwordHash",
+               token_version as "tokenVersion",
+               created_at as "createdAt",
+               updated_at as "updatedAt",
+               deleted_at as "deletedAt"
+        from auth.get_session_user()
+        where id = ${userId}::uuid
+        limit 1
+      `
+    );
+    return rows[0] ?? null;
+  });
+}
 
-  return rows[0] ?? null;
+export async function updateUserPassword(
+  userId: string,
+  passwordHash: string
+): Promise<number | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await queryRows<{ tokenVersion: number }>(
+      tx,
+      sql`select auth.update_password(${passwordHash}) as "tokenVersion"`
+    );
+    return rows[0]?.tokenVersion ?? null;
+  });
 }
 
 export async function updateUserProfile(params: {
-  userId: number;
+  userId: string;
   name: string;
   email: string;
 }) {
   const { userId, name, email } = params;
-  await db.update(users).set({ name, email }).where(eq(users.id, userId));
+  return withOrg(userId, async (tx) => {
+    const rows = await queryRows<{ id: string; email: string; name: string }>(
+      tx,
+      sql`select * from auth.update_profile(${name}, ${email})`
+    );
+    return rows[0] ?? null;
+  });
+}
+
+export async function softDeleteUser(userId: string) {
+  await withOrg(userId, (tx) =>
+    tx.execute(sql`select auth.soft_delete_user()`)
+  );
 }

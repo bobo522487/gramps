@@ -6,8 +6,6 @@
     "start": "next start",
     "db:setup": "npx tsx lib/db/setup.ts",
     "db:seed": "npx tsx --conditions=react-server lib/db/seed.ts",
-    "db:backfill-ids": "npx tsx --conditions=react-server lib/db/backfill-public-ids.ts",
-    "db:migrate:until": "npx tsx lib/db/migrate-until.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",

@@ -19,7 +19,7 @@ import { signIn, signUp } from '@/lib/auth/actions/session';
 import type { ActionState } from '@/lib/auth/types';
 
 // Only these survive a mode switch; they drive post-auth redirects.
-const PASSTHROUGH_PARAMS = ['redirect', 'inviteId'] as const;
+const PASSTHROUGH_PARAMS = ['redirect', 'invite'] as const;
 
 export function Login({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
   const searchParams = useSearchParams();
@@ -30,7 +30,7 @@ export function Login({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
   );
 
   const paramsFor = (key: string) => searchParams.get(key) ?? '';
-  const inviteId = paramsFor('inviteId');
+  const invite = paramsFor('invite');
 
   const switchParams = new URLSearchParams();
   for (const key of PASSTHROUGH_PARAMS) {
@@ -164,9 +164,11 @@ export function Login({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
             </Button>
           </form>
 
-          {inviteId && mode === 'signup' && (
+          {invite && (
             <p className="text-muted-foreground mt-3 text-sm">
-              你正在通过邀请加入一个组织。
+              {mode === 'signup'
+                ? '你正在通过邀请加入一个组织，请使用被邀请的邮箱注册。'
+                : '登录后将进入邀请确认页。'}
             </p>
           )}
         </CardContent>

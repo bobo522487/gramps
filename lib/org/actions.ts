@@ -4,39 +4,35 @@ import 'server-only';
 
 import { revalidatePath } from 'next/cache';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
-import { checkOrgRole } from '@/lib/auth/permissions';
 import {
+  acceptInviteSchema,
   createOrgSchema,
   deleteOrgSchema,
   inviteOrgMemberSchema,
   removeOrgMemberSchema,
   renameOrgSchema,
+  updateOrgMemberRoleSchema,
 } from '@/lib/auth/schemas';
-import { logActivity } from '@/lib/db/queries/activity';
 import {
-  createInvitation,
-  findPendingInvitationByEmail,
-} from '@/lib/db/queries/invitations';
-import {
-  deleteOrg,
-  getOrgById,
-  isUserInOrgByEmail,
-  renameOrg,
-} from '@/lib/db/queries/organizations';
-import { ActivityType } from '@/lib/db/schema';
-import {
+  acceptInvite,
+  archiveOrganization,
   createOrganizationForOwner,
+  inviteOrgMember as inviteOrgMemberService,
   removeOrgMemberInTransaction,
+  renameOrganization,
+  updateOrgMemberRoleInTransaction,
 } from '@/lib/db/services';
 
 export const createOrgAction = validatedActionWithUser(
   createOrgSchema,
   async (data, _, user) => {
-    const { name } = data;
     const created = await createOrganizationForOwner({
       userId: user.id,
-      name,
+      name: data.name,
     });
+    if (!created) {
+      return { error: '组织创建失败，请稍后重试。' };
+    }
 
     revalidatePath('/dashboard', 'layout');
     return {
@@ -50,20 +46,22 @@ export const createOrgAction = validatedActionWithUser(
 export const renameOrgAction = validatedActionWithUser(
   renameOrgSchema,
   async (data, _, user) => {
-    const { orgId, name } = data;
+    const result = await renameOrganization({
+      userId: user.id,
+      orgId: data.orgId,
+      name: data.name,
+    });
 
-    const denied = await checkOrgRole(user.id, orgId, 'owner');
-    if (denied) {
-      return { error: denied };
+    if (!result.ok) {
+      return {
+        error:
+          result.reason === 'forbidden'
+            ? '只有所有者可以修改组织设置'
+            : '组织不存在',
+      };
     }
 
-    const updated = await renameOrg(orgId, name);
-    if (!updated) {
-      return { error: '组织不存在' };
-    }
-
-    await logActivity(orgId, user.id, ActivityType.RENAME_ORG);
-    revalidatePath(`/dashboard/org/${updated.slug}`, 'layout');
+    revalidatePath('/dashboard', 'layout');
     return { success: '组织已重命名' };
   }
 );
@@ -71,57 +69,78 @@ export const renameOrgAction = validatedActionWithUser(
 export const deleteOrgAction = validatedActionWithUser(
   deleteOrgSchema,
   async (data, _, user) => {
-    const { orgId } = data;
+    const result = await archiveOrganization({
+      userId: user.id,
+      orgId: data.orgId,
+    });
 
-    // Owner membership must be verified before destroying the org row
-    const denied = await checkOrgRole(user.id, orgId, 'owner');
-    if (denied) {
-      return { error: denied };
+    if (!result.ok) {
+      return {
+        error:
+          result.reason === 'forbidden'
+            ? '只有所有者可以归档组织'
+            : '组织不存在',
+      };
     }
 
-    await deleteOrg(orgId);
     revalidatePath('/dashboard', 'layout');
-    return { success: '组织已删除' };
+    return { success: '组织已归档' };
   }
 );
+
+const INVITE_ERRORS = {
+  forbidden: '只有所有者或管理员可以邀请成员',
+  org_not_found: '组织不存在或已归档',
+  already_member: '该用户已是组织成员',
+  pending_exists: '已向该邮箱发出邀请，请等待对方接受',
+} as const;
 
 export const inviteOrgMember = validatedActionWithUser(
   inviteOrgMemberSchema,
   async (data, _, user) => {
-    const { orgId, email, role } = data;
+    const result = await inviteOrgMemberService({
+      userId: user.id,
+      orgId: data.orgId,
+      email: data.email,
+      role: data.role,
+    });
 
-    // Permission is enforced server-side, not just via disabled UI buttons
-    if ((await checkOrgRole(user.id, orgId, 'owner')) !== null) {
-      return { error: '只有所有者可以邀请组织成员' };
+    if (!result.ok) {
+      return { error: INVITE_ERRORS[result.reason] };
     }
 
-    const org = await getOrgById(orgId);
-    if (!org) {
-      return { error: '组织不存在' };
+    revalidatePath('/dashboard', 'layout');
+    return {
+      success: '邀请已创建，请把链接发送给对方。',
+      inviteUrl: result.inviteUrl,
+    };
+  }
+);
+
+export const acceptInviteAction = validatedActionWithUser(
+  acceptInviteSchema,
+  async (data, _, user) => {
+    const result = await acceptInvite({
+      userId: user.id,
+      token: data.token,
+    });
+
+    if (!result.ok) {
+      return {
+        error:
+          result.reason === 'forbidden'
+            ? '你没有接受该邀请的权限'
+            : '邀请无效或已过期。',
+      };
     }
 
-    const alreadyMember = await isUserInOrgByEmail(email, orgId);
-    if (alreadyMember) {
-      return { error: '该用户已是组织成员' };
-    }
-
-    const existingInvitation = await findPendingInvitationByEmail(email, orgId);
-    if (existingInvitation) {
-      return { error: '已向该邮箱发送过邀请' };
-    }
-
-    await createInvitation({ orgId, email, role, invitedBy: user.id });
-    await logActivity(orgId, user.id, ActivityType.INVITE_ORG_MEMBER);
-
-    // TODO: Send invitation email and include ?inviteId={id} to sign-up URL
-
-    return { success: '邀请已发送' };
+    revalidatePath('/dashboard', 'layout');
+    return { success: '已加入组织' };
   }
 );
 
 const REMOVE_MEMBER_ERRORS = {
-  org_not_found: '组织不存在',
-  forbidden: '只有所有者可以移除组织成员',
+  forbidden: '只有所有者或管理员可以移除成员',
   member_not_found: '该成员不在此组织中',
   self_removal: '不能移除自己，请先转让所有权',
   last_owner: '不能移除最后一个所有者',
@@ -130,11 +149,9 @@ const REMOVE_MEMBER_ERRORS = {
 export const removeOrgMember = validatedActionWithUser(
   removeOrgMemberSchema,
   async (data, _, user) => {
-    const { orgId, memberId } = data;
-
     const result = await removeOrgMemberInTransaction({
-      orgId,
-      memberId,
+      orgId: data.orgId,
+      memberId: data.memberId,
       actorId: user.id,
     });
 
@@ -144,5 +161,31 @@ export const removeOrgMember = validatedActionWithUser(
 
     revalidatePath('/dashboard', 'layout');
     return { success: '已移除组织成员' };
+  }
+);
+
+const UPDATE_ROLE_ERRORS = {
+  forbidden: '你没有调整该成员角色的权限',
+  member_not_found: '该成员不在此组织中',
+  owner_immutable: '不能修改所有者的角色',
+  same_role: '该成员已经是此角色',
+} as const;
+
+export const updateOrgMemberRole = validatedActionWithUser(
+  updateOrgMemberRoleSchema,
+  async (data, _, user) => {
+    const result = await updateOrgMemberRoleInTransaction({
+      orgId: data.orgId,
+      memberId: data.memberId,
+      role: data.role,
+      actorId: user.id,
+    });
+
+    if (!result.ok) {
+      return { error: UPDATE_ROLE_ERRORS[result.reason] };
+    }
+
+    revalidatePath('/dashboard', 'layout');
+    return { success: '成员角色已更新' };
   }
 );

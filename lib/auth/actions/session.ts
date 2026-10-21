@@ -52,11 +52,13 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     };
   }
 
-  await Promise.all([
-    setSession(foundUser),
-    // Account-level event: the user may belong to several organizations.
-    logActivity(null, foundUser.id, ActivityType.SIGN_IN),
-  ]);
+  await setSession({ id: foundUser.id, tokenVersion: foundUser.tokenVersion });
+  await logActivity(foundUser.id, null, ActivityType.SIGN_IN);
+
+  const inviteToken = formData.get('invite');
+  if (typeof inviteToken === 'string' && inviteToken.trim()) {
+    redirect(`/dashboard/join?token=${encodeURIComponent(inviteToken.trim())}`);
+  }
 
   const redirectTo = formData.get('redirect') as string | null;
 
@@ -69,7 +71,7 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
 });
 
 export const signUp = validatedAction(signUpSchema, async (data) => {
-  const { email, password, inviteId } = data;
+  const { email, password, invite } = data;
 
   const ip = await getClientIp();
   if (!checkRateLimit(`signup:${ip}`, 5, 60 * 60 * 1000).allowed) {
@@ -79,15 +81,17 @@ export const signUp = validatedAction(signUpSchema, async (data) => {
   const passwordHash = await hashPassword(password);
   const result = await registerAccount({
     email,
+    name: '',
     passwordHash,
-    inviteId,
-    ipAddress: ip === 'unknown' ? '' : ip,
+    inviteToken: invite || undefined,
+    ipAddress: ip === 'unknown' ? undefined : ip,
   });
 
   if (!result.ok) {
-    return result.reason === 'invalid_invitation'
-      ? { error: '邀请无效或已过期。', email }
-      : { error: '创建账号失败，请重试。', email };
+    if (result.reason === 'invalid_invitation') {
+      return { error: '邀请无效或已过期。', email };
+    }
+    return { error: '该邮箱已被注册，请直接登录。', email };
   }
 
   await setSession(result.user);
@@ -98,7 +102,7 @@ export async function signOut() {
   const user = await getSessionUser();
 
   if (user) {
-    await logActivity(null, user.id, ActivityType.SIGN_OUT);
+    await logActivity(user.id, null, ActivityType.SIGN_OUT);
   }
 
   // Always clear the cookie, even when the session was already invalid.

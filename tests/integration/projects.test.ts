@@ -1,31 +1,109 @@
-import { describe, expect, it } from 'vitest';
-import { createProject as createProjectQuery } from '@/lib/db/queries/projects';
-import { createOrganization, createProject } from '../helpers/factories';
+import { and, count, eq } from 'drizzle-orm';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ActivityType, activityLogs, projects } from '@/lib/db/schema';
+import { createProjectInTransaction } from '@/lib/db/services';
+import { getTestDb } from '../helpers/db';
+import {
+  createProject,
+  createUser,
+  getPersonalOrg,
+} from '../helpers/factories';
 
-describe('createProject unique-id retries', () => {
-  it('uses the slugified name when it is free', async () => {
-    const organization = await createOrganization();
+const ids = vi.hoisted(() => ({ queued: [] as string[] }));
 
-    const created = await createProjectQuery({
+vi.mock('@/lib/ids', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ids')>();
+  return {
+    ...actual,
+    generatePublicId: () => ids.queued.shift() ?? actual.generatePublicId(),
+  };
+});
+
+beforeEach(() => {
+  ids.queued.length = 0;
+});
+
+const projectInput = {
+  name: '颍川陈氏云谱',
+  primaryName: '陈氏',
+  primarySurname: '陈',
+};
+
+async function setup() {
+  const user = await createUser();
+  const personal = await getPersonalOrg(user.id);
+  if (!personal) {
+    throw new Error('expected the signup trigger to create a personal org');
+  }
+  return { user, organization: personal.organization };
+}
+
+describe('createProjectInTransaction public refs', () => {
+  it('creates a project with a generated 20-character ref and logs it', async () => {
+    const { user, organization } = await setup();
+
+    const result = await createProjectInTransaction({
+      userId: user.id,
       orgId: organization.id,
-      name: 'Unique Name',
-      region: 'us-east-1',
+      input: projectInput,
     });
 
-    expect(created?.slug).toBe('unique-name');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.ref).toMatch(/^[0-9a-z]{20}$/);
+
+    const logRows = await getTestDb()
+      .select({ action: activityLogs.action })
+      .from(activityLogs)
+      .where(
+        and(
+          eq(activityLogs.orgId, organization.id),
+          eq(activityLogs.action, ActivityType.CREATE_PROJECT)
+        )
+      );
+    expect(logRows).toHaveLength(1);
   });
 
-  it('regenerates the slug when the first attempt collides', async () => {
-    const organization = await createOrganization();
-    await createProject({ orgId: organization.id, slug: 'same-name' });
-
-    const created = await createProjectQuery({
+  it('regenerates the ref when the first attempt collides', async () => {
+    const { user, organization } = await setup();
+    const existing = await createProject({
       orgId: organization.id,
-      name: 'Same Name',
-      region: 'us-east-1',
+      createdBy: user.id,
+    });
+    ids.queued.push(existing.ref);
+
+    const result = await createProjectInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      input: projectInput,
     });
 
-    expect(created?.slug).not.toBe('same-name');
-    expect(created?.slug.startsWith('same-name-')).toBe(true);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.ref).not.toBe(existing.ref);
+    expect(result.project.ref).toMatch(/^[0-9a-z]{20}$/);
+  });
+
+  it('reports a conflict after three ref collisions', async () => {
+    const { user, organization } = await setup();
+    const existing = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    ids.queued.push(existing.ref, existing.ref, existing.ref);
+
+    const result = await createProjectInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      input: projectInput,
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'conflict' });
+
+    const [row] = await getTestDb()
+      .select({ value: count() })
+      .from(projects)
+      .where(eq(projects.orgId, organization.id));
+    expect(row?.value).toBe(1);
   });
 });

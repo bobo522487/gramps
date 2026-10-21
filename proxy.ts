@@ -36,7 +36,7 @@ export async function proxy(request: NextRequest) {
         res.cookies.set({
           name: 'session',
           value: await signToken({
-            user: parsed.user as { id: number },
+            user: parsed.user as { id: string },
             tv: parsed.tv as number | undefined,
             expires: expiresInOneDay.toISOString(),
           }),
