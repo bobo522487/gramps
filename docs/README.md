@@ -11,7 +11,7 @@
 
 | 平面 | 说明 | 文档 |
 |---|---|---|
-| **当前实现** | 仓库里真实运行的代码：Next.js 16 + Drizzle/Postgres + 自建 JWT 认证的组织/项目控制台，界面为简体中文 | `setup.md`、`agent.md`、`implementation-status.md` |
+| **当前实现** | 仓库里真实运行的代码：Next.js 16 + Drizzle/Postgres + 自建 JWT 认证的组织/项目控制台，界面为简体中文 | `setup.md`、`../AGENTS.md`、`implementation-status.md` |
 | **目标设计** | 面向家谱编纂场景的 M1 设计：PostgreSQL 18+、RLS、自建 JWT 认证、10 张业务表 + `auth.users`、谱系/谱文/谱书；生产部署到 Vercel + 自定义域名 + Neon | `prd.md`、`architect.md`、`data-model.md`、`api.md`、`ops-target.md` |
 
 目标设计**没有**外部认证服务、邮件投递、外部错误聚合、审计表与支付；数据库为 PostgreSQL 18 + Drizzle（本地 `postgres.js` / 生产 `pg` + `attachDatabasePool`），自建 bcrypt/jose 会话、结构化日志、Biome + Vitest + Playwright。生产用 Vercel + 自定义域名 + Neon；本地开发时 Docker 只跑 PostgreSQL，Next.js 直接用 `next dev`。
@@ -35,7 +35,7 @@
 | [api.md](./api.md) | 目标设计 | 目标 / 未实现 | 前后端 | 讨论目标 Server Action、错误模型 |
 | [implementation-status.md](./implementation-status.md) | 现状 | 当前实现 | 所有人 | 判断一个 FR 是否真的已实现 |
 | [setup.md](./setup.md) | 现状 | 当前实现 | 开发者、运维 | 本地搭建、环境变量、测试、故障排查 |
-| [agent.md](./agent.md) | 现状 | 当前实现 | 开发者、AI Agent | 当前仓库的编码规则、目录、任务配方 |
+| [AGENTS.md](../AGENTS.md) | 现状 | 当前实现 | 开发者、AI Agent | 当前仓库的编码规则、目录、任务配方（仓库根目录，Agent 自动读取） |
 | [ops-target.md](./ops-target.md) | 目标设计 | 目标 / 未实现 | 未来部署与运维 | 本地 Docker 只跑 PostgreSQL、生产 Vercel + Neon 的目标蓝图 |
 
 ---
@@ -76,12 +76,12 @@
 
 1. 本文件
 2. [setup.md](./setup.md) — 先跑起来
-3. [agent.md](./agent.md) — 目录、规则、任务配方
+3. [AGENTS.md](../AGENTS.md) — 目录、规则、任务配方
 4. 修改目标功能前，再读 [architect.md](./architect.md) 与 [data-model.md](./data-model.md)；注意它们是目标设计
 
 **AI Agent**
 
-1. [agent.md](./agent.md) — 当前工程规则
+1. [AGENTS.md](../AGENTS.md) — 当前工程规则（仓库根目录，Agent 自动读取）
 2. [implementation-status.md](./implementation-status.md) — 防止把目标设计当成现状
 3. 只在任务明确要求“按目标架构实现”时，才读 `architect.md` / `data-model.md`
 

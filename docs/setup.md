@@ -6,7 +6,7 @@
 | 最后更新 | 2026-10-21 |
 | 运行环境 | Node.js 22（CI）· pnpm 9（CI） |
 | 依赖服务 | PostgreSQL |
-| 相关文档 | [文档中心](./README.md) · [实现状态](./implementation-status.md) · [工程协作](./agent.md) · [目标部署蓝图](./ops-target.md) |
+| 相关文档 | [文档中心](./README.md) · [实现状态](./implementation-status.md) · [工程协作](../AGENTS.md) · [目标部署蓝图](./ops-target.md) |
 
 > 家谱目标架构使用 PostgreSQL 18 + RLS + 自建 JWT 认证（本地 `postgres.js` / 生产 `pg` + `attachDatabasePool`）；生产部署到 Vercel + 自定义域名 + Neon，本地 Docker 只跑 PostgreSQL、应用用 `next dev`。当前仓库**没有** RLS 与家谱表，也没有 Vercel/Neon 配置，但已有自建 JWT。目标设计不包含支付；当前实现也已移除 Stripe、套餐、计费与订阅。目标蓝图见 [ops-target.md](./ops-target.md)。
 

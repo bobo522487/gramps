@@ -1,8 +1,9 @@
 # 工程协作指南（当前实现）
 
 > **文档状态：当前实现说明** · 最后更新：2026-10-21
+> 本文件位于仓库根目录，文件名必须保持 `AGENTS.md`，Agent 会自动将其作为项目指令读取。
 > 本文件面向**在当前仓库写代码的人与 AI Agent**。它以现有代码、`package.json` 和 CI 为准。
-> 家谱目标设计是另一套未实现的系统，见 [文档中心](./README.md) 与 [实现状态](./implementation-status.md)；不要把目标架构当成现状。
+> 家谱目标设计是另一套未实现的系统，见 [文档中心](docs/README.md) 与 [实现状态](docs/implementation-status.md)；不要把目标架构当成现状。
 
 ---
 
@@ -25,7 +26,7 @@
 - 目标设计的 RLS、数据库触发器、`auth` schema 与家谱表。
 - 软删、回收站、编辑锁。
 
-如果任务要求实现目标能力，先读 [PRD](./prd.md)、[架构](./architect.md)、[数据模型](./data-model.md)、[接口](./api.md)，并先做迁移与实现计划；不要直接套用目标文档里的目录、表名和命令。
+如果任务要求实现目标能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做迁移与实现计划；不要直接套用目标文档里的目录、表名和命令。
 
 技术形态：
 
@@ -45,12 +46,12 @@
 
 | 你要做的事 | 先读 |
 |---|---|
-| 任何事 | 本文件 + [实现状态](./implementation-status.md) |
-| 本地跑起来 / 配环境 | [setup.md](./setup.md) |
-| 改表 / 加迁移 | `lib/db/schema.ts`、`lib/db/migrations/`；目标表结构见 [data-model.md](./data-model.md)，但注意它尚未实现 |
-| 加页面 / 加 Action / 加 API | [api.md](./api.md) 只描述目标契约；当前实现以本文件与代码为准 |
-| 讨论家谱目标架构 | [architect.md](./architect.md) |
-| 目标部署/运维 | [ops-target.md](./ops-target.md)（目标蓝图，不可直接执行） |
+| 任何事 | 本文件 + [实现状态](docs/implementation-status.md) |
+| 本地跑起来 / 配环境 | [setup.md](docs/setup.md) |
+| 改表 / 加迁移 | `lib/db/schema.ts`、`lib/db/migrations/`；目标表结构见 [data-model.md](docs/data-model.md)，但注意它尚未实现 |
+| 加页面 / 加 Action / 加 API | [api.md](docs/api.md) 只描述目标契约；当前实现以本文件与代码为准 |
+| 讨论家谱目标架构 | [architect.md](docs/architect.md) |
+| 目标部署/运维 | [ops-target.md](docs/ops-target.md)（目标蓝图，不可直接执行） |
 
 ---
 
@@ -461,11 +462,11 @@ docs(setup): 对齐当前环境变量
 - 数据隔离：PostgreSQL RLS + `app_rw` + 复合外键。
 - 数据模型：UUIDv7（数据库生成）、ltree、软删、10 张业务表 + `auth.users`；不建审计表，关键动作写结构化日志。
 - 接口：RSC + Server Action + `/api/health`。
-- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动 `pg` + `attachDatabasePool`，本地 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`（[部署蓝图](./ops-target.md)）。
+- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动 `pg` + `attachDatabasePool`，本地 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`（[部署蓝图](docs/ops-target.md)）。
 
 需要实现时：
 
-1. 先读 [PRD](./prd.md) / [架构](./architect.md) / [数据模型](./data-model.md) / [接口](./api.md)。
+1. 先读 [PRD](docs/prd.md) / [架构](docs/architect.md) / [数据模型](docs/data-model.md) / [接口](docs/api.md)。
 2. 先写迁移与实现计划，确认现有数据如何迁移。
 3. 不要在同一 PR 里混入目标功能与当前功能修复。
-4. 更新 [实现状态](./implementation-status.md)。
+4. 更新 [实现状态](docs/implementation-status.md)。
