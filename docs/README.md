@@ -56,8 +56,8 @@
 | 数据表 | 6 张：`users`、`organizations`、`org_members`、`projects`、`activity_logs`、`invitations` |
 | Route Handler | 3 个：`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user` |
 | 代码检查 | Biome |
-| 测试 | Vitest（6 个测试文件，另有 1 个 stub），没有 Playwright/E2E |
-| CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test` → `build` |
+| 测试 | Vitest 单测 6 个文件 + 真实 PostgreSQL 集成测试 4 个文件（另有 1 个 stub），没有 Playwright/E2E |
+| CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` |
 
 家谱目标中的谱系、人丁、谱文、谱书、分类、RLS、软删，当前都**没有实现**；project 侧边栏中的谱系 / 谱文 / 谱书只是占位页。
 

@@ -209,11 +209,11 @@ M1 只有 6 个模块。`collab`（锁/回收站）与 `media`（上传）随对
 ### 5.1 读请求（RSC）
 
 ```
-GET /{orgSlug}/{projectSlug}/lineages/{lineageId}
+GET /{orgSlug}/{projectRef}/lineages/{lineageId}
   │
   ├─ proxy.ts           验签会话 Cookie，剩余 < 6h 时滑动续期
   ├─ [orgSlug]/layout  解析组织 → 查 organization_member → 注入 OrgContext
-  ├─ [projectSlug]/layout  解析项目（组织内）
+  ├─ [projectRef]/layout  解析项目（组织内）
   ├─ page.tsx          lineageQuery.getGraph(ctx, lineageId)
   │     └─ withOrg()   SET LOCAL ROLE app_rw + 注入 claims
   │           └─ repo  SELECT ... WHERE organization_id = $1（RLS 兜底）
@@ -270,6 +270,8 @@ export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
 | 切换成本 | 切换组织 = 点一个 `<Link>`，无 Action、无 `revalidate` |
 | 失败语义 | 非成员返回 **404** 而不是 403，避免泄露组织是否存在 |
 
+项目上下文由 `requireProjectContext(orgSlug, projectRef)` 解析：先得到 `OrgContext`，再在 `withOrg` 内按 `project.ref = projectRef` 查询；非成员或项目不存在都返回 404。返回值携带内部 `projectId`；`ref` 只用于路由，Action 一律使用 `projectId`。
+
 ### 5.4 注册与默认组织
 
 注册由应用层发起、数据落在自建 `auth.users`，组织创建必须放在**数据库触发器**里，这是唯一能保证「有账号必有组织」的位置。
@@ -281,7 +283,7 @@ export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
   ├─ auth.sign_up()                     SECURITY DEFINER 函数
   │    └─ INSERT INTO auth.users
   ├─ 触发器 handle_new_user()          ← 同一事务
-  │    ├─ INSERT organization（slug = 'u-' + user_id 前 12 位 hex）
+  │    ├─ INSERT organization（slug 由 public.generate_public_id() 默认生成）
   │    └─ INSERT organization_member（role = owner）
   ├─ 立即签发 JWT、写 session Cookie
   └─ 直接进入 /{默认组织 slug}
@@ -293,7 +295,7 @@ export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
 | 绕过 RLS | 触发器函数是 `SECURITY DEFINER`，属主为迁移/超级用户，可写受 RLS 保护的表 |
 | `search_path` | 函数上强制 `SET search_path = public`，防注入 |
 | 幂等 | 一个 `auth.users` 行只触发一次 |
-| 可改 | 组织名与 slug 都可由 owner 修改（FR-ORG-7） |
+| 可改 | 组织名可由 owner 修改；`slug` 是随机公开 ID，不可修改（FR-ORG-7） |
 | 无验证邮件 | 注册成功即登录；不存在「等待验证」状态 |
 
 详见 [data-model §4.4](./data-model.md#44-注册触发器默认组织)。
@@ -605,7 +607,7 @@ M2 引入分享页时，必须补「在世人口脱敏在服务端完成」这�
 | ADR-01 | 架构风格 | 模块化单体，单一 Next.js 应用 | 1–3 人团队；应用与数据库都托管，微服务的运维成本远超收益 |
 | ADR-02 | 前后端边界 | RSC 直读 + Server Action，不做 REST | 省一层契约维护；内部 UI 无需对外接口 |
 | ADR-03 | 对外接口 | 仅 `/api/health` | M1 没有外部消费者 |
-| ADR-04 | 组织模型 | org + project 两级，URL 驱动解析 | URL 即状态，切换组织零成本；`project` 只是分组 |
+| ADR-04 | 组织模型 | org + project 两级，URL 驱动解析；URL 标识符为 20 位随机公开 ID（`organization.slug` / `project.ref`） | URL 即状态，切换组织零成本；`project` 只是分组；公开 ID 与 UUIDv7 主键解耦 |
 | ADR-05 | 默认组织 | 数据库触发器在 `auth.users` 插入时创建 | 注册写账号与建组织必须同一事务，只有触发器能保证「有账号必有组织」 |
 | ADR-06 | 隔离机制 | RLS + 应用层 WHERE + 复合外键 | 单层可被绕过，三层互为兜底 |
 | ADR-07 | 组织来源 | 查 `organization_member`，不入 JWT | 换 token 要重签，改权限要等过期 |
@@ -621,6 +623,7 @@ M2 引入分享页时，必须补「在世人口脱敏在服务端完成」这�
 | ADR-17 | 认证 | 自建：bcrypt + jose HS256 + `session` Cookie + `token_version` | 无外部 IdP；会话撤销靠版本号，改密即时踢掉其他设备 |
 | ADR-18 | 部署 | Vercel + Neon；本地 Docker 只跑 PostgreSQL + `next dev` | 无专职运维；托管 Next.js 与 PostgreSQL，本地开发保持最简 |
 | ADR-19 | 数据库驱动 | 本地 `postgres.js`；生产 `pg` 的 `Pool` + `attachDatabasePool` | 本地轻量、API 简洁；生产按 Vercel 官方方式管理连接生命周期，避免实例回收时泄漏连接 |
+| ADR-20 | 公开 ID | `organization.slug` 与 `project.ref` 为 20 位 `[0-9a-z]` 随机 ID，服务端生成、不可修改 | URL 稳定且不暴露主键；不是授权凭证，解析时必须按成员关系过滤 |
 
 ---
 

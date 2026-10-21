@@ -72,8 +72,10 @@ M1 没有公开接口——没有分享页，没有第三方消费者。引入 R
 组织的唯一来源是 URL 第一段。
 
 ```
-/{orgSlug}/{projectSlug}/...
+/{orgSlug}/{projectRef}/...
 ```
+
+`orgSlug` 与 `projectRef` 都是 20 位 `[0-9a-z]` 随机公开 ID，不是授权凭证。项目内页面先用 `orgSlug + projectRef` 解析出内部 `projectId`；Action 使用内部 ID，不在每次调用中重复传 `ref`。
 
 除认证与 `acceptInvite` 外，所有组织内 Action 的第一个参数都是 `orgSlug`（或从 `params` 推导），服务端解析成 `OrgContext`：
 
@@ -322,8 +324,10 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `createOrganization` | `{ name, slug }` | `Organization` | 登录即可 |
-| `updateOrganization` | `{ orgSlug, name?, slug? }` | `Organization` | `org.settings` |
+| `createOrganization` | `{ name }` | `Organization` | 登录即可 |
+| `updateOrganization` | `{ orgSlug, name? }` | `Organization` | `org.settings` |
+
+`slug` 由服务端生成（20 位 `[0-9a-z]` 随机公开 ID），不可修改；客户端只在需要 URL 时读取返回值。
 
 #### project
 
@@ -336,7 +340,7 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 | `renameFolder` | `{ orgSlug, folderId, name }` | `Folder` | `project.write` |
 | `deleteFolder` | `{ orgSlug, folderId }` | `void` | `project.write` |
 
-`slug` **不由客户端传入**：服务端从 `name` 生成，组织内冲突时追加 `-2`、`-3` 后缀（PRD FR-PROJ-1）。客户端只在展示层需要 URL 时读返回值。
+`ref` **不由客户端传入**：服务端生成 20 位随机公开 ID，作为 URL 第二段（PRD FR-PROJ-1）。`projectId` 是内部 UUIDv7，只用于 Action；客户端需要 URL 时读取返回的 `ref`。
 
 #### lineage
 
@@ -406,7 +410,7 @@ M1 没有 `createShareLink` / `revokeShareLink`（分享在 M2）。
 页面是 RSC，数据在服务端取好后以 props 传入客户端组件。**客户端不发数据请求**。
 
 ```tsx
-// app/(app)/[orgSlug]/[projectSlug]/lineages/[lineageId]/page.tsx
+// app/(app)/[orgSlug]/[projectRef]/lineages/[lineageId]/page.tsx
 export default async function Page({ params }: Props) {
   const ctx = await requireOrgContext(params.orgSlug);
   const graph = await lineageQuery.getGraph(ctx, params.lineageId);

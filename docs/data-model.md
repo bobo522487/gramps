@@ -29,7 +29,7 @@
 | 外键 | `<被引用表单数>_id` | `lineage_id`、`book_id` |
 | 布尔 | `is_` / `has_` 前缀 | `is_alive`、`hide` |
 | 时间 | `<动作>_at` | `created_at`、`deleted_at` |
-| 索引 | `idx_<表>_<列>` / `uk_<表>_<语义>` | `idx_node_lineage`、`uk_project_slug` |
+| 索引 | `idx_<表>_<列>` / `uk_<表>_<语义>` | `idx_node_lineage`、`uk_project_ref` |
 | 约束 | `ck_<表>_<语义>` | `ck_node_sex` |
 
 **禁止**：大小写混用、拼音命名、`tbl_` 前缀、复数表名。
@@ -138,9 +138,15 @@ organization                      ← 隔离边界（RLS 生效范围）
 ### 3.1 organization
 
 ```sql
+-- 20 位公开 ID：取 UUIDv4 的 32 位 hex 前 20 位（约 80 bit 随机）
+CREATE FUNCTION public.generate_public_id() RETURNS text
+LANGUAGE sql VOLATILE AS $$
+  SELECT substr(replace(gen_random_uuid()::text, '-', ''), 1, 20);
+$$;
+
 CREATE TABLE organization (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
-  slug       text NOT NULL,
+  slug       text NOT NULL DEFAULT public.generate_public_id(),
   name       text NOT NULL,
   status     text NOT NULL DEFAULT 'active'
              CHECK (status IN ('active','suspended','closed')),
@@ -154,9 +160,11 @@ CREATE UNIQUE INDEX uk_organization_slug ON organization (slug)
 
 | 列 | 说明 |
 |---|---|
-| `slug` | URL 第一段。全局唯一（部分索引，排除软删）。格式 `^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$` |
+| `slug` | URL 第一段。20 位 `[0-9a-z]` 随机公开 ID（列默认值 `public.generate_public_id()`），全局唯一（部分索引，排除软删），**不可修改**。不是授权凭证；解析时必须同时按当前用户成员关系过滤 |
 | `name` | 显示名。注册时默认取邮箱前缀 |
 | `status` | `suspended` 时全部写操作拒绝（`ORG_SUSPENDED`），只读放行 |
+
+`organization.slug` 与 `project.ref` 共用 `public.generate_public_id()`。函数返回 20 位 hex（`[0-9a-z]` 的子集），碰撞概率可忽略，由唯一索引兜底；客户端永远不传入公开 ID。`app_rw` 需要该函数的 `EXECUTE` 权限；默认 PUBLIC 权限即可，收紧权限时必须显式授予。
 
 ---
 
@@ -267,11 +275,8 @@ DECLARE
 BEGIN
   local_part := nullif(split_part(coalesce(new.email, ''), '@', 1), '');
 
-  INSERT INTO organization (slug, name)
-  VALUES (
-    'u-' || substr(replace(new.id::text, '-', ''), 1, 12),   -- 12 hex = 48 bit
-    coalesce(local_part, '我的家族')
-  )
+  INSERT INTO organization (name)
+  VALUES (coalesce(local_part, '我的家族'))
   RETURNING id INTO org_id;
 
   INSERT INTO organization_member (organization_id, user_id, role)
@@ -290,11 +295,11 @@ CREATE TRIGGER on_auth_user_created
 |---|---|
 | `SECURITY DEFINER` | 触发器需要写入 `organization` / `organization_member`，这两张表开了 `FORCE RLS`。函数属主是迁移角色（Neon 项目所有者或本地超级用户），可绕过 RLS |
 | `SET search_path = public` | 防止 `search_path` 注入，SECURITY DEFINER 函数的强制要求 |
-| `slug` 用 12 位 hex | 用户 ID 全局唯一 → slug 天然唯一。12 位（48 bit）在 500 个组织下碰撞概率约 1e-10，同时 URL 不至于长得没法看 |
-| `name` 取邮箱前缀 | 用户看到的是 `chen` 而不是 `u-0192f3a4b5c6`，降低困惑 |
+| `slug` 用 20 位随机公开 ID | 由列默认值 `public.generate_public_id()` 生成；约 80 bit 随机，唯一索引兜底碰撞；不可读但稳定 |
+| `name` 取邮箱前缀 | 用户看到的是 `chen` 而不是随机 slug，降低困惑 |
 | 主键默认值 | 组织的 `id` 与成员行的 `id` 都由 `DEFAULT uuidv7()` 生成，触发器不手写 ID |
 | 同一事务 | 触发器在 `auth.users` 插入的同一事务内执行。组织建失败 → 注册失败，不会出现「有账号没组织」的半残状态 |
-| 用户可改 | `name` 与 `slug` 都可由 owner 在组织设置里改（FR-ORG-7） |
+| 用户可改 | `name` 可由 owner 修改；`slug` 是 URL 标识，不可修改（FR-ORG-7） |
 
 **为什么不在应用层做**：注册入口未来可能增加邀请接受、第三方登录回调等路径；把「有账号必有默认组织」放在触发器里，任何写入 `auth.users` 的路径都会自动满足，且不需要调用方记得多写两条 INSERT。
 
@@ -312,7 +317,7 @@ CREATE TRIGGER on_auth_user_created
 CREATE TABLE project (
   id                uuid PRIMARY KEY DEFAULT uuidv7(),
   organization_id   uuid NOT NULL REFERENCES organization(id) ON DELETE RESTRICT,
-  slug              text NOT NULL,
+  ref               text NOT NULL DEFAULT public.generate_public_id(),
   name              text NOT NULL,
   primary_name      text NOT NULL,
   primary_surname   text NOT NULL,
@@ -325,7 +330,7 @@ CREATE TABLE project (
   UNIQUE (organization_id, id)
 );
 
-CREATE UNIQUE INDEX uk_project_slug ON project (organization_id, slug)
+CREATE UNIQUE INDEX uk_project_ref ON project (ref)
   WHERE deleted_at IS NULL;
 CREATE INDEX idx_project_organization ON project (organization_id)
   WHERE deleted_at IS NULL;
@@ -333,7 +338,7 @@ CREATE INDEX idx_project_organization ON project (organization_id)
 
 | 列 | 说明 |
 |---|---|
-| `slug` | URL 第二段，组织内唯一 |
+| `ref` | URL 第二段（`/{orgSlug}/{projectRef}`）。20 位 `[0-9a-z]` 随机公开 ID，全局唯一、不可修改。展示用 `name`；目标模型不保存可读项目 slug |
 | `primary_name` | 主题名「陈氏族谱」，创建谱书时作为默认值 |
 | `primary_surname` | 姓氏「陈」 |
 | `hall_code` | 郡望堂号「颍川堂」 |
@@ -628,7 +633,7 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 | `organization_member` | `idx_org_member_user` | B-tree | **每次请求**的组织解析 |
 | `organization_member` | `uk_org_member_active` | 唯一部分 | 同一用户在同一组织只有一条有效成员行（软删后可重邀） |
 | `organization_member` | `uk_org_member_single_owner` | 唯一部分 | 保证单 owner |
-| `project` | `uk_project_slug` | 唯一部分 | URL 解析 |
+| `project` | `uk_project_ref` | 唯一部分 | URL 解析 |
 | `lineage` | `uk_lineage_name` | 唯一部分 | 同名检查 |
 | `node` | `idx_node_lineage_path` | **GiST** | 祖先 / 后代 / 子树 |
 | `node` | `idx_node_lineage_depth` | B-tree | 按代加载（视口分段） |

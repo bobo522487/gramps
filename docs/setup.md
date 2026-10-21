@@ -70,6 +70,7 @@ pnpm dev
 |---|:--:|---|---|
 | `POSTGRES_URL` | ✅ | `postgres://postgres:postgres@localhost:54322/postgres` | Drizzle/postgres.js 连接串；缺失时首次查询即抛错 |
 | `AUTH_SECRET` | ✅ | `openssl rand -hex 32` 生成 | JWT HS256 签名密钥；缺失时首次签发/校验 token 即抛错 |
+| `TEST_POSTGRES_URL` | — | `postgres://postgres:postgres@localhost:54322/gramps_test` | `pnpm test:integration` 专用库；名称必须以 `_test` 结尾。未设置时回退到 `POSTGRES_URL`，同样要求库名以 `_test` 结尾 |
 | `LOG_LEVEL` | — | `debug` / `info` / `warn` / `error` | 默认开发 `debug`、生产 `info` |
 | `NODE_ENV` | — | `development` / `production` | Next.js 与日志默认级别使用 |
 
@@ -199,7 +200,9 @@ pnpm db:seed
 | `pnpm format` | Biome 格式化 |
 | `pnpm fix` | Biome 检查并自动修复 |
 | `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` | Vitest 单测 |
+| `pnpm test` | Vitest 单测（不连数据库） |
+| `pnpm test:unit` | 同 `pnpm test` |
+| `pnpm test:integration` | 真实 PostgreSQL 集成测试（需要 `*_test` 数据库） |
 
 **没有** `test:e2e`、`db:reset`、ESLint、dependency-cruiser 或 Playwright 脚本。
 
@@ -243,8 +246,27 @@ pnpm db:seed
 ```bash
 pnpm check
 pnpm typecheck
-pnpm test
+pnpm test:unit
 ```
+
+集成测试使用真实 PostgreSQL。先建一个独立测试库，库名必须以 `_test` 结尾：
+
+```bash
+# 使用 db:setup 生成的本地 Docker Postgres
+docker compose exec postgres createdb -U postgres gramps_test
+
+# 在 .env 增加（不要指向开发库或生产库）
+TEST_POSTGRES_URL=postgres://postgres:postgres@localhost:54322/gramps_test
+
+pnpm test:integration
+```
+
+安全护栏：
+
+- 测试 helper 拒绝名称不以 `_test` 结尾的数据库，避免误清开发/生产数据。
+- `globalSetup` 在测试库上执行全部迁移；迁移已应用时是幂等的。
+- 每个测试文件开始前 `TRUNCATE` 6 张业务表并重置自增 ID。
+- 测试文件串行执行，避免共享库竞争。
 
 ### 7.2 CI
 
@@ -254,15 +276,17 @@ pnpm test
 pnpm install --frozen-lockfile
 pnpm check
 pnpm typecheck
-pnpm test
+pnpm test:unit
+pnpm test:integration     # postgres:18-alpine，库名 gramps_test
+pnpm db:generate && git status --porcelain lib/db/migrations  # 漂移检查
 pnpm build
 ```
 
-CI 使用 Node 22、pnpm 9，并提供占位环境变量，使 `next build` 不连接真实数据库。
+CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成测试从空库执行全部迁移。
 
 ### 7.3 测试覆盖
 
-当前 6 个 Vitest 测试文件（另有 `tests/server-only.stub.ts` 作为测试环境 stub）：
+单测 6 个文件（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
 
 | 文件 | 关注点 |
 |---|---|
@@ -272,7 +296,17 @@ CI 使用 Node 22、pnpm 9，并提供占位环境变量，使 `next build` 不�
 | `tests/ids.test.ts` | 20 位公开 ID 的长度/字符集与校验 |
 | `tests/security-regressions.test.ts` | 密码回显、计时攻击、组织越权、公开 ID 查询的成员过滤、`/api/user` DTO |
 | `tests/design-system.test.ts` | 设计令牌边界、状态/角色/区域中文映射、项目列表 DTO |
-| `tests/server-only.stub.ts` | 测试环境 `server-only` stub |
+
+集成测试 4 个文件，使用真实 PostgreSQL：
+
+| 文件 | 关注点 |
+|---|---|
+| `tests/integration/migrations.test.ts` | 空库迁移、当前业务表与公开 ID/组织索引 |
+| `tests/integration/session.test.ts` | `getUser()` 的 `token_version` 撤销、软删用户、缺失/无效会话 |
+| `tests/integration/org-scope.test.ts` | 公开 ID 的成员过滤、跨组织读写拒绝 |
+| `tests/integration/constraints.test.ts` | 唯一邮箱/slug/ref、外键、组织删除级联 |
+
+公共 helper 位于 `tests/helpers/`：测试库连接与清理、用户/组织/项目/邀请工厂、会话签名。
 
 没有端到端测试。
 
@@ -320,6 +354,7 @@ pnpm start
 | 组织 API 返回 403 / 404 | 非成员、组织 ID 非数字或不存在 | 先确认成员关系；不要绕过 `getOrgRole` |
 | 已有数据的库执行 `pnpm db:migrate` 报 `column "slug" contains null values` | `0004` 在 `0003` 之后立即执行，缺少回填 | 按 §4.2 分步执行：`migrate:until 0003` → `db:backfill-ids` → `db:migrate` |
 | 限流很快失效 | 限流是进程内内存实现 | 重启后清零；多实例不共享；生产需替换为共享存储（P1） |
+| 集成测试报 `database name must end with "_test"` | `TEST_POSTGRES_URL` 指向了开发库或生产库 | 创建独立 `gramps_test` 库，设置专用 `TEST_POSTGRES_URL` |
 | 修改密码后其他设备退出 | `tokenVersion` 被递增 | 预期行为；所有旧会话失效 |
 
 ---

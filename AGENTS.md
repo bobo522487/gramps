@@ -38,7 +38,7 @@
 | 认证 | bcrypt + JWT HS256 Cookie |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 检查/格式化 | Biome |
-| 测试 | Vitest |
+| 测试 | Vitest（单测 + 真实 PostgreSQL 集成测试） |
 
 ---
 
@@ -66,7 +66,9 @@ pnpm lint           # Biome lint
 pnpm format         # Biome 格式化
 pnpm fix            # Biome 检查并自动修复
 pnpm typecheck      # tsc --noEmit
-pnpm test           # Vitest
+pnpm test           # 全部单测（不连数据库）
+pnpm test:unit      # 同 pnpm test
+pnpm test:integration # 真实 PostgreSQL 集成测试，需要 *_test 数据库
 pnpm db:setup       # 交互式创建 .env / 本地 Postgres
 pnpm db:seed        # 灌入演示数据（非幂等）
 pnpm db:backfill-ids        # 回填缺失的 20 位 slug/ref（幂等）
@@ -82,7 +84,7 @@ pnpm db:studio      # Drizzle Studio
 pnpm check && pnpm typecheck && pnpm test
 ```
 
-CI 还会额外执行 `pnpm build`。
+CI 还会额外执行 `pnpm test:integration`（连接 `postgres:18` 服务）与迁移漂移检查，最后执行 `pnpm build`。
 
 **不存在的命令**：`pnpm test:e2e`、`pnpm db:reset`、ESLint、dependency-cruiser。当前没有 Playwright/E2E。
 
@@ -313,7 +315,7 @@ logger.error('failed to update project', error);
 3. pnpm db:migrate
 4. lib/db/queries.ts 增加带 orgId 的查询
 5. 更新 setup.md / implementation-status.md 的当前状态
-6. 需要时补 Vitest 覆盖组织隔离
+6. 需要时补 Vitest 覆盖组织隔离；涉及真实 SQL、约束或事务的行为放进 `tests/integration`
 ```
 
 ---
@@ -351,7 +353,7 @@ logger.error('failed to update project', error);
 6. 写 activity log（如属于业务动作）
 7. revalidatePath
 8. 返回 ActionState
-9. 补测试：未登录、越权、成功路径
+9. 补测试：未登录、越权、成功路径；涉及真实 SQL 或事务的行为补 `tests/integration`
 ```
 
 ### 9.2 加一个页面
@@ -413,7 +415,8 @@ docs(setup): 对齐当前环境变量
 ### 10.2 PR 自查
 
 - [ ] `pnpm check && pnpm typecheck && pnpm test` 全绿
-- [ ] CI 的 `pnpm build` 能通过
+- [ ] 涉及真实 SQL / 约束 / 成员隔离的改动补了 `pnpm test:integration`
+- [ ] CI 的 `pnpm test:integration` 与迁移漂移检查能通过
 - [ ] 新增的组织级查询/写入都带 `orgId` 且做了成员校验
 - [ ] 公开 ID 查询带 `userId` 过滤，非成员返回 404
 - [ ] 没有返回 `password_hash`

@@ -29,8 +29,8 @@
 | 数据表 | 6 张 | 见 §1.1 |
 | Route Handler | 3 个 | 见 §1.3 |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest，6 个测试文件（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
-| CI | `pnpm check` → `typecheck` → `test` → `build` | `.github/workflows/ci.yml` |
+| 测试 | Vitest 单测 6 个文件 + 真实 PostgreSQL 集成测试 4 个文件（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
+| CI | `pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` | `.github/workflows/ci.yml` |
 
 ### 1.1 当前数据表
 
@@ -41,6 +41,7 @@
 ### 1.2 公开 ID 与控制台路由
 
 - `organizations.slug` 与 `projects.ref` 是 20 位 `[0-9a-z]` 公开 ID，由 `lib/ids.ts` 生成，各自有全局唯一索引；数字 `serial` 主键继续作为内部外键。
+- 目标设计文档自 2026-10-21 起采用同一规范：`organization.slug` 与 `project.ref` 都是 20 位随机公开 ID，服务端生成且不可修改；URL 标识符不再存在当前/目标差异。
 - 控制台地址：`/dashboard/org/[orgSlug]`（Projects / Team / Org settings）与 `/dashboard/project/[projectRef]`（Overview / Lineages / Articles / Books / Project settings）。
 - `getOrgWithRoleBySlug(userId, slug)`、`getProjectScopeByRef(userId, ref)` 在解析 URL 时同时按当前用户过滤；非成员或不存在的公开 ID 返回 404。
 - 迁移为两阶段：`0003` 增加可空列并删除 `api_keys`，随后在迁移之外执行 `pnpm db:backfill-ids` 回填，最后 `0004` 设置 `NOT NULL` 与唯一索引。迁移文件本身不含数据修复。
@@ -54,6 +55,13 @@
 
 没有 `/api/health`，也没有 Stripe 相关路由。
 
+### 1.4 测试与 CI
+
+- `pnpm test:unit`（`pnpm test`）：6 个 Vitest 文件，不连接数据库。
+- `pnpm test:integration`：4 个文件，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 从空库执行全部迁移，每个测试文件开始前清空业务表。
+- CI 使用 `postgres:18-alpine` service，执行迁移漂移检查（`pnpm db:generate` 后迁移目录必须无变化），最后构建。
+- 尚无 Playwright/E2E。`tests/security-regressions.test.ts` 与 `tests/design-system.test.ts` 仍包含源码字符串断言，但会话撤销、公开 ID 成员过滤、跨组织读写与数据库唯一约束已由集成测试覆盖。
+
 ---
 
 ## 2. 模块状态
@@ -63,14 +71,14 @@
 | 模块 | 目标（PRD） | 当前实现 | 状态 |
 |---|---|---|---|
 | 认证 | 即时登录（无邮件确认）、JWT 会话 + `token_version`、改密、进程内限流、4 角色 | 注册/登录/登出、改密、删号、内存限流 | 🟡 部分 |
-| 组织与成员 | 默认组织（触发器）、邀请链接 7 天、角色管理、组织停用 | 默认组织（应用层）、多组织、20 位公开 slug、邀请记录、移除成员、改名 | 🟡 部分 |
-| 云谱空间 | 谱系/谱文/谱书三棵分类树 | 部署型 project（region/status/health）+ 20 位公开 ref + 谱系/谱文/谱书占位页；无分类 | 🟡 语义不同 |
+| 组织与成员 | 默认组织（触发器）、邀请链接 7 天、角色管理、组织停用 | 默认组织（应用层）、多组织、公开 ID 与目标一致、邀请记录、移除成员、改名 | 🟡 部分 |
+| 云谱空间 | 谱系/谱文/谱书三棵分类树 | 部署型 project（region/status/health）+ 20 位 ref（与目标一致）+ 谱系/谱文/谱书占位页；无分类 | 🟡 语义不同 |
 | 谱系与人丁 | `FR-LIN-1` ~ `FR-LIN-13` | 无表、无页面、无 Action | ⬜ 未实现 |
 | 谱文 | `FR-ART-1` ~ `FR-ART-5` | 无 | ⬜ 未实现 |
 | 谱书与编目 | `FR-BOOK-1` ~ `FR-BOOK-8` | 无 | ⬜ 未实现 |
 | 审计 / 活动记录 | 目标设计不建审计表；关键动作写结构化日志 | 可变的 `activity_logs` | ➕ 目标外已有 |
 | 界面语言 | 简体中文 | 全站中文，品牌“云谱”；无 i18n 框架 | ✅ |
-| 工程工具链 | Biome + Vitest + Playwright E2E | Biome + Vitest（6 个测试文件），无 E2E | 🟡 部分 |
+| 工程工具链 | Biome + Vitest + Playwright E2E | Biome + Vitest（单测 + 真实 PostgreSQL 集成测试），无 E2E | 🟡 部分 |
 
 ---
 
@@ -96,12 +104,12 @@
 | FR | 状态 | 当前行为 / 差异 |
 |---|---|---|
 | `FR-ORG-1` 注册即得默认组织 | 🟡 | 注册后由应用层创建默认组织并加入 `owner`；不是数据库触发器，也不是单事务 |
-| `FR-ORG-2` 新建额外组织 | 🟡 | 可创建组织；slug 由应用生成（20 位 `[0-9a-z]`），不能由用户指定；路由使用 slug，数字 ID 仅内部使用 |
+| `FR-ORG-2` 新建额外组织 | 🟡 | 可创建组织；slug 由服务端生成（20 位 `[0-9a-z]`，与目标一致）；建组织与 owner 成员关系不在同一事务 |
 | `FR-ORG-3` 多组织切换 | ✅ | 一个账号可属于多个组织，控制台顶部提供组织切换 |
 | `FR-ORG-4` 邀请成员 | 🟡 | 有邀请记录与接受逻辑；没有一次性 token、过期时间或可复制的邀请链接 |
 | `FR-ORG-5` 修改成员角色 | ⬜ | 没有改角色、转让所有权；角色只有 owner/member |
 | `FR-ORG-6` 移除成员 | ✅ | owner 可移除成员；未实现“最后一个 owner 不可移除”的保护 |
-| `FR-ORG-7` 组织设置 | 🟡 | 仅支持改名；slug 由系统生成且不可修改（目标设计允许 owner 修改 slug） |
+| `FR-ORG-7` 组织设置 | 🟡 | 改名仅 owner（服务端校验）；slug 不可修改，与目标一致；设置页对非 owner 未隐藏操作入口 |
 | `FR-ORG-8` 组织停用 | ⬜ | `organizations` 表没有 `status` 字段 |
 
 额外已有：删除组织（硬删除，级联项目）。
@@ -110,7 +118,7 @@
 
 | FR | 状态 | 当前行为 / 差异 |
 |---|---|---|
-| `FR-PROJ-1` 创建云谱空间 | 🟡 | 字段是 `name`、`region`，不是姓氏、郡望、地区；可读 slug 与 20 位公开 `ref` 均由服务端生成，URL 使用 `ref` |
+| `FR-PROJ-1` 创建云谱空间 | 🟡 | 字段是 `name`、`region`，不是姓氏、郡望、地区；20 位 `ref` 由服务端生成且用于 URL，与目标一致；可读 slug 是当前实现额外字段 |
 | `FR-PROJ-2` 多个云谱空间 | ✅ | 一个组织可建多个 project |
 | `FR-PROJ-3` 分类管理 | ⬜ | 没有 `folder` 表，也没有三棵树；谱系/谱文/谱书只有占位页 |
 
@@ -144,7 +152,20 @@
 
 ---
 
-## 6. 更新规则
+## 6. 路线决策（2026-10-21）
+
+| # | 决策 |
+|---|---|
+| D1/D2 | 目标为家谱 M1；按当前仓库状态（无生产部署证据）采用基础层重置，Phase 3 前确认；若已有生产数据则改走扩展-收缩 |
+| D3 | UUIDv7 在创建家谱表之前一次性替换 `serial` |
+| D4 | 新家谱表从第一天启用 RLS；先补齐 `organization_member` 策略缺口 |
+| D5 | 先落权限字符串矩阵，再扩到 4 个角色 |
+| D6 | 修改邮箱要求当前密码 |
+| D7 | 保留 `activity_logs` 作为产品活动流并修复多组织归属；不把它当审计表 |
+| D8 | M1 过渡期保留 3 个内部只读 API，补 401 与契约文档；选择器改用 RSC fallback 后再收敛 |
+| D9 | 邀请使用一次性 token + 7 天过期，禁止邀请 owner |
+
+## 7. 更新规则
 
 - 合并涉及家谱目标功能的 PR 时，更新本文件对应模块与 FR 行。
 - 新增/删除表、Action、Route Handler 时，同步更新 [README](./README.md) 的“当前仓库速览”和本文件 §1。
