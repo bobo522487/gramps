@@ -3,7 +3,7 @@
 > **文档状态：当前实现说明** · 最后更新：2026-10-21
 > 本文件位于仓库根目录，文件名必须保持 `AGENTS.md`，Agent 会自动将其作为项目指令读取。
 > 本文件面向**在当前仓库写代码的人与 AI Agent**。它以现有代码、`package.json` 和 CI 为准。
-> 家谱目标设计是另一套未实现的系统，见 [文档中心](docs/README.md) 与 [实现状态](docs/implementation-status.md)；不要把目标架构当成现状。
+> 家谱目标设计的**业务层**尚未实现；基础层（UUIDv7、RLS、4 角色、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地。以 [实现状态](docs/implementation-status.md) 为准。
 
 ---
 
@@ -12,22 +12,22 @@
 当前仓库是一个 **Next.js 组织/项目控制台** 的改造版：
 
 - 组织（organization）→ 项目（project），组织与项目各有独立控制台界面。
-- 组织与项目使用 20 位公开 ID（`organizations.slug`、`projects.ref`）作为 URL；数字主键仅内部使用。
-- 用户登录、组织成员管理、邀请记录、活动日志。
-- 注册、创建组织、移除成员、删除账号等多步写操作在单个数据库事务内完成；失败不会留下半成品数据。
+- 组织与项目使用 20 位公开 ID（`organization.slug`、`project.ref`）作为 URL；UUIDv7 主键仅内部使用。
+- 用户登录、组织成员管理（4 角色）、邀请链接、活动日志。
+- 注册、创建组织、接受邀请、成员变更、删除账号等多步写操作在单个数据库事务内完成；失败不会留下半成品数据。
+- 数据库已按目标基础层重置：`auth.users`、RLS、`app_rw`、软删、复合外键、邀请 token。
 - 界面全部为简体中文，品牌“云谱”，不引入 i18n 框架。
 - 营销首页、登录/注册、控制台界面。
 
-它**还不是**家谱编纂产品。以下目标能力尚未实现：
+它**还不是**家谱编纂产品。以下目标业务能力尚未实现：
 
 - 谱系、人丁、世次、字辈。
 - 谱文、富文本编辑。
 - 谱书、编目。
-- 分类树（folder）。
-- 目标设计的 RLS、数据库触发器、`auth` schema 与家谱表。
-- 软删、回收站、编辑锁。
+- 分类树 UI（表已存在，无业务页面与 Action）。
+- 回收站、编辑锁、分享。
 
-如果任务要求实现目标能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做迁移与实现计划；不要直接套用目标文档里的目录、表名和命令。
+基础层（UUIDv7、`auth` schema、RLS、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地；家谱业务表已在 schema 中，但页面和写流程尚未实现。如果任务要求实现目标业务能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做实现计划；不要把目标文档里的 `src/modules` 目录当成现状。
 
 技术形态：
 
@@ -39,7 +39,7 @@
 | 认证 | bcrypt + JWT HS256 Cookie |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 7 文件/39 用例；真实 PostgreSQL 集成测试 8 文件/61 用例 |
+| 测试 | Vitest：单测 10 文件/44 用例；真实 PostgreSQL 集成测试 9 文件/103 用例 |
 
 ---
 
@@ -49,7 +49,7 @@
 |---|---|
 | 任何事 | 本文件 + [实现状态](docs/implementation-status.md) |
 | 本地跑起来 / 配环境 | [setup.md](docs/setup.md) |
-| 改表 / 加迁移 | `lib/db/schema.ts`、`lib/db/migrations/`；目标表结构见 [data-model.md](docs/data-model.md)，但注意它尚未实现 |
+| 改表 / 加迁移 | `lib/db/schema.ts`、`lib/db/migrations/`；基础表已按 [data-model.md](docs/data-model.md) 落地，家谱业务规则仍以目标文档为准 |
 | 加页面 / 加 Action / 加 API | [api.md](docs/api.md) 只描述目标契约；当前实现以本文件与代码为准 |
 | 讨论家谱目标架构 | [architect.md](docs/architect.md) |
 | 目标部署/运维 | [ops-target.md](docs/ops-target.md)（目标蓝图，不可直接执行） |
@@ -71,9 +71,7 @@ pnpm test           # 全部单测（不连数据库）
 pnpm test:unit      # 同 pnpm test
 pnpm test:integration # 真实 PostgreSQL 集成测试，需要 *_test 数据库
 pnpm db:setup       # 交互式创建 .env / 本地 Postgres
-pnpm db:seed        # 灌入演示数据（非幂等）
-pnpm db:backfill-ids        # 回填缺失的 20 位 slug/ref（幂等）
-pnpm db:migrate:until <tag> # 只执行到指定迁移（两阶段升级用）
+pnpm db:seed        # 灌入演示数据（幂等，复用 test@test.com）
 pnpm db:generate    # 生成迁移 SQL，必须人工 review
 pnpm db:migrate     # 执行迁移
 pnpm db:studio      # Drizzle Studio
@@ -99,6 +97,7 @@ app/
 ├── (login)/                  # /sign-in、/sign-up
 ├── (dashboard)/dashboard/    # 登录后控制台
 │   ├── (account)/            # /dashboard、general、security、activity（无 org scope）
+│   ├── join/                 # /dashboard/join?token=... 接受邀请
 │   ├── org/[orgSlug]/        # projects、team、settings
 │   └── project/[projectRef]/ # overview、lineages、articles、books、settings
 └── api/
@@ -142,9 +141,9 @@ proxy.ts                      # Next 16 路由门禁
 |---|---|---|
 | 文件 | `kebab-case` | `rate-limit.ts` |
 | React 组件文件 | `PascalCase.tsx` 或 `kebab-case.tsx`（现有两种并存） | `members-panel.tsx`、`Button.tsx` |
-| 函数 / 变量 | `camelCase` | `checkOrgRole` |
+| 函数 / 变量 | `camelCase` | `getOrgRoleInTx` |
 | 类型 | `PascalCase`，不加 `I` 前缀 | `ActionState` |
-| 常量 | `SCREAMING_SNAKE` | `ROLE_LEVEL` |
+| 常量 | `SCREAMING_SNAKE` | `ORG_ROLES` |
 | 数据库列 | `snake_case` | `org_id`、`password_hash` |
 
 不要为了“以后可能用到”提前拆 `service/repo/module` 目录；当前代码以页面、Action、查询函数为主。
@@ -159,7 +158,7 @@ proxy.ts                      # Next 16 路由门禁
 - 客户端组件只接收已序列化的 props；不要在客户端直接查库。
 - 组织/项目布局用 `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)` 解析 scope：内部先 `getSessionUser()`，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤，失败 `notFound()`。`getSessionUser` 与两个 context helper 用 React `cache()` 做请求级记忆化。
 - 页面需要 scope 时调用 `getOrgContext` / `getProjectContext`（返回 `null`）或 `require*Context`（404/重定向）；**不要再自行 `getSessionUser()` + 查询 scope**。
-- 页面内的数据查询仍按数字 `orgId` 过滤；scope 里的 `id` 来自服务端校验过的成员关系。
+- 页面内的数据查询仍按 UUID `orgId` 过滤；scope 里的 `id` 来自服务端校验过的成员关系。
 
 ### 5.2 写
 
@@ -171,20 +170,24 @@ proxy.ts                      # Next 16 路由门禁
 export const renameOrgAction = validatedActionWithUser(
   renameOrgSchema,
   async (data, _, user) => {
-    const denied = await checkOrgRole(user.id, data.orgId, 'owner');
-    if (denied) return { error: denied };
+    const result = await renameOrganization({
+      userId: user.id,
+      orgId: data.orgId,
+      name: data.name,
+    });
 
-    const updated = await renameOrg(data.orgId, data.name);
-    if (!updated) return { error: '组织不存在' };
+    if (!result.ok) {
+      return { error: '组织不存在或你没有权限' };
+    }
 
-    await logActivity(data.orgId, user.id, ActivityType.RENAME_ORG);
-    revalidatePath(`/dashboard/org/${updated.slug}`, 'layout');
-    return { success: '组织名称已更新' };
+    revalidatePath('/dashboard', 'layout');
+    return { success: '组织已重命名' };
   }
 );
 ```
 
-- 多步写操作（注册、建组织、移除成员、删号）放在 `lib/db/services.ts`，整个流程使用一个 `db.transaction`；不要在 Action 里串联多个独立写操作。事务内的权限判断必须用锁定读（`FOR UPDATE`）重新校验，不能只依赖事务外的 `checkOrgRole`。
+- 多步写操作（注册、建组织、接受邀请、成员变更、删号）放在 `lib/db/services.ts`，整个流程使用 `withOrg` 或单个事务；不要在 Action 里串联多个独立写操作。事务内必须用 `getOrgRoleInTx()` / 锁定读重新校验权限。
+- 权限判断用 `hasPermission(role, '<permission>')`；不要在业务代码里写 `role === 'owner' || role === 'admin'`。
 - 返回 `{ error }` / `{ success }` 等 `ActionState` 字段，不把异常堆栈抛给 UI。新代码的错误可带稳定 `code`（见 `lib/errors.ts` 的 `actionError()`）。
 - 返回给 UI 的文案一律使用简体中文；内部日志、API JSON 错误保持英文。
 - 写成功后按需 `revalidatePath`；组织级变化用 `/dashboard` layout 或 `/dashboard/org/${slug}`，项目设置用 `/dashboard/project/${ref}`。
@@ -210,31 +213,33 @@ getSessionUser()（权威校验：查库比对 token_version + deleted_at，按�
 
 ### 5.4 组织隔离
 
-- 当前**没有 RLS**，隔离完全靠应用层。
-- 每个组织级查询都必须带 `org_id`/`orgId` 条件：
+- 隔离有**三层**：应用层按成员关系过滤、`withOrg` 事务内的 RLS（`app_rw`）、复合外键。三层都要有；不要因为“有 RLS”就省略 `orgId` 条件。
+- 每个组织级查询都必须带 `org_id`/`orgId` 条件，并通过 `withOrg(userId, fn)` 执行：
 
 ```typescript
 // ✅
-getProjectById(projectId, orgId);
+getProjectById(userId, projectId, orgId);
 
 // ❌ 仅按 projectId 查，随后再判断
 getProjectById(projectId);
 ```
 
+- `withOrg` 在事务内执行 `SET LOCAL ROLE app_rw` 并设置 `request.jwt.claims`；不要用会话级 `SET`（会污染连接池），也不要在 `app_rw` 之外直接跑组织级 SQL。
 - URL 里的 `[orgSlug]` / `[projectRef]` 是 20 位公开 ID；`requireOrgContext` / `requireProjectContext` 先用 `isPublicId()` 校验格式，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤。非成员、不存在的 ID 一律 404。
 - 公开 ID 不是授权凭证：能猜到 slug/ref 不等于能访问，解析查询必须带 `userId`。
-- Server Action 的入参仍是数字 `orgId` / `projectId`，来自服务端 scope，不要新增按公开 ID 写入的入口。
-- 不要信任客户端传来的角色；角色只从数据库成员关系读取。
+- Server Action 的 `orgId` / `projectId` 是 UUID 字符串，来自服务端 scope，不要新增按公开 ID 写入的入口。
+- 不要信任客户端传来的角色；角色只从数据库成员关系读取，并用 `hasPermission()` 检查权限字符串。
 
 ### 5.5 数据访问
 
-- 查询集中在 `lib/db/queries/<domain>.ts`（users、organizations、invitations、projects、activity）；不要在页面里拼 SQL。
-- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。
-- 当前 ID 是 `serial` 整数主键 + 20 位公开 `slug`/`ref`，不是 UUIDv7。
-- 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 slug/ref 冲突时每次重试重新生成，最多尝试 5 次。
-- `0006` 起数据库已约束成员 `(org_id, user_id)` 唯一、角色/状态 `CHECK`、待处理邀请 `(org_id, lower(email))` 部分唯一；捕获 `23505`/`23514` 时转换为中文提示，不要吞掉或重试成重复数据。
-- 当前只有 `users.deleted_at`；业务表**没有**软删。不要假设删除可恢复。
-- 当前没有 `withOrg`、`app_rw`、RLS claims。
+- 查询集中在 `lib/db/queries/<domain>.ts`（users、organizations、projects、invitations、activity）；不要在页面里拼 SQL。
+- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。当前迁移是重置后的 `0000_baseline` + `0001_auth_rls`。
+- 主键是 PostgreSQL 18 `uuidv7()` 生成的 UUID；20 位公开 `slug`/`ref` 只用于 URL，不进入外键。
+- 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 `ref` 冲突时每次重试重新生成，最多尝试 3 次。
+- 数据库约束：成员 `(organization_id, user_id)` 活动行唯一、单组织仅一个 `owner`（部分唯一索引）、角色 `CHECK`、待处理邀请 `(organization_id, lower(email))` 部分唯一、`auth.users` 活动邮箱唯一、业务表软删。捕获 `23505`/`23514`/`23503` 时转换为中文提示，不要吞掉或重试成重复数据。
+- 组织、成员、邀请、项目、谱系/谱文/谱书、活动日志都有 `deleted_at` 软删列；不要假设删除可恢复或可回收。
+- `invite` 只存 token 的 SHA-256 哈希，7 天过期、一次性、禁止邀请 `owner`；接受邀请走 `auth.accept_invite()` 的 `SECURITY DEFINER` 路径。
+- 不要直接访问 `auth.users`：运行时角色 `app_rw` 没有表权限，认证读写走 `auth` schema 下的 `SECURITY DEFINER` 函数。
 
 ### 5.6 API Route
 
@@ -244,7 +249,7 @@ getProjectById(projectId);
 |---|---|
 | `GET /api/health` | 数据库 `SELECT 1`；健康 200、不可用 503；不要求登录 |
 | `GET /api/orgs` | 当前用户的组织列表，DTO 为 `{ id, name, slug, role }` |
-| `GET /api/orgs/[orgId]/projects` | 组织内项目列表，先校验成员；DTO 为 `{ id, name, ref, status }` |
+| `GET /api/orgs/[orgId]/projects` | 组织内项目列表，先校验成员；DTO 为 `{ id, name, ref }` |
 | `GET /api/user` | 当前用户，DTO 为 `{ id, name, email }` |
 
 三个业务路由未登录时都返回 `401 { error: 'Unauthorized' }`；`lib/fetcher.ts` 对非 2xx 抛错，错误对象带 `status`。所有路由用 `withApiLogging()` 包装：生成/透传 `x-request-id`、记录 `duration_ms`、异常返回 JSON 500。客户端退出登录时要同时清空 `/api/user` 的 SWR 缓存。
@@ -317,30 +322,32 @@ logger.error('failed to update project', error);
 
 | # | 规则 |
 |---|---|
-| 1 | 组织级查询必须带 `orgId`，不能只按子资源 ID 查 |
-| 2 | 组织级写操作必须先 `checkOrgRole`/`requireOrgAccess`；事务流程在事务内锁定读重新校验角色 |
-| 3 | 角色只有 `owner` / `member`，不要自行添加目标设计中的 admin/editor/viewer |
-| 4 | 主键是 `serial` 整数，不是 UUIDv7 |
-| 5 | 当前没有 RLS；不要假设数据库会兜底隔离 |
-| 6 | 当前只有用户软删；组织/项目/成员删除是硬删除，没有回收站 |
-| 7 | 表结构变更走 Drizzle 迁移，不手改数据库 |
+| 1 | 组织级查询必须带 `orgId` 并通过 `withOrg` 执行，不能只按子资源 ID 查 |
+| 2 | 组织级写操作必须先 `hasPermission()`；事务流程在事务内锁定读重新校验角色 |
+| 3 | 角色是 `owner` / `admin` / `editor` / `viewer`；业务代码检查权限字符串，不要直接比较角色名 |
+| 4 | 主键是 UUIDv7；20 位公开 ID 只用于 URL |
+| 5 | RLS 是兜底，不是替代品；应用层仍必须按成员关系过滤 |
+| 6 | 业务表都有 `deleted_at` 软删；查询默认 `isNull(deletedAt)`，没有回收站 UI |
+| 7 | 表结构变更走 Drizzle 迁移，不手改数据库；RLS/角色/函数写在 custom migration |
 | 8 | 迁移生成后必须人工 review；迁移与业务代码分开提交 |
-| 9 | 不要在迁移里夹带数据修复逻辑；另写可重复执行的脚本（公开 ID 回填见 `lib/db/backfill-public-ids.ts`） |
-| 10 | 新表如果属于组织范围，必须带 `org_id` 并在所有查询中过滤 |
+| 9 | 不要在迁移里夹带数据修复逻辑；迁移必须能在空库一次执行 |
+| 10 | 新表如果属于组织范围，必须带 `organization_id` 并在所有查询中过滤 |
 | 11 | 公开 ID（slug/ref）查询必须同时按 `userId` 过滤，不能先查后判 |
 | 12 | 多步写必须使用单个事务；失败时不能留下半成品数据 |
 | 13 | 修改邮箱必须验证当前密码，并在写入前归一化邮箱 |
 | 14 | 不要绕过唯一约束/`CHECK` 直接写库；冲突转换为中文 `ActionState` |
+| 15 | 不要直接读写 `auth.users`；认证路径只走 `auth` schema 的 `SECURITY DEFINER` 函数 |
 
 ### 7.1 加一张表的顺序
 
 ```text
-1. lib/db/schema.ts 增加 Drizzle 定义
+1. lib/db/schema.ts 增加 Drizzle 定义（UUIDv7 主键、org_id、软删列、复合外键）
 2. pnpm db:generate → 人工 review SQL
-3. pnpm db:migrate
-4. lib/db/queries/<domain>.ts 增加带 orgId 的查询
-5. 更新 setup.md / implementation-status.md 的当前状态
-6. 需要时补 Vitest 覆盖组织隔离；涉及真实 SQL、约束或事务的行为放进 `tests/integration`
+3. RLS/GRANT/函数追加到 custom migration，并补隔离断言
+4. pnpm db:migrate
+5. lib/db/queries/<domain>.ts 增加带 orgId、通过 withOrg 执行的查询
+6. 更新 setup.md / implementation-status.md 的当前状态
+7. 需要时补 Vitest 覆盖组织隔离；涉及真实 SQL、约束或事务的行为放进 `tests/integration`
 ```
 
 ---
@@ -349,7 +356,7 @@ logger.error('failed to update project', error);
 
 | # | 禁止 | 原因 |
 |---|---|---|
-| 1 | 直接实现家谱目标功能（谱系/谱文/谱书/RLS） | 尚未迁移，避免半成品和不一致模型 |
+| 1 | 直接实现家谱目标业务功能（谱系/谱文/谱书 UI 与写流程） | 表已就绪但业务规则尚未设计，避免半成品 |
 | 2 | 信任客户端传来的 `orgId` / `projectId` / 公开 ID / 角色 | 越权 |
 | 3 | 返回完整用户行或 `password_hash` | 信息泄露 |
 | 4 | 存储明文密码 | 泄露即灾难 |
@@ -373,8 +380,8 @@ logger.error('failed to update project', error);
 1. lib/auth/schemas.ts 定义 Zod schema
 2. 对应 domain：lib/<org|project>/actions.ts 或新建 lib/<domain>/actions.ts
 3. 用 validatedActionWithUser 包装
-4. 校验用户与组织角色（checkOrgRole）
-5. 单步 CRUD 调 lib/db/queries/<domain>.ts；多步写放进 lib/db/services.ts 的单个 db.transaction，并在事务内锁定读重新校验权限
+4. 校验用户与组织权限（getOrgRoleInTx / hasPermission）
+5. 单步 CRUD 调 lib/db/queries/<domain>.ts（内部用 withOrg）；多步写放进 lib/db/services.ts 的单个事务，并在事务内锁定读重新校验权限
 6. 写 activity log（如属于业务动作）
 7. revalidatePath
 8. 返回 ActionState；预期失败返回中文文案，不抛异常
@@ -389,7 +396,7 @@ logger.error('failed to update project', error);
    账号页放在 app/(dashboard)/dashboard/(account)/...
 2. page.tsx 是 RSC；用 requireOrgContext / requireProjectContext（内部含会话与成员校验）
 3. 布局负责解析 scope，页面复用 context，不要重复查询
-4. 数据查询必须带数字 orgId
+4. 数据查询必须带 UUID orgId，并通过 withOrg
 5. 交互部分拆成 'use client' 子组件，只收 props
 6. 需要时加 loading.tsx / error.tsx
 7. 更新导航（components/console/console-sidebar.tsx）
@@ -448,7 +455,7 @@ docs(setup): 对齐当前环境变量
 - [ ] 公开 ID 查询带 `userId` 过滤，非成员返回 404
 - [ ] 没有返回 `password_hash`
 - [ ] 新增/修改表有迁移，迁移已人工 review
-- [ ] 没有引入目标架构的半成品（RLS、谱系表、新角色等）
+- [ ] 没有把家谱业务页面/写流程做成半成品；新组织级表已启用 RLS
 - [ ] 安全相关路径有测试（越权、密码回显、限流）
 - [ ] 文档同步：行为/命令变化 → `setup.md` / `implementation-status.md`
 
@@ -472,34 +479,33 @@ docs(setup): 对齐当前环境变量
 | 3 | 返回整行 `user` | `password_hash` 泄露 | 显式 DTO |
 | 4 | 只读 Cookie 做鉴权 | 伪造/过期 token 通过 | `getSessionUser()` 查库 |
 | 5 | 忘记 `tokenVersion` | 改密后旧会话仍有效 | 改密/删号递增版本 |
-| 6 | 在客户端判断角色 | 改前端即可越权 | 服务端 `checkOrgRole` |
+| 6 | 在客户端判断角色 | 改前端即可越权 | 服务端 `hasPermission` |
 | 7 | 依赖内存限流做安全边界 | 重启清零、多实例失效 | 视为辅助；生产换共享存储 |
-| 8 | 重复执行 `db:seed` | 邮箱唯一约束报错 | 重置本地库或使用已有账号 |
-| 9 | 把 `.env` 改成 `.env.local` | 变量读不到 | 当前 dotenv 读取 `.env` |
-| 10 | 在页面写裸色值 | 设计系统测试失败 | 用 token/组件 |
-| 11 | 在 Server Action 回显密码 | 安全回归测试失败 | 不在 `ActionState` 放密码 |
-| 12 | 删除组织/成员无备份 | 硬删除不可恢复 | 操作前确认；生产走工单/备份 |
-| 13 | 以为已有 RLS/软删 | 实际没有，误删即丢失 | 以当前 schema 为准 |
-| 14 | 只按公开 ID 查组织/项目 | 猜到 slug/ref 即可跨组织读取 | 查询同时带 `userId`，失败一律 404 |
-| 15 | 注册/建组织/移除成员拆成多个独立写操作 | 中途失败留下孤儿用户或无成员组织 | 放进 `lib/db/services.ts` 的单个事务 |
-| 16 | 修改邮箱不归一化、不验当前密码 | 大写邮箱无法登录、账号可被接管 | 复用 `normalizedEmail` 并要求当前密码 |
-| 17 | 只靠应用层判断最后一个 owner | 绕过服务层直接写库仍可产生无主组织 | 事务内锁定校验；未来补数据库约束 |
+| 8 | 把 `.env` 改成 `.env.local` | 变量读不到 | 当前 dotenv 读取 `.env` |
+| 9 | 在页面写裸色值 | 设计系统测试失败 | 用 token/组件 |
+| 10 | 在 Server Action 回显密码 | 安全回归测试失败 | 不在 `ActionState` 放密码 |
+| 11 | 删除组织/成员无备份 | 业务表是软删，但直接清库不可恢复 | 操作前确认；生产走工单/备份 |
+| 12 | 以为 RLS 可以替代应用层过滤 | 只靠策略时用户会看到自己所有组织的数据 | 查询仍带 `orgId` 并通过 `withOrg` |
+| 13 | 只按公开 ID 查组织/项目 | 猜到 slug/ref 即可跨组织读取 | 查询同时带 `userId`，失败一律 404 |
+| 14 | 注册/建组织/成员变更拆成多个独立写操作 | 中途失败留下半成品 | 放进 `lib/db/services.ts` 的单个事务 |
+| 15 | 修改邮箱不归一化、不验当前密码 | 大写邮箱无法登录、账号可被接管 | 复用 `normalizedEmail` 并要求当前密码 |
+| 16 | 只靠应用层判断最后一个 owner | 绕过服务层直接软删成员仍可产生无主组织 | 事务内锁定校验；数据库只有一个 owner 的上限，没有下限 |
 
 ---
 
-## 12. 目标架构（只读，不要直接实现）
+## 12. 目标架构现状
 
-以下内容描述未来家谱 M1 的目标设计，当前代码**没有实现**：
+基础层已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地，**不要再次重置**：
 
-- 目录与分层：`src/modules`、`service/repo`、`withOrg`，用 Biome `noRestrictedImports` 约束。
-- 数据隔离：PostgreSQL RLS + `app_rw` + 复合外键。
-- 数据模型：UUIDv7（数据库生成）、ltree、软删、10 张业务表 + `auth.users`；不建审计表，关键动作写结构化日志。
-- 接口：RSC + Server Action + `/api/health`。
+- 已实现：UUIDv7、`auth.users` + `SECURITY DEFINER` 函数、11 张组织级业务表、软删、复合外键、RLS + `app_rw`、`withOrg`、4 角色 + 权限字符串、邀请 token。
+- 目标业务功能尚未实现：谱系/人丁、谱文、谱书、分类树 UI 与对应 Action、分享、回收站、编辑锁。
+- 目录与分层仍是当前的 `app/` + `components/` + `lib/`；没有 `src/modules`、`*.service.ts`/`*.repo.ts`，也没有 Biome `noRestrictedImports`。
+- 目标接口以 RSC + Server Action 为主；当前 4 个只读 Route Handler 是过渡，见 §5.6。
 - 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`），但尚未做真实 Vercel/Neon 部署验证；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`（[部署蓝图](docs/ops-target.md)）。
 
-需要实现时：
+实现家谱业务功能时：
 
 1. 先读 [PRD](docs/prd.md) / [架构](docs/architect.md) / [数据模型](docs/data-model.md) / [接口](docs/api.md)。
-2. 先写迁移与实现计划，确认现有数据如何迁移。
-3. 不要在同一 PR 里混入目标功能与当前功能修复。
+2. 先写实现计划；表已存在，重点是业务规则、Action 与页面。
+3. 不要在同一 PR 里混入业务功能与基础层改动。
 4. 更新 [实现状态](docs/implementation-status.md)。

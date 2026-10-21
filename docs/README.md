@@ -1,6 +1,6 @@
 # 文档中心
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-21
+> **文档状态：当前实现说明** · 最后更新：2026-10-22
 > 本文件是 `docs/` 的入口。它说明哪些文档描述当前仓库，哪些描述尚未实现的目标设计。
 
 ---
@@ -11,8 +11,8 @@
 
 | 平面 | 说明 | 文档 |
 |---|---|---|
-| **当前实现** | 仓库里真实运行的代码：Next.js 16 + Drizzle/Postgres + 自建 JWT 认证的组织/项目控制台，界面为简体中文 | `setup.md`、`../AGENTS.md`、`implementation-status.md` |
-| **目标设计** | 面向家谱编纂场景的 M1 设计：PostgreSQL 18+、RLS、自建 JWT 认证、10 张业务表 + `auth.users`、谱系/谱文/谱书；生产部署到 Vercel + 自定义域名 + Neon | `prd.md`、`architect.md`、`data-model.md`、`api.md`、`ops-target.md` |
+| **当前实现** | 仓库里真实运行的代码：Next.js 16 + Drizzle/PostgreSQL 18 + 自建 JWT 的组织/项目控制台。基础层已重置为 UUIDv7、`auth.users`、RLS、4 角色、软删、邀请 token；家谱业务页面/Action 尚未实现 | `setup.md`、`../AGENTS.md`、`implementation-status.md`、`adr/0001-foundation-reset.md` |
+| **目标设计** | 面向家谱编纂场景的 M1 设计：谱系/谱文/谱书、分享、部署到 Vercel + 自定义域名 + Neon；基础层与当前实现一致 | `prd.md`、`architect.md`、`data-model.md`、`api.md`、`ops-target.md` |
 
 目标设计**没有**外部认证服务、邮件投递、外部错误聚合、审计表与支付；数据库为 PostgreSQL 18 + Drizzle（本地 `postgres.js` / 生产 `pg` + `attachDatabasePool`），自建 bcrypt/jose 会话、结构化日志、Biome + Vitest + Playwright。生产用 Vercel + 自定义域名 + Neon；本地开发时 Docker 只跑 PostgreSQL，Next.js 直接用 `next dev`。
 
@@ -37,6 +37,7 @@
 | [setup.md](./setup.md) | 现状 | 当前实现 | 开发者、运维 | 本地搭建、环境变量、测试、故障排查 |
 | [AGENTS.md](../AGENTS.md) | 现状 | 当前实现 | 开发者、AI Agent | 当前仓库的编码规则、目录、任务配方（仓库根目录，Agent 自动读取） |
 | [ops-target.md](./ops-target.md) | 目标设计 | 目标 / 未实现 | 未来部署与运维 | 本地 Docker 只跑 PostgreSQL、生产 Vercel + Neon 的目标蓝图 |
+| [adr/0001-foundation-reset.md](./adr/0001-foundation-reset.md) | 决策 | 已接受 | 所有人 | 了解为什么重置数据层、保留了什么、RLS 如何落地 |
 
 ---
 
@@ -49,20 +50,22 @@
 | 数据库 | PostgreSQL + Drizzle ORM；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` |
 | 认证 | 邮箱 + 密码；bcrypt；JWT HS256 存 `session` Cookie，1 天有效 |
 | 会话撤销 | `users.token_version` 比对；改密/删号时递增 |
-| 组织角色 | `owner` / `member` |
+| 主键 / 公开 ID | UUIDv7 主键；`organization.slug` / `project.ref` 为 20 位 `[0-9a-z]` 公开 ID |
+| 组织角色 | `owner` / `admin` / `editor` / `viewer` + 权限字符串 |
 | 界面语言 | 简体中文（品牌“云谱”），不引入 i18n 框架 |
 | 控制台路由 | `/dashboard/org/[orgSlug]`（项目 / 团队 / 组织设置）与 `/dashboard/project/[projectRef]`（概览 / 谱系 / 谱文 / 谱书 / 项目设置）；公开 ID 为 20 位 `[0-9a-z]` |
-| 数据隔离 | 应用层按成员关系校验，**没有 RLS**；slug/ref 查询按当前用户过滤 |
-| 数据表 | 6 张：`users`、`organizations`、`org_members`、`projects`、`activity_logs`、`invitations` |
-| 数据库约束 | 成员 `(org_id, user_id)` 唯一；角色/状态 `CHECK`；待处理邀请 `(org_id, lower(email))` 部分唯一；账号级活动日志允许 `org_id` 为空 |
+| 数据隔离 | 应用层 `orgId` 过滤 + `withOrg` 内 RLS（`app_rw`）+ 复合外键 |
+| 数据表 | 11 张组织级业务表 + `auth.users`；含家谱表 `folder`/`lineage`/`node`/`article`/`book`/`book_catalog` |
+| 数据库约束 | UUIDv7；成员活动行唯一、单组织单 owner；角色 `CHECK`；待处理邀请部分唯一；业务表软删；账号级活动日志允许 `organization_id` 为空 |
+| 邀请 | 一次性 token（存 SHA-256）、7 天过期、禁止邀请 `owner`；接受走 `SECURITY DEFINER` |
 | Route Handler | 4 个：`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`；业务路由未登录统一 401 |
 | 请求上下文 | `getSessionUser`/scope 按请求缓存；日志自动带 `request_id`；API 记录 `duration_ms` |
 | 环境校验 | `lib/config.ts` 用 Zod 校验；`instrumentation.ts` 在服务启动时失败即退出 |
 | 代码检查 | Biome |
-| 测试 | Vitest 单测 9 个文件 46 个用例 + 真实 PostgreSQL 集成测试 9 个文件 63 个用例（另有 1 个 stub），没有 Playwright/E2E |
+| 测试 | Vitest 单测 10 个文件 44 个用例 + 真实 PostgreSQL 集成测试 9 个文件 103 个用例（另有 1 个 stub），没有 Playwright/E2E |
 | CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` |
 
-家谱目标中的谱系、人丁、谱文、谱书、分类、RLS、软删，当前都**没有实现**；project 侧边栏中的谱系 / 谱文 / 谱书只是占位页。
+家谱业务功能（谱系、人丁、谱文、谱书、分类 UI/Action）当前**没有实现**，只有表、RLS 与占位页。分享、回收站、编辑锁也未实现。
 
 目标设计不包含支付相关能力；当前实现也已移除 Stripe、套餐、计费与订阅，`/pricing` 不再存在。
 
@@ -108,7 +111,7 @@
 
 3. **目标数字与现状数字分开**
    - 目标设计可以说“10 张业务表 + `auth.users`、6 个模块”。
-   - 当前实现必须说“6 张表、4 个 Route Handler”。
+   - 当前实现必须说“11 张组织级业务表（含 `activity_logs`）+ `auth.users`、4 个 Route Handler”。
    - 不允许在同一段里混用两套数字。
 
 4. **代码变化时同步状态**

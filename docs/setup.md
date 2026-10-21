@@ -3,12 +3,12 @@
 | 项 | 值 |
 |---|---|
 | 文档状态 | **当前实现说明**，以仓库代码与 `package.json` 为准 |
-| 最后更新 | 2026-10-21 |
+| 最后更新 | 2026-10-22 |
 | 运行环境 | Node.js 22（CI）· pnpm 9（CI） |
-| 依赖服务 | PostgreSQL |
-| 相关文档 | [文档中心](./README.md) · [实现状态](./implementation-status.md) · [工程协作](../AGENTS.md) · [目标部署蓝图](./ops-target.md) |
+| 依赖服务 | PostgreSQL 18 |
+| 相关文档 | [文档中心](./README.md) · [实现状态](./implementation-status.md) · [工程协作](../AGENTS.md) · [ADR 0001](./adr/0001-foundation-reset.md) · [目标部署蓝图](./ops-target.md) |
 
-> 家谱目标架构使用 PostgreSQL 18 + RLS + 自建 JWT 认证（本地 `postgres.js` / 生产 `pg` + `attachDatabasePool`）；生产部署到 Vercel + 自定义域名 + Neon，本地 Docker 只跑 PostgreSQL、应用用 `next dev`。当前仓库**没有** RLS 与家谱表，也没有 Vercel/Neon 配置，但已有自建 JWT。目标设计不包含支付；当前实现也已移除 Stripe、套餐、计费与订阅。目标蓝图见 [ops-target.md](./ops-target.md)。
+> 基础层已按 [ADR 0001](./adr/0001-foundation-reset.md) 重置：PostgreSQL 18 + UUIDv7 + RLS（`app_rw`）+ `auth.users` + 4 角色 + 软删 + 邀请 token。家谱业务页面/Action 尚未实现。生产预期部署到 Vercel + 自定义域名 + Neon，本地 Docker 只跑 PostgreSQL、应用用 `next dev`；真实 Vercel/Neon 部署尚未验证。目标设计不包含支付；当前实现也已移除 Stripe、套餐、计费与订阅。目标蓝图见 [ops-target.md](./ops-target.md)。
 
 ---
 
@@ -47,6 +47,8 @@ pnpm dev
 ```
 
 打开 http://localhost:3000。
+
+> 如果本地库是 Phase 3 之前的旧结构（`users`/`organizations`/`projects` 等），基线迁移会冲突。先按 §4.4 清空 `public`/`auth`/`drizzle` schema，再执行迁移；本地演示数据会丢失，这是 ADR 0001 的预期代价。
 
 ### 2.1 `pnpm db:setup` 会做什么
 
@@ -106,34 +108,39 @@ cp .env.example .env
 
 ### 4.1 当前模型
 
-Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为 `0000`–`0006`）。
-
-当前 6 张表：
+Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前只有 `0000_baseline` 与 `0001_auth_rls`）。
 
 | 表 | 用途 |
 |---|---|
-| `users` | 账号、密码哈希、`token_version`、软删标记 |
-| `organizations` | 组织；`slug` 为 20 位公开 ID，用于控制台 URL |
-| `org_members` | 用户与组织的关系、角色 |
-| `projects` | 组织下的项目；`ref` 为 20 位公开 ID，用于控制台 URL |
-| `activity_logs` | 用户活动日志；账号级事件的 `org_id` 为空 |
-| `invitations` | 邀请记录（无 token/过期时间） |
+| `auth.users` | 账号、密码哈希、`token_version`、软删；运行时角色无表权限 |
+| `organization` | 组织；`slug` 为 20 位公开 ID，用于控制台 URL |
+| `organization_member` | 用户与组织的关系、角色；活动成员唯一、单组织单 owner |
+| `invite` | 邀请；只存 token 哈希、7 天过期、一次性 |
+| `project` | 云谱空间；`ref` 为 20 位公开 ID；目标字段（姓氏/郡望/地区） |
+| `folder` / `lineage` / `node` / `article` / `book` / `book_catalog` | 家谱业务表；已建表与 RLS，无页面/Action |
+| `activity_logs` | 产品活动流；账号级事件的 `organization_id` 为空 |
 
-`organizations.slug` 与 `projects.ref` 都是 `varchar(20)`、非空、全局唯一，字符集为 `[0-9a-z]`；数字 `serial` 主键仍是内部外键。`projects.slug`（可读 slug）仍然存在，但只用于展示，不进入 URL。
+- 全部主键是 UUIDv7（`uuidv7()`），20 位公开 ID 只用于 URL，不参与外键。
+- 组织级业务表使用 `organization_id` 隔离；`organization`、`organization_member`、`invite`、`project` 与 6 张家谱表都有 `deleted_at` 软删。`activity_logs` 是产品活动流，没有软删列。
+- `organization.slug` 与 `project.ref` 是 `varchar(20)`、非空、唯一，字符集 `[0-9a-z]`。
+- 复合外键把子资源的 `(organization_id, project_id)` 约束在同一个组织内。
+- 活动成员 `(organization_id, user_id)` 唯一；`uk_org_member_single_owner` 保证单组织最多一个 `owner`（没有最少一个的数据库约束）。
+- 邀请 `(organization_id, lower(email))` 在待处理状态下唯一；token 只存 SHA-256 哈希。
+- `auth.users` 的活动邮箱唯一；软删后邮箱可复用。
+- `0000_baseline` 由 Drizzle 生成；`0001_auth_rls` 是 custom migration，包含 `app_rw`、`auth` 函数、注册触发器、GRANT、RLS 策略、`ltree`/`pg_trgm`/`btree_gist` 与 GIN/GiST 索引。
 
-本地 `pnpm db:setup` 启动 PostgreSQL 18；当前主键仍是 `serial`，尚未启用目标设计的 `uuidv7()`。
+当前数据库**已有**：
 
-`0005_remove_billing_and_tier` 已删除 `organizations` 的 5 个 Stripe 字段（`stripe_customer_id`、`stripe_subscription_id`、`stripe_product_id`、`plan_name`、`subscription_status`）与 `projects.tier`；历史迁移 `0000`–`0004` 保持原样。
-
-`0006_cheerful_surge` 增加 `org_members (org_id, user_id)` 唯一索引、`org_members`/`invitations` 角色与状态 `CHECK`、待处理邀请的 `(org_id, lower(email))` 部分唯一索引、常用查询索引，并允许 `activity_logs.org_id` 为空（账号级事件）。如果已有库中存在重复成员或同一组织下重复的待处理邀请，需要先人工清理，否则唯一索引会创建失败。
+- RLS + `FORCE ROW LEVEL SECURITY`，`app_rw`（NOLOGIN、NOBYPASSRLS、无 `auth.users` 权限、无业务表 `DELETE`）。
+- 注册触发器 `handle_new_user`：每个 `auth.users` 插入自动创建个人组织与 owner 成员关系。
+- 家谱业务表（`folder`、`lineage`、`node`、`article`、`book`、`book_catalog`），但没有业务 UI/Action。
+- 软删列与复合外键。
 
 当前数据库**没有**：
 
-- RLS、`app_rw` 角色、org 隔离策略。
-- 注册触发器；默认组织由应用层在单个事务内创建。
-- 家谱业务表（`lineage`、`node`、`article`、`book`、`book_catalog`、`folder`）。
-- 软删（除 `users.deleted_at` 外，业务表没有 `deleted_at`）。
 - 支付、套餐、订阅相关表或字段。
+- 分享页、回收站、编辑锁、审计表。
+- 家谱业务功能（谱系/人丁/谱文/谱书/分类）的页面与写流程。
 
 ### 4.2 迁移命令
 
@@ -143,46 +150,44 @@ pnpm db:migrate    # 执行全部待执行迁移
 pnpm db:studio     # 打开 Drizzle Studio
 ```
 
-`0003_public_ids` 与 `0004_public_ids_not_null` 是一次两阶段迁移：前者增加可空列并删除 `api_keys`，后者才设置 `NOT NULL` 与唯一索引。`drizzle-kit migrate` 会把所有待执行迁移放在同一个事务里，因此**已有数据的库不能直接执行 `pnpm db:migrate`**（`0004` 会因空值失败并整体回滚）。
+- 空库直接 `pnpm db:migrate`，会依次执行 `0000_baseline` 与 `0001_auth_rls`。
+- `0001_auth_rls` 是 custom migration：新增 RLS/角色/函数时同样手工维护，生成后必须 review。
+- 迁移角色需要能创建扩展、角色并执行 `SET ROLE app_rw`；生产把迁移角色与运行角色分开（见 §4.2.1）。
+- 迁移里不写数据修复；演示数据由 `pnpm db:seed` 重建。
+- 不要修改已应用迁移的 SQL；需要修正时新增迁移。
 
-已有数据的库按以下顺序升级，**先备份**：
+#### 4.2.1 生产角色分离
 
-```bash
-# 1. 备份数据库（示例：db:setup 生成的本地 Docker Postgres）
-docker compose exec postgres pg_dump -U postgres -d postgres > backup-before-public-ids.sql
-
-# 2. 只执行到 0003（增加可空列 + 删除 api_keys）
-pnpm db:migrate:until 0003_public_ids
-
-# 3. 回填 20 位 slug/ref（幂等，可重复执行）
-pnpm db:backfill-ids
-
-# 4. 执行剩余迁移（0004：NOT NULL + 唯一索引；0005：删除计费字段；0006：约束与索引）
-pnpm db:migrate
-```
-
-已经完成 `0004` 回填的库可以直接执行 `pnpm db:migrate` 应用 `0005`、`0006`；两者只改结构，不改写数据。执行 `0006` 前先确认没有重复成员或重复待处理邀请，否则唯一索引会失败。
-
-全新/空库不需要分步：`pnpm db:migrate` 会在同一事务内执行 `0003`–`0006`，随后执行 `pnpm db:seed`。
+- 运行时连接（`POSTGRES_URL`）必须使用仅 `GRANT app_rw` 的登录角色 `app`，**不能是表属主或超级用户**；否则 RLS 的兜底会被绕过。
+- 迁移连接使用数据库所有者/迁移角色。当前 `drizzle.config.ts` 只读取 `POSTGRES_URL`，所以生产迁移必须在独立的受保护 job 中把 `POSTGRES_URL` 指向迁移角色/直连地址；目标设计的 `POSTGRES_URL_DIRECT` 尚未接入代码。
+- `app` 的密码只放 Neon/Vercel 环境变量，不写进迁移。
 
 ### 4.3 种子数据
 
-`pnpm db:seed` 会创建：
+`pnpm db:seed` 通过 `auth.sign_up` 创建演示账号，并在已存在时复用：
 
 | 对象 | 内容 |
 |---|---|
 | 用户 | `test@test.com` / `admin123` |
-| 组织 | `测试组织`，slug 为 `testorg0000000000001`，该用户为 `owner` |
-| 项目 | `示例家谱`（slug `example-lineage`，ref `docsapi0000000000001`）、`支系档案`（slug `branch-archive`，ref `mobilebackend0000001`） |
+| 组织 | 个人组织改名为 `测试组织`，该用户为 `owner` |
+| 项目 | `示例云谱`（ref `example0000000000001`）、`支系档案`（ref `branch00000000000001`） |
 
-种子脚本**不是幂等的**；重复执行会因 `users.email` 唯一约束失败。需要重灌时先重置数据库。
+种子可重复执行：已存在演示账号时复用，项目用 `onConflictDoNothing` 跳过。需要彻底重灌时先重置数据库。
 
 ### 4.4 重置本地数据库
 
-仅本地、且使用 `db:setup` 生成的 Docker Postgres 时：
+Phase 3 的基线迁移与旧结构不兼容。仅本地、且使用 `db:setup` 生成的 Docker Postgres 时：
 
 ```bash
-docker compose down -v     # 删除容器与数据卷
+# 方式一：删除容器与数据卷
+docker compose down -v
+pnpm db:migrate
+pnpm db:seed
+```
+
+```bash
+# 方式二：保留容器，只清空 schema
+psql "$POSTGRES_URL" -c 'drop schema if exists public cascade; drop schema if exists auth cascade; drop schema if exists drizzle cascade; create schema public;'
 pnpm db:migrate
 pnpm db:seed
 ```
@@ -199,9 +204,7 @@ pnpm db:seed
 | `pnpm build` | 生产构建 |
 | `pnpm start` | 启动生产构建 |
 | `pnpm db:setup` | 交互式创建 `.env` 与本地 Postgres |
-| `pnpm db:seed` | 灌入本地演示数据（非幂等） |
-| `pnpm db:backfill-ids` | 为缺失 `slug`/`ref` 的组织与项目回填 20 位公开 ID（幂等） |
-| `pnpm db:migrate:until <tag>` | 只执行到指定迁移（用于两阶段升级） |
+| `pnpm db:seed` | 灌入本地演示数据（幂等，已存在时复用） |
 | `pnpm db:generate` | 生成 Drizzle 迁移 SQL |
 | `pnpm db:migrate` | 执行迁移 |
 | `pnpm db:studio` | 打开 Drizzle Studio |
@@ -240,7 +243,8 @@ pnpm db:seed
 | 请求上下文 | `getOrgContext` / `getProjectContext` 复用会话与成员 scope；公开 ID 失败返回 404 |
 | 撤销 | 修改密码时递增 `token_version` 并重签当前设备，其他设备立即失效；删除账号时递增版本并清除 Cookie |
 | 修改邮箱 | 需要当前密码；邮箱归一化为小写后写入；重复邮箱返回中文冲突提示 |
-| 角色 | `owner` / `member` |
+| 角色 | `owner` / `admin` / `editor` / `viewer`，业务代码使用权限字符串 |
+| 数据隔离 | 应用层 `orgId` 过滤 + `withOrg` 内 `SET LOCAL ROLE app_rw` 的 RLS + 复合外键 |
 | 限流 | 进程内滑动窗口：登录 10 次/15 分钟（IP + 邮箱），注册 5 次/小时（IP） |
 
 > `proxy.ts` 只是路由门禁：它验证 JWT 签名并做跳转，不是授权边界。所有 Server Action、RSC 数据读取和 API Route 都必须再走 `getSessionUser()` 与组织成员校验。
@@ -276,8 +280,8 @@ pnpm test:integration
 安全护栏：
 
 - 测试 helper 拒绝名称不以 `_test` 结尾的数据库，避免误清开发/生产数据。
-- `globalSetup` 在测试库上执行全部迁移；迁移已应用时是幂等的。
-- 每个测试用例开始前（`beforeEach`）`TRUNCATE` 6 张业务表并重置自增 ID。
+- `globalSetup` 会先删除测试库的 `public`/`auth`/`drizzle` schema 与扩展，再从空库执行全部迁移；不要把它指向开发库。
+- 每个测试用例开始前（`beforeEach`）`TRUNCATE` 11 张业务表与 `auth.users`。
 - 测试文件串行执行，避免共享库竞争。
 
 ### 7.2 CI
@@ -298,7 +302,7 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成
 
 ### 7.3 测试覆盖
 
-单测 9 个文件 46 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
+单测 10 个文件 44 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
 
 | 文件 | 关注点 |
 |---|---|
@@ -309,22 +313,23 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成
 | `tests/rate-limit.test.ts` | 滑动窗口限流与中文提示 |
 | `tests/ids.test.ts` | 20 位公开 ID 的长度/字符集与校验 |
 | `tests/fetcher.test.ts` | 非 2xx 响应抛错并保留 `status` |
-| `tests/security-regressions.test.ts` | 密码回显、计时攻击、组织越权、公开 ID 查询的成员过滤、`/api/user` DTO |
-| `tests/design-system.test.ts` | 设计令牌边界、状态/角色/区域中文映射、项目列表 DTO |
+| `tests/permissions.test.ts` | 4 角色 × 9 权限矩阵、`isOrgRole` |
+| `tests/security-regressions.test.ts` | 密码回显、计时攻击、DTO、公开 ID 成员过滤、`withOrg` 的 `SET LOCAL ROLE`/claims |
+| `tests/design-system.test.ts` | 设计令牌边界、角色中文映射 |
 
-集成测试 9 个文件 63 个用例，使用真实 PostgreSQL：
+集成测试 9 个文件 103 个用例，使用真实 PostgreSQL：
 
 | 文件 | 关注点 |
 |---|---|
-| `tests/integration/migrations.test.ts` | 空库迁移、业务表/索引、`0006` 约束与 `activity_logs.org_id` 可空 |
+| `tests/integration/migrations.test.ts` | 空库迁移、11 张业务表 + `auth.users`、索引、RLS/`FORCE`、`app_rw` 权限、扩展与函数 |
 | `tests/integration/session.test.ts` | `getSessionUser()` 的 `token_version` 撤销、软删用户、缺失/无效会话 |
-| `tests/integration/org-scope.test.ts` | 公开 ID 的成员过滤、跨组织读写拒绝 |
-| `tests/integration/constraints.test.ts` | 唯一邮箱/slug/ref、成员唯一、角色/状态 `CHECK`、待处理邀请部分唯一、外键级联 |
-| `tests/integration/services.test.ts` | 注册/邀请、建组织、移除成员、删号事务与权限/回滚 |
-| `tests/integration/actions.test.ts` | 注册、登录/登出、改密、改邮箱、删号、移除成员的 Action 行为与数据库副作用 |
-| `tests/integration/api-auth.test.ts` | `/api/user` 与 `/api/orgs` 未登录返回 401 |
+| `tests/integration/org-scope.test.ts` | 公开 ID 的成员过滤、跨组织读写拒绝、权限矩阵、RLS 无 claims/跨组织拒绝 |
+| `tests/integration/constraints.test.ts` | 唯一邮箱/slug/ref、成员唯一、单 owner、角色 `CHECK`、待处理邀请部分唯一、复合外键 |
+| `tests/integration/services.test.ts` | 注册/邀请/建组织/成员变更/删号事务与权限/回滚 |
+| `tests/integration/actions.test.ts` | 注册、登录/登出、改密、改邮箱、删号、成员管理的 Action 行为与数据库副作用 |
+| `tests/integration/api-auth.test.ts` | 三个业务路由 401、DTO 形状、非法 UUID 404、非成员 403 |
 | `tests/integration/health.test.ts` | `/api/health` 数据库探活与 `x-request-id` |
-| `tests/integration/projects.test.ts` | 项目创建时 slug 冲突后重新生成并重试 |
+| `tests/integration/projects.test.ts` | 项目创建时 `ref` 冲突后重新生成并重试 |
 
 公共 helper 位于 `tests/helpers/`：测试库连接与清理、用户/组织/项目/邀请工厂、会话签名。
 
@@ -371,10 +376,11 @@ pnpm start
 | `pnpm db:seed` 报邮箱唯一约束 | 种子已执行过 | 重置本地库后再执行，或直接使用已有 `test@test.com` |
 | 登录后立刻掉线 | Cookie 被清除、域名/Secret 变化、`AUTH_SECRET` 改变 | 检查 Cookie 与 `AUTH_SECRET` 是否变化 |
 | 访问 `/dashboard/org/[orgSlug]` 或 `/dashboard/project/[projectRef]` 返回 404 | 当前用户不是成员、公开 ID 不存在或格式非法 | 用该组织成员账号登录；确认 slug/ref 为 20 位 `[0-9a-z]` |
-| 组织 API 返回 401 | 未登录或会话已失效 | 重新登录；三个 API 未登录统一返回 401 |
-| 组织 API 返回 403 / 404 | 非成员、组织 ID 非数字或不存在 | 先确认成员关系；不要绕过 `getOrgRole` |
-| 已有数据的库执行 `pnpm db:migrate` 报 `column "slug" contains null values` | `0004` 在 `0003` 之后立即执行，缺少回填 | 按 §4.2 分步执行：`migrate:until 0003` → `db:backfill-ids` → `db:migrate` |
-| 执行 `0006` 报 duplicate key | 历史库存在重复成员或重复待处理邀请 | 先人工清理重复数据，再执行迁移 |
+| 组织 API 返回 401 | 未登录或会话已失效 | 重新登录；三个业务 API 未登录统一返回 401 |
+| 组织 API 返回 403 / 404 | 非成员、组织 ID 不是合法 UUID 或不存在 | 先确认成员关系；不要绕过 `getOrgRoleInTx` |
+| 迁移报 `schema "public" already exists` / 表已存在 | 本地库仍是 Phase 3 之前的旧结构 | 按 §4.4 清空 schema 后重新迁移 |
+| 迁移报 `permission denied to create extension` | 迁移角色权限不足 | 用数据库所有者/迁移角色执行；生产在独立 job 中运行迁移 |
+| 应用查询返回 0 行但数据存在 | 运行时角色是表属主或 RLS claims 未设置 | 生产用 `app`（仅 `GRANT app_rw`）；应用查询走 `withOrg` |
 | 限流很快失效 | 限流是进程内内存实现 | 重启后清零；多实例不共享；生产需替换为共享存储（P1） |
 | 集成测试报 `database name must end with "_test"` | `TEST_POSTGRES_URL` 指向了开发库或生产库 | 创建独立 `gramps_test` 库，设置专用 `TEST_POSTGRES_URL` |
 | 修改密码后其他设备退出 | `tokenVersion` 被递增 | 预期行为；当前设备已重签保持登录，其他设备旧会话失效 |
@@ -384,10 +390,12 @@ pnpm start
 ## 10. 当前限制
 
 - 没有邮箱确认、密码重置或持久化账号锁定。
-- 角色只有 `owner` / `member`；没有目标设计中的 `admin` / `editor` / `viewer`。
-- 邀请不会发送邮件，也没有 token/过期时间；仍允许邀请 `owner`。
-- 没有 RLS；隔离完全依赖应用层组织校验。
-- 没有家谱业务功能（谱系、人丁、谱文、谱书、分类）。
+- 有 4 角色与权限矩阵，但没有转让所有权；`org.transfer` 尚无 Action/UI。
+- 邀请不会发送邮件；需要人工复制链接。token 7 天过期、一次性、禁止邀请 `owner`。
+- 没有家谱业务功能（谱系、人丁、谱文、谱书、分类）；相关表与 RLS 已存在。
+- 没有回收站、编辑锁、分享页；业务表是软删，但用户无法自助恢复。
+- 最后一个 owner 保护只在服务层；数据库只有“至多一个 owner”约束。
+- RLS 的生产语义依赖运行角色不是表属主；本地/CI 已用 `SET LOCAL ROLE app_rw` 验证。
 - 限流为单进程内存实现，不适合多实例生产环境。
 - 没有 Playwright/E2E。
 - `/api/health` 与 Vercel 数据库驱动分支已实现，但未在真实 Vercel/Neon 环境验证。

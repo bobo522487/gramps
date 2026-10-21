@@ -1,13 +1,13 @@
 # 数据模型
 
-> **文档状态：M1 目标设计（尚未实现）** · 最后更新：2026-10-21
-> 当前仓库实现与此文档存在系统性差异，请先读 [实现状态](./implementation-status.md)。
+> **文档状态：M1 目标设计（基础层已实现，业务层未实现）** · 最后更新：2026-10-22
+> 基础表、UUIDv7、RLS、角色、软删与邀请 token 已按 [ADR 0001](./adr/0001-foundation-reset.md) 落地；谱系/谱文/谱书的业务规则与 UI 尚未实现。差异以 [实现状态](./implementation-status.md) 为准。
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.4 |
-| 文档状态 | M1 目标设计（尚未实现） |
-| 最后更新 | 2026-10-21 |
+| 文档版本 | 1.5 |
+| 文档状态 | M1 目标设计（基础层已实现，业务层未实现） |
+| 最后更新 | 2026-10-22 |
 | 数据库 | Neon PostgreSQL 18+（生产）/ Docker PostgreSQL 18+（本地） |
 | 驱动 | 本地 `postgres.js`；生产 `pg` + `attachDatabasePool` |
 | 部署 | Vercel + 自定义域名 + Neon；本地 Docker 只跑 PostgreSQL + `next dev` |
@@ -820,11 +820,14 @@ CREATE POLICY own_membership ON organization_member
 
 其他表的策略会子查询 `organization_member`，该子查询自动被 `own_membership` 过滤，条件与业务意图一致，且不再引用自身，所以不递归。
 
-> **⚠️ 已知设计缺口（P1，勿直接落地）**
-> `own_membership` 只允许用户读写 `user_id = auth.uid()` 的成员行。这能满足「解析自己的组织」和「接受邀请时给自己插入成员行」，但 **admin 无法列出、改角色或移除其他成员**——与 PRD §3.2 的成员管理、[api §5.2](./api.md#identity) 的 `inviteMember` / `updateMemberRole` / `removeMember` 直接冲突。
-> 修复方向：引入 `SECURITY DEFINER` 辅助函数（`is_org_member` / `has_org_role`），并按角色分别定义 SELECT / INSERT / UPDATE / DELETE 策略。重构完成前，成员管理不能依赖本节策略。
+> **实现更新（ADR 0001）**：`own_membership` 的缺口已按以下方式修复：
 >
-> 邀请接受同样受影响：接受者此时还不是组织成员，`invite` / `organization_member` 的 RLS 会拒绝直接写入，因此 `auth.accept_invite` 必须走受控的 `SECURITY DEFINER` 路径，并自行校验 token、过期、单次使用与撤销状态。
+> - 新增 `auth.has_org_role(org_id, roles text[])`（`SECURITY DEFINER`、固定 `search_path`），供策略判断调用者角色，避免 `organization_member` 策略自引用递归。
+> - `organization_member`：组织内成员可 SELECT；`owner`/`admin` 可 INSERT/UPDATE/DELETE。服务层继续禁止移除/降级最后一个 owner，并禁止 admin 操作 owner。
+> - `organization`：成员可 SELECT；已登录用户可 INSERT（新建组织）；`owner` 可 UPDATE。
+> - `invite`：`owner`/`admin` 可读写；接受邀请走 `auth.accept_invite` 的 `SECURITY DEFINER` 路径，自行校验 token、过期、单次使用与撤销状态。
+>
+> 集成测试覆盖：非成员 0 行、viewer 写入被拒、admin 可管理成员、跨组织引用被复合外键拒绝、`app_rw` 无法读取 `auth.users`。详见 [ADR 0001 §3](./adr/0001-foundation-reset.md)。
 
 **这条策略一旦写错，所有表都会递归报错。** 改动前必须在真库跑一遍 §12.6 的隔离测试。
 
@@ -885,7 +888,7 @@ END $$;
 |---|---|
 | Schema 来源 | Drizzle Schema（TypeScript）是表、列、索引与关系的**落地单一来源**；类型由 `$inferSelect` / `$inferInsert` 推导，不手写行类型 |
 | 工具 | Drizzle Kit，`drizzle-kit generate` 产出 SQL，**人工 review 后提交**；扩展、角色、RLS、授权、触发器用 `--custom` 空迁移手写 |
-| 命名 | `NNNN_<动词>_<对象>.sql`，如 `0007_add_lineage_slug.sql` |
+| 命名 | `NNNN_<动词>_<对象>.sql`，如 `0002_add_lineage_slug.sql` |
 | 可回滚 | 不维护 down 迁移；破坏性变更用“加列（可空）→ 回填 → 加约束/删旧列”三段式，异常时用 Neon 分支或 PITR 恢复 |
 | 禁止 | 在迁移里写数据修复逻辑（另开 `data/` 脚本，可重复执行）；生产禁用 `drizzle-kit push` |
 | 顺序 | 先加列（可空）→ 回填 → 加约束，三步不合并成一个迁移 |
@@ -893,12 +896,15 @@ END $$;
 
 ### 13.1 扩展
 
-建库迁移（`0000_extensions`）一次性安装：
+当前 `0000_baseline` 一次性安装：
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS ltree;      -- node.path
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- 中文模糊检索
+CREATE EXTENSION IF NOT EXISTS btree_gist; -- GiST 组合索引中的 uuid 等值列
 ```
+
+`btree_gist` 只用于需要把 UUID 等值条件与范围/搜索条件放进同一 GiST 索引的场景；没有它，此类索引创建会报 `data type uuid has no default operator class for access method "gist"`。
 
 UUIDv7 由 PostgreSQL 18 的 `uuidv7()` 内置函数提供，不需要额外扩展。Neon 项目创建时选择 18+，本地使用 `postgres:18-alpine`；建库后先执行 `SELECT uuidv7();` 确认版本满足要求。
 

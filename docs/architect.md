@@ -1,13 +1,13 @@
 # 架构设计
 
-> **文档状态：M1 目标设计（尚未实现）** · 最后更新：2026-10-21
-> 当前仓库实现与此文档存在系统性差异，请先读 [实现状态](./implementation-status.md)。
+> **文档状态：M1 目标设计（基础层已实现，业务层未实现）** · 最后更新：2026-10-22
+> 基础层（UUIDv7、RLS、`auth.users`、4 角色、软删）已按 [ADR 0001](./adr/0001-foundation-reset.md) 落地；目录分层、家谱业务模块与 E2E 尚未实现。差异见 [实现状态](./implementation-status.md)。
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.4 |
-| 文档状态 | M1 目标设计（尚未实现） |
-| 最后更新 | 2026-10-21 |
+| 文档版本 | 1.5 |
+| 文档状态 | M1 目标设计（基础层已实现，业务层未实现） |
+| 最后更新 | 2026-10-22 |
 | 架构风格 | 模块化单体（Modular Monolith），单一 Next.js 应用 |
 | 技术栈 | TypeScript · Next.js 16 App Router · PostgreSQL 18+ · Drizzle 0.43 · postgres.js（本地）/ pg + attachDatabasePool（生产） · React Flow |
 | 运行时 | 本地：Docker 只跑 PostgreSQL + `next dev`；生产：Vercel + Neon PostgreSQL 18+ |

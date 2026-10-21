@@ -1,14 +1,14 @@
 # 目标环境与部署蓝图
 
-> **文档状态：M1 目标设计（尚未实现）** · 最后更新：2026-10-21
+> **文档状态：M1 目标设计（基础层已实现，部署未验证）** · 最后更新：2026-10-22
 > 本文件描述家谱目标架构的部署与运维蓝图，**不是当前仓库的操作指南**。
-> 当前仓库请读 [环境与部署（当前实现）](./setup.md)；实现差异见 [实现状态](./implementation-status.md)。
+> 当前仓库请读 [环境与部署（当前实现）](./setup.md)；实现差异见 [实现状态](./implementation-status.md) 与 [ADR 0001](./adr/0001-foundation-reset.md)。
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.4 |
-| 文档状态 | M1 目标设计（尚未实现） |
-| 最后更新 | 2026-10-21 |
+| 文档版本 | 1.5 |
+| 文档状态 | M1 目标设计（基础层已实现，部署未验证） |
+| 最后更新 | 2026-10-22 |
 | 部署单元 | Vercel（Next.js）+ Neon PostgreSQL 18+；本地 Docker 只跑 PostgreSQL |
 | 本地开发 | `docker compose up -d db` + `pnpm dev`（`next dev`，不用应用容器） |
 | 迁移 | Drizzle Kit，对直连 URL 执行，与应用部署分离 |
@@ -18,16 +18,20 @@
 
 ## 0. 先看当前仓库的实际情况
 
-以下内容在当前仓库中**尚不存在**：
+**已经落地**（见 [ADR 0001](./adr/0001-foundation-reset.md)）：
 
-- 没有 RLS、`app_rw` 角色、`auth` schema、注册触发器。
-- 没有 `POSTGRES_URL` / `POSTGRES_URL_DIRECT` 这套目标变量命名（当前主要使用 `DATABASE_URL` 等）。
-- 没有 `/api/health`、Playwright E2E、Vercel 项目配置。
-- 没有 10 张家谱业务表，也没有 `public/` 或目标迁移目录结构。
+- RLS + `FORCE ROW LEVEL SECURITY`、`app_rw`、`auth.users`、`SECURITY DEFINER` 函数、注册触发器。
+- UUIDv7 主键、11 张组织级业务表、软删、复合外键、邀请 token。
+- `/api/health`、结构化日志、Zod 配置校验、`POSTGRES_URL` 变量。
 
-当前仓库**已有**自建 JWT 会话（bcrypt + jose）、7 张表，以及本地 `next dev` 开发方式；本地数据库由 `pnpm db:setup` 生成的 Docker PostgreSQL 18 提供。当前实现已移除 Stripe、套餐、计费与订阅，与目标设计一致。
+**尚未实现或未验证**：
 
-因此本文中的 Compose 片段、迁移顺序、Vercel 与 Neon 配置都不能直接套用，目标读者是未来实现家谱 M1 的开发者。
+- 真实 Vercel/Neon 部署、生产角色分离与连接池配置。
+- `POSTGRES_URL_DIRECT` 尚未接入代码；当前 `drizzle.config.ts` 只读 `POSTGRES_URL`。
+- Playwright E2E、Vercel 项目配置、备份恢复演练。
+- 家谱业务功能（谱系/谱文/谱书/分类）的页面与 Action；表已存在。
+
+本地开发使用 `next dev`，数据库由 `pnpm db:setup` 生成的 Docker PostgreSQL 18 提供。因此本文中的 Compose 片段、迁移顺序、Vercel 与 Neon 配置仍需按实际环境核对，不能直接照搬。
 
 ---
 
