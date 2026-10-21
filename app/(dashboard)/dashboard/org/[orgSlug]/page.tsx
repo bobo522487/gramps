@@ -1,7 +1,7 @@
-import { notFound } from 'next/navigation';
 import type { ProjectView } from '@/components/project/project-workspace';
 import { ProjectWorkspace } from '@/components/project/project-workspace';
-import { getOrgWithRoleBySlug, getProjects, getUser } from '@/lib/db/queries';
+import { requireOrgContext } from '@/lib/auth/context';
+import { getProjects } from '@/lib/db/queries/projects';
 
 export default async function OrgProjectsPage({
   params,
@@ -9,17 +9,8 @@ export default async function OrgProjectsPage({
   params: Promise<{ orgSlug: string }>;
 }) {
   const { orgSlug } = await params;
-  const user = await getUser();
-  if (!user) {
-    notFound();
-  }
-
-  const scope = await getOrgWithRoleBySlug(user.id, orgSlug);
-  if (!scope) {
-    notFound();
-  }
-
-  const projects = await getProjects(scope.organization.id);
+  const context = await requireOrgContext(orgSlug);
+  const projects = await getProjects(context.organization.id);
   const views: ProjectView[] = projects.map((project) => ({
     id: project.id,
     name: project.name,
@@ -33,9 +24,9 @@ export default async function OrgProjectsPage({
 
   return (
     <ProjectWorkspace
-      orgId={scope.organization.id}
+      orgId={context.organization.id}
       projects={views}
-      isOwner={scope.role === 'owner'}
+      isOwner={context.role === 'owner'}
     />
   );
 }

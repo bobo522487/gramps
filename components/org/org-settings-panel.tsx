@@ -5,6 +5,16 @@ import { useActionState, useEffect } from 'react';
 import { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ActionState } from '@/lib/auth/types';
@@ -15,11 +25,13 @@ export function OrgSettingsPanel({
   orgName,
   orgSlug,
   projectCount,
+  isOwner,
 }: {
   orgId: number;
   orgName: string;
   orgSlug: string;
   projectCount: number;
+  isOwner: boolean;
 }) {
   const router = useRouter();
   // revalidatePath refreshes the RSC tree but not the switcher's SWR cache, so
@@ -73,6 +85,7 @@ export function OrgSettingsPanel({
                 maxLength={100}
                 className="mt-1"
                 size="sm"
+                disabled={!isOwner}
               />
             </div>
             {renameState.error && (
@@ -81,14 +94,20 @@ export function OrgSettingsPanel({
             {renameState.success && (
               <p className="text-xs text-primary">{renameState.success}</p>
             )}
-            <Button
-              type="submit"
-              variant="outline"
-              size="xs"
-              disabled={isRenaming}
-            >
-              {isRenaming ? '保存中…' : '保存'}
-            </Button>
+            {isOwner ? (
+              <Button
+                type="submit"
+                variant="outline"
+                size="xs"
+                disabled={isRenaming}
+              >
+                {isRenaming ? '保存中…' : '保存'}
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                只有组织所有者可以重命名组织。
+              </p>
+            )}
           </form>
         </CardContent>
       </Card>
@@ -102,22 +121,51 @@ export function OrgSettingsPanel({
             删除 <span className="font-medium">{orgName}</span> 将同时移除{' '}
             {projectCount} 个项目、成员与活动记录，且不可恢复。
           </p>
-          <form action={deleteAction}>
-            <input type="hidden" name="orgId" value={orgId} />
-            {deleteState.error && (
-              <p className="mb-2 text-xs text-destructive">
-                {deleteState.error}
-              </p>
-            )}
-            <Button
-              type="submit"
-              variant="destructive"
-              size="xs"
-              disabled={isDeleting}
-            >
-              {isDeleting ? '删除中…' : '删除组织'}
-            </Button>
-          </form>
+          {isOwner ? (
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="destructive" size="xs">
+                  删除组织
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>确认删除组织？</DialogTitle>
+                  <DialogDescription>
+                    删除「{orgName}」将同时移除 {projectCount}{' '}
+                    个项目、成员与活动记录，且不可恢复。
+                  </DialogDescription>
+                </DialogHeader>
+                <form action={deleteAction} className="space-y-3">
+                  <input type="hidden" name="orgId" value={orgId} />
+                  {deleteState.error ? (
+                    <p className="text-xs text-destructive">
+                      {deleteState.error}
+                    </p>
+                  ) : null}
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button type="button" variant="outline" size="xs">
+                        取消
+                      </Button>
+                    </DialogClose>
+                    <Button
+                      type="submit"
+                      variant="destructive"
+                      size="xs"
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? '删除中…' : '确认删除'}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              只有组织所有者可以删除组织。
+            </p>
+          )}
         </CardContent>
       </Card>
     </section>

@@ -1,7 +1,7 @@
-import { notFound } from 'next/navigation';
+import { SWRConfig } from 'swr';
 import { ConsoleFrame } from '@/components/console/console-frame';
-import { getOrgWithRoleBySlug, getUser } from '@/lib/db/queries';
-import { isPublicId } from '@/lib/ids';
+import { requireOrgContext } from '@/lib/auth/context';
+import { getProjects } from '@/lib/db/queries/projects';
 
 export default async function OrgWorkspaceLayout({
   children,
@@ -11,32 +11,35 @@ export default async function OrgWorkspaceLayout({
   params: Promise<{ orgSlug: string }>;
 }) {
   const { orgSlug } = await params;
-  if (!isPublicId(orgSlug)) {
-    notFound();
-  }
-
-  const user = await getUser();
-  if (!user) {
-    notFound();
-  }
-
-  const scope = await getOrgWithRoleBySlug(user.id, orgSlug);
-  if (!scope) {
-    notFound();
-  }
+  const context = await requireOrgContext(orgSlug);
+  const projects = await getProjects(context.organization.id);
+  const projectFallback = projects.map((project) => ({
+    id: project.id,
+    name: project.name,
+    ref: project.ref,
+    status: project.status,
+  }));
 
   return (
-    <ConsoleFrame
-      scope={{
-        org: {
-          id: scope.organization.id,
-          name: scope.organization.name,
-          slug: scope.organization.slug,
-          role: scope.role,
+    <SWRConfig
+      value={{
+        fallback: {
+          [`/api/orgs/${context.organization.id}/projects`]: projectFallback,
         },
       }}
     >
-      {children}
-    </ConsoleFrame>
+      <ConsoleFrame
+        scope={{
+          org: {
+            id: context.organization.id,
+            name: context.organization.name,
+            slug: context.organization.slug,
+            role: context.role,
+          },
+        }}
+      >
+        {children}
+      </ConsoleFrame>
+    </SWRConfig>
   );
 }

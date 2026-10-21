@@ -1,7 +1,7 @@
 import { BookOpen, GitBranch, ScrollText } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { getUser } from '@/lib/db/queries';
+import { getSessionUser } from '@/lib/auth/context';
 
 const FEATURES = [
   {
@@ -23,7 +23,7 @@ const FEATURES = [
 ];
 
 export default async function HomePage() {
-  const user = await getUser();
+  const user = await getSessionUser();
   const primaryHref = user ? '/dashboard' : '/sign-up';
   const primaryLabel = user ? '进入控制台' : '免费开始';
 

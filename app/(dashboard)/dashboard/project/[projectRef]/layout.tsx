@@ -1,7 +1,7 @@
-import { notFound } from 'next/navigation';
+import { SWRConfig } from 'swr';
 import { ConsoleFrame } from '@/components/console/console-frame';
-import { getProjectScopeByRef, getUser } from '@/lib/db/queries';
-import { isPublicId } from '@/lib/ids';
+import { requireProjectContext } from '@/lib/auth/context';
+import { getProjects } from '@/lib/db/queries/projects';
 
 export default async function ProjectLayout({
   children,
@@ -11,38 +11,41 @@ export default async function ProjectLayout({
   params: Promise<{ projectRef: string }>;
 }) {
   const { projectRef } = await params;
-  if (!isPublicId(projectRef)) {
-    notFound();
-  }
+  const context = await requireProjectContext(projectRef);
+  const projects = await getProjects(context.organization.id);
 
-  const user = await getUser();
-  if (!user) {
-    notFound();
-  }
-
-  // The join is scoped to the signed-in user, so cross-org refs fall through
-  const scope = await getProjectScopeByRef(user.id, projectRef);
-  if (!scope) {
-    notFound();
-  }
+  const projectFallback = projects.map((project) => ({
+    id: project.id,
+    name: project.name,
+    ref: project.ref,
+    status: project.status,
+  }));
 
   return (
-    <ConsoleFrame
-      scope={{
-        org: {
-          id: scope.organization.id,
-          name: scope.organization.name,
-          slug: scope.organization.slug,
-          role: scope.role,
-        },
-        project: {
-          id: scope.project.id,
-          name: scope.project.name,
-          ref: scope.project.ref,
+    <SWRConfig
+      value={{
+        fallback: {
+          [`/api/orgs/${context.organization.id}/projects`]: projectFallback,
         },
       }}
     >
-      {children}
-    </ConsoleFrame>
+      <ConsoleFrame
+        scope={{
+          org: {
+            id: context.organization.id,
+            name: context.organization.name,
+            slug: context.organization.slug,
+            role: context.role,
+          },
+          project: {
+            id: context.project.id,
+            name: context.project.name,
+            ref: context.project.ref,
+          },
+        }}
+      >
+        {children}
+      </ConsoleFrame>
+    </SWRConfig>
   );
 }

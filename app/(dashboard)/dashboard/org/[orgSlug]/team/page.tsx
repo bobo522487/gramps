@@ -4,11 +4,8 @@ import { PageHeader } from '@/components/console/page-header';
 import type { MemberView } from '@/components/org/members-panel';
 import { MembersPanel } from '@/components/org/members-panel';
 import { Badge } from '@/components/ui/badge';
-import {
-  getOrgWithMembersById,
-  getOrgWithRoleBySlug,
-  getUser,
-} from '@/lib/db/queries';
+import { requireOrgContext } from '@/lib/auth/context';
+import { getOrgWithMembersById } from '@/lib/db/queries/organizations';
 
 export default async function OrgTeamPage({
   params,
@@ -16,17 +13,8 @@ export default async function OrgTeamPage({
   params: Promise<{ orgSlug: string }>;
 }) {
   const { orgSlug } = await params;
-  const user = await getUser();
-  if (!user) {
-    notFound();
-  }
-
-  const scope = await getOrgWithRoleBySlug(user.id, orgSlug);
-  if (!scope) {
-    notFound();
-  }
-
-  const org = await getOrgWithMembersById(scope.organization.id);
+  const context = await requireOrgContext(orgSlug);
+  const org = await getOrgWithMembersById(context.organization.id);
   if (!org) {
     notFound();
   }
@@ -48,9 +36,9 @@ export default async function OrgTeamPage({
         badge={<Badge variant="outline">{members.length}</Badge>}
       />
       <MembersPanel
-        orgId={scope.organization.id}
+        orgId={context.organization.id}
         members={members}
-        isOwner={scope.role === 'owner'}
+        isOwner={context.role === 'owner'}
       />
     </section>
   );

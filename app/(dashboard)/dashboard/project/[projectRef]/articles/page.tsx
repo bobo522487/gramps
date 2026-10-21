@@ -1,9 +1,8 @@
 import { FileText } from 'lucide-react';
-import { notFound } from 'next/navigation';
 import { EmptyState } from '@/components/console/empty-state';
 import { PageHeader } from '@/components/console/page-header';
 import { Card, CardContent } from '@/components/ui/card';
-import { getProjectScopeByRef, getUser } from '@/lib/db/queries';
+import { requireProjectContext } from '@/lib/auth/context';
 
 export default async function ProjectArticlesPage({
   params,
@@ -11,22 +10,14 @@ export default async function ProjectArticlesPage({
   params: Promise<{ projectRef: string }>;
 }) {
   const { projectRef } = await params;
-  const user = await getUser();
-  if (!user) {
-    notFound();
-  }
-
-  const scope = await getProjectScopeByRef(user.id, projectRef);
-  if (!scope) {
-    notFound();
-  }
+  const context = await requireProjectContext(projectRef);
 
   return (
     <section className="space-y-4 p-4 lg:p-6">
       <PageHeader
         icon={FileText}
         title="谱文"
-        description={`收录「${scope.project.name}」的谱序、传记与其他文字记录。`}
+        description={`收录「${context.project.name}」的谱序、传记与其他文字记录。`}
       />
       <Card size="dense">
         <CardContent>

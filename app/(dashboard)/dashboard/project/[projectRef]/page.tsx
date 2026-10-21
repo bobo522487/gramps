@@ -1,9 +1,8 @@
 import { Home } from 'lucide-react';
-import { notFound } from 'next/navigation';
 import { PageHeader } from '@/components/console/page-header';
 import { StatusPill } from '@/components/console/status-pill';
 import { Card } from '@/components/ui/card';
-import { getProjectScopeByRef, getUser } from '@/lib/db/queries';
+import { requireProjectContext } from '@/lib/auth/context';
 import { regionLabel } from '@/lib/ui/status';
 
 function formatDate(value: Date | null): string {
@@ -19,17 +18,7 @@ export default async function ProjectOverviewPage({
   params: Promise<{ projectRef: string }>;
 }) {
   const { projectRef } = await params;
-  const user = await getUser();
-  if (!user) {
-    notFound();
-  }
-
-  const scope = await getProjectScopeByRef(user.id, projectRef);
-  if (!scope) {
-    notFound();
-  }
-
-  const { project, organization } = scope;
+  const { project, organization } = await requireProjectContext(projectRef);
   const facts: {
     label: string;
     value: string;

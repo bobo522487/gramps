@@ -18,7 +18,8 @@ import {
 import { EmptyState } from '@/components/console/empty-state';
 import { PageHeader } from '@/components/console/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getActivityLogs } from '@/lib/db/queries';
+import { requireUser } from '@/lib/auth/context';
+import { getActivityLogs } from '@/lib/db/queries/activity';
 import { ActivityType } from '@/lib/db/schema';
 
 const iconMap: Record<ActivityType, LucideIcon> = {
@@ -87,7 +88,8 @@ function formatAction(action: ActivityType): string {
 }
 
 export default async function ActivityPage() {
-  const logs = await getActivityLogs();
+  const user = await requireUser();
+  const logs = await getActivityLogs(user.id);
 
   return (
     <section className="space-y-4 p-4 lg:p-6">

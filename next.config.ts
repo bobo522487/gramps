@@ -8,7 +8,7 @@ const cspDirectives = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.ingest.sentry.io",
+  "connect-src 'self'",
   "frame-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
