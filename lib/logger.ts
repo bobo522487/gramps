@@ -13,16 +13,25 @@ function currentLevel(): Level {
   return process.env.NODE_ENV === 'production' ? 'info' : 'debug';
 }
 
-function write(
-  level: Level,
-  message: string,
-  context?: Record<string, unknown>
+type LogContext = Record<string, unknown>;
+
+// Server-only module registers a provider backed by AsyncLocalStorage so every
+// log line carries request_id/user_id without threading context through calls.
+let contextProvider: (() => LogContext | undefined) | undefined;
+
+export function setLogContextProvider(
+  provider: (() => LogContext | undefined) | undefined
 ) {
+  contextProvider = provider;
+}
+
+function write(level: Level, message: string, context?: LogContext) {
   if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[currentLevel()]) return;
   const line = JSON.stringify({
     level,
     time: new Date().toISOString(),
     message,
+    ...(contextProvider?.() ?? {}),
     ...(context ?? {}),
   });
   if (level === 'error') {

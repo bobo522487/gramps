@@ -10,6 +10,8 @@ export type SessionUser = {
 
 export type ActionState = {
   error?: string;
+  /** Stable machine-readable error code, e.g. `UNAUTHORIZED`. */
+  code?: string;
   success?: string;
   email?: string;
   /** Validation messages keyed by form field name (e.g. `email`). */

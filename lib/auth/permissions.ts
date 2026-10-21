@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { redirect } from 'next/navigation';
-import { getOrgsForUser } from '@/lib/db/queries';
+import { getOrgRoleForUser } from '@/lib/db/queries/organizations';
 import type { User } from '@/lib/db/schema';
 
 export type OrgRole = 'owner' | 'member';
@@ -16,9 +16,8 @@ export async function getOrgRole(
   userId: number,
   orgId: number
 ): Promise<OrgRole | null> {
-  const orgs = await getOrgsForUser(userId);
-  const match = orgs.find((o) => o.organization.id === orgId);
-  return (match?.role as OrgRole) ?? null;
+  const role = await getOrgRoleForUser(userId, orgId);
+  return (role as OrgRole) ?? null;
 }
 
 /**

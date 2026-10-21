@@ -4,6 +4,7 @@ import 'server-only';
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getSessionUser } from '@/lib/auth/context';
 import { validatedAction } from '@/lib/auth/middleware';
 import {
   checkRateLimit,
@@ -12,7 +13,8 @@ import {
 } from '@/lib/auth/rate-limit';
 import { signInSchema, signUpSchema } from '@/lib/auth/schemas';
 import { comparePasswords, hashPassword, setSession } from '@/lib/auth/session';
-import { findUserByEmail, getUser, logActivity } from '@/lib/db/queries';
+import { logActivity } from '@/lib/db/queries/activity';
+import { findUserByEmail } from '@/lib/db/queries/users';
 import { ActivityType } from '@/lib/db/schema';
 import { registerAccount } from '@/lib/db/services';
 
@@ -93,7 +95,7 @@ export const signUp = validatedAction(signUpSchema, async (data) => {
 });
 
 export async function signOut() {
-  const user = await getUser();
+  const user = await getSessionUser();
 
   if (user) {
     await logActivity(null, user.id, ActivityType.SIGN_OUT);

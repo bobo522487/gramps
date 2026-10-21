@@ -1,7 +1,9 @@
-import { getOrgsForUser, getUser } from '@/lib/db/queries';
+import { withApiLogging } from '@/lib/api';
+import { getSessionUser } from '@/lib/auth/context';
+import { getOrgsForUser } from '@/lib/db/queries/organizations';
 
-export async function GET() {
-  const user = await getUser();
+async function listOrgs() {
+  const user = await getSessionUser();
   if (!user) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -15,3 +17,5 @@ export async function GET() {
     }))
   );
 }
+
+export const GET = withApiLogging('orgs', listOrgs);

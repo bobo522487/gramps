@@ -1,6 +1,7 @@
 import type { z } from 'zod';
-import { getUser } from '@/lib/db/queries';
+import { getSessionUser } from '@/lib/auth/context';
 import type { User } from '@/lib/db/schema';
+import { actionError } from '@/lib/errors';
 
 export type { ActionState } from './types';
 
@@ -53,9 +54,9 @@ export function validatedActionWithUser<S extends z.ZodTypeAny, T>(
   action: ValidatedActionWithUserFunction<S, T>
 ) {
   return async (_prevState: ActionState, formData: FormData) => {
-    const user = await getUser();
+    const user = await getSessionUser();
     if (!user) {
-      return { error: '登录已失效，请重新登录。' };
+      return actionError('UNAUTHORIZED', '登录已失效，请重新登录。');
     }
 
     const result = schema.safeParse(Object.fromEntries(formData));

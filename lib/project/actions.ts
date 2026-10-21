@@ -10,12 +10,12 @@ import {
   deleteProjectSchema,
   updateProjectSchema,
 } from '@/lib/auth/schemas';
+import { logActivity } from '@/lib/db/queries/activity';
 import {
   createProject,
   deleteProject,
-  logActivity,
   updateProject,
-} from '@/lib/db/queries';
+} from '@/lib/db/queries/projects';
 import { ActivityType } from '@/lib/db/schema';
 
 export const createProjectAction = validatedActionWithUser(

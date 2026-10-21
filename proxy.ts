@@ -10,6 +10,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const sessionCookie = request.cookies.get('session');
   const isProtectedRoute = pathname.startsWith(protectedRoutes);
+  const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID();
 
   if (isProtectedRoute && !sessionCookie) {
     const signInUrl = new URL('/sign-in', request.url);
@@ -17,7 +18,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  const res = NextResponse.next();
+  // Forward the id so downstream logs and API responses share it.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-request-id', requestId);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  res.headers.set('x-request-id', requestId);
 
   if (sessionCookie && request.method === 'GET') {
     try {
@@ -42,7 +47,7 @@ export async function proxy(request: NextRequest) {
         });
       }
     } catch (error) {
-      logger.error('Error updating session', error);
+      logger.error('Error updating session', error, { request_id: requestId });
       res.cookies.delete('session');
       if (isProtectedRoute) {
         return NextResponse.redirect(new URL('/sign-in', request.url));

@@ -12,15 +12,17 @@ import {
   removeOrgMemberSchema,
   renameOrgSchema,
 } from '@/lib/auth/schemas';
+import { logActivity } from '@/lib/db/queries/activity';
 import {
   createInvitation,
-  deleteOrg,
   findPendingInvitationByEmail,
+} from '@/lib/db/queries/invitations';
+import {
+  deleteOrg,
   getOrgById,
   isUserInOrgByEmail,
-  logActivity,
   renameOrg,
-} from '@/lib/db/queries';
+} from '@/lib/db/queries/organizations';
 import { ActivityType } from '@/lib/db/schema';
 import {
   createOrganizationForOwner,

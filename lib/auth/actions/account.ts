@@ -19,11 +19,8 @@ import {
 import { comparePasswords, hashPassword, setSession } from '@/lib/auth/session';
 import type { ActionState } from '@/lib/auth/types';
 import { isUniqueViolation } from '@/lib/db/errors';
-import {
-  logActivity,
-  updateUserPassword,
-  updateUserProfile,
-} from '@/lib/db/queries';
+import { logActivity } from '@/lib/db/queries/activity';
+import { updateUserPassword, updateUserProfile } from '@/lib/db/queries/users';
 import { ActivityType } from '@/lib/db/schema';
 import { deleteUserAccount } from '@/lib/db/services';
 

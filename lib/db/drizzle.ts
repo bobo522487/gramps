@@ -1,22 +1,37 @@
 import 'server-only';
 
+import { attachDatabasePool } from '@vercel/functions';
 import dotenv from 'dotenv';
-import { drizzle } from 'drizzle-orm/postgres-js';
+import { drizzle as drizzleNodePg } from 'drizzle-orm/node-postgres';
+import {
+  drizzle as drizzlePostgres,
+  type PostgresJsDatabase,
+} from 'drizzle-orm/postgres-js';
+import { Pool } from 'pg';
 import postgres from 'postgres';
+import { getServerConfig } from '@/lib/config';
 import * as schema from './schema';
 
 dotenv.config();
 
-function createDb() {
-  if (!process.env.POSTGRES_URL) {
-    throw new Error(
-      'POSTGRES_URL environment variable is not set. Copy .env.example, run `pnpm db:setup`, then retry.'
-    );
-  }
-  return drizzle(postgres(process.env.POSTGRES_URL), { schema });
-}
+type Db = PostgresJsDatabase<typeof schema> & {
+  $client: ReturnType<typeof postgres>;
+};
 
-type Db = ReturnType<typeof createDb>;
+function createDb(): Db {
+  const { POSTGRES_URL } = getServerConfig();
+
+  if (process.env.VERCEL) {
+    // Vercel Fluid compute: let the platform freeze/resume the pg pool
+    // instead of leaking connections between invocations.
+    const pool = new Pool({ connectionString: POSTGRES_URL, max: 5 });
+    attachDatabasePool(pool);
+    // The SQL surface used by the app is driver-agnostic.
+    return drizzleNodePg(pool, { schema }) as unknown as Db;
+  }
+
+  return drizzlePostgres(postgres(POSTGRES_URL), { schema });
+}
 
 let instance: Db | null = null;
 
