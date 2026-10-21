@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { generatePublicId, isPublicId, PUBLIC_ID_LENGTH } from '@/lib/ids';
+import {
+  generatePublicId,
+  isPublicId,
+  isUuid,
+  PUBLIC_ID_LENGTH,
+} from '@/lib/ids';
 
 describe('public ids', () => {
   it('generates 20 lowercase alphanumeric characters', () => {
@@ -20,5 +25,15 @@ describe('public ids', () => {
     expect(isPublicId('short')).toBe(false);
     expect(isPublicId('rnxvmzibhipcjpksalu-')).toBe(false);
     expect(isPublicId('rnxvmzibhipcjpksaluw1')).toBe(false);
+  });
+});
+
+describe('internal ids', () => {
+  it('accepts UUID shapes and rejects route junk', () => {
+    expect(isUuid('01a15f55-45e5-728e-aaab-23717759124b')).toBe(true);
+    expect(isUuid('01A15F55-45E5-728E-AAAB-23717759124B')).toBe(true);
+    expect(isUuid('rnxvmzibhipcjpksaluw')).toBe(false);
+    expect(isUuid('01a15f55-45e5-728e-aaab')).toBe(false);
+    expect(isUuid('01a15f55-45e5-728e-aaab-23717759124g')).toBe(false);
   });
 });

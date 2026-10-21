@@ -1,8 +1,12 @@
-import { Network } from 'lucide-react';
-import { EmptyState } from '@/components/console/empty-state';
-import { PageHeader } from '@/components/console/page-header';
-import { Card, CardContent } from '@/components/ui/card';
+import { LineageWorkspace } from '@/components/lineage/lineage-workspace';
 import { requireProjectContext } from '@/lib/auth/context';
+import { hasPermission } from '@/lib/auth/permissions';
+import { getFolders } from '@/lib/db/queries/folders';
+import { getLineages } from '@/lib/db/queries/lineages';
+
+function formatDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
 
 export default async function ProjectLineagesPage({
   params,
@@ -10,24 +14,37 @@ export default async function ProjectLineagesPage({
   params: Promise<{ projectRef: string }>;
 }) {
   const { projectRef } = await params;
-  const context = await requireProjectContext(projectRef);
+  const { user, project, organization, role } =
+    await requireProjectContext(projectRef);
+
+  const [folders, lineages] = await Promise.all([
+    getFolders(user.id, organization.id, project.id, 0),
+    getLineages(user.id, organization.id, project.id),
+  ]);
 
   return (
-    <section className="space-y-4 p-4 lg:p-6">
-      <PageHeader
-        icon={Network}
-        title="谱系"
-        description={`为「${context.project.name}」整理家族世系。`}
-      />
-      <Card size="dense">
-        <CardContent>
-          <EmptyState
-            icon={Network}
-            title="功能尚未开放"
-            description="谱系编辑器将在后续版本开放，届时家族树会显示在这里。"
-          />
-        </CardContent>
-      </Card>
-    </section>
+    <LineageWorkspace
+      orgId={organization.id}
+      projectId={project.id}
+      projectRef={project.ref}
+      defaultSurname={project.primarySurname}
+      folders={folders.map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        parentId: folder.parentId,
+      }))}
+      lineages={lineages.map((lineage) => ({
+        id: lineage.id,
+        name: lineage.name,
+        surname: lineage.surname,
+        hallCode: lineage.hallCode,
+        generationWords: lineage.generationWords,
+        nodeCount: lineage.nodeCount,
+        folderId: lineage.folderId,
+        createdAt: formatDate(lineage.createdAt),
+      }))}
+      canWrite={hasPermission(role, 'lineage.write')}
+      canManageFolders={hasPermission(role, 'project.write')}
+    />
   );
 }

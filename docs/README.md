@@ -62,10 +62,10 @@
 | 请求上下文 | `getSessionUser`/scope 按请求缓存；日志自动带 `request_id`；API 记录 `duration_ms` |
 | 环境校验 | `lib/config.ts` 用 Zod 校验；`instrumentation.ts` 在服务启动时失败即退出 |
 | 代码检查 | Biome |
-| 测试 | Vitest 单测 10 个文件 44 个用例 + 真实 PostgreSQL 集成测试 9 个文件 103 个用例（另有 1 个 stub），没有 Playwright/E2E |
+| 测试 | Vitest 单测 10 个文件 45 个用例 + 真实 PostgreSQL 集成测试 11 个文件 123 个用例（另有 1 个 stub），没有 Playwright/E2E |
 | CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` |
 
-家谱业务功能（谱系、人丁、谱文、谱书、分类 UI/Action）当前**没有实现**，只有表、RLS 与占位页。分享、回收站、编辑锁也未实现。
+家谱业务功能中，**谱系与人丁**已具备分类、世系表、搜索、字辈提示、四种录入模式、编辑/移动/删除和打印视图；谱系画布、谱文、谱书、谱文/谱书分类尚未实现。分享、回收站、编辑锁也未实现。
 
 目标设计不包含支付相关能力；当前实现也已移除 Stripe、套餐、计费与订阅，`/pricing` 不再存在。
 

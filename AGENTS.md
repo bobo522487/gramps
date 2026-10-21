@@ -16,18 +16,19 @@
 - 用户登录、组织成员管理（4 角色）、邀请链接、活动日志。
 - 注册、创建组织、接受邀请、成员变更、删除账号等多步写操作在单个数据库事务内完成；失败不会留下半成品数据。
 - 数据库已按目标基础层重置：`auth.users`、RLS、`app_rw`、软删、复合外键、邀请 token。
+- 谱系与人丁已有第一版业务能力：分类树、世系表、搜索、字辈提示、始祖/子女/兄弟/配偶、编辑/移动/删除、打印视图。
 - 界面全部为简体中文，品牌“云谱”，不引入 i18n 框架。
 - 营销首页、登录/注册、控制台界面。
 
-它**还不是**家谱编纂产品。以下目标业务能力尚未实现：
+它**还不是**完整的家谱编纂产品。以下目标业务能力尚未实现：
 
-- 谱系、人丁、世次、字辈。
-- 谱文、富文本编辑。
-- 谱书、编目。
-- 分类树 UI（表已存在，无业务页面与 Action）。
+- 谱系图（React Flow 画布）与按代加载。
+- 谱文、富文本编辑、自动保存。
+- 谱书、编目编辑器。
+- 谱文/谱书分类页面；人丁自定义字段 UI。
 - 回收站、编辑锁、分享。
 
-基础层（UUIDv7、`auth` schema、RLS、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地；家谱业务表已在 schema 中，但页面和写流程尚未实现。如果任务要求实现目标业务能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做实现计划；不要把目标文档里的 `src/modules` 目录当成现状。
+基础层（UUIDv7、`auth` schema、RLS、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地；谱系/人丁已实现第一版页面与写流程，其余家谱业务页面尚未实现。如果任务要求实现目标业务能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做实现计划；不要把目标文档里的 `src/modules` 目录当成现状。
 
 技术形态：
 
@@ -39,7 +40,7 @@
 | 认证 | bcrypt + JWT HS256 Cookie |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 10 文件/44 用例；真实 PostgreSQL 集成测试 9 文件/103 用例 |
+| 测试 | Vitest：单测 10 文件/45 用例；真实 PostgreSQL 集成测试 11 文件/123 用例 |
 
 ---
 
@@ -99,7 +100,7 @@ app/
 │   ├── (account)/            # /dashboard、general、security、activity（无 org scope）
 │   ├── join/                 # /dashboard/join?token=... 接受邀请
 │   ├── org/[orgSlug]/        # projects、team、settings
-│   └── project/[projectRef]/ # overview、lineages、articles、books、settings
+│   └── project/[projectRef]/ # overview、lineages（含 [lineageId] 世系表）、articles、books、settings
 └── api/
     ├── health/
     ├── orgs/
@@ -107,6 +108,7 @@ app/
     └── user/
 components/
 ├── console/                  # 控制台框架、导航、组织/项目选择器、scope context、路由错误边界
+├── lineage/                  # 谱系列表/分类树、世系表、人丁与分类对话框
 ├── org/                      # 组织成员/设置
 ├── project/                  # 项目设置/工作区
 ├── marketing/                # 营销页组件
@@ -114,12 +116,15 @@ components/
 lib/
 ├── auth/                     # session、context（请求级会话/scope）、permissions、rate-limit、schema、actions
 ├── db/
-│   ├── queries/              # 按领域拆分的查询：users、organizations、invitations、projects、activity
-│   ├── services.ts           # 多步事务流程
+│   ├── queries/              # 按领域拆分的查询：users、organizations、invitations、projects、activity、folders、lineages、nodes
+│   ├── services.ts           # 多步事务流程（账号/组织/成员）
 │   ├── schema.ts             # Drizzle schema
 │   ├── drizzle.ts            # 连接单例（本地 postgres.js / Vercel pg）
 │   ├── errors.ts             # PG 错误码识别
 │   └── migrations/           # drizzle-kit 迁移
+├── folder/                   # 分类树 Server Action 与事务服务
+├── genealogy/schemas.ts      # 分类/谱系/人丁 Zod schema
+├── lineage/                  # 谱系与人丁 Server Action、事务服务
 ├── org/actions.ts            # 组织相关 Server Action
 ├── project/actions.ts        # 项目相关 Server Action
 ├── server/request-context.ts # AsyncLocalStorage 请求日志上下文
@@ -163,7 +168,7 @@ proxy.ts                      # Next 16 路由门禁
 ### 5.2 写
 
 - 写操作使用 Server Action，放在 `lib/<domain>/actions.ts`。
-- 入参用 Zod 校验；当前 schema 集中在 `lib/auth/schemas.ts`（名字是历史原因，包含 org/project 等 schema）。
+- 入参用 Zod 校验；认证/组织/项目 schema 在 `lib/auth/schemas.ts`（名字是历史原因），家谱相关 schema 在 `lib/genealogy/schemas.ts`。
 - 用 `validatedAction` 或 `validatedActionWithUser` 包装：
 
 ```typescript
@@ -232,7 +237,7 @@ getProjectById(projectId);
 
 ### 5.5 数据访问
 
-- 查询集中在 `lib/db/queries/<domain>.ts`（users、organizations、projects、invitations、activity）；不要在页面里拼 SQL。
+- 查询集中在 `lib/db/queries/<domain>.ts`（users、organizations、invitations、projects、activity、folders、lineages、nodes）；不要在页面里拼 SQL。
 - 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。当前迁移是重置后的 `0000_baseline` + `0001_auth_rls`。
 - 主键是 PostgreSQL 18 `uuidv7()` 生成的 UUID；20 位公开 `slug`/`ref` 只用于 URL，不进入外键。
 - 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 `ref` 冲突时每次重试重新生成，最多尝试 3 次。

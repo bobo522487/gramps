@@ -21,12 +21,18 @@ export function ConsoleFrame({
 }) {
   return (
     <ConsoleScopeProvider scope={scope}>
-      <SidebarProvider className="grid h-dvh min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-        <ConsoleNavbar />
+      <SidebarProvider className="grid h-dvh min-h-0 grid-rows-[auto_minmax(0,1fr)] print:block print:h-auto">
+        <div className="contents print:hidden">
+          <ConsoleNavbar />
+        </div>
         <div className="flex min-h-0 min-w-0">
-          <ConsoleSidebar />
-          <SidebarInset className="min-h-0 overflow-hidden bg-shell">
-            <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
+          <div className="contents print:hidden">
+            <ConsoleSidebar />
+          </div>
+          <SidebarInset className="min-h-0 overflow-hidden bg-shell print:overflow-visible print:bg-white">
+            <div className="min-w-0 flex-1 overflow-y-auto print:overflow-visible">
+              {children}
+            </div>
           </SidebarInset>
         </div>
       </SidebarProvider>

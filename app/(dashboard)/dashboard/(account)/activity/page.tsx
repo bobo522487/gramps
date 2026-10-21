@@ -2,13 +2,17 @@ import {
   Activity,
   AlertCircle,
   Archive,
+  BookOpen,
   Building2,
   CheckCircle,
+  FileText,
   FolderKanban,
   Lock,
   LogOut,
   type LucideIcon,
   Mail,
+  Move,
+  Network,
   Pencil,
   Settings,
   Trash2,
@@ -40,6 +44,22 @@ const iconMap: Record<ActivityType, LucideIcon> = {
   [ActivityType.CREATE_PROJECT]: FolderKanban,
   [ActivityType.UPDATE_PROJECT]: Pencil,
   [ActivityType.DELETE_PROJECT]: Trash2,
+  [ActivityType.CREATE_FOLDER]: FolderKanban,
+  [ActivityType.RENAME_FOLDER]: Pencil,
+  [ActivityType.DELETE_FOLDER]: Trash2,
+  [ActivityType.CREATE_LINEAGE]: Network,
+  [ActivityType.UPDATE_LINEAGE]: Pencil,
+  [ActivityType.DELETE_LINEAGE]: Trash2,
+  [ActivityType.CREATE_NODE]: UserPlus,
+  [ActivityType.UPDATE_NODE]: UserCog,
+  [ActivityType.DELETE_NODE]: UserMinus,
+  [ActivityType.MOVE_NODE]: Move,
+  [ActivityType.CREATE_ARTICLE]: FileText,
+  [ActivityType.UPDATE_ARTICLE]: Pencil,
+  [ActivityType.DELETE_ARTICLE]: Trash2,
+  [ActivityType.CREATE_BOOK]: BookOpen,
+  [ActivityType.UPDATE_BOOK]: Pencil,
+  [ActivityType.DELETE_BOOK]: Trash2,
 };
 
 function getRelativeTime(date: Date) {
@@ -89,6 +109,38 @@ function formatAction(action: ActivityType): string {
       return '你更新了云谱空间';
     case ActivityType.DELETE_PROJECT:
       return '你删除了云谱空间';
+    case ActivityType.CREATE_FOLDER:
+      return '你创建了分类';
+    case ActivityType.RENAME_FOLDER:
+      return '你重命名了分类';
+    case ActivityType.DELETE_FOLDER:
+      return '你删除了分类';
+    case ActivityType.CREATE_LINEAGE:
+      return '你创建了谱系';
+    case ActivityType.UPDATE_LINEAGE:
+      return '你更新了谱系';
+    case ActivityType.DELETE_LINEAGE:
+      return '你删除了谱系';
+    case ActivityType.CREATE_NODE:
+      return '你录入了人丁';
+    case ActivityType.UPDATE_NODE:
+      return '你更新了人丁信息';
+    case ActivityType.DELETE_NODE:
+      return '你删除了人丁';
+    case ActivityType.MOVE_NODE:
+      return '你移动了人丁';
+    case ActivityType.CREATE_ARTICLE:
+      return '你创建了谱文';
+    case ActivityType.UPDATE_ARTICLE:
+      return '你更新了谱文';
+    case ActivityType.DELETE_ARTICLE:
+      return '你删除了谱文';
+    case ActivityType.CREATE_BOOK:
+      return '你创建了谱书';
+    case ActivityType.UPDATE_BOOK:
+      return '你更新了谱书';
+    case ActivityType.DELETE_BOOK:
+      return '你删除了谱书';
     default:
       return '发生未知操作';
   }

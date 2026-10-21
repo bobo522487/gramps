@@ -21,6 +21,9 @@ export type ActionState = {
   orgSlug?: string;
   projectId?: string;
   projectRef?: string;
+  folderId?: string;
+  lineageId?: string;
+  nodeId?: string;
   /** One-time sign-up/accept link shown to the inviter. */
   inviteUrl?: string;
 };

@@ -17,3 +17,11 @@ export function generatePublicId(): string {
 export function isPublicId(value: string): boolean {
   return PUBLIC_ID_PATTERN.test(value);
 }
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Internal ids are UUIDv7; reject malformed route params before querying. */
+export function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}

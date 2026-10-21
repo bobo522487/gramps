@@ -4,9 +4,15 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { hashInviteToken } from '@/lib/auth/invite-token';
 import type { OrgRole } from '@/lib/auth/permissions';
 import {
+  articles,
+  bookCatalogs,
+  books,
+  folders,
   invitations,
+  lineages,
   type NewOrganization,
   type NewUser,
+  nodes,
   organizations,
   orgMembers,
   projects,
@@ -107,7 +113,157 @@ export async function createProject(params: {
   return project;
 }
 
-/** Returns the raw token alongside the row; only its hash is stored. */
+export async function createFolder(params: {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  kind?: number;
+  parentId?: string | null;
+  name?: string;
+  sort?: number;
+}) {
+  const [folder] = await getTestDb()
+    .insert(folders)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      createdBy: params.createdBy,
+      kind: params.kind ?? 0,
+      parentId: params.parentId ?? null,
+      name: params.name ?? '测试分类',
+      sort: params.sort ?? 0,
+    })
+    .returning();
+  return folder;
+}
+
+export async function createLineage(params: {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  folderId?: string | null;
+  name?: string;
+  surname?: string;
+  generationWords?: string[] | null;
+}) {
+  const [lineage] = await getTestDb()
+    .insert(lineages)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      createdBy: params.createdBy,
+      folderId: params.folderId ?? null,
+      name: params.name ?? '测试谱系',
+      surname: params.surname ?? '陈',
+      generationWords: params.generationWords ?? null,
+    })
+    .returning();
+  return lineage;
+}
+
+export async function createNode(params: {
+  orgId: string;
+  lineageId: string;
+  createdBy: string;
+  parentId?: string | null;
+  spouseOfId?: string | null;
+  role?: 'blood' | 'spouse';
+  path?: string | null;
+  depth?: number;
+  generation: number;
+  sort?: number;
+  name?: string;
+  surname?: string;
+  sex?: number;
+}) {
+  const id = randomUUID();
+  const role = params.role ?? 'blood';
+  const [node] = await getTestDb()
+    .insert(nodes)
+    .values({
+      id,
+      orgId: params.orgId,
+      lineageId: params.lineageId,
+      createdBy: params.createdBy,
+      parentId: params.parentId ?? null,
+      spouseOfId: params.spouseOfId ?? null,
+      role,
+      path: role === 'spouse' ? null : (params.path ?? id.replaceAll('-', '')),
+      depth: params.depth ?? 0,
+      generation: params.generation,
+      sort: params.sort ?? 0,
+      name: params.name ?? '测试人丁',
+      surname: params.surname ?? '陈',
+      fullName: `${params.surname ?? '陈'}${params.name ?? '测试人丁'}`,
+      sex: params.sex ?? 0,
+    })
+    .returning();
+  return node;
+}
+
+export async function createBook(params: {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  name?: string;
+}) {
+  const name = params.name ?? '测试谱书';
+  const [book] = await getTestDb()
+    .insert(books)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      createdBy: params.createdBy,
+      name,
+      title: name,
+      surname: '陈',
+    })
+    .returning();
+  return book;
+}
+
+export async function createArticle(params: {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  title?: string;
+}) {
+  const [article] = await getTestDb()
+    .insert(articles)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      createdBy: params.createdBy,
+      title: params.title ?? '测试谱文',
+      content: { type: 'doc', content: [] },
+      plainText: '测试谱文',
+    })
+    .returning();
+  return article;
+}
+
+export async function createCatalogItem(params: {
+  orgId: string;
+  bookId: string;
+  createdBy: string;
+  lineageId?: string | null;
+  articleId?: string | null;
+  name?: string;
+}) {
+  const [item] = await getTestDb()
+    .insert(bookCatalogs)
+    .values({
+      orgId: params.orgId,
+      bookId: params.bookId,
+      createdBy: params.createdBy,
+      lineageId: params.lineageId ?? null,
+      articleId: params.articleId ?? null,
+      name: params.name ?? '测试编目',
+      section: 2,
+    })
+    .returning();
+  return item;
+}
 export async function createInvitation(params: {
   orgId: string;
   invitedBy: string;

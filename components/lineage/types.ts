@@ -1,0 +1,22 @@
+export type NodeView = {
+  id: string;
+  parentId: string | null;
+  spouseOfId: string | null;
+  role: string;
+  depth: number;
+  generation: number;
+  sort: number;
+  name: string;
+  surname: string;
+  fullName: string;
+  sex: number;
+  courtesy: string | null;
+  namePrefix: string | null;
+  isAlive: boolean;
+  birthText: string | null;
+  deathText: string | null;
+  birthYear: number | null;
+  deathYear: number | null;
+  burialPlace: string | null;
+  biography: string | null;
+};
