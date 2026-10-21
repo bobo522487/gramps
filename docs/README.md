@@ -1,0 +1,119 @@
+# 文档中心
+
+> **文档状态：当前实现说明** · 最后更新：2026-10-21
+> 本文件是 `docs/` 的入口。它说明哪些文档描述当前仓库，哪些描述尚未实现的目标设计。
+
+---
+
+## 1. 先读这一节：这里有两套系统
+
+本仓库同时存在两层内容，**它们不是同一套系统**：
+
+| 平面 | 说明 | 文档 |
+|---|---|---|
+| **当前实现** | 仓库里真实运行的代码：Next.js 16 + Drizzle/Postgres + 自建 JWT 认证的组织/项目控制台，界面为简体中文 | `setup.md`、`agent.md`、`implementation-status.md` |
+| **目标设计** | 面向家谱编纂场景的 M1 设计：PostgreSQL 18+、RLS、自建 JWT 认证、10 张业务表 + `auth.users`、谱系/谱文/谱书；生产部署到 Vercel + 自定义域名 + Neon | `prd.md`、`architect.md`、`data-model.md`、`api.md`、`ops-target.md` |
+
+目标设计**没有**外部认证服务、邮件投递、外部错误聚合、审计表与支付；数据库为 PostgreSQL 18 + Drizzle（本地 `postgres.js` / 生产 `pg` + `attachDatabasePool`），自建 bcrypt/jose 会话、结构化日志、Biome + Vitest + Playwright。生产用 Vercel + 自定义域名 + Neon；本地开发时 Docker 只跑 PostgreSQL，Next.js 直接用 `next dev`。
+
+**判断规则：**
+
+- 要跑项目、改代码、加页面、加迁移，读“当前实现”。
+- 要讨论家谱产品需求、目标数据模型、未来架构，读“目标设计”。
+- 不要把目标设计里的表名、目录、命令直接套到当前代码上。
+- 当前实现与目标设计的差异，以 [实现状态](./implementation-status.md) 为准。
+
+---
+
+## 2. 文档地图
+
+| 文档 | 平面 | 状态 | 主要读者 | 什么时候读 |
+|---|---|---|---|---|
+| [prd.md](./prd.md) | 目标设计 | 目标 / 未实现 | 产品、评审 | 确认家谱 M1 做什么、不做什么 |
+| [architect.md](./architect.md) | 目标设计 | 目标 / 未实现 | 架构、开发 | 讨论目标架构、模块边界、ADR |
+| [data-model.md](./data-model.md) | 目标设计 | 目标 / 未实现 | 后端、DBA | 讨论目标表结构、RLS、索引 |
+| [api.md](./api.md) | 目标设计 | 目标 / 未实现 | 前后端 | 讨论目标 Server Action、错误模型 |
+| [implementation-status.md](./implementation-status.md) | 现状 | 当前实现 | 所有人 | 判断一个 FR 是否真的已实现 |
+| [setup.md](./setup.md) | 现状 | 当前实现 | 开发者、运维 | 本地搭建、环境变量、测试、故障排查 |
+| [agent.md](./agent.md) | 现状 | 当前实现 | 开发者、AI Agent | 当前仓库的编码规则、目录、任务配方 |
+| [ops-target.md](./ops-target.md) | 目标设计 | 目标 / 未实现 | 未来部署与运维 | 本地 Docker 只跑 PostgreSQL、生产 Vercel + Neon 的目标蓝图 |
+
+---
+
+## 3. 当前仓库速览
+
+| 项 | 当前值 |
+|---|---|
+| 框架 | Next.js 16.4 App Router + React 19.1 |
+| 语言 | TypeScript（`strict: true`） |
+| 数据库 | PostgreSQL + Drizzle ORM + postgres.js |
+| 认证 | 邮箱 + 密码；bcrypt；JWT HS256 存 `session` Cookie，1 天有效 |
+| 会话撤销 | `users.token_version` 比对；改密/删号时递增 |
+| 组织角色 | `owner` / `member` |
+| 界面语言 | 简体中文（品牌“云谱”），不引入 i18n 框架 |
+| 控制台路由 | `/dashboard/org/[orgSlug]`（项目 / 团队 / 组织设置）与 `/dashboard/project/[projectRef]`（概览 / 谱系 / 谱文 / 谱书 / 项目设置）；公开 ID 为 20 位 `[0-9a-z]` |
+| 数据隔离 | 应用层按成员关系校验，**没有 RLS**；slug/ref 查询按当前用户过滤 |
+| 数据表 | 6 张：`users`、`organizations`、`org_members`、`projects`、`activity_logs`、`invitations` |
+| Route Handler | 3 个：`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user` |
+| 代码检查 | Biome |
+| 测试 | Vitest（6 个测试文件，另有 1 个 stub），没有 Playwright/E2E |
+| CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test` → `build` |
+
+家谱目标中的谱系、人丁、谱文、谱书、分类、RLS、软删，当前都**没有实现**；project 侧边栏中的谱系 / 谱文 / 谱书只是占位页。
+
+目标设计不包含支付相关能力；当前实现也已移除 Stripe、套餐、计费与订阅，`/pricing` 不再存在。
+
+---
+
+## 4. 推荐阅读路径
+
+**产品 / 需求评审**
+
+1. [prd.md](./prd.md) — 目标产品的范围与验收标准
+2. [implementation-status.md](./implementation-status.md) — 当前实现到了哪一步
+
+**当前开发**
+
+1. 本文件
+2. [setup.md](./setup.md) — 先跑起来
+3. [agent.md](./agent.md) — 目录、规则、任务配方
+4. 修改目标功能前，再读 [architect.md](./architect.md) 与 [data-model.md](./data-model.md)；注意它们是目标设计
+
+**AI Agent**
+
+1. [agent.md](./agent.md) — 当前工程规则
+2. [implementation-status.md](./implementation-status.md) — 防止把目标设计当成现状
+3. 只在任务明确要求“按目标架构实现”时，才读 `architect.md` / `data-model.md`
+
+---
+
+## 5. 文档维护规则
+
+1. **单一事实来源**
+   - 产品范围只写在 `prd.md`。
+   - 目标表结构、约束、索引只写在 `data-model.md`。
+   - 目标 Action 契约、错误码只写在 `api.md`。
+   - 跨切面架构决策只写在 `architect.md`。
+   - 当前命令与环境变量只写在 `setup.md`。
+   - 同一事实不要在多个文档里各写一份。
+
+2. **每份文档必须有状态**
+   - 状态：当前实现 / 目标设计（未实现）/ 已废弃。
+   - 适用里程碑（M1、M2 或“当前仓库”）。
+   - 最后更新日期。
+   - 相关文档链接。
+
+3. **目标数字与现状数字分开**
+   - 目标设计可以说“10 张业务表 + `auth.users`、6 个模块”。
+   - 当前实现必须说“6 张表、3 个 Route Handler”。
+   - 不允许在同一段里混用两套数字。
+
+4. **代码变化时同步状态**
+   - 合并涉及目标功能的 PR 时，更新 `implementation-status.md` 的对应行。
+   - 新增/删除表、Action、Route Handler 时，同步更新本文件的“当前仓库速览”。
+
+5. **提交前检查**
+   - 相对链接目标存在。
+   - 锚点与标题一致。
+   - 命令在 `package.json` 中存在。
+   - 环境变量在代码或 `.env.example` 中真实出现。
