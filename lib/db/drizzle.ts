@@ -35,3 +35,12 @@ export const db = new Proxy({} as Db, {
     return typeof value === 'function' ? value.bind(getDb()) : value;
   },
 });
+
+/** Closes the shared pool; integration tests call this between files. */
+export async function closeDb() {
+  if (!instance) {
+    return;
+  }
+  await instance.$client.end();
+  instance = null;
+}

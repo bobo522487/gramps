@@ -16,7 +16,9 @@
     "format": "biome format .",
     "fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "4.1.7",

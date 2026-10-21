@@ -8,10 +8,22 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gramps_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gramps_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      # Build-time placeholders; the app initializes the Postgres client
-      # lazily per request and never connects during `next build`.
-      POSTGRES_URL: postgres://user:pass@localhost:5432/db
+      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/gramps_test
       AUTH_SECRET: ci-placeholder-secret-value-long-enough-1234
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +47,15 @@ jobs:
         run: pnpm typecheck
 
       - name: Unit tests
-        run: pnpm test
+        run: pnpm test:unit
+
+      - name: Integration tests
+        run: pnpm test:integration
+
+      - name: Check migration drift
+        run: |
+          pnpm db:generate
+          test -z "$(git status --porcelain lib/db/migrations)"
 
       - name: Build
         run: pnpm build
