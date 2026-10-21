@@ -10,9 +10,11 @@ const orgDirectory = vi.hoisted(() => ({
   >,
 }));
 
-vi.mock('@/lib/db/queries', () => ({
-  getOrgsForUser: async (userId: number) =>
-    orgDirectory.memberships[userId] ?? [],
+vi.mock('@/lib/db/queries/organizations', () => ({
+  getOrgRoleForUser: async (userId: number, orgId: number) =>
+    orgDirectory.memberships[userId]?.find(
+      (membership) => membership.organization.id === orgId
+    )?.role ?? null,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -92,7 +94,11 @@ describe('auth actions source guards', () => {
 });
 
 describe('cross-organization isolation', () => {
-  const queriesSource = read('../lib/db/queries.ts');
+  const queriesSource = [
+    read('../lib/db/queries/organizations.ts'),
+    read('../lib/db/queries/projects.ts'),
+  ].join('\n');
+  const contextSource = read('../lib/auth/context.ts');
 
   const functionBody = (name: string) => {
     const start = queriesSource.indexOf(`export async function ${name}`);
@@ -146,18 +152,21 @@ describe('cross-organization isolation', () => {
   });
 
   it('keeps public-id routes behind the membership gate', () => {
+    // The context helpers own both the membership-scoped lookup and the 404.
+    expect(contextSource).toContain('getOrgWithRoleBySlug(user.id, orgSlug)');
+    expect(contextSource).toContain(
+      'getProjectScopeByRef(user.id, projectRef)'
+    );
+    expect(contextSource).toMatch(/notFound\(\)/);
+
     const orgLayout = read(
       '../app/(dashboard)/dashboard/org/[orgSlug]/layout.tsx'
     );
-    expect(orgLayout).toContain('getOrgWithRoleBySlug(user.id, orgSlug)');
-    expect(orgLayout).toMatch(/notFound\(\)/);
+    expect(orgLayout).toContain('requireOrgContext(orgSlug)');
 
     const projectLayout = read(
       '../app/(dashboard)/dashboard/project/[projectRef]/layout.tsx'
     );
-    expect(projectLayout).toContain(
-      'getProjectScopeByRef(user.id, projectRef)'
-    );
-    expect(projectLayout).toMatch(/notFound\(\)/);
+    expect(projectLayout).toContain('requireProjectContext(projectRef)');
   });
 });

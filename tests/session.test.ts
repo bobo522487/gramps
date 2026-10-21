@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 let signToken: typeof import('@/lib/auth/session').signToken;
 let verifyToken: typeof import('@/lib/auth/session').verifyToken;
-let getUser: typeof import('@/lib/db/queries').getUser;
+let getSessionUser: typeof import('@/lib/auth/context').getSessionUser;
 let sessionCookieValue: string | null = null;
 let dbRows: unknown[] = [];
 
@@ -14,6 +14,14 @@ beforeAll(async () => {
       get: () =>
         sessionCookieValue ? { value: sessionCookieValue } : undefined,
     }),
+  }));
+  vi.doMock('next/navigation', () => ({
+    redirect: (path: string) => {
+      throw new Error(`REDIRECT ${path}`);
+    },
+    notFound: () => {
+      throw new Error('NOT_FOUND');
+    },
   }));
   vi.doMock('@/lib/db/drizzle', () => ({
     db: {
@@ -28,7 +36,7 @@ beforeAll(async () => {
   }));
 
   ({ signToken, verifyToken } = await import('@/lib/auth/session'));
-  ({ getUser } = await import('@/lib/db/queries'));
+  ({ getSessionUser } = await import('@/lib/auth/context'));
 });
 
 describe('session token', () => {
@@ -69,7 +77,7 @@ describe('session token', () => {
   });
 });
 
-describe('getUser authoritative checks', () => {
+describe('getSessionUser authoritative checks', () => {
   const userRow = {
     user: { id: 1, email: 'a@b.c', passwordHash: 'x', role: 'owner' },
     tokenVersion: 2,
@@ -86,33 +94,33 @@ describe('getUser authoritative checks', () => {
   it('returns the user when tokenVersion matches', async () => {
     sessionCookieValue = await tokenWith(2);
     dbRows = [userRow];
-    const user = await getUser();
+    const user = await getSessionUser();
     expect(user?.id).toBe(1);
   });
 
   it('rejects cookies issued before a tokenVersion bump (revocation)', async () => {
     sessionCookieValue = await tokenWith(1);
     dbRows = [userRow];
-    expect(await getUser()).toBeNull();
+    expect(await getSessionUser()).toBeNull();
   });
 
   it('treats legacy tokens without tv as version 0', async () => {
     sessionCookieValue = await tokenWith(undefined);
     dbRows = [{ ...userRow, tokenVersion: 0 }];
-    expect((await getUser())?.id).toBe(1);
+    expect((await getSessionUser())?.id).toBe(1);
 
     dbRows = [userRow]; // DB is at version 2
-    expect(await getUser()).toBeNull();
+    expect(await getSessionUser()).toBeNull();
   });
 
   it('rejects soft-deleted users (no row matches deletedAt IS NULL)', async () => {
     sessionCookieValue = await tokenWith(2);
     dbRows = [];
-    expect(await getUser()).toBeNull();
+    expect(await getSessionUser()).toBeNull();
   });
 
   it('rejects absent session cookie', async () => {
     sessionCookieValue = null;
-    expect(await getUser()).toBeNull();
+    expect(await getSessionUser()).toBeNull();
   });
 });

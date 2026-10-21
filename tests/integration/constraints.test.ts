@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { deleteOrg } from '@/lib/db/queries';
+import { deleteOrg } from '@/lib/db/queries/organizations';
 import {
   ActivityType,
   activityLogs,

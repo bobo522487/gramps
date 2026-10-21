@@ -9,13 +9,23 @@ const apiDirectory = vi.hoisted(() => ({
   projects: [] as { id: number; name: string; ref: string; status: string }[],
 }));
 
-vi.mock('@/lib/db/queries', () => ({
-  getUser: async () => apiDirectory.user,
+vi.mock('@/lib/auth/context', () => ({
+  getSessionUser: async () => apiDirectory.user,
+}));
+
+vi.mock('@/lib/db/queries/projects', () => ({
   getProjects: async () => apiDirectory.projects,
+}));
+
+vi.mock('@/lib/db/queries/organizations', () => ({
   getOrgsForUser: async (userId: number) =>
     apiDirectory.role && apiDirectory.user?.id === userId
       ? [{ organization: { id: 1 }, role: apiDirectory.role }]
       : [],
+  getOrgRoleForUser: async (userId: number) =>
+    apiDirectory.role && apiDirectory.user?.id === userId
+      ? apiDirectory.role
+      : null,
 }));
 
 const colorLiterals =

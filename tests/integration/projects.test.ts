@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createProject as createProjectQuery } from '@/lib/db/queries';
+import { createProject as createProjectQuery } from '@/lib/db/queries/projects';
 import { createOrganization, createProject } from '../helpers/factories';
 
 describe('createProject unique-id retries', () => {

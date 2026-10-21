@@ -207,7 +207,10 @@ describe('updateAccount action', () => {
       form({ name: '新名字', email: 'new@example.com' })
     );
 
-    expect(result).toEqual({ error: '登录已失效，请重新登录。' });
+    expect(result).toEqual({
+      error: '登录已失效，请重新登录。',
+      code: 'UNAUTHORIZED',
+    });
   });
 
   it('requires the current password when the email changes', async () => {

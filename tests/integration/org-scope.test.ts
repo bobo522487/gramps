@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  deleteProject,
   getOrgsForUser,
   getOrgWithRoleBySlug,
+} from '@/lib/db/queries/organizations';
+import {
+  deleteProject,
   getProjectById,
   getProjectScopeByRef,
   updateProject,
-} from '@/lib/db/queries';
+} from '@/lib/db/queries/projects';
 import {
   addMember,
   createOrganization,
