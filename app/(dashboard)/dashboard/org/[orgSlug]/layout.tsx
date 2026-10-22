@@ -1,7 +1,12 @@
-import { SWRConfig } from 'swr';
+import {
+  dehydrate,
+  HydrationBoundary,
+  QueryClient,
+} from '@tanstack/react-query';
 import { ConsoleFrame } from '@/components/console/console-frame';
 import { requireOrgContext } from '@/lib/auth/context';
 import { getProjects } from '@/lib/db/queries/projects';
+import { queryKeys } from '@/lib/query-keys';
 
 export default async function OrgWorkspaceLayout({
   children,
@@ -19,14 +24,15 @@ export default async function OrgWorkspaceLayout({
     ref: project.ref,
   }));
 
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(
+    queryKeys.projects(context.organization.id),
+    projectFallback
+  );
+  const initialState = dehydrate(queryClient);
+
   return (
-    <SWRConfig
-      value={{
-        fallback: {
-          [`/api/orgs/${context.organization.id}/projects`]: projectFallback,
-        },
-      }}
-    >
+    <HydrationBoundary state={initialState}>
       <ConsoleFrame
         scope={{
           org: {
@@ -39,6 +45,6 @@ export default async function OrgWorkspaceLayout({
       >
         {children}
       </ConsoleFrame>
-    </SWRConfig>
+    </HydrationBoundary>
   );
 }

@@ -1,9 +1,9 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Activity, ChevronRight, LogOut, Shield, UserCog } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import useSWR, { mutate } from 'swr';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -13,9 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useSessionUser } from '@/hooks/use-session-user';
 import { signOut } from '@/lib/auth/actions/session';
-import type { SessionUser } from '@/lib/auth/types';
-import { fetcher } from '@/lib/fetcher';
+import { queryKeys } from '@/lib/query-keys';
 
 const ACCOUNT_ITEMS = [
   { href: '/dashboard/general', icon: UserCog, label: '通用' },
@@ -24,14 +24,16 @@ const ACCOUNT_ITEMS = [
 ];
 
 export function UserMenu() {
-  const { data: user } = useSWR<SessionUser>('/api/user', fetcher);
+  const { data: user } = useSessionUser();
+  const queryClient = useQueryClient();
   const router = useRouter();
 
   async function handleSignOut() {
     await signOut();
-    // /api/user now answers 401 after sign-out; clear the cached user instead
-    // of keeping stale data from a failed revalidation.
-    await mutate('/api/user', null, { revalidate: false });
+    // /api/user now answers 401 after sign-out; clear cached account data
+    // instead of keeping stale data from a failed refetch.
+    queryClient.setQueryData(queryKeys.user, null);
+    queryClient.setQueryData(queryKeys.orgs, []);
     router.push('/');
   }
 

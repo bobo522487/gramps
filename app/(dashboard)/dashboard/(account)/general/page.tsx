@@ -1,16 +1,17 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, UserCog } from 'lucide-react';
 import { Suspense, useActionState, useEffect } from 'react';
-import useSWR, { mutate } from 'swr';
 import { PageHeader } from '@/components/console/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useSessionUser } from '@/hooks/use-session-user';
 import { updateAccount } from '@/lib/auth/actions/account';
-import type { ActionState, SessionUser } from '@/lib/auth/types';
-import { fetcher } from '@/lib/fetcher';
+import type { ActionState } from '@/lib/auth/types';
+import { queryKeys } from '@/lib/query-keys';
 
 type AccountFormProps = {
   state: ActionState;
@@ -76,15 +77,16 @@ function AccountForm({
 }
 
 function AccountFormWithData({ state }: { state: ActionState }) {
-  const { data: user } = useSWR<SessionUser>('/api/user', fetcher);
+  const { data: user } = useSessionUser();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (state.success) {
-      // revalidatePath refreshes the RSC tree, but the user menu reads this
-      // endpoint through SWR and needs its cache invalidated too.
-      void mutate('/api/user');
+      // revalidatePath refreshes the RSC tree; the user menu reads the same
+      // query, so refresh that cache as well.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.user });
     }
-  }, [state.success]);
+  }, [state.success, queryClient]);
 
   return (
     <AccountForm

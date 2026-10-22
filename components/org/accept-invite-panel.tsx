@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -8,9 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ActionState } from '@/lib/auth/types';
 import { acceptInviteAction } from '@/lib/org/actions';
+import { queryKeys } from '@/lib/query-keys';
 
 export function AcceptInvitePanel({ token }: { token: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [state, action, isPending] = useActionState<ActionState, FormData>(
     acceptInviteAction,
     {}
@@ -18,10 +21,11 @@ export function AcceptInvitePanel({ token }: { token: string }) {
 
   useEffect(() => {
     if (state.success) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orgs });
       router.push('/dashboard');
       router.refresh();
     }
-  }, [state.success, router]);
+  }, [state.success, queryClient, router]);
 
   return (
     <Card size="dense" className="max-w-md">

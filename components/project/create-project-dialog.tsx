@@ -1,8 +1,8 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect } from 'react';
-import { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ActionState } from '@/lib/auth/types';
 import { createProjectAction } from '@/lib/project/actions';
+import { queryKeys } from '@/lib/query-keys';
 
 export function CreateProjectDialog({
   orgId,
@@ -28,6 +29,7 @@ export function CreateProjectDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [state, action, isPending] = useActionState<ActionState, FormData>(
     createProjectAction,
     {}
@@ -35,12 +37,14 @@ export function CreateProjectDialog({
 
   useEffect(() => {
     if (state.projectRef) {
-      mutate(`/api/orgs/${orgId}/projects`);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.projects(orgId),
+      });
       onOpenChange(false);
       router.push(`/dashboard/project/${state.projectRef}`);
       router.refresh();
     }
-  }, [state.projectRef, orgId, router, onOpenChange]);
+  }, [state.projectRef, orgId, queryClient, router, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

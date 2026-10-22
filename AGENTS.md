@@ -38,6 +38,8 @@
 | 数据库 | PostgreSQL + Drizzle ORM（本地/CI `postgres.js`；Vercel 环境 `pg` + `attachDatabasePool`） |
 | 认证 | bcrypt + JWT HS256 Cookie |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
+| 客户端数据 | TanStack Query 5；RSC 首屏通过 `dehydrate` / `HydrationBoundary` 注入 |
+| 客户端 UI 状态 | Zustand 5（仅谱系工作区 UI，不存实体数据） |
 | 检查/格式化 | Biome |
 | 测试 | Vitest：单测 13 文件/73 用例；真实 PostgreSQL 集成测试 11 文件/126 用例 |
 
@@ -117,6 +119,7 @@ components/
 ├── org/                      # 组织成员/设置
 ├── project/                  # 项目设置/工作区
 ├── marketing/                # 营销页组件
+├── query-provider.tsx        # TanStack Query Provider + HydrationBoundary
 └── ui/                       # shadcn/ui 基础组件
 lib/
 ├── auth/                     # session、context（请求级会话/scope）、permissions、rate-limit、schema、actions
@@ -139,9 +142,10 @@ lib/
 ├── ids.ts                    # 20 位公开 ID 生成与校验
 ├── logger.ts
 ├── fetcher.ts
+├── query-keys.ts             # TanStack Query queryKey 工厂
 ├── utils.ts
 └── ui/status.ts
-hooks/                        # use-resizable（侧栏/检查器拖宽）
+hooks/                        # use-session-user、use-resizable（侧栏/检查器拖宽）
 tests/                        # Vitest 单测 + 真实 PostgreSQL 集成测试
 instrumentation.ts            # 启动时校验配置并注册日志上下文
 proxy.ts                      # Next 16 路由门禁
@@ -165,10 +169,12 @@ proxy.ts                      # Next 16 路由门禁
 ### 5.1 读
 
 - 页面默认是 Server Component，直接在服务端调用 `lib/db/queries/<domain>.ts`。
-- 客户端组件只接收已序列化的 props；不要在客户端直接查库。
+- 客户端组件不直接查库；首屏数据由 RSC 以序列化 props / `HydrationBoundary` 提供，交互刷新走 TanStack Query 调用只读 API。
 - 组织/项目布局用 `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)` 解析 scope：内部先 `getSessionUser()`，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤，失败 `notFound()`。`getSessionUser` 与两个 context helper 用 React `cache()` 做请求级记忆化。
 - 页面需要 scope 时调用 `getOrgContext` / `getProjectContext`（返回 `null`）或 `require*Context`（404/重定向）；**不要再自行 `getSessionUser()` + 查询 scope**。
 - 页面内的数据查询仍按 UUID `orgId` 过滤；scope 里的 `id` 来自服务端校验过的成员关系。
+- 根布局与组织/项目布局用 `QueryClient` + `dehydrate` 生成首屏数据，交给 `components/query-provider.tsx` 的 `QueryProvider`/`HydrationBoundary` 注入客户端缓存；客户端用 `useQuery` 读取 `/api/user`、`/api/orgs`、项目列表，不要在组件里手写 `fetch`。
+- 写操作成功后，除 `revalidatePath` 外，按需用 `useQueryClient().invalidateQueries()` 失效对应 `queryKey`；不要再引入 SWR。
 - 谱系区的文件夹/谱系列表由 `lib/lineage/nav.ts` 的 `getNavFolders` / `getNavLineages` 用 React `cache()` 包装，`lineages/layout.tsx` 与列表/详情页共享同一次请求的查询结果；新增导航数据也走这里。
 
 ### 5.2 写
@@ -215,7 +221,7 @@ getSessionUser()（权威校验：查库比对 token_version + deleted_at，按�
 ```
 
 - `proxy.ts` 不是授权边界；不要只靠它保护资源。
-- `getSessionUser()` 返回完整 `users` 行；**不要直接 `Response.json(user)`**。对外出口（API、SWR fallback、客户端组件 props）只传 `SessionUser`，即 `{ id, name, email }`。
+- `getSessionUser()` 返回完整 `users` 行；**不要直接 `Response.json(user)`**。对外出口（API、TanStack Query hydration、客户端组件 props）只传 `SessionUser`，即 `{ id, name, email }`。
 - 修改密码、删除账号会递增 `token_version`，旧 Cookie 自动失效；改密成功后会用新版本重签当前设备。
 - 修改邮箱必须验证当前密码，邮箱归一化为小写后写入；重复邮箱转换为中文冲突提示。
 - 账号区布局 `app/(dashboard)/dashboard/(account)/layout.tsx` 统一 `requireUser()`（内部 `redirect('/sign-in')`）；账号页不要各自猜认证状态。
@@ -263,7 +269,7 @@ getProjectById(projectId);
 | `GET /api/orgs/[orgId]/projects` | 组织内项目列表，先校验成员；DTO 为 `{ id, name, ref }` |
 | `GET /api/user` | 当前用户，DTO 为 `{ id, name, email }` |
 
-三个业务路由未登录时都返回 `401 { error: 'Unauthorized' }`；`lib/fetcher.ts` 对非 2xx 抛错，错误对象带 `status`。所有路由用 `withApiLogging()` 包装：生成/透传 `x-request-id`、记录 `duration_ms`、异常返回 JSON 500。客户端退出登录时要同时清空 `/api/user` 的 SWR 缓存。
+三个业务路由未登录时都返回 `401 { error: 'Unauthorized' }`；`lib/fetcher.ts` 对非 2xx 抛错，错误对象带 `status`。所有路由用 `withApiLogging()` 包装：生成/透传 `x-request-id`、记录 `duration_ms`、异常返回 JSON 500。TanStack Query 以这些只读路由作为客户端刷新通道；客户端退出登录时要同时清空 `queryKeys.user` 与 `queryKeys.orgs` 缓存。
 
 新增 API Route 时：
 
@@ -310,7 +316,8 @@ logger.error('failed to update project', error);
 
 - 默认 Server Component；需要交互才加 `'use client'`。
 - 表单使用 Server Action + `useActionState`/`useTransition`。
-- 全局状态库仅允许 **zustand**，且只用于谱系工作区的 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），见 `components/lineage/lineage-store.ts`；其余场景不引入 Redux/Zustand/Jotai。
+- 全局 UI 状态库仅允许 **zustand**，且只用于谱系工作区的 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），见 `components/lineage/lineage-store.ts`；其余场景不引入 Redux/Jotai。
+- 服务端数据缓存统一用 **TanStack Query**：RSC 首屏注入 + 客户端 `useQuery`；queryKey 统一从 `lib/query-keys.ts` 取，写后用 `invalidateQueries`。不要把服务端实体放进 Zustand，也不要再引入 SWR。
 - zustand store 不存数据库实体数组（谱系、人丁、文件夹仍来自 RSC props + Server Action），不做 persist；文件只被客户端组件引用。
 - 设计令牌与状态样式：不要在页面里写裸色值（`tests/design-system.test.ts` 会检查）；优先用 `components/ui` 与 `lib/ui/status.ts`。
 

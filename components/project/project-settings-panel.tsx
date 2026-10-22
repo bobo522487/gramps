@@ -1,12 +1,14 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useActionState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ActionState } from '@/lib/auth/types';
 import { updateProjectAction } from '@/lib/project/actions';
+import { queryKeys } from '@/lib/query-keys';
 
 export function ProjectSettingsPanel({
   orgId,
@@ -33,6 +35,15 @@ export function ProjectSettingsPanel({
     updateProjectAction,
     {}
   );
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (state.success) {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.projects(orgId),
+      });
+    }
+  }, [state.success, orgId, queryClient]);
 
   return (
     <Card size="dense" className="max-w-2xl">

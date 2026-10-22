@@ -1,8 +1,8 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect } from 'react';
-import { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ActionState } from '@/lib/auth/types';
 import { deleteOrgAction, renameOrgAction } from '@/lib/org/actions';
+import { queryKeys } from '@/lib/query-keys';
 
 export function OrgSettingsPanel({
   orgId,
@@ -34,15 +35,16 @@ export function OrgSettingsPanel({
   isOwner: boolean;
 }) {
   const router = useRouter();
-  // revalidatePath refreshes the RSC tree but not the switcher's SWR cache, so
-  // the org list is re-fetched here to keep its label in sync
+  const queryClient = useQueryClient();
+  // revalidatePath refreshes the RSC tree but not the switcher's client cache,
+  // so the org list is refetched here to keep its label in sync
   const [renameState, renameAction, isRenaming] = useActionState<
     ActionState,
     FormData
   >(async (_prev, formData) => {
     const result = await renameOrgAction({}, formData);
     if (result && 'success' in result && result.success) {
-      mutate('/api/orgs');
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orgs });
     }
     return result ?? {};
   }, {});
@@ -52,7 +54,7 @@ export function OrgSettingsPanel({
   >(async (_prev, formData) => {
     const result = await deleteOrgAction({}, formData);
     if (result && 'success' in result && result.success) {
-      mutate('/api/orgs');
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orgs });
     }
     return result ?? {};
   }, {});

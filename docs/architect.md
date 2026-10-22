@@ -5,11 +5,11 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.5 |
+| 文档版本 | 1.6 |
 | 文档状态 | M1 目标设计（基础层已实现，业务层未实现） |
 | 最后更新 | 2026-10-22 |
 | 架构风格 | 模块化单体（Modular Monolith），单一 Next.js 应用 |
-| 技术栈 | TypeScript · Next.js 16 App Router · PostgreSQL 18+ · Drizzle 0.43 · postgres.js（本地）/ pg + attachDatabasePool（生产） · React Flow |
+| 技术栈 | TypeScript · Next.js 16 App Router · PostgreSQL 18+ · Drizzle 0.43 · postgres.js（本地）/ pg + attachDatabasePool（生产） · React Flow · TanStack Query（@tanstack/react-query） · Zustand |
 | 运行时 | 本地：Docker 只跑 PostgreSQL + `next dev`；生产：Vercel + Neon PostgreSQL 18+ |
 | 工具链 | Biome · Vitest · Playwright E2E |
 | 规模 | 10 张业务表 + `auth.users` · 6 个模块 · 1 个 Route Handler · 0 个后台任务 |
@@ -217,10 +217,10 @@ GET /{orgSlug}/{projectRef}/lineages/{lineageId}
   ├─ page.tsx          lineageQuery.getGraph(ctx, lineageId)
   │     └─ withOrg()   SET LOCAL ROLE app_rw + 注入 claims
   │           └─ repo  SELECT ... WHERE organization_id = $1（RLS 兜底）
-  └─ RSC 直出 HTML
+  └─ RSC 直出 HTML（首屏数据作为 TanStack Query 的 initialData）
 ```
 
-**没有客户端数据请求**。内部 UI 的读操作全部在服务端完成，客户端组件只接收已序列化的 props。
+**首屏不发起客户端数据请求**。页面数据由 RSC 在服务端读取完成，并以 `initialData` 或 `dehydrate` + `HydrationBoundary` 注入 TanStack Query 缓存；交互工作区需要刷新或失效时，由 TanStack Query 的 `queryFn` 调用服务端读函数，不新增 REST 读接口。
 
 ### 5.2 写请求（Server Action）
 
@@ -329,7 +329,7 @@ T3  结果：B 的修改丢失
 |---|---|---|
 | 登录 / 邀请接受 | SSR（动态） | 需要会话 |
 | 内部页面 | RSC 动态渲染 | 数据强一致，无 loading 闪烁 |
-| 谱系画布 | 客户端组件 | 需要交互与视口计算 |
+| 谱系画布 | 客户端组件 + TanStack Query 缓存 | 需要交互与视口计算；首屏数据由 RSC 注入 |
 
 M1 **没有公开页面**（没有落地页、定价页、分享页），所以不需要 SSG/CDN 与「公开页 + 缓存头」这一层设计。这些页面最早在 M2 引入分享时再补。
 
@@ -337,11 +337,17 @@ M1 **没有公开页面**（没有落地页、定价页、分享页），所以�
 
 | 状态类型 | 方案 |
 |---|---|
-| 服务端数据 | RSC props 传入，`revalidateTag` 失效 |
+| 服务端数据（首屏） | RSC 直接读取并直出，以 `initialData` 或 `dehydrate` / `HydrationBoundary` 注入 TanStack Query，并设置 `staleTime` / `initialDataUpdatedAt` 避免水合后立即重取 |
+| 服务端数据（客户端缓存） | TanStack Query：统一 `queryKey`；`queryFn` 调用只读 Route Handler（目标收敛为 Server Action），`mutationFn` 调用 Server Action；写后 `invalidateQueries` 或精确更新缓存，禁止组件内手写 `fetch` |
 | 表单 | React Hook Form + Zod |
-| 乐观更新 | `useOptimistic`（仅用于排序、改名等可回滚操作） |
-| 画布视口 | React Flow 内部管理；工作区 UI 状态入 zustand |
-| 全局 UI 状态 | 谱系工作区使用 zustand：仅客户端、仅 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），不存数据库实体、不做持久化；其余场景不引入 Redux/Jotai |
+| 乐观更新 | TanStack Query mutation 的 `onMutate` / `onError` / `onSettled`（仅用于排序、改名等可回滚操作） |
+| 画布视口 | React Flow 内部管理；工作区 UI 状态入 Zustand |
+| 全局 UI 状态 | 谱系工作区使用 Zustand：仅客户端、仅 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），不存数据库实体、不做持久化；其余场景不引入 Redux/Jotai |
+| 数据边界 | TanStack Query 只缓存服务端数据，Zustand 只存本地 UI 状态；同一实体不得同时维护两份可写副本 |
+
+TanStack Query 是客户端缓存层，不改变「RSC 首屏直读 + Server Action 写入」的边界，也不为它新增 REST 读接口。Zustand 不保存谱系/人丁实体，实体数据始终以 TanStack Query 缓存和 Server Action 结果为准。`queryKey` 统一由 `lib/query-keys.ts` 的 `queryKeys` 工厂生成（如 `queryKeys.projects(orgId)`），禁止在组件内拼字符串。
+
+两套缓存各司其职：RSC 侧继续用 `revalidateTag` / `revalidatePath` 失效服务端渲染缓存，客户端用 `invalidateQueries` 失效 TanStack Query 缓存；同一次写操作后按需同时触发。
 
 ### 6.3 谱系画布
 
@@ -352,7 +358,7 @@ M1 **没有公开页面**（没有落地页、定价页、分享页），所以�
 | 大数据 | `onlyRenderVisibleElements` + 横向渲染窗口：超过 500 人时首屏 5 世，向右平移或点按钮每次追加 5 世 |
 | 节点组件 | 自绘书本节点，不用 React Flow 默认节点；配偶在节点内以「配 王氏」小字展示，完整管理走右侧检查器 |
 | 连线 | 自定义正交边（方形线帽）；拖拽连线可改父，坐标始终由布局计算、不持久化 |
-| 状态同步 | 谱系/人丁数据由 RSC props 提供；视图/选中/折叠/搜索/筛选/渲染窗口由 zustand store 管理，画布不持有实体数据源 |
+| 状态同步 | 谱系/人丁数据由 RSC 首屏注入 TanStack Query 缓存；视图/选中/折叠/搜索/筛选/渲染窗口由 Zustand store 管理；画布不持有数据库实体，也不维护第二份服务端数据源。写操作经 Server Action 后失效对应 `queryKey` |
 
 **布局为什么在 React Flow 之外算**：React Flow 的定位是「交互 + 渲染」。布局由纯函数 `components/lineage/canvas/layout/book-ltr.ts` 计算，输入是谱系索引、折叠集合、世代上限与字辈，输出节点/边/总尺寸，便于单测和替换。
 
@@ -408,8 +414,9 @@ route.ts / actions.ts  →  *.service.ts  →  *.repo.ts  →  db
 
 | 通道 | 用途 | 数量 |
 |---|---|---|
-| RSC | 内部读 | 全部页面 |
-| Server Action | 内部写 | 全部写操作 |
+| RSC | 内部首屏读 | 全部页面 |
+| TanStack Query | 交互工作区的客户端服务端状态缓存；刷新调用只读 Route Handler，变更经 Server Action | 画布、检查器及后续编辑器 |
+| Server Action | 内部写 + 工作区读刷新 | 全部写操作 |
 | Route Handler | 健康检查 | **1 个** |
 
 ---
@@ -624,6 +631,7 @@ M2 引入分享页时，必须补「在世人口脱敏在服务端完成」这�
 | ADR-18 | 部署 | Vercel + Neon；本地 Docker 只跑 PostgreSQL + `next dev` | 无专职运维；托管 Next.js 与 PostgreSQL，本地开发保持最简 |
 | ADR-19 | 数据库驱动 | 本地 `postgres.js`；生产 `pg` 的 `Pool` + `attachDatabasePool` | 本地轻量、API 简洁；生产按 Vercel 官方方式管理连接生命周期，避免实例回收时泄漏连接 |
 | ADR-20 | 公开 ID | `organization.slug` 与 `project.ref` 为 20 位 `[0-9a-z]` 随机 ID，服务端生成、不可修改 | URL 稳定且不暴露主键；不是授权凭证，解析时必须按成员关系过滤 |
+| ADR-21 | 前端数据与状态 | TanStack Query 管理客户端服务端状态缓存，Zustand 仅管理工作区 UI 状态 | RSC 负责首屏直出；TanStack Query 统一缓存、失效与乐观更新；Zustand 不存实体、不持久化，避免双数据源与越权缓存 |
 
 ---
 
