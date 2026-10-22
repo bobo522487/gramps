@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
 import {
   addChildSchema,
+  addPersonSchema,
   addSiblingSchema,
   addSpouseSchema,
   createLineageSchema,
@@ -24,7 +25,9 @@ import {
   createRootNodeInTransaction,
   deleteNodeInTransaction,
   moveNodeInTransaction,
+  type NodeCreateDetails,
   type NodeUpdates,
+  type OptionalSpouse,
   reorderSiblingsInTransaction,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
@@ -43,6 +46,7 @@ const LINEAGE_ERRORS = {
   referenced: '该谱系已被谱书编目引用，请先移除编目',
   root_exists: '该谱系已经有始祖了',
   root_sibling: '始祖没有父辈，不能添加兄弟',
+  root_forbidden: '始祖不可删除，请删除整个谱系',
   invalid_target: '目标人丁无效',
   invalid_parent: '父节点无效',
   cycle: '不能把节点移动到自己的子孙下面',
@@ -55,6 +59,40 @@ function revalidateProject() {
 
 function lineageError(reason: keyof typeof LINEAGE_ERRORS) {
   return { error: LINEAGE_ERRORS[reason] };
+}
+
+function nodeDetails(data: {
+  courtesy?: string;
+  namePrefix?: string;
+  isAlive?: boolean;
+  birthText?: string;
+  deathText?: string;
+  birthYear?: number | null;
+  deathYear?: number | null;
+  burialPlace?: string;
+  biography?: string;
+}): NodeCreateDetails {
+  return {
+    courtesy: data.courtesy ?? null,
+    namePrefix: data.namePrefix ?? null,
+    isAlive: data.isAlive ?? false,
+    birthText: data.birthText ?? null,
+    deathText: data.deathText ?? null,
+    birthYear: data.birthYear ?? null,
+    deathYear: data.deathYear ?? null,
+    burialPlace: data.burialPlace ?? null,
+    biography: data.biography ?? null,
+  };
+}
+
+function coSpouse(data: {
+  spouseName?: string;
+  spouseSurname?: string;
+}): OptionalSpouse | undefined {
+  if (!data.spouseName || !data.spouseSurname) {
+    return undefined;
+  }
+  return { name: data.spouseName, surname: data.spouseSurname };
 }
 
 export const createLineageAction = validatedActionWithUser(
@@ -152,6 +190,8 @@ export const createRootNodeAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
+      details: nodeDetails(data),
+      spouse: coSpouse(data),
     });
 
     if (!result.ok) {
@@ -159,7 +199,11 @@ export const createRootNodeAction = validatedActionWithUser(
     }
 
     revalidateProject();
-    return { success: '始祖已录入', nodeId: result.node.id };
+    return {
+      success: '始祖已录入',
+      nodeId: result.node.id,
+      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
+    };
   }
 );
 
@@ -174,6 +218,8 @@ export const addChildAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
+      details: nodeDetails(data),
+      spouse: coSpouse(data),
     });
 
     if (!result.ok) {
@@ -181,7 +227,11 @@ export const addChildAction = validatedActionWithUser(
     }
 
     revalidateProject();
-    return { success: '子女已添加', nodeId: result.node.id };
+    return {
+      success: '子女已添加',
+      nodeId: result.node.id,
+      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
+    };
   }
 );
 
@@ -196,6 +246,8 @@ export const addSiblingAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
+      details: nodeDetails(data),
+      spouse: coSpouse(data),
     });
 
     if (!result.ok) {
@@ -203,7 +255,41 @@ export const addSiblingAction = validatedActionWithUser(
     }
 
     revalidateProject();
-    return { success: '兄弟已添加', nodeId: result.node.id };
+    return {
+      success: '兄弟已添加',
+      nodeId: result.node.id,
+      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
+    };
+  }
+);
+
+export const addPersonAction = validatedActionWithUser(
+  addPersonSchema,
+  async (data, _, user) => {
+    const params = {
+      userId: user.id,
+      orgId: data.orgId,
+      lineageId: data.lineageId,
+      name: data.name,
+      surname: data.surname,
+      sex: data.sex,
+      details: nodeDetails(data),
+      spouse: coSpouse(data),
+    };
+    const result = data.parentId
+      ? await addChildInTransaction({ ...params, parentId: data.parentId })
+      : await createRootNodeInTransaction(params);
+
+    if (!result.ok) {
+      return lineageError(result.reason);
+    }
+
+    revalidateProject();
+    return {
+      success: data.parentId ? '族人已添加' : '始祖已录入',
+      nodeId: result.node.id,
+      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
+    };
   }
 );
 
@@ -218,6 +304,7 @@ export const addSpouseAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
+      details: nodeDetails(data),
     });
 
     if (!result.ok) {

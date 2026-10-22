@@ -1,26 +1,47 @@
 'use client';
 
 import {
-  ArrowLeft,
+  BookOpen,
   Heart,
   MoreHorizontal,
   Move,
+  Network,
   Pencil,
   Printer,
   Search,
+  Table2,
   Trash2,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from 'react';
 import { EmptyState } from '@/components/console/empty-state';
-import { PageHeader } from '@/components/console/page-header';
+import { GenealogyCanvas } from '@/components/lineage/canvas/genealogy-canvas';
+import {
+  buildLineageIndex,
+  generationWord,
+  lifeSpan,
+} from '@/components/lineage/derived';
 import { LineageEditDialog } from '@/components/lineage/lineage-edit-dialog';
-import { NodeCreateDialog } from '@/components/lineage/node-create-dialog';
-import { NodeEditDialog } from '@/components/lineage/node-edit-dialog';
+import {
+  INSPECTOR_MAX_WIDTH,
+  INSPECTOR_MIN_WIDTH,
+  useLineageStore,
+} from '@/components/lineage/lineage-store';
+import {
+  NodeCreateDialog,
+  type NodeCreateMode,
+} from '@/components/lineage/node-create-dialog';
 import { NodeMoveDialog } from '@/components/lineage/node-move-dialog';
+import { PersonInspector } from '@/components/lineage/person-inspector';
 import type { NodeView } from '@/components/lineage/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,7 +62,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { deleteNodeAction } from '@/lib/lineage/actions';
+import { useResizable } from '@/hooks/use-resizable';
+import { deleteNodeAction, moveNodeAction } from '@/lib/lineage/actions';
+import { cn } from '@/lib/utils';
 
 type FolderOption = {
   id: string;
@@ -59,31 +82,10 @@ type LineageInfo = {
   folderId: string | null;
 };
 
-type CreateState =
-  | { mode: 'root' }
-  | { mode: 'child' | 'sibling' | 'spouse'; node: NodeView }
-  | null;
+type CreateState = { mode: NodeCreateMode; target?: NodeView } | null;
 
-function generationWord(
-  words: string[] | null,
-  generation: number
-): string | null {
-  return words?.[generation - 1] ?? null;
-}
-
-function lifeSpan(node: NodeView): string {
-  const birth = node.birthText ?? node.birthYear?.toString() ?? '';
-  const death = node.isAlive
-    ? ''
-    : (node.deathText ?? node.deathYear?.toString() ?? '');
-  if (!birth && !death) {
-    return node.isAlive ? '在世' : '—';
-  }
-  return `${birth || '?'} — ${death || (node.isAlive ? '' : '?')}`.trim();
-}
-
-function subtreeCount(node: NodeView, nodes: NodeView[]): number {
-  const bloodIds = new Set<string>([node.id]);
+function subtreeIds(node: NodeView, nodes: NodeView[]): Set<string> {
+  const ids = new Set<string>([node.id]);
   const queue = [node.id];
   while (queue.length > 0) {
     const parentId = queue.shift();
@@ -94,24 +96,23 @@ function subtreeCount(node: NodeView, nodes: NodeView[]): number {
       if (
         candidate.role === 'blood' &&
         candidate.parentId === parentId &&
-        !bloodIds.has(candidate.id)
+        !ids.has(candidate.id)
       ) {
-        bloodIds.add(candidate.id);
+        ids.add(candidate.id);
         queue.push(candidate.id);
       }
     }
   }
-  let total = bloodIds.size;
   for (const candidate of nodes) {
     if (
       candidate.role === 'spouse' &&
       candidate.spouseOfId &&
-      bloodIds.has(candidate.spouseOfId)
+      ids.has(candidate.spouseOfId)
     ) {
-      total += 1;
+      ids.add(candidate.id);
     }
   }
-  return total;
+  return ids;
 }
 
 function SexLabel({ sex }: { sex: number }) {
@@ -120,41 +121,22 @@ function SexLabel({ sex }: { sex: number }) {
 
 function SpouseChip({
   spouse,
-  canWrite,
-  onEdit,
-  onDelete,
+  onSelect,
 }: {
   spouse: NodeView;
-  canWrite: boolean;
-  onEdit: (node: NodeView) => void;
-  onDelete: (node: NodeView) => void;
+  onSelect: (nodeId: string) => void;
 }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border bg-surface-subtle px-2 py-0.5 text-xs text-muted-foreground">
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect(spouse.id);
+      }}
+      className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+    >
       <Heart className="size-3" />配 {spouse.fullName}
-      {canWrite ? (
-        <>
-          <button
-            type="button"
-            onClick={() => onEdit(spouse)}
-            className="hover:text-foreground"
-            title="编辑配偶"
-            aria-label={`编辑配偶 ${spouse.fullName}`}
-          >
-            <Pencil className="size-3" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onDelete(spouse)}
-            className="hover:text-destructive"
-            title="删除配偶"
-            aria-label={`删除配偶 ${spouse.fullName}`}
-          >
-            <Trash2 className="size-3" />
-          </button>
-        </>
-      ) : null}
-    </span>
+    </button>
   );
 }
 
@@ -162,16 +144,16 @@ function NodeActions({
   node,
   canWrite,
   isDeleting,
+  onSelect,
   onCreate,
-  onEdit,
   onMove,
   onDelete,
 }: {
   node: NodeView;
   canWrite: boolean;
   isDeleting: boolean;
+  onSelect: (nodeId: string) => void;
   onCreate: (mode: 'child' | 'sibling' | 'spouse', node: NodeView) => void;
-  onEdit: (node: NodeView) => void;
   onMove: (node: NodeView) => void;
   onDelete: (node: NodeView) => void;
 }) {
@@ -188,11 +170,17 @@ function NodeActions({
           disabled={isDeleting}
           title="人丁操作"
           aria-label={`${node.fullName} 的操作`}
+          onClick={(event) => event.stopPropagation()}
         >
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" size="sm">
+        <DropdownMenuItem onSelect={() => onSelect(node.id)}>
+          <BookOpen />
+          查看档案
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => onCreate('child', node)}>
           <UserPlus />
           添加子女
@@ -208,20 +196,22 @@ function NodeActions({
           <Heart />
           添加配偶
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => onEdit(node)}>
-          <Pencil />
-          编辑
-        </DropdownMenuItem>
         <DropdownMenuItem disabled={isRoot} onSelect={() => onMove(node)}>
           <Move />
           移动
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={() => onDelete(node)}>
-          <Trash2 />
-          删除
-        </DropdownMenuItem>
+        {isRoot ? null : (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => onDelete(node)}
+            >
+              <Trash2 />
+              删除
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -233,8 +223,9 @@ function NodeRows({
   canWrite,
   isDeleting,
   showGeneration,
+  selectedNodeId,
+  onSelect,
   onCreate,
-  onEdit,
   onMove,
   onDelete,
 }: {
@@ -243,8 +234,9 @@ function NodeRows({
   canWrite: boolean;
   isDeleting: boolean;
   showGeneration: boolean;
+  selectedNodeId: string | null;
+  onSelect: (nodeId: string) => void;
   onCreate: (mode: 'child' | 'sibling' | 'spouse', node: NodeView) => void;
-  onEdit: (node: NodeView) => void;
   onMove: (node: NodeView) => void;
   onDelete: (node: NodeView) => void;
 }) {
@@ -252,8 +244,15 @@ function NodeRows({
     <TableBody>
       {bloodNodes.map((node) => {
         const spouses = spousesByBlood.get(node.id) ?? [];
+        const isSelected =
+          selectedNodeId === node.id ||
+          spouses.some((spouse) => spouse.id === selectedNodeId);
         return (
-          <TableRow key={node.id}>
+          <TableRow
+            key={node.id}
+            onClick={() => onSelect(node.id)}
+            className={cn('cursor-pointer', isSelected && 'bg-accent/60')}
+          >
             {showGeneration ? (
               <TableCell className="tabular-nums">
                 第 {node.generation} 世
@@ -279,9 +278,7 @@ function NodeRows({
                     <SpouseChip
                       key={spouse.id}
                       spouse={spouse}
-                      canWrite={canWrite}
-                      onEdit={onEdit}
-                      onDelete={onDelete}
+                      onSelect={onSelect}
                     />
                   ))}
                 </div>
@@ -299,13 +296,16 @@ function NodeRows({
             <TableCell className="text-muted-foreground">
               {lifeSpan(node)}
             </TableCell>
-            <TableCell className="text-right">
+            <TableCell
+              className="text-right print:hidden"
+              onClick={(event) => event.stopPropagation()}
+            >
               <NodeActions
                 node={node}
                 canWrite={canWrite}
                 isDeleting={isDeleting}
+                onSelect={onSelect}
                 onCreate={onCreate}
-                onEdit={onEdit}
                 onMove={onMove}
                 onDelete={onDelete}
               />
@@ -319,47 +319,69 @@ function NodeRows({
 
 export function LineageDetail({
   orgId,
-  projectRef,
   lineage,
   nodes,
   folders,
   canWrite,
 }: {
   orgId: string;
-  projectRef: string;
   lineage: LineageInfo;
   nodes: NodeView[];
   folders: FolderOption[];
   canWrite: boolean;
 }) {
   const router = useRouter();
-  const [query, setQuery] = useState('');
+
+  const view = useLineageStore((state) => state.view);
+  const setView = useLineageStore((state) => state.setView);
+  const selectedNodeId = useLineageStore((state) => state.selectedNodeId);
+  const setSelectedNode = useLineageStore((state) => state.setSelectedNode);
+  const tableQuery = useLineageStore((state) => state.tableQuery);
+  const setTableQuery = useLineageStore((state) => state.setTableQuery);
+  const notice = useLineageStore((state) => state.notice);
+  const setNotice = useLineageStore((state) => state.setNotice);
+  const requestFocus = useLineageStore((state) => state.requestFocus);
+  const initializeForLineage = useLineageStore(
+    (state) => state.initializeForLineage
+  );
+  const inspectorWidth = useLineageStore((state) => state.inspectorWidth);
+  const setInspectorWidth = useLineageStore((state) => state.setInspectorWidth);
+
+  const inspectorResize = useResizable({
+    value: inspectorWidth,
+    minWidth: INSPECTOR_MIN_WIDTH,
+    maxWidth: INSPECTOR_MAX_WIDTH,
+    edge: 'right',
+    onChange: setInspectorWidth,
+  });
+
   const [createDialog, setCreateDialog] = useState<CreateState>(null);
-  const [editNode, setEditNode] = useState<NodeView | null>(null);
   const [moveNode, setMoveNode] = useState<NodeView | null>(null);
   const [editLineage, setEditLineage] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [isDeleting, startDelete] = useTransition();
 
-  const bloodNodes = useMemo(
-    () => nodes.filter((node) => node.role === 'blood'),
-    [nodes]
+  useEffect(() => {
+    initializeForLineage(lineage.id);
+  }, [initializeForLineage, lineage.id]);
+
+  const index = useMemo(() => buildLineageIndex(nodes), [nodes]);
+  const bloodNodes = index.blood;
+  const spousesByBlood = index.spousesByBlood;
+  const hasRoot = bloodNodes.length > 0;
+
+  const selectedNode = useMemo(
+    () => (selectedNodeId ? (index.byId.get(selectedNodeId) ?? null) : null),
+    [index, selectedNodeId]
   );
-  const spousesByBlood = useMemo(() => {
-    const map = new Map<string, NodeView[]>();
-    for (const node of nodes) {
-      if (node.role !== 'spouse' || !node.spouseOfId) {
-        continue;
-      }
-      const bucket = map.get(node.spouseOfId) ?? [];
-      bucket.push(node);
-      map.set(node.spouseOfId, bucket);
+
+  useEffect(() => {
+    if (selectedNodeId && !index.byId.has(selectedNodeId)) {
+      setSelectedNode(null);
     }
-    return map;
-  }, [nodes]);
+  }, [index, selectedNodeId, setSelectedNode]);
 
   const visibleBlood = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = tableQuery.trim().toLowerCase();
     if (!needle) {
       return bloodNodes;
     }
@@ -368,14 +390,15 @@ export function LineageDetail({
       return (
         node.fullName.toLowerCase().includes(needle) ||
         (node.courtesy ?? '').toLowerCase().includes(needle) ||
+        (node.namePrefix ?? '').toLowerCase().includes(needle) ||
         (node.biography ?? '').toLowerCase().includes(needle) ||
         spouses.some((spouse) => spouse.fullName.toLowerCase().includes(needle))
       );
     });
-  }, [bloodNodes, query, spousesByBlood]);
+  }, [bloodNodes, tableQuery, spousesByBlood]);
 
   const groups = useMemo(() => {
-    if (query.trim()) {
+    if (tableQuery.trim()) {
       return [];
     }
     const map = new Map<number, NodeView[]>();
@@ -385,237 +408,408 @@ export function LineageDetail({
       map.set(node.generation, bucket);
     }
     return [...map.entries()].sort((left, right) => left[0] - right[0]);
-  }, [visibleBlood, query]);
+  }, [visibleBlood, tableQuery]);
 
-  function handleDelete(node: NodeView) {
-    const count = node.role === 'blood' ? subtreeCount(node, nodes) : 1;
-    const message =
-      count > 1
-        ? `删除「${node.fullName}」及其子孙？共 ${count} 位人丁会归档。`
-        : `删除「${node.fullName}」？该人丁会归档。`;
-    if (!window.confirm(message)) {
-      return;
-    }
-    setNotice(null);
-    startDelete(async () => {
+  const handlePrint = useCallback(() => {
+    setView('table');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.print());
+    });
+  }, [setView]);
+
+  const handleDelete = useCallback(
+    (node: NodeView) => {
+      if (node.role === 'blood' && !node.parentId) {
+        setNotice('始祖不可删除，请删除整个谱系');
+        return;
+      }
+      const ids = subtreeIds(node, nodes);
+      const count = ids.size;
+      const message =
+        count > 1
+          ? `删除「${node.fullName}」及其子孙？共 ${count} 位人丁会归档。`
+          : `删除「${node.fullName}」？该人丁会归档。`;
+      if (!window.confirm(message)) {
+        return;
+      }
+      setNotice(null);
+      startDelete(async () => {
+        const formData = new FormData();
+        formData.set('orgId', orgId);
+        formData.set('lineageId', lineage.id);
+        formData.set('nodeId', node.id);
+        const result = await deleteNodeAction({}, formData);
+        if ('error' in result && result.error) {
+          setNotice(result.error);
+          return;
+        }
+        if (selectedNodeId && ids.has(selectedNodeId)) {
+          setSelectedNode(null);
+        }
+        router.refresh();
+      });
+    },
+    [
+      lineage.id,
+      nodes,
+      orgId,
+      router,
+      selectedNodeId,
+      setNotice,
+      setSelectedNode,
+    ]
+  );
+
+  const handleMove = useCallback(
+    async (nodeId: string, newParentId: string) => {
       const formData = new FormData();
       formData.set('orgId', orgId);
       formData.set('lineageId', lineage.id);
-      formData.set('nodeId', node.id);
-      const result = await deleteNodeAction({}, formData);
+      formData.set('nodeId', nodeId);
+      formData.set('newParentId', newParentId);
+      const result = await moveNodeAction({}, formData);
       if ('error' in result && result.error) {
         setNotice(result.error);
         return;
       }
+      setNotice(null);
       router.refresh();
-    });
-  }
+    },
+    [lineage.id, orgId, router, setNotice]
+  );
 
   function openCreate(mode: 'child' | 'sibling' | 'spouse', node: NodeView) {
-    setCreateDialog({ mode, node });
+    setCreateDialog({ mode, target: node });
   }
 
-  const hasRoot = bloodNodes.length > 0;
+  function handleCreated(nodeId: string) {
+    setSelectedNode(nodeId);
+    requestFocus(nodeId);
+    router.refresh();
+    setCreateDialog(null);
+  }
+
+  const inspector = (
+    <PersonInspector
+      orgId={orgId}
+      lineageId={lineage.id}
+      generationWords={lineage.generationWords}
+      nodes={nodes}
+      node={selectedNode}
+      canWrite={canWrite}
+      width={inspectorWidth}
+      isResizing={inspectorResize.isResizing}
+      onResizeStart={inspectorResize.startResizing}
+      onClose={() => setSelectedNode(null)}
+      onSelectNode={setSelectedNode}
+      onAddChild={(nodeId) => {
+        const target = index.byId.get(nodeId);
+        if (target) {
+          openCreate('child', target);
+        }
+      }}
+      onAddSpouse={(nodeId) => {
+        const target = index.byId.get(nodeId);
+        if (target) {
+          openCreate('spouse', target);
+        }
+      }}
+      onDelete={handleDelete}
+    />
+  );
 
   return (
-    <section className="space-y-4 p-4 lg:p-6">
-      <PageHeader
-        icon={Users}
-        title={lineage.name}
-        description={`${lineage.surname}氏${
-          lineage.hallCode ? ` · ${lineage.hallCode}` : ''
-        } · ${lineage.nodeCount} 位人丁`}
-        badge={<Badge variant="outline">谱系</Badge>}
-        actions={
-          <>
-            <Button asChild variant="ghost" size="xs" className="print:hidden">
-              <Link href={`/dashboard/project/${projectRef}/lineages`}>
-                <ArrowLeft />
-                返回谱系
-              </Link>
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              className="print:hidden"
-              onClick={() => window.print()}
-            >
-              <Printer />
-              打印
-            </Button>
-            {canWrite ? (
-              <Button
-                variant="brand"
-                size="xs"
-                className="print:hidden"
-                onClick={() => setEditLineage(true)}
-              >
-                <Pencil />
-                编辑谱系
-              </Button>
-            ) : null}
-          </>
-        }
-      />
-
-      <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
-        <div className="flex items-center gap-2">
-          {hasRoot ? (
-            <Badge variant="outline">
-              {groups.length > 0
-                ? `共 ${groups.length} 世`
-                : `${visibleBlood.length} 条匹配`}
-            </Badge>
-          ) : null}
-          {lineage.generationWords && lineage.generationWords.length > 0 ? (
-            <span className="text-xs text-muted-foreground">
-              字辈：{lineage.generationWords.join(' ')}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索姓名、字号或配偶"
-              size="sm"
-              aria-label="搜索人丁"
-              className="w-56 pl-7"
-            />
+    <div className="flex h-full min-h-0 flex-col print:block">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-2 lg:px-4 print:hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <BookOpen size={16} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-bold text-foreground">
+              {lineage.name}
+            </h1>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {lineage.surname}氏
+              {lineage.hallCode ? ` · ${lineage.hallCode}` : ''} · 共{' '}
+              {lineage.nodeCount} 位族人
+            </p>
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {hasRoot ? (
+            <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+              <button
+                type="button"
+                onClick={() => setView('canvas')}
+                className={cn(
+                  'flex h-7 items-center gap-1 rounded-md px-2.5 text-xs transition-colors',
+                  view === 'canvas'
+                    ? 'bg-card font-medium text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Network size={13} /> 谱系图
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('table')}
+                className={cn(
+                  'flex h-7 items-center gap-1 rounded-md px-2.5 text-xs transition-colors',
+                  view === 'table'
+                    ? 'bg-card font-medium text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Table2 size={13} /> 世系表
+              </button>
+            </div>
+          ) : null}
+
+          {canWrite ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => setEditLineage(true)}
+            >
+              <Pencil />
+              编辑谱系
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={handlePrint}
+            title="打印世系表"
+            aria-label="打印世系表"
+          >
+            <Printer />
+          </Button>
+        </div>
+      </header>
+
+      <div className="hidden shrink-0 px-4 py-3 print:block">
+        <h1 className="text-lg font-bold text-foreground">{lineage.name}</h1>
+        <p className="text-xs text-muted-foreground">
+          {lineage.surname}氏{lineage.hallCode ? ` · ${lineage.hallCode}` : ''}{' '}
+          · 共 {lineage.nodeCount} 位族人
+        </p>
       </div>
 
-      {notice ? (
-        <p className="text-sm text-destructive print:hidden">{notice}</p>
-      ) : null}
-
       {!hasRoot ? (
-        <Card size="dense">
-          <EmptyState
-            icon={Users}
-            title="还没有始祖"
-            description="先录入始祖，作为第一世，再逐代添加子女与配偶。"
-            action={
-              canWrite ? (
-                <Button
-                  variant="brand"
-                  size="xs"
-                  onClick={() => setCreateDialog({ mode: 'root' })}
-                >
-                  <UserPlus />
-                  录入始祖
-                </Button>
-              ) : null
-            }
-          />
-        </Card>
-      ) : visibleBlood.length === 0 ? (
-        <Card size="dense">
-          <EmptyState
-            icon={Search}
-            title="没有匹配的人丁"
-            description="试试其他姓名、字号，或清空搜索条件。"
-          />
-        </Card>
-      ) : query.trim() ? (
-        <Card size="dense">
-          <Table size="dense">
-            <TableHeader>
-              <TableRow>
-                <TableHead>世次</TableHead>
-                <TableHead>姓名</TableHead>
-                <TableHead>性别</TableHead>
-                <TableHead>生卒</TableHead>
-                <TableHead className="text-right print:hidden">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <NodeRows
-              bloodNodes={visibleBlood}
-              spousesByBlood={spousesByBlood}
-              canWrite={canWrite}
-              isDeleting={isDeleting}
-              showGeneration
-              onCreate={openCreate}
-              onEdit={setEditNode}
-              onMove={setMoveNode}
-              onDelete={handleDelete}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
+          <Card size="dense">
+            <EmptyState
+              icon={Users}
+              title="还没有始祖"
+              description="先录入始祖，作为第一世，再逐代添加子女与配偶。"
+              action={
+                canWrite ? (
+                  <Button
+                    variant="brand"
+                    size="xs"
+                    onClick={() => setCreateDialog({ mode: 'root' })}
+                  >
+                    <UserPlus />
+                    录入始祖
+                  </Button>
+                ) : null
+              }
             />
-          </Table>
-        </Card>
+          </Card>
+        </div>
+      ) : view === 'canvas' ? (
+        <div className="flex min-h-0 flex-1 print:hidden">
+          <div className="min-h-0 min-w-0 flex-1">
+            <GenealogyCanvas
+              lineageId={lineage.id}
+              nodes={nodes}
+              generationWords={lineage.generationWords}
+              canWrite={canWrite}
+              onCreateChild={(parentId) => {
+                const target = index.byId.get(parentId);
+                if (target) {
+                  openCreate('child', target);
+                }
+              }}
+              onCreateSpouse={(bloodId) => {
+                const target = index.byId.get(bloodId);
+                if (target) {
+                  openCreate('spouse', target);
+                }
+              }}
+              onCreatePerson={() => setCreateDialog({ mode: 'person' })}
+              onEditNode={(nodeId) => setSelectedNode(nodeId)}
+              onDeleteNode={(nodeId) => {
+                const target = index.byId.get(nodeId);
+                if (target) {
+                  handleDelete(target);
+                }
+              }}
+              onMoveNode={handleMove}
+              onPrint={handlePrint}
+            />
+          </div>
+          {inspector}
+        </div>
       ) : (
-        <div className="space-y-3">
-          {groups.map(([generation, generationNodes]) => {
-            const word = generationWord(lineage.generationWords, generation);
-            return (
-              <Card
-                key={generation}
-                size="dense"
-                className="break-inside-avoid"
-              >
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-semibold">
-                    第 {generation} 世
-                  </h2>
-                  {word ? <Badge variant="outline">字辈 · {word}</Badge> : null}
-                  <span className="text-xs text-muted-foreground">
-                    {generationNodes.length} 人
-                  </span>
+        <div className="flex min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto print:overflow-visible">
+            <div className="space-y-3 p-4 print:p-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
+                <div className="flex flex-wrap items-center gap-2">
+                  {tableQuery.trim() ? (
+                    <Badge variant="outline">
+                      {visibleBlood.length} 条匹配
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">共 {groups.length} 世</Badge>
+                  )}
+                  {lineage.generationWords &&
+                  lineage.generationWords.length > 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      字辈：{lineage.generationWords.join(' ')}
+                    </span>
+                  ) : null}
                 </div>
-                <Table size="dense">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>姓名</TableHead>
-                      <TableHead>性别</TableHead>
-                      <TableHead>生卒</TableHead>
-                      <TableHead className="text-right print:hidden">
-                        操作
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <NodeRows
-                    bloodNodes={generationNodes}
-                    spousesByBlood={spousesByBlood}
-                    canWrite={canWrite}
-                    isDeleting={isDeleting}
-                    showGeneration={false}
-                    onCreate={openCreate}
-                    onEdit={setEditNode}
-                    onMove={setMoveNode}
-                    onDelete={handleDelete}
+                <div className="relative">
+                  <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={tableQuery}
+                    onChange={(event) => setTableQuery(event.target.value)}
+                    placeholder="搜索姓名、字号或配偶"
+                    size="sm"
+                    aria-label="搜索人丁"
+                    className="w-56 pl-7"
                   />
-                </Table>
-              </Card>
-            );
-          })}
+                </div>
+              </div>
+
+              {notice ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive print:hidden">
+                  <span>{notice}</span>
+                  <button
+                    type="button"
+                    onClick={() => setNotice(null)}
+                    aria-label="关闭提示"
+                    className="rounded p-0.5 hover:bg-destructive/10"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : null}
+
+              {visibleBlood.length === 0 ? (
+                <Card size="dense">
+                  <EmptyState
+                    icon={Search}
+                    title="没有匹配的人丁"
+                    description="试试其他姓名、字号，或清空搜索条件。"
+                  />
+                </Card>
+              ) : tableQuery.trim() ? (
+                <Card size="dense">
+                  <Table size="dense">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>世次</TableHead>
+                        <TableHead>姓名</TableHead>
+                        <TableHead>性别</TableHead>
+                        <TableHead>生卒</TableHead>
+                        <TableHead className="text-right print:hidden">
+                          操作
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <NodeRows
+                      bloodNodes={visibleBlood}
+                      spousesByBlood={spousesByBlood}
+                      canWrite={canWrite}
+                      isDeleting={isDeleting}
+                      showGeneration
+                      selectedNodeId={selectedNodeId}
+                      onSelect={setSelectedNode}
+                      onCreate={openCreate}
+                      onMove={setMoveNode}
+                      onDelete={handleDelete}
+                    />
+                  </Table>
+                </Card>
+              ) : (
+                groups.map(([generation, generationNodes]) => {
+                  const word = generationWord(
+                    lineage.generationWords,
+                    generation
+                  );
+                  return (
+                    <Card
+                      key={generation}
+                      size="dense"
+                      className="break-inside-avoid"
+                    >
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <h2 className="text-base font-semibold">
+                          第 {generation} 世
+                        </h2>
+                        {word ? (
+                          <Badge variant="outline">字辈 · {word}</Badge>
+                        ) : null}
+                        <span className="text-xs text-muted-foreground">
+                          {generationNodes.length} 人
+                        </span>
+                      </div>
+                      <Table size="dense">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>姓名</TableHead>
+                            <TableHead>性别</TableHead>
+                            <TableHead>生卒</TableHead>
+                            <TableHead className="text-right print:hidden">
+                              操作
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <NodeRows
+                          bloodNodes={generationNodes}
+                          spousesByBlood={spousesByBlood}
+                          canWrite={canWrite}
+                          isDeleting={isDeleting}
+                          showGeneration={false}
+                          selectedNodeId={selectedNodeId}
+                          onSelect={setSelectedNode}
+                          onCreate={openCreate}
+                          onMove={setMoveNode}
+                          onDelete={handleDelete}
+                        />
+                      </Table>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+          </div>
+          {inspector}
         </div>
       )}
 
       {createDialog ? (
         <NodeCreateDialog
           key={
-            createDialog.mode === 'root'
-              ? 'root'
-              : `${createDialog.mode}-${createDialog.node.id}`
+            createDialog.target
+              ? `${createDialog.mode}-${createDialog.target.id}`
+              : createDialog.mode
           }
           mode={createDialog.mode}
           orgId={orgId}
           lineageId={lineage.id}
           lineageSurname={lineage.surname}
-          target={createDialog.mode === 'root' ? undefined : createDialog.node}
+          generationWords={lineage.generationWords}
+          nodes={nodes}
+          target={createDialog.target}
+          onCreated={handleCreated}
           onClose={() => setCreateDialog(null)}
-        />
-      ) : null}
-
-      {editNode ? (
-        <NodeEditDialog
-          key={editNode.id}
-          orgId={orgId}
-          lineageId={lineage.id}
-          node={editNode}
-          onClose={() => setEditNode(null)}
         />
       ) : null}
 
@@ -638,6 +832,6 @@ export function LineageDetail({
           onClose={() => setEditLineage(false)}
         />
       ) : null}
-    </section>
+    </div>
   );
 }

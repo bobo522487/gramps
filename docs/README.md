@@ -53,6 +53,7 @@
 | 主键 / 公开 ID | UUIDv7 主键；`organization.slug` / `project.ref` 为 20 位 `[0-9a-z]` 公开 ID |
 | 组织角色 | `owner` / `admin` / `editor` / `viewer` + 权限字符串 |
 | 界面语言 | 简体中文（品牌“云谱”），不引入 i18n 框架 |
+| 谱系画布 | `@xyflow/react` 12 + 自定义 `book_ltr` 欧式书本布局；zustand 仅存谱系工作区 UI 状态 |
 | 控制台路由 | `/dashboard/org/[orgSlug]`（项目 / 团队 / 组织设置）与 `/dashboard/project/[projectRef]`（概览 / 谱系 / 谱文 / 谱书 / 项目设置）；公开 ID 为 20 位 `[0-9a-z]` |
 | 数据隔离 | 应用层 `orgId` 过滤 + `withOrg` 内 RLS（`app_rw`）+ 复合外键 |
 | 数据表 | 11 张组织级业务表 + `auth.users`；含家谱表 `folder`/`lineage`/`node`/`article`/`book`/`book_catalog` |
@@ -62,10 +63,10 @@
 | 请求上下文 | `getSessionUser`/scope 按请求缓存；日志自动带 `request_id`；API 记录 `duration_ms` |
 | 环境校验 | `lib/config.ts` 用 Zod 校验；`instrumentation.ts` 在服务启动时失败即退出 |
 | 代码检查 | Biome |
-| 测试 | Vitest 单测 10 个文件 45 个用例 + 真实 PostgreSQL 集成测试 11 个文件 123 个用例（另有 1 个 stub），没有 Playwright/E2E |
+| 测试 | Vitest 单测 13 个文件 73 个用例 + 真实 PostgreSQL 集成测试 11 个文件 126 个用例（另有 1 个 stub），没有 Playwright/E2E |
 | CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` |
 
-家谱业务功能中，**谱系与人丁**已具备分类、世系表、搜索、字辈提示、四种录入模式、编辑/移动/删除和打印视图；谱系画布、谱文、谱书、谱文/谱书分类尚未实现。分享、回收站、编辑锁也未实现。
+家谱业务功能中，**谱系与人丁**已具备左侧谱系管理、`book_ltr` 欧式书本画布、按代渲染窗口、世系表、搜索定位、字辈提示、四种录入模式、拖拽录入、右侧检查器、编辑/移动/删除和打印视图；谱文、谱书、谱文/谱书分类尚未实现。分享、回收站、编辑锁也未实现。
 
 目标设计不包含支付相关能力；当前实现也已移除 Stripe、套餐、计费与订阅，`/pricing` 不再存在。
 

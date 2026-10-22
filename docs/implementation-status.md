@@ -27,11 +27,12 @@
 | 角色 | `owner` / `admin` / `editor` / `viewer` + 9 个权限字符串 | `lib/auth/permissions.ts` |
 | 数据隔离 | 应用层成员过滤 + `withOrg` 事务内 RLS（`app_rw`）+ 复合外键 | `lib/db/drizzle.ts`、`0001_auth_rls.sql` |
 | 界面 | 简体中文，品牌“云谱”；无 i18n 框架 | `app/layout.tsx`、各页面组件 |
+| 谱系画布 | `@xyflow/react` 12 + zustand 5（zustand 仅存谱系工作区 UI 状态，不存实体数据） | `components/lineage/canvas/`、`components/lineage/lineage-store.ts` |
 | 数据表 | 11 张组织级业务表 + `auth.users` | 见 §1.1 |
 | Route Handler | 4 个 | 见 §1.3 |
 | 配置与日志 | Zod 启动校验；结构化日志自动带 `request_id`/`user_id`；API 记录 `duration_ms` | `lib/config.ts`、`instrumentation.ts`、`lib/server/request-context.ts`、`lib/api.ts` |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest 单测 10 个文件 45 个用例 + 真实 PostgreSQL 集成测试 11 个文件 123 个用例（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
+| 测试 | Vitest 单测 13 个文件 73 个用例 + 真实 PostgreSQL 集成测试 11 个文件 126 个用例（另有 1 个 stub）；无 Playwright/E2E | `tests/` |
 | CI | `pnpm check` → `typecheck` → `test:unit` → `test:integration`（`postgres:18`）→ 迁移漂移检查 → `build` | `.github/workflows/ci.yml` |
 
 ### 1.1 当前数据表
@@ -46,7 +47,7 @@
 | `invite` | 邀请；只存 token 哈希，7 天过期，一次性，禁止邀请 `owner` |
 | `project` | 云谱空间；`ref` 为 20 位公开 ID；字段为 `primary_name`/`primary_surname`/`hall_code`/`countries_regions` |
 | `folder` | 分类树（`kind` 0/1/2）；谱系分类已有 UI/Action，谱文/谱书分类待接入 |
-| `lineage` / `node` | 谱系与人丁；世系表、分类、搜索、字辈提示、增删改移已实现，无画布 |
+| `lineage` / `node` | 谱系与人丁；欧式书本画布、世系表、左侧谱系管理、搜索定位、字辈提示、增删改移、检查器、按代渲染窗口已实现 |
 | `article` | 谱文（表已存在，无业务 UI） |
 | `book` / `book_catalog` | 谱书与编目（表已存在，无业务 UI） |
 | `activity_logs` | 产品活动流；账号级事件 `organization_id` 为空；不是审计表 |
@@ -80,10 +81,10 @@
 
 ### 1.4 测试与 CI
 
-- `pnpm test:unit`（`pnpm test`）：10 个 Vitest 文件 45 个用例，不连接数据库。
-- `pnpm test:integration`：11 个文件 123 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表。
-- 集成测试覆盖：迁移结构/RLS/授权、约束、公开 ID 成员过滤、RLS 无 claims 与跨组织拒绝、注册/邀请/建组织/成员变更/删号事务、Server Action 行为、API 契约、项目 `ref` 冲突重试、健康检查、分类/谱系/人丁树语义（四种录入模式、移动子树、软删、`node_count`、搜索）。
-- 单元测试覆盖配置、请求上下文、权限矩阵、会话、ID、限流、fetcher、设计系统与少量结构不变量。
+- `pnpm test:unit`（`pnpm test`）：13 个 Vitest 文件 73 个用例，不连接数据库。
+- `pnpm test:integration`：11 个文件 126 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表。
+- 集成测试覆盖：迁移结构/RLS/授权、约束、公开 ID 成员过滤、RLS 无 claims 与跨组织拒绝、注册/邀请/建组织/成员变更/删号事务、Server Action 行为、API 契约、项目 `ref` 冲突重试、健康检查、分类/谱系/人丁树语义（四种录入模式、同录配偶与详情、移动子树、软删、始祖删除保护、`node_count`、搜索）。
+- 单元测试覆盖配置、请求上下文、权限矩阵、会话、ID、限流、fetcher、设计系统、书本布局/折叠/懒渲染窗口、谱系索引与搜索匹配、侧栏树、zustand 工作区 store、人丁创建 schema。
 - CI 使用 `postgres:18-alpine` service，执行迁移漂移检查（`pnpm db:generate` 后迁移目录必须无变化），最后构建。
 - 尚无 Playwright/E2E。`tests/security-regressions.test.ts` 与 `tests/design-system.test.ts` 仍保留源码字符串断言，但关键安全与数据完整性行为已由集成测试覆盖。
 
@@ -98,7 +99,7 @@
 | 认证 | 即时登录（无邮件确认）、JWT 会话 + `token_version`、改密、进程内限流、4 角色 | 注册（`auth.sign_up` 单事务）/登录/登出、改密（当前设备重签）、删号、内存限流 | ✅ |
 | 组织与成员 | 默认组织（触发器）、邀请链接 7 天、角色管理、组织停用 | 默认组织（注册触发器）、建组织、多组织、邀请 token、4 角色与权限矩阵、移除成员、最后一个 owner 保护、归档组织 | ✅ |
 | 云谱空间 | 谱系/谱文/谱书三棵分类树 | 目标字段的 `project`、20 位 `ref`、项目创建冲突重试；谱系分类树已可用，谱文/谱书仍是占位页 | 🟡 部分 |
-| 谱系与人丁 | `FR-LIN-1` ~ `FR-LIN-13` | 谱系列表/分类、世系表、搜索、字辈提示、始祖/子女/兄弟/配偶、编辑/移动/删除、打印视图；无画布与按代加载 | 🟡 部分 |
+| 谱系与人丁 | `FR-LIN-1` ~ `FR-LIN-13` | 左侧谱系管理、欧式书本画布、世系表、搜索定位、字辈提示、始祖/子女/兄弟/配偶、拖拽录入、检查器、编辑/移动/删除、打印视图、按代渲染窗口；人丁自定义字段 UI 未实现 | 🟡 部分 |
 | 谱文 | `FR-ART-1` ~ `FR-ART-5` | 表存在；无页面、无 Action | ⬜ 未实现 |
 | 谱书与编目 | `FR-BOOK-1` ~ `FR-BOOK-8` | 表存在；无页面、无 Action | ⬜ 未实现 |
 | 分类树 | `folder` | 谱系分类已实现（三级、删除子树并解绑内容）；谱文/谱书分类未接入 | 🟡 部分 |
@@ -150,19 +151,19 @@
 
 | FR | 状态 | 当前行为 / 差异 |
 |---|---|---|
-| `FR-LIN-1` 创建谱系 | ✅ | 名称、姓氏、郡望、字辈、分类；创建后进入世系表 |
-| `FR-LIN-2` 录入始祖 | ✅ | 空谱系可录入第一个血亲节点，世次 1、深度 0 |
-| `FR-LIN-3` 添加配偶 | ✅ | 配偶 `path` 为空，`spouse_of_id` 指向血亲；移动子树时同步世次/深度 |
+| `FR-LIN-1` 创建谱系 | ✅ | 名称、姓氏、郡望、字辈、分类；创建后进入画布 |
+| `FR-LIN-2` 录入始祖 | ✅ | 空谱系可录入第一个血亲节点，世次 1、深度 0；可同录详情与一位配偶 |
+| `FR-LIN-3` 添加配偶 | ✅ | 配偶 `path` 为空，`spouse_of_id` 指向血亲；创建人丁时可同录配偶，移动子树时同步世次/深度 |
 | `FR-LIN-4` 添加兄弟 | ✅ | 继承父节点，世次与兄弟一致；始祖不能添加兄弟 |
-| `FR-LIN-5` 添加子女 | ✅ | 世次 +1，可连续添加；只有血亲节点能作为父辈 |
+| `FR-LIN-5` 添加子女 | ✅ | 世次 +1，可连续添加；只有血亲节点能作为父辈；录入表单按父辈预填世次/排行/字辈 |
 | `FR-LIN-6` 编辑人丁信息 | 🟡 | 姓名、前缀、字号、性别、生卒、葬地、行传、在世状态；自定义 `attributes` 尚未提供 UI |
-| `FR-LIN-7` 删除人丁 | ✅ | 子树与配偶一次软删，`node_count` 同步；无回收站 |
-| `FR-LIN-8` 移动人丁 | ✅ | 事务内重算子树 `path`/`depth`/`generation`，拒绝移动始祖与成环 |
-| `FR-LIN-9` 谱系图交互 | ⬜ | 当前为世系表视图，没有 React Flow 画布 |
-| `FR-LIN-10` 按代加载 | ⬜ | 世系表一次查询全部节点；无 500 节点分代渲染 |
-| `FR-LIN-11` 人丁搜索 | 🟡 | 世系表内按姓名/字号/行传/配偶模糊过滤；未定位到画布节点 |
-| `FR-LIN-12` 字辈提示 | 🟡 | 世次分组旁展示对应字辈；录入表单尚未按世次预填 |
-| `FR-LIN-13` 世系表视图 | ✅ | 按世次分组、打印视图；无 CSV/PDF 导出 |
+| `FR-LIN-7` 删除人丁 | ✅ | 子树与配偶一次软删，`node_count` 同步；始祖不可删除；无回收站 |
+| `FR-LIN-8` 移动人丁 | ✅ | 事务内重算子树 `path`/`depth`/`generation`，拒绝移动始祖与成环；画布可拖拽连线改父 |
+| `FR-LIN-9` 谱系图交互 | ✅ | 单一 `book_ltr` 欧式书本布局：世代列/表头、折叠展开、平移缩放、点选/双击编辑、搜索定位、居中、小地图、拖拽录入、连线改父 |
+| `FR-LIN-10` 按代加载 | ✅ | 页面仍一次读取全部节点；超过 500 人时画布首屏渲染 5 世，向右平移或按钮每次追加 5 世，并开启 `onlyRenderVisibleElements` |
+| `FR-LIN-11` 人丁搜索 | ✅ | 画布搜索匹配姓名/字号/前缀/生卒/葬地/行传/配偶并定位节点（配偶命中定位其血亲）；世系表保留过滤 |
+| `FR-LIN-12` 字辈提示 | ✅ | 世次分组、画布表头与节点徽标展示字辈；录入表单按世次预填字辈 |
+| `FR-LIN-13` 世系表视图 | ✅ | 按世次分组、与画布共用检查器、打印视图；无 CSV/PDF 导出 |
 
 ---
 
@@ -187,7 +188,7 @@
 7. **软删没有回收站 UI**：数据仍在库内，但用户无法恢复；生产清库前必须确认备份。
 8. **注册触发器会为每个用户创建个人组织**：被邀请注册的用户同时拥有个人组织与邀请方组织；组织切换器需要覆盖这一情形。
 9. **没有 Playwright/E2E**：RSC 守卫与真实浏览器交互仍由集成测试和人工验证覆盖。
-10. **谱系尚无画布**：`FR-LIN-9`/`FR-LIN-10` 未实现，谱系页目前是世系表；节点数量很大时一次加载全部行，后续需补虚拟滚动或分代加载。
+10. **谱系画布一次加载全部节点**：详情页仍读取整棵谱系，画布只按世代窗口渲染；超过 500 人时首屏 5 世、每次追加 5 世，但没有服务端分页或虚拟滚动。极大人丁量下传输与索引仍有成本，后续需补按代查询。
 
 > `getSessionUser()` 返回完整用户行（含密码哈希）；`GET /api/user` 与根布局 SWR fallback 已收窄为 `SessionUser`（`{ id, name, email }`）。新增对外出口必须显式挑字段，不能直接序列化整行。
 

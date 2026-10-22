@@ -1,9 +1,9 @@
 # 工程协作指南（当前实现）
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-21
+> **文档状态：当前实现说明** · 最后更新：2026-10-22
 > 本文件位于仓库根目录，文件名必须保持 `AGENTS.md`，Agent 会自动将其作为项目指令读取。
 > 本文件面向**在当前仓库写代码的人与 AI Agent**。它以现有代码、`package.json` 和 CI 为准。
-> 家谱目标设计的**业务层**尚未实现；基础层（UUIDv7、RLS、4 角色、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地。以 [实现状态](docs/implementation-status.md) 为准。
+> 家谱业务层已实现谱系/人丁第一版（画布、世系表、检查器与写流程），谱文/谱书等仍未实现；基础层（UUIDv7、RLS、4 角色、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地。以 [实现状态](docs/implementation-status.md) 为准。
 
 ---
 
@@ -16,19 +16,18 @@
 - 用户登录、组织成员管理（4 角色）、邀请链接、活动日志。
 - 注册、创建组织、接受邀请、成员变更、删除账号等多步写操作在单个数据库事务内完成；失败不会留下半成品数据。
 - 数据库已按目标基础层重置：`auth.users`、RLS、`app_rw`、软删、复合外键、邀请 token。
-- 谱系与人丁已有第一版业务能力：分类树、世系表、搜索、字辈提示、始祖/子女/兄弟/配偶、编辑/移动/删除、打印视图。
+- 谱系与人丁已有第一版业务能力：左侧谱系管理（文件夹/谱系树、内联重命名）、分类树、欧式书本布局画布（React Flow）、世系表、搜索定位、字辈提示、始祖/子女/兄弟/配偶、拖拽录入、右侧检查器、编辑/移动/删除、打印视图、按代渲染窗口。
 - 界面全部为简体中文，品牌“云谱”，不引入 i18n 框架。
 - 营销首页、登录/注册、控制台界面。
 
 它**还不是**完整的家谱编纂产品。以下目标业务能力尚未实现：
 
-- 谱系图（React Flow 画布）与按代加载。
 - 谱文、富文本编辑、自动保存。
 - 谱书、编目编辑器。
 - 谱文/谱书分类页面；人丁自定义字段 UI。
 - 回收站、编辑锁、分享。
 
-基础层（UUIDv7、`auth` schema、RLS、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地；谱系/人丁已实现第一版页面与写流程，其余家谱业务页面尚未实现。如果任务要求实现目标业务能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做实现计划；不要把目标文档里的 `src/modules` 目录当成现状。
+基础层（UUIDv7、`auth` schema、RLS、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地；谱系/人丁已实现画布、世系表、检查器与写流程，谱文、谱书、分享、回收站、编辑锁尚未实现。如果任务要求实现这些目标业务能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做实现计划；不要把目标文档里的 `src/modules` 目录当成现状。
 
 技术形态：
 
@@ -40,7 +39,7 @@
 | 认证 | bcrypt + JWT HS256 Cookie |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 10 文件/45 用例；真实 PostgreSQL 集成测试 11 文件/123 用例 |
+| 测试 | Vitest：单测 13 文件/73 用例；真实 PostgreSQL 集成测试 11 文件/126 用例 |
 
 ---
 
@@ -100,7 +99,7 @@ app/
 │   ├── (account)/            # /dashboard、general、security、activity（无 org scope）
 │   ├── join/                 # /dashboard/join?token=... 接受邀请
 │   ├── org/[orgSlug]/        # projects、team、settings
-│   └── project/[projectRef]/ # overview、lineages（含 [lineageId] 世系表）、articles、books、settings
+│   └── project/[projectRef]/ # overview、lineages（layout 左侧谱系管理；含 [lineageId] 画布/世系表）、articles、books、settings
 └── api/
     ├── health/
     ├── orgs/
@@ -108,7 +107,13 @@ app/
     └── user/
 components/
 ├── console/                  # 控制台框架、导航、组织/项目选择器、scope context、路由错误边界
-├── lineage/                  # 谱系列表/分类树、世系表、人丁与分类对话框
+├── lineage/                  # 谱系列表/分类树、左侧谱系管理、世系表、人丁对话框、检查器
+│   ├── canvas/               # React Flow 欧式书本画布（布局/节点/连线/懒渲染）
+│   ├── lineage-store.ts      # zustand：谱系工作区 UI 状态（不存数据库实体）
+│   ├── derived.ts            # 谱系索引、排行、字辈、搜索匹配等纯函数
+│   ├── lineage-tree.ts       # 文件夹/谱系树构建与搜索过滤
+│   ├── lineage-shell.tsx     # 可调宽侧栏 + 移动端抽屉外壳
+│   └── lineage-sidebar.tsx   # 参考风格文件夹/谱系管理侧栏
 ├── org/                      # 组织成员/设置
 ├── project/                  # 项目设置/工作区
 ├── marketing/                # 营销页组件
@@ -124,7 +129,7 @@ lib/
 │   └── migrations/           # drizzle-kit 迁移
 ├── folder/                   # 分类树 Server Action 与事务服务
 ├── genealogy/schemas.ts      # 分类/谱系/人丁 Zod schema
-├── lineage/                  # 谱系与人丁 Server Action、事务服务
+├── lineage/                  # 谱系与人丁 Server Action、事务服务、请求级导航缓存（nav.ts）
 ├── org/actions.ts            # 组织相关 Server Action
 ├── project/actions.ts        # 项目相关 Server Action
 ├── server/request-context.ts # AsyncLocalStorage 请求日志上下文
@@ -136,7 +141,7 @@ lib/
 ├── fetcher.ts
 ├── utils.ts
 └── ui/status.ts
-hooks/
+hooks/                        # use-resizable（侧栏/检查器拖宽）
 tests/                        # Vitest 单测 + 真实 PostgreSQL 集成测试
 instrumentation.ts            # 启动时校验配置并注册日志上下文
 proxy.ts                      # Next 16 路由门禁
@@ -164,6 +169,7 @@ proxy.ts                      # Next 16 路由门禁
 - 组织/项目布局用 `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)` 解析 scope：内部先 `getSessionUser()`，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤，失败 `notFound()`。`getSessionUser` 与两个 context helper 用 React `cache()` 做请求级记忆化。
 - 页面需要 scope 时调用 `getOrgContext` / `getProjectContext`（返回 `null`）或 `require*Context`（404/重定向）；**不要再自行 `getSessionUser()` + 查询 scope**。
 - 页面内的数据查询仍按 UUID `orgId` 过滤；scope 里的 `id` 来自服务端校验过的成员关系。
+- 谱系区的文件夹/谱系列表由 `lib/lineage/nav.ts` 的 `getNavFolders` / `getNavLineages` 用 React `cache()` 包装，`lineages/layout.tsx` 与列表/详情页共享同一次请求的查询结果；新增导航数据也走这里。
 
 ### 5.2 写
 
@@ -304,7 +310,8 @@ logger.error('failed to update project', error);
 
 - 默认 Server Component；需要交互才加 `'use client'`。
 - 表单使用 Server Action + `useActionState`/`useTransition`。
-- 不引入 Redux/Zustand/Jotai 等全局状态库。
+- 全局状态库仅允许 **zustand**，且只用于谱系工作区的 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），见 `components/lineage/lineage-store.ts`；其余场景不引入 Redux/Zustand/Jotai。
+- zustand store 不存数据库实体数组（谱系、人丁、文件夹仍来自 RSC props + Server Action），不做 persist；文件只被客户端组件引用。
 - 设计令牌与状态样式：不要在页面里写裸色值（`tests/design-system.test.ts` 会检查）；优先用 `components/ui` 与 `lib/ui/status.ts`。
 
 ### 6.5 样式
@@ -361,13 +368,13 @@ logger.error('failed to update project', error);
 
 | # | 禁止 | 原因 |
 |---|---|---|
-| 1 | 直接实现家谱目标业务功能（谱系/谱文/谱书 UI 与写流程） | 表已就绪但业务规则尚未设计，避免半成品 |
+| 1 | 未经计划直接实现尚未完成的家谱业务功能（谱文/谱书/分享/回收站等） | 目标规则尚未落地，避免半成品；先读目标文档并写实现计划 |
 | 2 | 信任客户端传来的 `orgId` / `projectId` / 公开 ID / 角色 | 越权 |
 | 3 | 返回完整用户行或 `password_hash` | 信息泄露 |
 | 4 | 存储明文密码 | 泄露即灾难 |
 | 5 | 只靠 `proxy.ts` 做授权 | 它只是门禁 |
 | 6 | 在客户端组件读取服务端密钥 | 进入 bundle |
-| 7 | 引入全局状态库 | 当前架构不需要 |
+| 7 | 在谱系工作区之外引入 zustand，或在 store 里存实体数据/做持久化 | 数据源与权限仍以服务端为准；工作区 UI 状态是唯一例外 |
 | 8 | 新增后台任务/队列/定时器 | 当前部署模型没有消费者或调度器 |
 | 9 | 直接套用目标设计的分层规则 | 目标用 Biome `noRestrictedImports` 约束；当前尚未配置同等规则 |
 | 10 | 直接套用 `src/modules`、`*.service.ts`、`*.repo.ts` 结构 | 当前目录不是这样 |
@@ -503,7 +510,8 @@ docs(setup): 对齐当前环境变量
 基础层已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地，**不要再次重置**：
 
 - 已实现：UUIDv7、`auth.users` + `SECURITY DEFINER` 函数、11 张组织级业务表、软删、复合外键、RLS + `app_rw`、`withOrg`、4 角色 + 权限字符串、邀请 token。
-- 目标业务功能尚未实现：谱系/人丁、谱文、谱书、分类树 UI 与对应 Action、分享、回收站、编辑锁。
+- 已实现（业务）：谱系/人丁、分类树 UI 与对应 Action、欧式书本画布与按代渲染窗口。
+- 目标业务功能尚未实现：谱文、谱书、谱文/谱书分类接入、人丁自定义字段 UI、分享、回收站、编辑锁。
 - 目录与分层仍是当前的 `app/` + `components/` + `lib/`；没有 `src/modules`、`*.service.ts`/`*.repo.ts`，也没有 Biome `noRestrictedImports`。
 - 目标接口以 RSC + Server Action 为主；当前 4 个只读 Route Handler 是过渡，见 §5.6。
 - 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`），但尚未做真实 Vercel/Neon 部署验证；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`（[部署蓝图](docs/ops-target.md)）。

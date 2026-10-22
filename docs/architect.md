@@ -340,21 +340,21 @@ M1 **没有公开页面**（没有落地页、定价页、分享页），所以�
 | 服务端数据 | RSC props 传入，`revalidateTag` 失效 |
 | 表单 | React Hook Form + Zod |
 | 乐观更新 | `useOptimistic`（仅用于排序、改名等可回滚操作） |
-| 画布视口 | 本地 `useState` + `useRef`，不入全局 |
-| 全局 UI 状态 | 无。**不引入 Redux / Zustand** |
+| 画布视口 | React Flow 内部管理；工作区 UI 状态入 zustand |
+| 全局 UI 状态 | 谱系工作区使用 zustand：仅客户端、仅 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），不存数据库实体、不做持久化；其余场景不引入 Redux/Jotai |
 
 ### 6.3 谱系画布
 
 | 关注点 | 方案 |
 |---|---|
 | 渲染 | `@xyflow/react`（React Flow）受控画布 |
-| 布局 | `d3-hierarchy` 计算坐标，**不用内置 dagre** |
-| 大数据 | `onlyRenderVisibleElements` + 按代分段加载 |
-| 节点组件 | 自绘，不用 React Flow 默认节点（样式与信息密度不可控） |
-| 连线 | 自定义 bezier，配偶用虚线横连 |
-| 状态同步 | 画布状态由 URL + props 决定，画布自身不持有数据源 |
+| 布局 | 自定义 `book_ltr` 欧式书本布局（左→右世代列、世代表头、正交父子线）；**不做卡片树、union 节点或 ELK/dagre 自动排版** |
+| 大数据 | `onlyRenderVisibleElements` + 横向渲染窗口：超过 500 人时首屏 5 世，向右平移或点按钮每次追加 5 世 |
+| 节点组件 | 自绘书本节点，不用 React Flow 默认节点；配偶在节点内以「配 王氏」小字展示，完整管理走右侧检查器 |
+| 连线 | 自定义正交边（方形线帽）；拖拽连线可改父，坐标始终由布局计算、不持久化 |
+| 状态同步 | 谱系/人丁数据由 RSC props 提供；视图/选中/折叠/搜索/筛选/渲染窗口由 zustand store 管理，画布不持有实体数据源 |
 
-**布局为什么在 React Flow 之外算**：React Flow 的定位是「交互 + 渲染」，布局算法换过一次（dagre → d3-hierarchy）。把布局抽出去，换算法不动画布代码，也方便在服务端预计算初始坐标。
+**布局为什么在 React Flow 之外算**：React Flow 的定位是「交互 + 渲染」。布局由纯函数 `components/lineage/canvas/layout/book-ltr.ts` 计算，输入是谱系索引、折叠集合、世代上限与字辈，输出节点/边/总尺寸，便于单测和替换。
 
 ### 6.4 组件分层
 

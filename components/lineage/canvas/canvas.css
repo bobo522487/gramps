@@ -1,0 +1,52 @@
+.genealogy-canvas .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--card) / 0.95);
+  box-shadow: 0 4px 12px hsl(var(--foreground) / 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.genealogy-canvas .react-flow__controls-button {
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.genealogy-canvas .react-flow__controls-button:hover {
+  background: hsl(var(--accent));
+}
+
+.genealogy-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.genealogy-canvas .react-flow__minimap {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--card) / 0.92);
+  box-shadow: 0 4px 12px hsl(var(--foreground) / 0.08);
+}
+
+.genealogy-canvas .react-flow__attribution {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+.genealogy-canvas .react-flow__attribution a {
+  color: inherit;
+}
+
+.genealogy-canvas .react-flow__node {
+  font-family: inherit;
+}
+
+.genealogy-canvas .react-flow__handle {
+  border-color: hsl(var(--background));
+}
+
+.genealogy-canvas .react-flow__connection-path {
+  stroke: hsl(var(--muted-foreground) / 0.6);
+  stroke-width: 1.5;
+}

@@ -24,6 +24,7 @@ export type ActionState = {
   folderId?: string;
   lineageId?: string;
   nodeId?: string;
+  spouseId?: string;
   /** One-time sign-up/accept link shown to the inviter. */
   inviteUrl?: string;
 };
