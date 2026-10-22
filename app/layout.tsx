@@ -1,11 +1,13 @@
 import '@xyflow/react/dist/style.css';
 import './globals.css';
+import { dehydrate, QueryClient } from '@tanstack/react-query';
 import type { Metadata, Viewport } from 'next';
 import { Manrope } from 'next/font/google';
-import { SWRConfig } from 'swr';
+import { QueryProvider } from '@/components/query-provider';
 import { ThemeProvider } from '@/components/theme-provider';
 import { getSessionUser } from '@/lib/auth/context';
 import { getOrgsForUser } from '@/lib/db/queries/organizations';
+import { queryKeys } from '@/lib/query-keys';
 
 export const metadata: Metadata = {
   title: '云谱',
@@ -35,6 +37,11 @@ export default async function RootLayout({
     role,
   }));
 
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(queryKeys.user, sessionUser);
+  queryClient.setQueryData(queryKeys.orgs, orgFallback);
+  const initialState = dehydrate(queryClient);
+
   return (
     <html lang="zh-CN" suppressHydrationWarning className={manrope.variable}>
       <body className="min-h-[100dvh] bg-shell text-foreground">
@@ -44,16 +51,7 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SWRConfig
-            value={{
-              fallback: {
-                '/api/user': sessionUser,
-                '/api/orgs': orgFallback,
-              },
-            }}
-          >
-            {children}
-          </SWRConfig>
+          <QueryProvider initialState={initialState}>{children}</QueryProvider>
         </ThemeProvider>
       </body>
     </html>

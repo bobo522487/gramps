@@ -27,6 +27,7 @@
 | 角色 | `owner` / `admin` / `editor` / `viewer` + 9 个权限字符串 | `lib/auth/permissions.ts` |
 | 数据隔离 | 应用层成员过滤 + `withOrg` 事务内 RLS（`app_rw`）+ 复合外键 | `lib/db/drizzle.ts`、`0001_auth_rls.sql` |
 | 界面 | 简体中文，品牌“云谱”；无 i18n 框架 | `app/layout.tsx`、各页面组件 |
+| 客户端数据 | TanStack Query 5；RSC 首屏 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 调用只读 API，写后 `invalidateQueries` | `components/query-provider.tsx`、`lib/query-keys.ts`、`hooks/use-session-user.ts` |
 | 谱系画布 | `@xyflow/react` 12 + zustand 5（zustand 仅存谱系工作区 UI 状态，不存实体数据） | `components/lineage/canvas/`、`components/lineage/lineage-store.ts` |
 | 数据表 | 11 张组织级业务表 + `auth.users` | 见 §1.1 |
 | Route Handler | 4 个 | 见 §1.3 |
@@ -190,7 +191,7 @@
 9. **没有 Playwright/E2E**：RSC 守卫与真实浏览器交互仍由集成测试和人工验证覆盖。
 10. **谱系画布一次加载全部节点**：详情页仍读取整棵谱系，画布只按世代窗口渲染；超过 500 人时首屏 5 世、每次追加 5 世，但没有服务端分页或虚拟滚动。极大人丁量下传输与索引仍有成本，后续需补按代查询。
 
-> `getSessionUser()` 返回完整用户行（含密码哈希）；`GET /api/user` 与根布局 SWR fallback 已收窄为 `SessionUser`（`{ id, name, email }`）。新增对外出口必须显式挑字段，不能直接序列化整行。
+> `getSessionUser()` 返回完整用户行（含密码哈希）；`GET /api/user` 与根布局 TanStack Query hydration 已收窄为 `SessionUser`（`{ id, name, email }`）。新增对外出口必须显式挑字段，不能直接序列化整行。
 
 ---
 

@@ -53,6 +53,7 @@
 | 主键 / 公开 ID | UUIDv7 主键；`organization.slug` / `project.ref` 为 20 位 `[0-9a-z]` 公开 ID |
 | 组织角色 | `owner` / `admin` / `editor` / `viewer` + 权限字符串 |
 | 界面语言 | 简体中文（品牌“云谱”），不引入 i18n 框架 |
+| 客户端数据 | TanStack Query 5；RSC 首屏用 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 刷新 `/api/*` |
 | 谱系画布 | `@xyflow/react` 12 + 自定义 `book_ltr` 欧式书本布局；zustand 仅存谱系工作区 UI 状态 |
 | 控制台路由 | `/dashboard/org/[orgSlug]`（项目 / 团队 / 组织设置）与 `/dashboard/project/[projectRef]`（概览 / 谱系 / 谱文 / 谱书 / 项目设置）；公开 ID 为 20 位 `[0-9a-z]` |
 | 数据隔离 | 应用层 `orgId` 过滤 + `withOrg` 内 RLS（`app_rw`）+ 复合外键 |

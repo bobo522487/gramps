@@ -5,10 +5,10 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.5 |
+| 文档版本 | 1.6 |
 | 文档状态 | M1 目标设计（业务接口未实现） |
 | 最后更新 | 2026-10-22 |
-| 接口风格 | Server Action（内部写）+ RSC（内部读）+ Route Handler（健康检查） |
+| 接口风格 | Server Action（内部写）+ RSC（内部首屏读）+ TanStack Query（客户端缓存）+ Route Handler（健康检查） |
 | 序列化 | JSON；错误按 RFC 9457 |
 | 相关文档 | [架构](./architect.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
 
@@ -22,11 +22,14 @@
 
 | 操作 | 通道 | 理由 |
 |---|---|---|
-| 内部读 | RSC 服务端直读 | 零客户端请求、无 loading 闪烁、类型天然贯通 |
+| 内部读（首屏） | RSC 服务端直读 | 零客户端请求、无 loading 闪烁、类型天然贯通 |
+| 内部读（客户端刷新） | TanStack Query → 只读 Route Handler | 统一缓存、失效与乐观更新；目标收敛为 Server Action |
 | 内部写 | Server Action | 免手写路由与 fetch、内置 CSRF、渐进增强 |
 | 探活 | Route Handler | 需要标准 HTTP 语义 |
 
 M1 **只有 1 个 Route Handler**：`/api/health`。
+
+TanStack Query 只做客户端缓存层：`mutationFn` 调用 Server Action；`queryFn` 当前调用 4 个只读 Route Handler，目标收敛为 Server Action，组件内不手写 `fetch`。
 
 M1 没有公开接口——没有分享页，没有第三方消费者。引入 REST 层意味着多维护一份契约（DTO、校验、鉴权、文档），而收益是零。
 
@@ -407,7 +410,7 @@ M1 没有 `createShareLink` / `revokeShareLink`（分享在 M2）。
 
 ### 7.1 读
 
-页面是 RSC，数据在服务端取好后以 props 传入客户端组件。**客户端不发数据请求**。
+页面是 RSC，首屏数据在服务端取好后通过 `initialData` 或 `dehydrate` / `HydrationBoundary` 注入 TanStack Query，**客户端首屏不发起数据请求**。交互工作区需要刷新时，`queryFn` 调用只读 Route Handler（当前过渡），目标收敛为服务端读 Action。
 
 ```tsx
 // app/(app)/[orgSlug]/[projectRef]/lineages/[lineageId]/page.tsx
@@ -420,16 +423,22 @@ export default async function Page({ params }: Props) {
 
 ### 7.2 写
 
+写操作仍走 Server Action；TanStack Query mutation 负责 pending、乐观更新与缓存失效，不再用 `router.refresh()` 作为默认刷新手段。
+
 ```tsx
 'use client';
-const [pending, startTransition] = useTransition();
+
+const queryClient = useQueryClient();
+const addChildMutation = useMutation({
+  mutationFn: addChild,
+  onSuccess: (result) => {
+    if (!result.ok) return handleError(result.error);
+    queryClient.invalidateQueries({ queryKey: lineageKeys.graph(lineageId) });
+  },
+});
 
 function handleAddChild() {
-  startTransition(async () => {
-    const result = await addChild({ orgSlug, lineageId, parentId, name, sex });
-    if (!result.ok) return handleError(result.error);
-    router.refresh();
-  });
+  addChildMutation.mutate({ orgSlug, lineageId, parentId, name, sex });
 }
 ```
 

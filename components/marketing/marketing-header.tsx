@@ -2,14 +2,12 @@
 
 import { FolderKanban } from 'lucide-react';
 import Link from 'next/link';
-import useSWR from 'swr';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
-import type { SessionUser } from '@/lib/auth/types';
-import { fetcher } from '@/lib/fetcher';
+import { useSessionUser } from '@/hooks/use-session-user';
 
 export function MarketingHeader() {
-  const { data: user } = useSWR<SessionUser>('/api/user', fetcher);
+  const { data: user } = useSessionUser();
 
   return (
     <header className="border-b bg-surface">

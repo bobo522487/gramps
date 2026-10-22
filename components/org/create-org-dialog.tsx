@@ -1,8 +1,8 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect } from 'react';
-import { mutate } from 'swr';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import type { ActionState } from '@/lib/auth/types';
 import { createOrgAction } from '@/lib/org/actions';
+import { queryKeys } from '@/lib/query-keys';
 
 export function CreateOrgDialog({
   open,
@@ -25,6 +26,7 @@ export function CreateOrgDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [state, action, isPending] = useActionState<ActionState, FormData>(
     createOrgAction,
     {}
@@ -32,12 +34,12 @@ export function CreateOrgDialog({
 
   useEffect(() => {
     if (state.orgSlug) {
-      mutate('/api/orgs');
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orgs });
       onOpenChange(false);
       router.push(`/dashboard/org/${state.orgSlug}`);
       router.refresh();
     }
-  }, [state.orgSlug, router, onOpenChange]);
+  }, [state.orgSlug, queryClient, router, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

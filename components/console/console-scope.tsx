@@ -1,8 +1,9 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { createContext, type ReactNode, useContext } from 'react';
-import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
+import { queryKeys } from '@/lib/query-keys';
 
 export type ConsoleScope = {
   org: { id: string; name: string; slug: string; role: string };
@@ -43,12 +44,22 @@ export type ConsoleProject = {
 };
 
 export function useConsoleOrgs() {
-  return useSWR<ConsoleOrg[]>('/api/orgs', fetcher);
+  return useQuery({
+    queryKey: queryKeys.orgs,
+    queryFn: () => fetcher<ConsoleOrg[]>('/api/orgs'),
+    refetchOnMount: 'always',
+  });
 }
 
 export function useConsoleProjects(orgId: string | null) {
-  return useSWR<ConsoleProject[]>(
-    orgId ? `/api/orgs/${orgId}/projects` : null,
-    fetcher
-  );
+  return useQuery({
+    queryKey: queryKeys.projects(orgId ?? ''),
+    queryFn: () => {
+      if (!orgId) {
+        throw new Error('orgId is required');
+      }
+      return fetcher<ConsoleProject[]>(`/api/orgs/${orgId}/projects`);
+    },
+    enabled: orgId !== null,
+  });
 }

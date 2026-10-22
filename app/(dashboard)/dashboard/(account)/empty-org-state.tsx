@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Building2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect } from 'react';
@@ -8,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import type { ActionState } from '@/lib/auth/types';
 import { createOrgAction } from '@/lib/org/actions';
+import { queryKeys } from '@/lib/query-keys';
 
 export function EmptyOrgState() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [state, action, isPending] = useActionState<ActionState, FormData>(
     createOrgAction,
     {}
@@ -18,9 +21,10 @@ export function EmptyOrgState() {
 
   useEffect(() => {
     if (state.orgSlug) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orgs });
       router.push(`/dashboard/org/${state.orgSlug}`);
     }
-  }, [state.orgSlug, router]);
+  }, [state.orgSlug, queryClient, router]);
 
   return (
     <section className="p-4 lg:p-6">
