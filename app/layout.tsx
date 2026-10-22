@@ -1,3 +1,4 @@
+import '@xyflow/react/dist/style.css';
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { Manrope } from 'next/font/google';

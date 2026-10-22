@@ -1,7 +1,7 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { searchNodes } from '@/lib/db/queries/nodes';
-import { lineages, nodes } from '@/lib/db/schema';
+import { ActivityType, activityLogs, lineages, nodes } from '@/lib/db/schema';
 import {
   addChildInTransaction,
   addSiblingInTransaction,
@@ -165,6 +165,168 @@ describe('node tree semantics', () => {
       .where(eq(lineages.id, lineage.id));
     expect(stored?.nodeCount).toBe(4);
     expect(await activeNodeCount(organization.id, lineage.id)).toBe(4);
+  });
+
+  it('records creation details and a co-recorded spouse in one transaction', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+
+    const result = await addChildInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      parentId: founder.id,
+      name: '元英',
+      surname: '陈',
+      sex: 0,
+      details: {
+        courtesy: '子安',
+        namePrefix: '公',
+        isAlive: true,
+        birthText: '光绪二十年',
+        deathText: '一九六八年',
+        birthYear: 1894,
+        deathYear: 1968,
+        burialPlace: '村东祖坟',
+        biography: '勤俭持家，耕读传家。',
+      },
+      spouse: { name: '氏', surname: '王' },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.node).toMatchObject({
+      role: 'blood',
+      generation: 2,
+      parentId: founder.id,
+      courtesy: '子安',
+      namePrefix: '公',
+      isAlive: true,
+      birthText: '光绪二十年',
+      deathText: '一九六八年',
+      birthYear: 1894,
+      deathYear: 1968,
+      burialPlace: '村东祖坟',
+      biography: '勤俭持家，耕读传家。',
+    });
+    expect(result.spouse).toMatchObject({
+      role: 'spouse',
+      spouseOfId: result.node.id,
+      parentId: null,
+      path: null,
+      generation: 2,
+      depth: 1,
+      sort: 0,
+      surname: '王',
+      name: '氏',
+      fullName: '王氏',
+      sex: 1,
+      isAlive: true,
+    });
+
+    const [stored] = await getTestDb()
+      .select({ nodeCount: lineages.nodeCount })
+      .from(lineages)
+      .where(eq(lineages.id, lineage.id));
+    expect(stored?.nodeCount).toBe(3);
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(3);
+
+    const [logCount] = await getTestDb()
+      .select({ value: count() })
+      .from(activityLogs)
+      .where(
+        and(
+          eq(activityLogs.orgId, organization.id),
+          eq(activityLogs.action, ActivityType.CREATE_NODE)
+        )
+      );
+    expect(logCount?.value).toBe(2);
+  });
+
+  it('creates a founder with details and a co-recorded spouse', async () => {
+    const { user, organization, lineage } = await setup();
+
+    const result = await createRootNodeInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      name: '始迁祖',
+      surname: '陈',
+      sex: 0,
+      details: {
+        isAlive: false,
+        birthYear: 1860,
+        burialPlace: '村东祖坟',
+        biography: '始迁于此。',
+      },
+      spouse: { name: '氏', surname: '林' },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.node).toMatchObject({
+      generation: 1,
+      depth: 0,
+      birthYear: 1860,
+      burialPlace: '村东祖坟',
+      biography: '始迁于此。',
+    });
+    expect(result.spouse).toMatchObject({
+      role: 'spouse',
+      spouseOfId: result.node.id,
+      path: null,
+      generation: 1,
+      depth: 0,
+      surname: '林',
+      fullName: '林氏',
+      sex: 1,
+      isAlive: false,
+    });
+
+    const [stored] = await getTestDb()
+      .select({ nodeCount: lineages.nodeCount })
+      .from(lineages)
+      .where(eq(lineages.id, lineage.id));
+    expect(stored?.nodeCount).toBe(2);
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
+  });
+
+  it('refuses to delete the root and leaves nodes and counts untouched', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+    const son = await child(
+      user.id,
+      organization.id,
+      lineage.id,
+      founder.id,
+      '元英'
+    );
+    const spouse = await addSpouseInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      spouseOfId: son.id,
+      name: '王氏',
+      sex: 1,
+    });
+    if (!spouse.ok) {
+      throw new Error('failed to add spouse');
+    }
+
+    const result = await deleteNodeInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      nodeId: founder.id,
+    });
+    expect(result).toEqual({ ok: false, reason: 'root_forbidden' });
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(3);
+
+    const [stored] = await getTestDb()
+      .select({ nodeCount: lineages.nodeCount })
+      .from(lineages)
+      .where(eq(lineages.id, lineage.id));
+    expect(stored?.nodeCount).toBe(3);
   });
 
   it('rejects a second root and a sibling of the root', async () => {

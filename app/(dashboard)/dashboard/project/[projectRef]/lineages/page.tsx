@@ -1,8 +1,7 @@
 import { LineageWorkspace } from '@/components/lineage/lineage-workspace';
 import { requireProjectContext } from '@/lib/auth/context';
 import { hasPermission } from '@/lib/auth/permissions';
-import { getFolders } from '@/lib/db/queries/folders';
-import { getLineages } from '@/lib/db/queries/lineages';
+import { getNavFolders, getNavLineages } from '@/lib/lineage/nav';
 
 function formatDate(value: Date): string {
   return value.toISOString().slice(0, 10);
@@ -18,8 +17,8 @@ export default async function ProjectLineagesPage({
     await requireProjectContext(projectRef);
 
   const [folders, lineages] = await Promise.all([
-    getFolders(user.id, organization.id, project.id, 0),
-    getLineages(user.id, organization.id, project.id),
+    getNavFolders(user.id, organization.id, project.id),
+    getNavLineages(user.id, organization.id, project.id),
   ]);
 
   return (
@@ -44,7 +43,6 @@ export default async function ProjectLineagesPage({
         createdAt: formatDate(lineage.createdAt),
       }))}
       canWrite={hasPermission(role, 'lineage.write')}
-      canManageFolders={hasPermission(role, 'project.write')}
     />
   );
 }

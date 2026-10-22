@@ -12,6 +12,24 @@ import {
   nodes,
 } from '@/lib/db/schema';
 
+export type NodeCreateDetails = {
+  courtesy?: string | null;
+  namePrefix?: string | null;
+  isAlive?: boolean;
+  birthText?: string | null;
+  deathText?: string | null;
+  birthYear?: number | null;
+  deathYear?: number | null;
+  burialPlace?: string | null;
+  biography?: string | null;
+};
+
+/** A spouse recorded in the same transaction as the blood node. */
+export type OptionalSpouse = {
+  name: string;
+  surname: string;
+};
+
 type NodeFailure =
   | 'forbidden'
   | 'not_found'
@@ -19,11 +37,12 @@ type NodeFailure =
   | 'invalid_parent'
   | 'root_exists'
   | 'root_sibling'
+  | 'root_forbidden'
   | 'cycle'
   | 'invalid_order';
 
 export type NodeMutationResult =
-  | { ok: true; node: Node }
+  | { ok: true; node: Node; spouse?: Node }
   | { ok: false; reason: NodeFailure };
 
 export type DeleteNodeResult =
@@ -168,6 +187,52 @@ async function insertNode(
   return node;
 }
 
+function detailValues(details: NodeCreateDetails | undefined) {
+  return {
+    courtesy: details?.courtesy ?? null,
+    namePrefix: details?.namePrefix ?? null,
+    isAlive: details?.isAlive ?? false,
+    birthText: details?.birthText ?? null,
+    deathText: details?.deathText ?? null,
+    birthYear: details?.birthYear ?? null,
+    deathYear: details?.deathYear ?? null,
+    burialPlace: details?.burialPlace ?? null,
+    biography: details?.biography ?? null,
+  };
+}
+
+async function insertCoSpouse(
+  tx: DbTransaction,
+  params: {
+    userId: string;
+    orgId: string;
+    lineageId: string;
+    blood: Node;
+    spouse: OptionalSpouse;
+  }
+): Promise<Node> {
+  const { userId, orgId, lineageId, blood, spouse } = params;
+  const id = await newNodeId(tx);
+  return insertNode(tx, {
+    id,
+    orgId,
+    lineageId,
+    parentId: null,
+    spouseOfId: blood.id,
+    role: 'spouse',
+    path: null,
+    depth: blood.depth,
+    generation: blood.generation,
+    sort: await nextSpouseSort(tx, orgId, lineageId, blood.id),
+    name: spouse.name,
+    surname: spouse.surname,
+    fullName: fullName(spouse.surname, spouse.name),
+    sex: blood.sex === 0 ? 1 : 0,
+    isAlive: blood.isAlive,
+    createdBy: userId,
+  });
+}
+
 export async function createRootNodeInTransaction(params: {
   userId: string;
   orgId: string;
@@ -175,6 +240,8 @@ export async function createRootNodeInTransaction(params: {
   name: string;
   surname?: string;
   sex: number;
+  details?: NodeCreateDetails;
+  spouse?: OptionalSpouse;
   ipAddress?: string;
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, name, sex, ipAddress } = params;
@@ -219,10 +286,20 @@ export async function createRootNodeInTransaction(params: {
       surname,
       fullName: fullName(surname, name),
       sex,
+      ...detailValues(params.details),
       createdBy: userId,
     });
+    const spouse = params.spouse
+      ? await insertCoSpouse(tx, {
+          userId,
+          orgId,
+          lineageId,
+          blood: node,
+          spouse: params.spouse,
+        })
+      : null;
 
-    await adjustNodeCount(tx, orgId, lineageId, 1);
+    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
     await logActivityInTx(
       tx,
       userId,
@@ -230,7 +307,7 @@ export async function createRootNodeInTransaction(params: {
       ActivityType.CREATE_NODE,
       ipAddress
     );
-    return { ok: true as const, node };
+    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
   });
 }
 
@@ -242,6 +319,8 @@ export async function addChildInTransaction(params: {
   name: string;
   surname?: string;
   sex: number;
+  details?: NodeCreateDetails;
+  spouse?: OptionalSpouse;
   ipAddress?: string;
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, parentId, name, sex, ipAddress } = params;
@@ -278,10 +357,20 @@ export async function addChildInTransaction(params: {
       surname,
       fullName: fullName(surname, name),
       sex,
+      ...detailValues(params.details),
       createdBy: userId,
     });
+    const spouse = params.spouse
+      ? await insertCoSpouse(tx, {
+          userId,
+          orgId,
+          lineageId,
+          blood: node,
+          spouse: params.spouse,
+        })
+      : null;
 
-    await adjustNodeCount(tx, orgId, lineageId, 1);
+    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
     await logActivityInTx(
       tx,
       userId,
@@ -289,7 +378,7 @@ export async function addChildInTransaction(params: {
       ActivityType.CREATE_NODE,
       ipAddress
     );
-    return { ok: true as const, node };
+    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
   });
 }
 
@@ -301,6 +390,8 @@ export async function addSiblingInTransaction(params: {
   name: string;
   surname?: string;
   sex: number;
+  details?: NodeCreateDetails;
+  spouse?: OptionalSpouse;
   ipAddress?: string;
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, siblingOfId, name, sex, ipAddress } =
@@ -345,10 +436,20 @@ export async function addSiblingInTransaction(params: {
       surname,
       fullName: fullName(surname, name),
       sex,
+      ...detailValues(params.details),
       createdBy: userId,
     });
+    const spouse = params.spouse
+      ? await insertCoSpouse(tx, {
+          userId,
+          orgId,
+          lineageId,
+          blood: node,
+          spouse: params.spouse,
+        })
+      : null;
 
-    await adjustNodeCount(tx, orgId, lineageId, 1);
+    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
     await logActivityInTx(
       tx,
       userId,
@@ -356,7 +457,7 @@ export async function addSiblingInTransaction(params: {
       ActivityType.CREATE_NODE,
       ipAddress
     );
-    return { ok: true as const, node };
+    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
   });
 }
 
@@ -368,6 +469,7 @@ export async function addSpouseInTransaction(params: {
   name: string;
   surname?: string;
   sex: number;
+  details?: NodeCreateDetails;
   ipAddress?: string;
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, spouseOfId, name, sex, ipAddress } = params;
@@ -405,6 +507,7 @@ export async function addSpouseInTransaction(params: {
       surname,
       fullName: fullName(surname, name),
       sex,
+      ...detailValues(params.details),
       createdBy: userId,
     });
 
@@ -526,6 +629,9 @@ export async function deleteNodeInTransaction(params: {
     const target = await loadNode(tx, orgId, lineageId, nodeId);
     if (!target) {
       return { ok: false, reason: 'not_found' as const };
+    }
+    if (target.role === 'blood' && !target.parentId) {
+      return { ok: false, reason: 'root_forbidden' as const };
     }
 
     const ids = new Set<string>([target.id]);

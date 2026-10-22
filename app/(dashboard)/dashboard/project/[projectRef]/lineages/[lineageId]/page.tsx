@@ -2,10 +2,10 @@ import { notFound } from 'next/navigation';
 import { LineageDetail } from '@/components/lineage/lineage-detail';
 import { requireProjectContext } from '@/lib/auth/context';
 import { hasPermission } from '@/lib/auth/permissions';
-import { getFolders } from '@/lib/db/queries/folders';
 import { getLineageById } from '@/lib/db/queries/lineages';
 import { getNodes } from '@/lib/db/queries/nodes';
 import { isUuid } from '@/lib/ids';
+import { getNavFolders } from '@/lib/lineage/nav';
 
 export default async function LineageDetailPage({
   params,
@@ -26,13 +26,12 @@ export default async function LineageDetailPage({
 
   const [nodes, folders] = await Promise.all([
     getNodes(user.id, organization.id, lineage.id),
-    getFolders(user.id, organization.id, project.id, 0),
+    getNavFolders(user.id, organization.id, project.id),
   ]);
 
   return (
     <LineageDetail
       orgId={organization.id}
-      projectRef={project.ref}
       lineage={{
         id: lineage.id,
         name: lineage.name,
