@@ -1,38 +1,65 @@
 import { and, eq } from 'drizzle-orm';
 import { getAuth } from '@/lib/auth/better-auth';
-import { isAuthErrorCode } from '@/lib/auth/errors';
 import { withOrg } from './drizzle';
-import { isUniqueViolation } from './errors';
 import { organizations, orgMembers, projects } from './schema';
 
 const EMAIL = 'test@test.com';
 const PASSWORD = 'admin123';
+const ORG_NAME = '测试组织';
 
-type SeedUser = { id: string; organizationId: string };
+type SeedSession = { id: string; headers: Headers };
 
-/** Creates or reuses the demo account through Better Auth's own sign-up path. */
-async function ensureDemoUser(): Promise<SeedUser> {
-  let userId: string;
+function sessionCookie(response: Response): string {
+  const match = response.headers
+    .get('set-cookie')
+    ?.match(/better-auth\.session_token=([^;]+)/);
+  if (!match) {
+    throw new Error(`会话 Cookie 缺失（HTTP ${response.status}）`);
+  }
+  return `better-auth.session_token=${match[1]}`;
+}
 
-  try {
-    const result = await getAuth().api.signUpEmail({
-      body: { email: EMAIL, name: '测试用户', password: PASSWORD },
-    });
-    userId = result.user.id;
-  } catch (error) {
-    if (
-      !isAuthErrorCode(error, 'USER_ALREADY_EXISTS') &&
-      !isUniqueViolation(error)
-    ) {
-      throw error;
-    }
+/**
+ * Signs up the demo account, or signs in when it already exists. Uses Better
+ * Auth's own endpoints so the auth schema and personal organization come from
+ * the same triggers as production sign-up.
+ */
+async function openDemoSession(): Promise<SeedSession> {
+  const signUp = await getAuth().api.signUpEmail({
+    body: { email: EMAIL, name: '测试用户', password: PASSWORD },
+    asResponse: true,
+  });
 
-    const result = await getAuth().api.signInEmail({
-      body: { email: EMAIL, password: PASSWORD },
-    });
-    userId = result.user.id;
+  if (signUp.ok) {
+    const body = (await signUp.json()) as { user: { id: string } };
+    return {
+      id: body.user.id,
+      headers: new Headers({ cookie: sessionCookie(signUp) }),
+    };
   }
 
+  const failure = (await signUp.json().catch(() => null)) as {
+    code?: string;
+  } | null;
+  if (!failure?.code?.startsWith('USER_ALREADY_EXISTS')) {
+    throw new Error(`演示账号注册失败（HTTP ${signUp.status}）`);
+  }
+
+  const signIn = await getAuth().api.signInEmail({
+    body: { email: EMAIL, password: PASSWORD },
+    asResponse: true,
+  });
+  if (!signIn.ok) {
+    throw new Error(`演示账号登录失败（HTTP ${signIn.status}）`);
+  }
+  const body = (await signIn.json()) as { user: { id: string } };
+  return {
+    id: body.user.id,
+    headers: new Headers({ cookie: sessionCookie(signIn) }),
+  };
+}
+
+async function findOwnerOrganization(userId: string): Promise<string> {
   const organizationId = await withOrg(userId, async (tx) => {
     const rows = await tx
       .select({ organizationId: orgMembers.organizationId })
@@ -45,47 +72,53 @@ async function ensureDemoUser(): Promise<SeedUser> {
   });
 
   if (!organizationId) {
-    throw new Error('Demo user exists but has no active organization');
+    throw new Error('演示用户没有可用的所有者组织');
   }
-
-  return { id: userId, organizationId };
+  return organizationId;
 }
 
 async function seed() {
-  const user = await ensureDemoUser();
+  const session = await openDemoSession();
 
-  await withOrg(user.id, async (tx) => {
-    await tx
-      .update(organizations)
-      .set({ name: '测试组织' })
-      .where(eq(organizations.id, user.organizationId));
+  try {
+    const organizationId = await findOwnerOrganization(session.id);
 
-    await tx
-      .insert(projects)
-      .values([
-        {
-          orgId: user.organizationId,
-          ref: 'example0000000000001',
-          name: '示例云谱',
-          primaryName: '陈寔',
-          primarySurname: '陈',
-          hallCode: '颍川堂',
-          countriesRegions: '中国福建',
-          createdBy: user.id,
-        },
-        {
-          orgId: user.organizationId,
-          ref: 'branch00000000000001',
-          name: '支系档案',
-          primaryName: '陈元光',
-          primarySurname: '陈',
-          hallCode: '漳州堂',
-          countriesRegions: '中国漳州',
-          createdBy: user.id,
-        },
-      ])
-      .onConflictDoNothing();
-  });
+    // Organization writes belong to auth_service; go through the owner path.
+    await getAuth().api.updateOrganization({
+      body: { organizationId, data: { name: ORG_NAME } },
+      headers: session.headers,
+    });
+
+    await withOrg(session.id, async (tx) => {
+      await tx
+        .insert(projects)
+        .values([
+          {
+            orgId: organizationId,
+            ref: 'example0000000000001',
+            name: '示例云谱',
+            primaryName: '陈寔',
+            primarySurname: '陈',
+            hallCode: '颍川堂',
+            countriesRegions: '中国福建',
+            createdBy: session.id,
+          },
+          {
+            orgId: organizationId,
+            ref: 'branch00000000000001',
+            name: '支系档案',
+            primaryName: '陈元光',
+            primarySurname: '陈',
+            hallCode: '漳州堂',
+            countriesRegions: '中国漳州',
+            createdBy: session.id,
+          },
+        ])
+        .onConflictDoNothing();
+    });
+  } finally {
+    await getAuth().api.signOut({ headers: session.headers });
+  }
 
   console.log('Demo data ready: test@test.com / admin123');
 }
