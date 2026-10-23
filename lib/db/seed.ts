@@ -1,91 +1,91 @@
-import { eq, sql } from 'drizzle-orm';
-import { hashPassword } from '@/lib/auth/session';
-import { db, queryRows } from './drizzle';
+import { and, eq } from 'drizzle-orm';
+import { getAuth } from '@/lib/auth/better-auth';
+import { isAuthErrorCode } from '@/lib/auth/errors';
+import { withOrg } from './drizzle';
 import { isUniqueViolation } from './errors';
-import { organizations, projects } from './schema';
+import { organizations, orgMembers, projects } from './schema';
 
 const EMAIL = 'test@test.com';
 const PASSWORD = 'admin123';
 
 type SeedUser = { id: string; organizationId: string };
 
-/** Creates the demo account through the same atomic path as registration. */
+/** Creates or reuses the demo account through Better Auth's own sign-up path. */
 async function ensureDemoUser(): Promise<SeedUser> {
-  const passwordHash = await hashPassword(PASSWORD);
+  let userId: string;
 
   try {
-    const rows = await queryRows<{ id: string; defaultOrganizationId: string }>(
-      db,
-      sql`
-        select id, default_organization_id as "defaultOrganizationId"
-        from auth.sign_up(${EMAIL}, '测试用户', ${passwordHash}, null, null)
-      `
-    );
-    const user = rows[0];
-    if (!user) {
-      throw new Error('auth.sign_up returned no user');
-    }
-    return { id: user.id, organizationId: user.defaultOrganizationId };
+    const result = await getAuth().api.signUpEmail({
+      body: { email: EMAIL, name: '测试用户', password: PASSWORD },
+    });
+    userId = result.user.id;
   } catch (error) {
-    if (!isUniqueViolation(error)) {
+    if (
+      !isAuthErrorCode(error, 'USER_ALREADY_EXISTS') &&
+      !isUniqueViolation(error)
+    ) {
       throw error;
     }
+
+    const result = await getAuth().api.signInEmail({
+      body: { email: EMAIL, password: PASSWORD },
+    });
+    userId = result.user.id;
   }
 
-  const rows = await queryRows<{ id: string; organizationId: string }>(
-    db,
-    sql`
-      select u.id, m.organization_id as "organizationId"
-      from auth.users u
-      join organization_member m
-        on m.user_id = u.id
-       and m.role = 'owner'
-       and m.deleted_at is null
-      where lower(u.email) = lower(${EMAIL}) and u.deleted_at is null
-      order by u.created_at
-      limit 1
-    `
-  );
-  const user = rows[0];
-  if (!user) {
+  const organizationId = await withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({ organizationId: orgMembers.organizationId })
+      .from(orgMembers)
+      .innerJoin(organizations, eq(orgMembers.organizationId, organizations.id))
+      .where(and(eq(orgMembers.userId, userId), eq(orgMembers.role, 'owner')))
+      .orderBy(organizations.createdAt)
+      .limit(1);
+    return rows[0]?.organizationId ?? null;
+  });
+
+  if (!organizationId) {
     throw new Error('Demo user exists but has no active organization');
   }
-  return user;
+
+  return { id: userId, organizationId };
 }
 
 async function seed() {
   const user = await ensureDemoUser();
 
-  await db
-    .update(organizations)
-    .set({ name: '测试组织' })
-    .where(eq(organizations.id, user.organizationId));
+  await withOrg(user.id, async (tx) => {
+    await tx
+      .update(organizations)
+      .set({ name: '测试组织' })
+      .where(eq(organizations.id, user.organizationId));
 
-  await db
-    .insert(projects)
-    .values([
-      {
-        orgId: user.organizationId,
-        ref: 'example0000000000001',
-        name: '示例云谱',
-        primaryName: '陈寔',
-        primarySurname: '陈',
-        hallCode: '颍川堂',
-        countriesRegions: '中国福建',
-        createdBy: user.id,
-      },
-      {
-        orgId: user.organizationId,
-        ref: 'branch00000000000001',
-        name: '支系档案',
-        primaryName: '陈元光',
-        primarySurname: '陈',
-        hallCode: '漳州堂',
-        countriesRegions: '中国漳州',
-        createdBy: user.id,
-      },
-    ])
-    .onConflictDoNothing();
+    await tx
+      .insert(projects)
+      .values([
+        {
+          orgId: user.organizationId,
+          ref: 'example0000000000001',
+          name: '示例云谱',
+          primaryName: '陈寔',
+          primarySurname: '陈',
+          hallCode: '颍川堂',
+          countriesRegions: '中国福建',
+          createdBy: user.id,
+        },
+        {
+          orgId: user.organizationId,
+          ref: 'branch00000000000001',
+          name: '支系档案',
+          primaryName: '陈元光',
+          primarySurname: '陈',
+          hallCode: '漳州堂',
+          countriesRegions: '中国漳州',
+          createdBy: user.id,
+        },
+      ])
+      .onConflictDoNothing();
+  });
 
   console.log('Demo data ready: test@test.com / admin123');
 }
