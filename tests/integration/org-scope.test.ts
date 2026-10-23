@@ -16,7 +16,7 @@ import {
   deleteProjectInTransaction,
   updateProjectInTransaction,
 } from '@/lib/db/services';
-import { getTestSql } from '../helpers/db';
+import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
   createOrganization,
@@ -54,12 +54,17 @@ describe('organization and project scope', () => {
 
   it('does not resolve an archived organization', async () => {
     const alice = await createUser();
-    const organization = await createOrganization({ deletedAt: new Date() });
+    const organization = await createOrganization();
     await addMember({
       userId: alice.id,
       organizationId: organization.id,
       role: 'owner',
     });
+
+    await getTestDb()
+      .update(organizations)
+      .set({ status: 'closed', deletedAt: new Date() })
+      .where(eq(organizations.id, organization.id));
 
     expect(await getOrgWithRoleBySlug(alice.id, organization.slug)).toBeNull();
   });
@@ -308,14 +313,15 @@ describe('row level security', () => {
     const bob = await createUser();
     const bobOrg = await getPersonalOrg(bob.id);
 
-    const updated = await withOrg(alice.id, (tx) =>
-      tx
-        .update(organizations)
-        .set({ name: '越权修改' })
-        .where(eq(organizations.id, bobOrg?.organization.id as string))
-        .returning()
-    );
-    expect(updated).toHaveLength(0);
+    await expect(
+      withOrg(alice.id, (tx) =>
+        tx
+          .update(organizations)
+          .set({ name: '越权修改' })
+          .where(eq(organizations.id, bobOrg?.organization.id as string))
+          .returning()
+      )
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
 
     await expect(
       withOrg(alice.id, (tx) =>
@@ -327,7 +333,7 @@ describe('row level security', () => {
           createdBy: alice.id,
         })
       )
-    ).rejects.toMatchObject({ code: '42501' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
   });
 
   it('blocks viewers from writing projects through RLS', async () => {
@@ -345,7 +351,7 @@ describe('row level security', () => {
           createdBy: viewer.id,
         })
       )
-    ).rejects.toMatchObject({ code: '42501' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
   });
 
   it('keeps auth.users unreachable for the runtime role', async () => {
@@ -353,6 +359,6 @@ describe('row level security', () => {
 
     await expect(
       withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.users`))
-    ).rejects.toMatchObject({ code: '42501' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
   });
 });

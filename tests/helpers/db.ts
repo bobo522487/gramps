@@ -66,3 +66,19 @@ export async function closeTestDatabase() {
   testSql = null;
   testDb = null;
 }
+
+/** SQLSTATE from a driver, Drizzle or Better Auth error chain. */
+export function pgErrorCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof current !== 'object' || current === null) {
+      return undefined;
+    }
+    const value = current as { code?: unknown; cause?: unknown };
+    if (typeof value.code === 'string') {
+      return value.code;
+    }
+    current = value.cause;
+  }
+  return undefined;
+}

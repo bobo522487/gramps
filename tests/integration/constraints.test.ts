@@ -7,7 +7,7 @@ import {
   invitations,
   orgMembers,
 } from '@/lib/db/schema';
-import { getTestDb, getTestSql } from '../helpers/db';
+import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
   createInvitation,
@@ -33,7 +33,7 @@ describe('database constraints', () => {
 
     await expect(
       createOrganization({ slug: organization.slug })
-    ).rejects.toMatchObject({ code: '23505' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
   });
 
   it('rejects project refs shared across organizations', async () => {
@@ -51,7 +51,7 @@ describe('database constraints', () => {
         createdBy: owner.id,
         ref: project.ref,
       })
-    ).rejects.toMatchObject({ code: '23505' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
   });
 
   it('rejects a project whose organization does not exist', async () => {
@@ -62,7 +62,7 @@ describe('database constraints', () => {
         orgId: '00000000-0000-0000-0000-000000000000',
         createdBy: owner.id,
       })
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
 
   it('rejects duplicate active memberships', async () => {
@@ -76,7 +76,7 @@ describe('database constraints', () => {
         organizationId: organization.id,
         role: 'editor',
       })
-    ).rejects.toMatchObject({ code: '23505' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
   });
 
   it('allows re-adding a member after the previous membership is removed', async () => {
@@ -110,7 +110,7 @@ describe('database constraints', () => {
         organizationId: organization.id,
         role: 'member',
       })
-    ).rejects.toMatchObject({ code: '23514' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
   });
 
   it('allows only one active owner per organization', async () => {
@@ -129,7 +129,7 @@ describe('database constraints', () => {
         organizationId: organization.id,
         role: 'owner',
       })
-    ).rejects.toMatchObject({ code: '23505' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
   });
 
   it('rejects an owner-role invitation', async () => {
@@ -146,7 +146,7 @@ describe('database constraints', () => {
           inviterId: owner.id,
           expiresAt: new Date(Date.now() + 86_400_000),
         })
-    ).rejects.toMatchObject({ code: '23514' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
   });
 
   it('rejects duplicate pending invitations per organization and email', async () => {
@@ -164,7 +164,7 @@ describe('database constraints', () => {
         inviterId: invitedBy.id,
         email: 'dup@example.com',
       })
-    ).rejects.toMatchObject({ code: '23505' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
   });
 
   it('allows a new invitation after the previous one is accepted', async () => {
@@ -230,7 +230,7 @@ describe('database constraints', () => {
         name: '跨组织文件夹',
         createdBy: owner.id,
       })
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
 
   it('allows account-level activity rows without an organization', async () => {
@@ -258,6 +258,6 @@ describe('database constraints', () => {
         insert into project (organization_id, name, created_by)
         values (${organization.id}::uuid, '缺少主姓名', ${owner.id}::uuid)
       `
-    ).rejects.toMatchObject({ code: '23502' });
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23502');
   });
 });
