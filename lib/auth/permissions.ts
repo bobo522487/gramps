@@ -1,55 +1,31 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
+import {
+  isOrgRole,
+  ORG_PERMISSIONS,
+  ORG_ROLES,
+  type OrgPermission,
+  type OrgRole,
+  PERMISSION_REQUESTS,
+  roles,
+} from '@/lib/auth/access-control';
+import type { SessionUser } from '@/lib/auth/types';
 import { type DbTransaction, withOrg } from '@/lib/db/drizzle';
-import { orgMembers, type User } from '@/lib/db/schema';
+import { orgMembers } from '@/lib/db/schema';
 
-export const ORG_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
-export type OrgRole = (typeof ORG_ROLES)[number];
-
-export const ORG_PERMISSIONS = [
-  'content.read',
-  'lineage.write',
-  'article.write',
-  'book.write',
-  'project.write',
-  'member.invite',
-  'member.manage',
-  'org.settings',
-  'org.transfer',
-] as const;
-export type OrgPermission = (typeof ORG_PERMISSIONS)[number];
-
-/** Roles map to permission strings; business code checks permissions only. */
-const ROLE_PERMISSIONS: Record<OrgRole, readonly string[]> = {
-  owner: ['*'],
-  admin: [
-    'content.read',
-    'lineage.write',
-    'article.write',
-    'book.write',
-    'project.write',
-    'member.invite',
-    'member.manage',
-  ],
-  editor: ['content.read', 'lineage.write', 'article.write', 'book.write'],
-  viewer: ['content.read'],
-};
-
-export function isOrgRole(value: string): value is OrgRole {
-  return (ORG_ROLES as readonly string[]).includes(value);
-}
+export type { OrgPermission, OrgRole };
+export { isOrgRole, ORG_PERMISSIONS, ORG_ROLES };
 
 export function hasPermission(
   role: OrgRole,
   permission: OrgPermission
 ): boolean {
-  const permissions = ROLE_PERMISSIONS[role];
-  return permissions.includes('*') || permissions.includes(permission);
+  return roles[role].authorize(PERMISSION_REQUESTS[permission]).success;
 }
 
-const PERMISSION_DENIED_MESSAGES: Record<OrgPermission, string> = {
+export const PERMISSION_DENIED_MESSAGES: Record<OrgPermission, string> = {
   'content.read': '你不是该组织的成员',
   'lineage.write': '你没有编辑谱系的权限',
   'article.write': '你没有撰写谱文的权限',
@@ -71,11 +47,7 @@ export async function getOrgRoleInTx(
     .select({ role: orgMembers.role })
     .from(orgMembers)
     .where(
-      and(
-        eq(orgMembers.orgId, orgId),
-        eq(orgMembers.userId, userId),
-        isNull(orgMembers.deletedAt)
-      )
+      and(eq(orgMembers.organizationId, orgId), eq(orgMembers.userId, userId))
     )
     .limit(1);
 
@@ -96,7 +68,7 @@ export async function getOrgRole(
  * signed-in user lacks the permission.
  */
 export async function requireOrgAccess(
-  user: User,
+  user: SessionUser,
   orgId: string,
   permission: OrgPermission = 'content.read'
 ) {

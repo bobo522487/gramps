@@ -1,49 +1,31 @@
 import 'server-only';
 
-import { cookies } from 'next/headers';
+import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
-import type { OrgRole } from '@/lib/auth/permissions';
-import { isOrgRole } from '@/lib/auth/permissions';
-import { verifyToken } from '@/lib/auth/session';
+import { getAuth } from '@/lib/auth/better-auth';
+import { isOrgRole, type OrgRole } from '@/lib/auth/permissions';
+import type { SessionUser } from '@/lib/auth/types';
 import { getOrgWithRoleBySlug } from '@/lib/db/queries/organizations';
 import { getProjectScopeByRef } from '@/lib/db/queries/projects';
-import { getSessionUserById } from '@/lib/db/queries/users';
 import { isPublicId } from '@/lib/ids';
 import { addLogContext } from '@/lib/server/request-context';
 
 /** Authoritative session lookup, memoized once per server render/request. */
-export const getSessionUser = cache(async () => {
-  const sessionCookie = (await cookies()).get('session');
-  if (!sessionCookie?.value) {
+export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
+  const session = await getAuth().api.getSession({
+    headers: await headers(),
+  });
+  if (!session?.user) {
     return null;
   }
 
-  const sessionData = await verifyToken(sessionCookie.value);
-  if (
-    !sessionData?.user ||
-    typeof sessionData.user.id !== 'string' ||
-    !sessionData.user.id
-  ) {
-    return null;
-  }
-
-  if (new Date(sessionData.expires) < new Date()) {
-    return null;
-  }
-
-  const user = await getSessionUserById(sessionData.user.id);
-  if (!user || user.deletedAt) {
-    return null;
-  }
-
-  // Tokens issued before tokenVersion existed are treated as version 0.
-  if ((sessionData.tv ?? 0) !== user.tokenVersion) {
-    return null;
-  }
-
-  addLogContext({ user_id: user.id });
-  return user;
+  addLogContext({ user_id: session.user.id });
+  return {
+    id: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+  };
 });
 
 export async function requireUser() {

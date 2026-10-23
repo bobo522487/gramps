@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { getSessionUser } from '@/lib/auth/context';
-import type { User } from '@/lib/db/schema';
+import type { SessionUser } from '@/lib/auth/types';
 import { actionError } from '@/lib/errors';
 
 export type { ActionState } from './types';
@@ -46,7 +46,7 @@ export function validatedAction<S extends z.ZodTypeAny, T>(
 type ValidatedActionWithUserFunction<S extends z.ZodTypeAny, T> = (
   data: z.infer<S>,
   formData: FormData,
-  user: User
+  user: SessionUser
 ) => Promise<T>;
 
 export function validatedActionWithUser<S extends z.ZodTypeAny, T>(
