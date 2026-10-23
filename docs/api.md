@@ -1,16 +1,12 @@
 # 接口契约
 
-> **文档状态：M1 目标设计（业务接口未实现）** · 最后更新：2026-10-22
-> 当前仓库只有 4 个只读 Route Handler（见 [实现状态](./implementation-status.md) §1.3）；本文件描述的目标 Server Action 契约尚未实现。
-
 | 项 | 值 |
 |---|---|
 | 文档版本 | 1.6 |
-| 文档状态 | M1 目标设计（业务接口未实现） |
 | 最后更新 | 2026-10-22 |
 | 接口风格 | Server Action（内部写）+ RSC（内部首屏读）+ TanStack Query（客户端缓存）+ Route Handler（健康检查） |
 | 序列化 | JSON；错误按 RFC 9457 |
-| 相关文档 | [架构](./architect.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
+| 相关文档 | [架构](./architecture/00-overview.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
 
 ---
 

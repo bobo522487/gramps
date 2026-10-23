@@ -8,6 +8,8 @@
 
 # testing
 /coverage
+/playwright-report
+/test-results
 
 # next.js
 /.next/
@@ -42,3 +44,4 @@ postgres_data/
 
 # Qoder CLI
 .qoder/
+.env*

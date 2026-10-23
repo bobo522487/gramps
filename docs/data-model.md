@@ -1,19 +1,15 @@
 # 数据模型
 
-> **文档状态：M1 目标设计（基础层已实现，业务层未实现）** · 最后更新：2026-10-22
-> 基础表、UUIDv7、RLS、角色、软删与邀请 token 已按 [ADR 0001](./adr/0001-foundation-reset.md) 落地；谱系/谱文/谱书的业务规则与 UI 尚未实现。差异以 [实现状态](./implementation-status.md) 为准。
-
 | 项 | 值 |
 |---|---|
 | 文档版本 | 1.5 |
-| 文档状态 | M1 目标设计（基础层已实现，业务层未实现） |
 | 最后更新 | 2026-10-22 |
 | 数据库 | Neon PostgreSQL 18+（生产）/ Docker PostgreSQL 18+（本地） |
 | 驱动 | 本地 `postgres.js`；生产 `pg` + `attachDatabasePool` |
 | 部署 | Vercel + 自定义域名 + Neon；本地 Docker 只跑 PostgreSQL + `next dev` |
 | 字符集 / 时区 | UTF-8 / 所有时间列 `timestamptz` |
 | 表数量 | 10 张业务表 + `auth.users`（独立 `auth` schema，不计入 10 张） |
-| 相关文档 | [架构](./architect.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
+| 相关文档 | [架构](./architecture/00-overview.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
 
 ---
 
@@ -827,7 +823,7 @@ CREATE POLICY own_membership ON organization_member
 > - `organization`：成员可 SELECT；已登录用户可 INSERT（新建组织）；`owner` 可 UPDATE。
 > - `invite`：`owner`/`admin` 可读写；接受邀请走 `auth.accept_invite` 的 `SECURITY DEFINER` 路径，自行校验 token、过期、单次使用与撤销状态。
 >
-> 集成测试覆盖：非成员 0 行、viewer 写入被拒、admin 可管理成员、跨组织引用被复合外键拒绝、`app_rw` 无法读取 `auth.users`。详见 [ADR 0001 §3](./adr/0001-foundation-reset.md)。
+> 集成测试覆盖：非成员 0 行、viewer 写入被拒、admin 可管理成员、跨组织引用被复合外键拒绝、`app_rw` 无法读取 `auth.users`。详见 [ADR 0001 §3](./decisions/0001-foundation-reset.md)。
 
 **这条策略一旦写错，所有表都会递归报错。** 改动前必须在真库跑一遍 §12.6 的隔离测试。
 

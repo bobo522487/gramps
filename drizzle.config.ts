@@ -5,6 +5,12 @@ export default {
   out: './lib/db/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.POSTGRES_URL!,
+    // Prefer the direct (non-pooled) URL for migrations; pooled connections
+    // cannot run some DDL reliably. Vercel's native Neon integration names the
+    // direct URL POSTGRES_URL_NON_POOLING.
+    url:
+      process.env.POSTGRES_URL_DIRECT ??
+      process.env.POSTGRES_URL_NON_POOLING ??
+      process.env.POSTGRES_URL!,
   },
 } satisfies Config;

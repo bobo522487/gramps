@@ -2,7 +2,7 @@
 
 > **文档状态：M1 目标设计（基础层已实现，部署未验证）** · 最后更新：2026-10-22
 > 本文件描述家谱目标架构的部署与运维蓝图，**不是当前仓库的操作指南**。
-> 当前仓库请读 [环境与部署（当前实现）](./setup.md)；实现差异见 [实现状态](./implementation-status.md) 与 [ADR 0001](./adr/0001-foundation-reset.md)。
+> 当前仓库请读 [环境与部署（当前实现）](./setup.md)；实现差异见 [实现状态](./implementation-status.md) 与 [ADR 0001](./decisions/0001-foundation-reset.md)。
 
 | 项 | 值 |
 |---|---|
@@ -12,24 +12,28 @@
 | 部署单元 | Vercel（Next.js）+ Neon PostgreSQL 18+；本地 Docker 只跑 PostgreSQL |
 | 本地开发 | `docker compose up -d db` + `pnpm dev`（`next dev`，不用应用容器） |
 | 迁移 | Drizzle Kit，对直连 URL 执行，与应用部署分离 |
-| 相关文档 | [架构](./architect.md) · [数据模型](./data-model.md) · [接口](./api.md) |
+| 相关文档 | [架构](./architecture/00-overview.md) · [数据模型](./data-model.md) · [接口](./api.md) |
 
 ---
 
 ## 0. 先看当前仓库的实际情况
 
-**已经落地**（见 [ADR 0001](./adr/0001-foundation-reset.md)）：
+**已经落地**（见 [ADR 0001](./decisions/0001-foundation-reset.md)）：
 
 - RLS + `FORCE ROW LEVEL SECURITY`、`app_rw`、`auth.users`、`SECURITY DEFINER` 函数、注册触发器。
 - UUIDv7 主键、11 张组织级业务表、软删、复合外键、邀请 token。
 - `/api/health`、结构化日志、Zod 配置校验、`POSTGRES_URL` 变量。
+- `POSTGRES_URL_DIRECT`：`drizzle.config.ts` 已优先使用它执行迁移。
+- `0002_app_role_grant`：`app` 角色存在时补 `GRANT app_rw TO app`。
+- Playwright 关键路径 E2E 与 `scripts/verify-deployment.mjs`（`pnpm verify:deploy`）。
+- 谱系/人丁的页面、Server Action、画布与世系表。
 
 **尚未实现或未验证**：
 
-- 真实 Vercel/Neon 部署、生产角色分离与连接池配置。
-- `POSTGRES_URL_DIRECT` 尚未接入代码；当前 `drizzle.config.ts` 只读 `POSTGRES_URL`。
-- Playwright E2E、Vercel 项目配置、备份恢复演练。
-- 家谱业务功能（谱系/谱文/谱书/分类）的页面与 Action；表已存在。
+- 真实 Vercel/Neon 部署、生产角色创建与连接池配置。
+- Vercel 项目配置、备份恢复演练。
+- 谱文/谱书/分类接入与分享、回收站、编辑锁；相关表已存在。
+- 云端 `verify:deploy` 与 external E2E 未执行（本机无凭据）；本地生产模式已全项验证。
 
 本地开发使用 `next dev`，数据库由 `pnpm db:setup` 生成的 Docker PostgreSQL 18 提供。因此本文中的 Compose 片段、迁移顺序、Vercel 与 Neon 配置仍需按实际环境核对，不能直接照搬。
 
@@ -246,25 +250,20 @@ Vercel 的环境变量同时用于构建与运行。构建命令中**不得**包
 
 ### 4.2 迁移顺序
 
+当前仓库实际是三个迁移（目标设计曾计划拆成更多文件，已合并为基线 + 安全层 + 角色授权）：
+
 ```text
-0000_extensions       自定义：ltree、pg_trgm
-0001_schemas_roles    自定义：auth schema、app_rw 角色
-0002_tables           Drizzle 生成：10 张业务表 + auth.users
-0003_indexes          Drizzle 生成 + 自定义：普通索引、部分唯一索引
-0004_rls              自定义：auth.uid()、RLS 开关与策略
-0005_grants           自定义：app_rw 的最小权限
-0006_signup_trigger   自定义：注册时自动建默认组织
+0000_baseline         Drizzle 生成：11 张组织级业务表 + auth.users + 普通索引
+0001_auth_rls         自定义：ltree/pg_trgm/btree_gist、auth schema 与 SECURITY DEFINER 函数、
+                      app_rw 角色、注册触发器、GRANT、RLS 策略与部分唯一索引
+0002_app_role_grant   自定义：app 登录角色存在时 GRANT app_rw TO app
 ```
 
 | 迁移 | 为什么必须存在 |
 |---|---|
-| `0000` | `ltree`、`pg_trgm` 缺失时建表/搜索直接失败 |
-| `0001` | 没有 `app_rw`，`SET LOCAL ROLE` 失败；`auth` schema 不存在 |
-| `0002` | 10 张业务表与 `auth.users`；主键统一 `DEFAULT uuidv7()` |
-| `0003` | 软删表的唯一约束必须是 `WHERE deleted_at IS NULL` 的部分索引 |
-| `0004` | 没有策略，RLS 开关后查询全部返回 0 行 |
-| `0005` | 没有授权，`app_rw` 连表都读不到 |
-| `0006` | 没有触发器，注册后没有默认组织，用户进入控制台即 404 |
+| `0000` | 业务表与 `auth.users`；主键统一 `DEFAULT uuidv7()`，软删列与部分唯一索引 |
+| `0001` | 没有 `app_rw`，`SET LOCAL ROLE` 失败；没有 `auth` schema/函数无法认证；没有 RLS 策略与授权，查询越权或返回 0 行；没有触发器，注册后没有默认组织 |
+| `0002` | 运行期登录角色 `app` 必须在迁移前创建；该迁移补 `GRANT app_rw TO app`，角色不存在时安全跳过 |
 
 自定义迁移用 Drizzle Kit 的空迁移能力创建，例如 `drizzle-kit generate --custom --name=extensions`，再手写 SQL。**已应用的迁移不修改**；修正用新迁移。
 
@@ -287,13 +286,13 @@ POSTGRES_URL_DIRECT='postgresql://<迁移角色>:<pwd>@<direct-host>/<db>?sslmod
   pnpm db:migrate
 ```
 
-`drizzle.config.ts` 优先使用直连：
+`drizzle.config.ts` 已实现直连优先（实际路径为当前仓库的 `lib/db/schema.ts` 与 `lib/db/migrations`）：
 
 ```typescript
-// drizzle.config.ts（目标蓝图）
+// drizzle.config.ts
 export default defineConfig({
-  schema: './src/server/db/schema/index.ts',
-  out: './drizzle',
+  schema: './lib/db/schema.ts',
+  out: './lib/db/migrations',
   dialect: 'postgresql',
   dbCredentials: {
     url: process.env.POSTGRES_URL_DIRECT ?? process.env.POSTGRES_URL!,
@@ -311,7 +310,7 @@ export default defineConfig({
 
 ### 4.4 角色与授权
 
-顺序是：先创建运行期登录角色 `app`（一次性），再执行迁移（`0001` 创建受限角色 `app_rw` 并授权），最后执行 `0005` 的授权矩阵。密码只存在于环境变量与 Neon 中，不写进迁移文件。
+顺序是：先创建运行期登录角色 `app`（一次性），再执行迁移（`0001` 创建受限角色 `app_rw`、GRANT 与 RLS），`0002` 在 `app` 存在时补 `GRANT app_rw TO app`。密码只存在于环境变量与 Neon 中，不写进迁移文件。
 
 **第 1 步：运行期登录角色（迁移之前，一次性）**
 
@@ -322,20 +321,27 @@ CREATE ROLE app LOGIN PASSWORD '<generated>'
   NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 ```
 
-**第 2 步：迁移创建受限角色**
+**第 2 步：迁移创建受限角色并补授权**
 
 ```sql
--- 0001_schemas_roles.sql
+-- 0001_auth_rls.sql（节选）
 CREATE SCHEMA IF NOT EXISTS auth;
-
 CREATE ROLE app_rw NOLOGIN NOSUPERUSER NOBYPASSRLS;
-GRANT app_rw TO app;   -- app 已在第 1 步创建
+
+-- 0002_app_role_grant.sql
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
+    GRANT app_rw TO app;   -- app 已在第 1 步创建
+  END IF;
+END
+$$;
 ```
 
 `app` 的密码同时写入 Neon 与 Vercel 的 `POSTGRES_URL`，不要进入 Git。迁移连接使用 Neon 项目所有者角色（默认 `neondb_owner`），与运行期角色分离。
 
 ```sql
--- 0005_grants.sql（示意）
+-- 0001_auth_rls.sql 的授权矩阵（示意）
 GRANT USAGE ON SCHEMA public TO app_rw;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_rw;
 -- 不授予 DELETE：软删统一走 UPDATE deleted_at
@@ -447,11 +453,11 @@ pnpm db:migrate
 ### 5.3 发布顺序
 
 ```text
-1. CI：pnpm check → pnpm typecheck → pnpm test → E2E → pnpm build
+1. CI：pnpm check → pnpm typecheck → pnpm test:coverage → 迁移漂移检查 → pnpm build → pnpm test:e2e → pnpm verify:deploy
 2. 对 Neon 生产分支执行迁移（POSTGRES_URL_DIRECT，独立受保护步骤）
 3. 部署 / Promote Vercel 生产部署
-4. 验证 GET /api/health 返回 200
-5. 冒烟：注册 → 登录 → 建组织/谱系 → 录入人丁
+4. 外部验证：BASE_URL=https://<staging> POSTGRES_URL_DIRECT=<direct> APP_DATABASE_URL=<app-login> pnpm verify:deploy
+5. 外部 E2E（仅 staging）：E2E_ALLOW_EXTERNAL=1 E2E_EXTERNAL_SERVER=1 E2E_BASE_URL=https://<staging> pnpm test:e2e
 6. 回滚：Vercel 即时回退到上一部署；数据库按 §6.2 恢复
 ```
 
@@ -473,12 +479,15 @@ pnpm db:migrate
 pnpm install --frozen-lockfile
 pnpm check
 pnpm typecheck
-pnpm test
-pnpm test:e2e          # 目标：Playwright，关键路径
+pnpm test:coverage     # 单测 + 集成 + V8 覆盖率门槛
+pnpm db:generate && git status --porcelain lib/db/migrations  # 漂移检查
 pnpm build
+pnpm exec playwright install --with-deps chromium
+pnpm test:e2e          # CI=1，production server（pnpm start -p 3100）
+pnpm verify:deploy -- --base-url http://127.0.0.1:3100
 ```
 
-E2E 使用本地 Docker PostgreSQL 或 Neon 预览分支，不使用生产库。迁移作为独立任务，放在受保护环境（需要人工批准）中执行。
+E2E 使用本地 Docker PostgreSQL 或 Neon 预览分支，不使用生产库。迁移作为独立任务，放在受保护环境（需要人工批准）中执行。外部/云端验证模板见 §5.3；本轮仅本地生产模式已执行，云端未执行（无凭据）。
 
 ---
 
@@ -602,12 +611,13 @@ pg_restore -d "$POSTGRES_URL_DIRECT" --no-owner --clean --if-exists backup-2026-
 
 ## 8. 实现前必须补齐的 P1 项
 
-- 一次性创建运行期登录角色 `app`（`NOBYPASSRLS`）并授权 `app_rw`；把密码写入 Neon 与 Vercel，不写进迁移。
+- 一次性创建运行期登录角色 `app`（`NOBYPASSRLS`）；`0002_app_role_grant` 已负责在角色存在时授权 `app_rw`。把密码写入 Neon 与 Vercel，不写进迁移。
 - 固化本地 `postgres.js` / 生产 `pg` Pool 两套驱动工厂与共享 `Db` 类型，并验证 `attachDatabasePool` 在目标 Vercel 运行时释放空闲连接。
 - 固定 auth 函数的 `GRANT` / `REVOKE` 矩阵，并加集成测试：`app_rw` 不能直接 `SELECT auth.users`，也不能写 `auth` schema。
 - 补齐 RLS 成员管理策略与邀请接受路径（当前目标设计存在已知缺口，见 [data-model §12.4](./data-model.md#124-organization_member-的策略是-rls-的根)）。
 - 备份与恢复同时覆盖 `public`、`auth` 与 Drizzle 迁移记录（默认 `drizzle` schema），并演练“重建角色 + 扩展 + 迁移”的完整恢复。
 - 为 Preview 选择 Neon 分支策略，并把迁移放进受保护的 CI 步骤；禁止构建期迁移。
-- 补齐 Playwright 关键路径 E2E（注册 → 建谱系 → 录入人丁）。
+- ~~补齐 Playwright 关键路径 E2E~~：已实现（注册 → 建项目 → 建谱系 → 录入始祖/子女 → 检查器 → 侧栏），云端 external 模式待 staging 凭据执行。
+- 在 staging 执行 `pnpm verify:deploy` 与 external E2E，覆盖 `pg` + `attachDatabasePool`、pooled/direct 连接分离与 Cookie 落盘。
 - 配置外部探针访问 `GET /api/health`，并确认 Vercel 与 Neon 的日志与指标可用于定位 `request_id`。
 - 在 Vercel 中配置自定义域名与 `BASE_URL`，验证 Cookie 能正常落盘。

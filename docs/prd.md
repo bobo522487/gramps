@@ -1,16 +1,12 @@
 # 产品需求
 
-> **文档状态：M1 目标设计（尚未实现）** · 最后更新：2026-10-21
-> 当前仓库实现与此文档存在系统性差异，请先读 [实现状态](./implementation-status.md)。
-
 | 项 | 值 |
 |---|---|
 | 文档版本 | 1.4 |
-| 文档状态 | M1 目标设计（尚未实现） |
 | 最后更新 | 2026-10-21 |
 | 产品形态 | 公有云 SaaS（Web） |
 | 首个发布范围 | M1：**数据录入与结构化**，不含呈现与协作 |
-| 相关文档 | [架构](./architect.md) · [数据模型](./data-model.md) · [接口](./api.md) · [实现状态](./implementation-status.md) |
+| 相关文档 | [架构](./architecture/00-overview.md) · [数据模型](./data-model.md) · [接口](./api.md) · [实现状态](./implementation-status.md) |
 
 ---
 
