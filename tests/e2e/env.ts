@@ -1,4 +1,8 @@
-import { resolveTestDatabaseUrl } from '../helpers/db-url';
+import {
+  resolveAppTestDatabaseUrl,
+  resolveAuthTestDatabaseUrl,
+  resolveTestDatabaseUrl,
+} from '../helpers/db-url';
 
 export const E2E_PORT = 3100;
 export const E2E_BETTER_AUTH_SECRET = 'e2e-test-auth-secret-0123456789abcdef';
@@ -21,4 +25,14 @@ export function resolveE2EBaseUrl(): string {
 
 export function resolveE2ETestDatabaseUrl(): string {
   return resolveTestDatabaseUrl(process.env);
+}
+
+/** Business pool; falls back to the shared test database locally. */
+export function resolveE2EAppDatabaseUrl(): string {
+  return resolveAppTestDatabaseUrl(process.env);
+}
+
+/** Auth pool; falls back to the shared test database locally. */
+export function resolveE2EAuthDatabaseUrl(): string {
+  return resolveAuthTestDatabaseUrl(process.env);
 }

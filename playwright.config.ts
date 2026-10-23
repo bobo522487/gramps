@@ -3,6 +3,8 @@ import {
   E2E_BETTER_AUTH_SECRET,
   E2E_PORT,
   isExternalMode,
+  resolveE2EAppDatabaseUrl,
+  resolveE2EAuthDatabaseUrl,
   resolveE2EBaseUrl,
   resolveE2ETestDatabaseUrl,
 } from './tests/e2e/env';
@@ -22,6 +24,8 @@ const webServer = external
       env: {
         ...(process.env as Record<string, string>),
         POSTGRES_URL: resolveE2ETestDatabaseUrl(),
+        APP_POSTGRES_URL: resolveE2EAppDatabaseUrl(),
+        AUTH_POSTGRES_URL: resolveE2EAuthDatabaseUrl(),
         BETTER_AUTH_SECRET: E2E_BETTER_AUTH_SECRET,
         BETTER_AUTH_URL: baseURL,
         LOG_LEVEL: 'error',
