@@ -1,4 +1,4 @@
-export const TEST_AUTH_SECRET =
+export const TEST_BETTER_AUTH_SECRET =
   'integration-test-secret-value-long-enough-for-hs256';
 
 export async function signSessionFor(userId: string, tokenVersion?: number) {

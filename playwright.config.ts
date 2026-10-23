@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import {
-  E2E_AUTH_SECRET,
+  E2E_BETTER_AUTH_SECRET,
   E2E_PORT,
   isExternalMode,
   resolveE2EBaseUrl,
@@ -22,8 +22,8 @@ const webServer = external
       env: {
         ...(process.env as Record<string, string>),
         POSTGRES_URL: resolveE2ETestDatabaseUrl(),
-        AUTH_SECRET: E2E_AUTH_SECRET,
-        BASE_URL: baseURL,
+        BETTER_AUTH_SECRET: E2E_BETTER_AUTH_SECRET,
+        BETTER_AUTH_URL: baseURL,
         LOG_LEVEL: 'error',
       },
     };

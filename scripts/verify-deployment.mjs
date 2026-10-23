@@ -13,10 +13,11 @@ function argValue(name) {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
-const baseUrl = (argValue('--base-url') ?? process.env.BASE_URL ?? '').replace(
-  /\/+$/,
+const baseUrl = (
+  argValue('--base-url') ??
+  process.env.BETTER_AUTH_URL ??
   ''
-);
+).replace(/\/+$/, '');
 const databaseUrl =
   process.env.POSTGRES_URL_DIRECT ??
   process.env.POSTGRES_URL_NON_POOLING ??
@@ -87,7 +88,7 @@ function checkSecurityHeaders(label, response) {
 
 async function checkHttp() {
   if (!baseUrl) {
-    fail('HTTP base URL', 'pass --base-url or set BASE_URL');
+    fail('HTTP base URL', 'pass --base-url or set BETTER_AUTH_URL');
     return;
   }
 

@@ -24,7 +24,8 @@ jobs:
           --health-retries 10
     env:
       POSTGRES_URL: postgres://postgres:postgres@localhost:5432/gramps_test
-      AUTH_SECRET: ci-placeholder-secret-value-long-enough-1234
+      BETTER_AUTH_SECRET: ci-placeholder-secret-value-long-enough-1234
+      BETTER_AUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v4
 
