@@ -51,16 +51,21 @@ export const signInSchema = z.object({
 export const signUpSchema = z.object({
   email: normalizedEmail,
   password,
-  /** Raw one-time invite token from ?invite=<token>. */
-  invite: z.string().trim().max(200).optional(),
+  name: z
+    .string()
+    .trim()
+    .max(100, '姓名不能超过 100 个字符')
+    .optional()
+    .transform((value) => (value ? value : undefined)),
+  /** Better Auth invitation id from ?invite=<id>. */
+  invite: z.string().trim().max(100).optional(),
 });
 
 export const acceptInviteSchema = z.object({
-  token: z
+  invitationId: z
     .string({ required_error: '邀请链接无效' })
     .trim()
-    .min(10, '邀请链接无效')
-    .max(200, '邀请链接无效'),
+    .uuid('邀请链接无效'),
 });
 
 export const updatePasswordSchema = z.object({
@@ -91,12 +96,6 @@ export const updateAccountSchema = z.object({
     .trim()
     .min(1, '请输入姓名')
     .max(100, '姓名不能超过 100 个字符'),
-  email: normalizedEmail,
-  // Required by the action only when the email address actually changes.
-  currentPassword: z
-    .string({ invalid_type_error: '密码格式不正确' })
-    .max(100, '密码不能超过 100 个字符')
-    .optional(),
 });
 
 export const removeOrgMemberSchema = z.object({

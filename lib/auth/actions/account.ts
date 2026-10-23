@@ -3,8 +3,10 @@
 import 'server-only';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getAuth } from '@/lib/auth/better-auth';
+import { authErrorMessage } from '@/lib/auth/errors';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
 import {
   checkRateLimit,
@@ -16,13 +18,11 @@ import {
   updateAccountSchema,
   updatePasswordSchema,
 } from '@/lib/auth/schemas';
-import { comparePasswords, hashPassword, setSession } from '@/lib/auth/session';
 import type { ActionState } from '@/lib/auth/types';
-import { isUniqueViolation } from '@/lib/db/errors';
 import { logActivity } from '@/lib/db/queries/activity';
-import { updateUserPassword, updateUserProfile } from '@/lib/db/queries/users';
+import { getSoleOwnerOrgNames } from '@/lib/db/queries/organizations';
 import { ActivityType } from '@/lib/db/schema';
-import { deleteUserAccount } from '@/lib/db/services';
+import { logger } from '@/lib/logger';
 
 export const updatePassword = validatedActionWithUser(
   updatePasswordSchema,
@@ -37,41 +37,37 @@ export const updatePassword = validatedActionWithUser(
       return { error: RATE_LIMIT_ERROR };
     }
 
-    const isPasswordValid = await comparePasswords(
-      currentPassword,
-      user.passwordHash
-    );
-
-    if (!isPasswordValid) {
-      return { error: '当前密码不正确。' };
-    }
-
     if (currentPassword === newPassword) {
-      return {
-        error: '新密码不能与当前密码相同。',
-      };
+      return { error: '新密码不能与当前密码相同。' };
     }
 
     if (confirmPassword !== newPassword) {
-      return {
-        error: '两次输入的新密码不一致。',
-      };
+      return { error: '两次输入的新密码不一致。' };
     }
 
-    const newPasswordHash = await hashPassword(newPassword);
-    const tokenVersion = await updateUserPassword(user.id, newPasswordHash);
-
-    // The version bump revokes other devices; re-sign this one so the user
-    // who just changed the password is not logged out immediately.
-    if (tokenVersion !== null) {
-      await setSession({ id: user.id, tokenVersion });
+    try {
+      await getAuth().api.changePassword({
+        body: {
+          currentPassword,
+          newPassword,
+          revokeOtherSessions: true,
+        },
+        headers: await headers(),
+      });
+    } catch (error) {
+      return { error: authErrorMessage(error) };
     }
 
-    await logActivity(user.id, null, ActivityType.UPDATE_PASSWORD);
+    try {
+      await logActivity(user.id, null, ActivityType.UPDATE_PASSWORD);
+    } catch (error) {
+      logger.warn('failed to write password activity log', {
+        userId: user.id,
+        error,
+      });
+    }
 
-    return {
-      success: '密码已更新。',
-    };
+    return { success: '密码已更新。' };
   }
 );
 
@@ -88,25 +84,33 @@ export const deleteAccount = validatedActionWithUser(
       return { error: RATE_LIMIT_ERROR };
     }
 
-    const isPasswordValid = await comparePasswords(password, user.passwordHash);
-    if (!isPasswordValid) {
-      return { error: '密码不正确，账号删除失败。' };
-    }
-
-    const result = await deleteUserAccount({
-      userId: user.id,
-      ipAddress: ip === 'unknown' ? undefined : ip,
-    });
-
-    if (!result.ok) {
+    const orgNames = await getSoleOwnerOrgNames(user.id);
+    if (orgNames.length > 0) {
       return {
-        error: `你是「${result.orgNames.join(
+        error: `你是「${orgNames.join(
           '、'
         )}」的唯一所有者，请先转让所有权或归档该组织。`,
       };
     }
 
-    (await cookies()).delete('session');
+    try {
+      await logActivity(user.id, null, ActivityType.DELETE_ACCOUNT);
+    } catch (error) {
+      logger.warn('failed to write delete-account activity log', {
+        userId: user.id,
+        error,
+      });
+    }
+
+    try {
+      await getAuth().api.deleteUser({
+        body: { password },
+        headers: await headers(),
+      });
+    } catch (error) {
+      return { error: authErrorMessage(error) };
+    }
+
     return redirect('/sign-in');
   }
 );
@@ -114,54 +118,25 @@ export const deleteAccount = validatedActionWithUser(
 export const updateAccount = validatedActionWithUser(
   updateAccountSchema,
   async (data, _, user): Promise<ActionState> => {
-    const { name, email, currentPassword } = data;
-    const emailChanged = email !== user.email.toLowerCase();
-
-    if (emailChanged) {
-      const ip = await getClientIp();
-      if (
-        !checkRateLimit(`update-account:${ip}:${user.id}`, 5, 15 * 60 * 1000)
-          .allowed
-      ) {
-        return { error: RATE_LIMIT_ERROR, name, email };
-      }
-
-      if (!currentPassword) {
-        return {
-          error: '修改邮箱需要输入当前密码。',
-          name,
-          email,
-          fieldErrors: { currentPassword: '请输入当前密码' },
-        };
-      }
-
-      if (!(await comparePasswords(currentPassword, user.passwordHash))) {
-        return {
-          error: '当前密码不正确。',
-          name,
-          email,
-          fieldErrors: { currentPassword: '当前密码不正确' },
-        };
-      }
+    try {
+      await getAuth().api.updateUser({
+        body: { name: data.name },
+        headers: await headers(),
+      });
+    } catch (error) {
+      return { error: authErrorMessage(error), name: data.name };
     }
 
     try {
-      await updateUserProfile({ userId: user.id, name, email });
+      await logActivity(user.id, null, ActivityType.UPDATE_ACCOUNT);
     } catch (error) {
-      if (isUniqueViolation(error)) {
-        return {
-          error: '该邮箱已被使用。',
-          name,
-          email,
-          fieldErrors: { email: '该邮箱已被使用' },
-        };
-      }
-      throw error;
+      logger.warn('failed to write account activity log', {
+        userId: user.id,
+        error,
+      });
     }
-
-    await logActivity(user.id, null, ActivityType.UPDATE_ACCOUNT);
     revalidatePath('/dashboard', 'layout');
 
-    return { name, email, success: '账号信息已更新。' };
+    return { name: data.name, success: '账号信息已更新。' };
   }
 );

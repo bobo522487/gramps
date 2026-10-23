@@ -10,7 +10,7 @@ export default async function SignUpPage({
 }) {
   const { invite } = await searchParams;
   if (invite && (await getSessionUser())) {
-    redirect(`/dashboard/join?token=${encodeURIComponent(invite)}`);
+    redirect(`/dashboard/join?invite=${encodeURIComponent(invite)}`);
   }
 
   return (

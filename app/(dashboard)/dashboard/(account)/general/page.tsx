@@ -43,34 +43,15 @@ function AccountForm({
         </Label>
         <Input
           id="email"
-          name="email"
           type="email"
-          placeholder="请输入邮箱"
-          defaultValue={state.email || emailValue}
+          value={emailValue}
+          readOnly
+          disabled
+          aria-describedby="email-hint"
         />
-        {state.fieldErrors?.email && (
-          <p className="mt-1 text-xs text-destructive">
-            {state.fieldErrors.email}
-          </p>
-        )}
-      </div>
-      <div>
-        <Label htmlFor="currentPassword" className="mb-2">
-          当前密码
-        </Label>
-        <Input
-          id="currentPassword"
-          name="currentPassword"
-          type="password"
-          autoComplete="current-password"
-          placeholder="仅修改邮箱时需要"
-          maxLength={100}
-        />
-        {state.fieldErrors?.currentPassword && (
-          <p className="mt-1 text-xs text-destructive">
-            {state.fieldErrors.currentPassword}
-          </p>
-        )}
+        <p id="email-hint" className="text-muted-foreground mt-1 text-xs">
+          登录邮箱暂不支持修改。
+        </p>
       </div>
     </>
   );
@@ -108,7 +89,7 @@ export default function GeneralPage() {
       <PageHeader
         icon={UserCog}
         title="通用设置"
-        description="姓名与邮箱用于登录，并会显示在组织成员列表中。"
+        description="姓名会显示在组织成员列表中；邮箱用于登录，暂不支持修改。"
       />
 
       <Card size="dense" className="max-w-2xl">

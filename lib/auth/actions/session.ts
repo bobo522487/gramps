@@ -2,9 +2,11 @@
 
 import 'server-only';
 
-import { cookies } from 'next/headers';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getAuth } from '@/lib/auth/better-auth';
 import { getSessionUser } from '@/lib/auth/context';
+import { authErrorMessage } from '@/lib/auth/errors';
 import { validatedAction } from '@/lib/auth/middleware';
 import {
   checkRateLimit,
@@ -12,16 +14,38 @@ import {
   RATE_LIMIT_ERROR,
 } from '@/lib/auth/rate-limit';
 import { signInSchema, signUpSchema } from '@/lib/auth/schemas';
-import { comparePasswords, hashPassword, setSession } from '@/lib/auth/session';
 import { logActivity } from '@/lib/db/queries/activity';
-import { findUserByEmail } from '@/lib/db/queries/users';
 import { ActivityType } from '@/lib/db/schema';
-import { registerAccount } from '@/lib/db/services';
+import { logger } from '@/lib/logger';
 
-// bcrypt of a throwaway value. Unknown emails are compared against it so the
-// response time doesn't reveal whether an account exists.
-const DUMMY_PASSWORD_HASH =
-  '$2b$10$mvwL1NLEj2rHQPE/s4V/h.v6uNKMG1MVbcuhhneJl5LsE29wpHtMq';
+function inviteId(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+/** Only same-origin absolute paths are accepted, never protocol-relative ones. */
+function safeRedirectPath(value: FormDataEntryValue | null): string | null {
+  return typeof value === 'string' &&
+    value.startsWith('/') &&
+    !value.startsWith('//')
+    ? value
+    : null;
+}
+
+async function logBestEffort(
+  userId: string,
+  type: ActivityType,
+  ipAddress?: string
+) {
+  try {
+    await logActivity(userId, null, type, ipAddress);
+  } catch (error) {
+    logger.warn('failed to write activity log', { type, userId, error });
+  }
+}
 
 export const signIn = validatedAction(signInSchema, async (data, formData) => {
   const { email, password } = data;
@@ -31,39 +55,37 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     return { error: RATE_LIMIT_ERROR, email };
   }
 
-  const foundUser = await findUserByEmail(email);
-  if (!foundUser) {
-    await comparePasswords(password, DUMMY_PASSWORD_HASH);
+  let userId: string;
+  try {
+    const result = await getAuth().api.signInEmail({
+      body: { email, password },
+      headers: await headers(),
+    });
+    userId = result.user.id;
+  } catch (error) {
+    const message = authErrorMessage(error);
     return {
-      error: '邮箱或密码不正确，请重试。',
+      error:
+        message === '操作失败，请稍后重试。'
+          ? '邮箱或密码不正确，请重试。'
+          : message,
       email,
     };
   }
 
-  const isPasswordValid = await comparePasswords(
-    password,
-    foundUser.passwordHash
+  await logBestEffort(
+    userId,
+    ActivityType.SIGN_IN,
+    ip === 'unknown' ? undefined : ip
   );
 
-  if (!isPasswordValid) {
-    return {
-      error: '邮箱或密码不正确，请重试。',
-      email,
-    };
+  const invite = inviteId(formData.get('invite'));
+  if (invite) {
+    redirect(`/dashboard/join?invite=${encodeURIComponent(invite)}`);
   }
 
-  await setSession({ id: foundUser.id, tokenVersion: foundUser.tokenVersion });
-  await logActivity(foundUser.id, null, ActivityType.SIGN_IN);
-
-  const inviteToken = formData.get('invite');
-  if (typeof inviteToken === 'string' && inviteToken.trim()) {
-    redirect(`/dashboard/join?token=${encodeURIComponent(inviteToken.trim())}`);
-  }
-
-  const redirectTo = formData.get('redirect') as string | null;
-
-  // Only allow same-origin absolute paths to prevent open redirects
-  if (redirectTo?.startsWith('/') && !redirectTo.startsWith('//')) {
+  const redirectTo = safeRedirectPath(formData.get('redirect'));
+  if (redirectTo) {
     redirect(redirectTo);
   }
 
@@ -71,30 +93,37 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
 });
 
 export const signUp = validatedAction(signUpSchema, async (data) => {
-  const { email, password, invite } = data;
+  const { email, password, name, invite } = data;
 
   const ip = await getClientIp();
   if (!checkRateLimit(`signup:${ip}`, 5, 60 * 60 * 1000).allowed) {
     return { error: RATE_LIMIT_ERROR, email };
   }
 
-  const passwordHash = await hashPassword(password);
-  const result = await registerAccount({
-    email,
-    name: '',
-    passwordHash,
-    inviteToken: invite || undefined,
-    ipAddress: ip === 'unknown' ? undefined : ip,
-  });
-
-  if (!result.ok) {
-    if (result.reason === 'invalid_invitation') {
-      return { error: '邀请无效或已过期。', email };
-    }
-    return { error: '该邮箱已被注册，请直接登录。', email };
+  let userId: string;
+  try {
+    const result = await getAuth().api.signUpEmail({
+      body: {
+        email,
+        password,
+        name: name ?? email.split('@')[0],
+      },
+      headers: await headers(),
+    });
+    userId = result.user.id;
+  } catch (error) {
+    return { error: authErrorMessage(error), email };
   }
 
-  await setSession(result.user);
+  await logBestEffort(
+    userId,
+    ActivityType.SIGN_UP,
+    ip === 'unknown' ? undefined : ip
+  );
+
+  if (invite) {
+    return redirect(`/dashboard/join?invite=${encodeURIComponent(invite)}`);
+  }
   return redirect('/dashboard');
 });
 
@@ -102,9 +131,13 @@ export async function signOut() {
   const user = await getSessionUser();
 
   if (user) {
-    await logActivity(user.id, null, ActivityType.SIGN_OUT);
+    await logBestEffort(user.id, ActivityType.SIGN_OUT);
   }
 
-  // Always clear the cookie, even when the session was already invalid.
-  (await cookies()).delete('session');
+  try {
+    await getAuth().api.signOut({ headers: await headers() });
+  } catch (error) {
+    // The cookie may already be gone; sign-out must still land on sign-in.
+    logger.warn('failed to revoke Better Auth session', { error });
+  }
 }
