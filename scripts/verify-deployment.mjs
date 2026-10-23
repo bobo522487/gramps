@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import dotenv from 'dotenv';
 import postgres from 'postgres';
 
@@ -24,7 +25,7 @@ const databaseUrl =
   process.env.POSTGRES_URL ??
   '';
 const appDatabaseUrl =
-  process.env.APP_DATABASE_URL ?? process.env.APP_POSTGRES_URL ?? '';
+  process.env.APP_POSTGRES_URL ?? process.env.APP_DATABASE_URL ?? '';
 
 let failed = false;
 
@@ -137,6 +138,29 @@ async function checkHttp() {
       target || '(missing location)'
     );
     checkSecurityHeaders('GET /dashboard', dashboard);
+
+    for (const path of ['/api/auth/ok', '/api/auth/sign-in/email']) {
+      const response = await fetchPath(path);
+      check(
+        response.status === 404,
+        `GET ${path} is not routed`,
+        `got ${response.status}`
+      );
+    }
+
+    const authPost = await fetchPath('/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'probe@example.com',
+        password: 'probe-password',
+      }),
+    });
+    check(
+      authPost.status === 404,
+      'POST /api/auth/sign-in/email is not routed',
+      `got ${authPost.status}`
+    );
   } catch (error) {
     fail(
       'HTTP checks',
@@ -159,6 +183,17 @@ const BUSINESS_TABLES = [
   'activity_logs',
 ];
 
+const AUTH_TABLES = ['users', 'session', 'account', 'verification'];
+
+const TENANT_TRIGGERS = [
+  ['auth', 'users', 'trg_auth_user_created'],
+  ['public', 'organization', 'trg_org_slug_immutable'],
+  ['public', 'organization_member', 'trg_org_member_last_owner_delete'],
+  ['public', 'organization_member', 'trg_org_member_last_owner_update'],
+  ['public', 'organization_member', 'trg_org_member_active_org'],
+  ['public', 'invite', 'trg_invite_active_org'],
+];
+
 function safeDbError(error) {
   if (error && typeof error === 'object' && 'code' in error) {
     return `SQLSTATE ${error.code}`;
@@ -170,7 +205,7 @@ async function checkRuntimeRls() {
   if (!appDatabaseUrl) {
     skip(
       'runtime RLS checks',
-      'set APP_DATABASE_URL to connect as the login role'
+      'set APP_POSTGRES_URL to connect as the login role'
     );
     return;
   }
@@ -252,7 +287,7 @@ async function checkDb() {
     );
     const unprotected = BUSINESS_TABLES.filter((name) => {
       const row = byName.get(name);
-      return !row || !row.relrowsecurity || !row.relforcerowsecurity;
+      return !row?.relrowsecurity || !row?.relforcerowsecurity;
     });
     check(
       unprotected.length === 0,
@@ -260,23 +295,121 @@ async function checkDb() {
       unprotected.length === 0 ? 'all business tables' : unprotected.join(', ')
     );
 
+    const authTables = await sql`
+      select c.relname, c.relrowsecurity, c.relforcerowsecurity
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'auth' and c.relkind = 'r'
+    `;
+    const authByName = new Map(authTables.map((row) => [row.relname, row]));
+    const missingAuthTables = AUTH_TABLES.filter(
+      (name) => !authByName.has(name)
+    );
+    check(
+      missingAuthTables.length === 0,
+      'auth tables exist',
+      missingAuthTables.length === 0
+        ? `${AUTH_TABLES.length} tables`
+        : missingAuthTables.join(', ')
+    );
+    const unprotectedAuth = AUTH_TABLES.filter((name) => {
+      const row = authByName.get(name);
+      return !row?.relrowsecurity || !row?.relforcerowsecurity;
+    });
+    check(
+      unprotectedAuth.length === 0,
+      'auth tables FORCE RLS',
+      unprotectedAuth.length === 0
+        ? 'all auth tables'
+        : unprotectedAuth.join(', ')
+    );
+
+    const journal = JSON.parse(
+      readFileSync(
+        new URL('../lib/db/migrations/meta/_journal.json', import.meta.url),
+        'utf8'
+      )
+    );
+    const expectedMigrations = journal.entries.length;
     const [migrations] = await sql`
       select count(*)::int as count from drizzle.__drizzle_migrations
     `;
     check(
-      (migrations?.count ?? 0) >= 3,
-      'migrations applied',
-      `${migrations?.count ?? 0} rows`
+      (migrations?.count ?? 0) === expectedMigrations,
+      'migrations match journal',
+      `${migrations?.count ?? 0}/${expectedMigrations}`
     );
 
-    const [appRw] = await sql`
-      select rolbypassrls from pg_roles where rolname = 'app_rw'
+    const roles = await sql`
+      select rolname, rolsuper, rolbypassrls, rolcanlogin
+      from pg_roles
+      where rolname in ('app_rw', 'auth_service')
     `;
-    check(Boolean(appRw), 'app_rw role exists');
+    const roleByName = new Map(roles.map((row) => [row.rolname, row]));
+    for (const role of ['app_rw', 'auth_service']) {
+      const row = roleByName.get(role);
+      check(Boolean(row), `${role} role exists`);
+      if (!row) {
+        continue;
+      }
+      check(row.rolsuper === false, `${role} is not superuser`);
+      check(row.rolbypassrls === false, `${role} cannot bypass RLS`);
+      check(row.rolcanlogin === false, `${role} is NOLOGIN`);
+    }
+
+    const [privileges] = await sql`
+      select
+        has_table_privilege('auth_service', 'auth.users', 'SELECT') as auth_users_select,
+        has_table_privilege('auth_service', 'auth.users', 'INSERT') as auth_users_insert,
+        has_table_privilege('auth_service', 'public.organization', 'INSERT') as auth_org_insert,
+        has_table_privilege('auth_service', 'public.organization_member', 'UPDATE') as auth_member_update,
+        has_table_privilege('app_rw', 'auth.users', 'SELECT') as app_auth_users_select,
+        has_table_privilege('app_rw', 'public.organization', 'INSERT') as app_org_insert,
+        has_table_privilege('app_rw', 'public.organization_member', 'UPDATE') as app_member_update,
+        has_table_privilege('app_rw', 'public.invite', 'SELECT') as app_invite_select,
+        has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select
+    `;
     check(
-      appRw?.rolbypassrls === false,
-      'app_rw cannot bypass RLS',
-      appRw ? `rolbypassrls=${appRw.rolbypassrls}` : 'role missing'
+      privileges?.auth_users_select === true &&
+        privileges?.auth_users_insert === true &&
+        privileges?.auth_org_insert === true &&
+        privileges?.auth_member_update === true,
+      'auth_service owns identity and tenant writes'
+    );
+    check(
+      privileges?.app_auth_users_select === false &&
+        privileges?.app_org_insert === false &&
+        privileges?.app_member_update === false &&
+        privileges?.app_invite_select === false,
+      'app_rw cannot read auth or write tenant tables'
+    );
+    check(
+      privileges?.auth_project_select === false,
+      'auth_service cannot read business tables'
+    );
+
+    const triggers = await sql`
+      select n.nspname, c.relname, t.tgname
+      from pg_trigger t
+      join pg_class c on c.oid = t.tgrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where not t.tgisinternal
+    `;
+    const triggerKeys = new Set(
+      triggers.map((row) => `${row.nspname}.${row.relname}.${row.tgname}`)
+    );
+    const missingTriggers = TENANT_TRIGGERS.filter(
+      ([schema, table, trigger]) =>
+        !triggerKeys.has(`${schema}.${table}.${trigger}`)
+    );
+    check(
+      missingTriggers.length === 0,
+      'auth and tenant triggers installed',
+      missingTriggers.length === 0
+        ? `${TENANT_TRIGGERS.length} triggers`
+        : missingTriggers
+            .map(([, table, trigger]) => `${table}.${trigger}`)
+            .join(', ')
     );
 
     const [app] = await sql`
@@ -290,6 +423,25 @@ async function checkDb() {
         select pg_has_role('app', 'app_rw', 'MEMBER') as member
       `;
       check(membership?.member === true, 'app is a member of app_rw');
+    }
+
+    const [authRuntime] = await sql`
+      select rolbypassrls from pg_roles where rolname = 'auth_runtime'
+    `;
+    if (!authRuntime) {
+      skip('auth runtime login role', 'not provisioned (created out of band)');
+    } else {
+      check(
+        authRuntime.rolbypassrls === false,
+        'auth_runtime cannot bypass RLS'
+      );
+      const [membership] = await sql`
+        select pg_has_role('auth_runtime', 'auth_service', 'MEMBER') as member
+      `;
+      check(
+        membership?.member === true,
+        'auth_runtime is a member of auth_service'
+      );
     }
   } catch (error) {
     fail('database checks', safeDbError(error));

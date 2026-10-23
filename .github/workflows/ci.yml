@@ -24,6 +24,8 @@ jobs:
           --health-retries 10
     env:
       POSTGRES_URL: postgres://postgres:postgres@localhost:5432/gramps_test
+      APP_POSTGRES_URL: postgres://app:app@localhost:5432/gramps_test
+      AUTH_POSTGRES_URL: postgres://auth_runtime:auth@localhost:5432/gramps_test
       BETTER_AUTH_SECRET: ci-placeholder-secret-value-long-enough-1234
       BETTER_AUTH_URL: http://localhost:3000
     steps:
@@ -46,6 +48,27 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Migrate test database
+        run: pnpm db:migrate
+
+      # Mirrors production setup: login roles are created out of band and only
+      # inherit the RLS-scoped app_rw / auth_service roles.
+      - name: Provision runtime login roles
+        run: |
+          psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
+              CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_runtime') THEN
+              CREATE ROLE auth_runtime LOGIN PASSWORD 'auth' NOSUPERUSER NOBYPASSRLS;
+            END IF;
+          END $$;
+          GRANT app_rw TO app;
+          GRANT auth_service TO auth_runtime;
+          SQL
 
       - name: Unit + integration tests with coverage
         run: pnpm test:coverage
@@ -84,7 +107,8 @@ jobs:
 
       - name: Deployment verification
         run: |
-          pnpm start -p 3100 > /tmp/gramps-server.log 2>&1 &
+          BETTER_AUTH_URL=http://127.0.0.1:3100 \
+            pnpm start -p 3100 > /tmp/gramps-server.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           curl -sS --retry 30 --retry-connrefused --retry-delay 2 \
