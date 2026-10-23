@@ -113,3 +113,74 @@ test('critical path: sign up, create project, record founder, add child, edit in
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('auth journey: invite, sign out, sign in, accept invitation', async ({
+  page,
+  browser,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+
+  const stamp = Date.now();
+  const password = 'Passw0rd!e2e';
+  const ownerEmail = `e2e-owner+${stamp}@example.com`;
+  const inviteeEmail = `e2e-invitee+${stamp}@example.com`;
+
+  await page.goto('/sign-up');
+  await page.locator('#email').fill(ownerEmail);
+  await page.locator('#password').fill(password);
+  await page.getByRole('button', { name: '注册', exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard\/org\/[^/]+$/);
+
+  const ownerSlug = new URL(page.url()).pathname
+    .split('/')
+    .filter(Boolean)
+    .at(-1);
+  expect(ownerSlug).toBeTruthy();
+
+  await page.goto(`/dashboard/org/${ownerSlug}/team`);
+  await page.locator('#invite-email').fill(inviteeEmail);
+  await page.getByRole('button', { name: '生成邀请链接' }).click();
+  const inviteField = page.locator('#invite-url');
+  await expect(inviteField).toBeVisible();
+  const inviteLink = await inviteField.inputValue();
+  expect(inviteLink).toContain('/sign-up?invite=');
+
+  await page.getByRole('button', { name: '账号菜单' }).click();
+  await page.getByRole('menuitem', { name: '退出登录' }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  await page.goto('/sign-in');
+  await page.locator('#email').fill(ownerEmail);
+  await page.locator('#password').fill(password);
+  await page.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/dashboard/org/${ownerSlug}$`));
+
+  const inviteeContext = await browser.newContext({
+    baseURL: new URL(inviteLink).origin,
+  });
+  const inviteePage = await inviteeContext.newPage();
+  try {
+    await inviteePage.goto(inviteLink);
+    await inviteePage.locator('#email').fill(inviteeEmail);
+    await inviteePage.locator('#password').fill(password);
+    await inviteePage
+      .getByRole('button', { name: '注册', exact: true })
+      .click();
+    await expect(inviteePage).toHaveURL(/\/dashboard\/join\?invite=/);
+    await expect(inviteePage.getByText(inviteeEmail)).toBeVisible();
+
+    await inviteePage.getByRole('button', { name: '接受邀请' }).click();
+    await expect(inviteePage).toHaveURL(/\/dashboard\/org\/[^/]+$/);
+
+    const teamResponse = await inviteePage.goto(
+      `/dashboard/org/${ownerSlug}/team`
+    );
+    expect(teamResponse?.status()).toBe(200);
+    await expect(inviteePage.getByText(inviteeEmail)).toBeVisible();
+  } finally {
+    await inviteeContext.close();
+  }
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});
