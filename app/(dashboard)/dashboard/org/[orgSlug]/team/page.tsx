@@ -1,12 +1,11 @@
 import { Users } from 'lucide-react';
-import { notFound } from 'next/navigation';
 import { PageHeader } from '@/components/console/page-header';
 import type { MemberView } from '@/components/org/members-panel';
 import { MembersPanel } from '@/components/org/members-panel';
 import { Badge } from '@/components/ui/badge';
 import { requireOrgContext } from '@/lib/auth/context';
 import { hasPermission } from '@/lib/auth/permissions';
-import { getOrgWithMembersById } from '@/lib/db/queries/organizations';
+import { listOrgMembers } from '@/lib/org/members';
 
 export default async function OrgTeamPage({
   params,
@@ -15,20 +14,14 @@ export default async function OrgTeamPage({
 }) {
   const { orgSlug } = await params;
   const context = await requireOrgContext(orgSlug);
-  const org = await getOrgWithMembersById(
-    context.user.id,
-    context.organization.id
-  );
-  if (!org) {
-    notFound();
-  }
+  const orgMembers = await listOrgMembers(context.organization.id);
 
-  const members: MemberView[] = org.members.map((member) => ({
+  const members: MemberView[] = orgMembers.map((member) => ({
     id: member.id,
     name: member.name,
     email: member.email,
     role: member.role,
-    joinedAt: member.createdAt.toISOString().slice(0, 10),
+    joinedAt: member.joinedAt.slice(0, 10),
   }));
 
   return (

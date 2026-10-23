@@ -67,9 +67,8 @@ export async function getProjectScopeByRef(userId: string, ref: string) {
       .innerJoin(
         orgMembers,
         and(
-          eq(orgMembers.orgId, organizations.id),
-          eq(orgMembers.userId, userId),
-          isNull(orgMembers.deletedAt)
+          eq(orgMembers.organizationId, organizations.id),
+          eq(orgMembers.userId, userId)
         )
       )
       .where(

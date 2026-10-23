@@ -34,7 +34,7 @@ import { roleLabel, roleVariant } from '@/lib/ui/status';
 
 export type MemberView = {
   id: string;
-  name: string | null;
+  name: string;
   email: string;
   role: string;
   joinedAt: string;
