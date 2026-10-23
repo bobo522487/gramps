@@ -21,6 +21,7 @@ function apiError(status: ApiStatus, code?: string) {
 describe('auth error messages', () => {
   it.each([
     ['INVALID_EMAIL_OR_PASSWORD', '邮箱或密码不正确，请重试。'],
+    ['INVALID_PASSWORD', '当前密码不正确。'],
     ['USER_ALREADY_EXISTS', '该邮箱已被注册，请直接登录。'],
     ['INVITATION_NOT_FOUND', '邀请无效或已过期。'],
     ['FAILED_TO_RETRIEVE_INVITATION', '邀请无效或已过期。'],

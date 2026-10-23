@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import postgres from 'postgres';
 import { describe, expect, it } from 'vitest';
 import { getTestDatabaseUrl, getTestSql } from '../helpers/db';
 
@@ -24,7 +28,7 @@ describe('migrations', () => {
       { count: number }[]
     >`SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations`;
 
-    expect(rows[0]?.count).toBeGreaterThanOrEqual(2);
+    expect(rows[0]?.count).toBeGreaterThanOrEqual(3);
   });
 
   it('creates exactly the ten business tables plus the activity feed', async () => {
@@ -53,7 +57,12 @@ describe('migrations', () => {
     >`SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'auth' AND table_type = 'BASE TABLE'`;
 
-    expect(authRows.map((row) => row.table_name)).toEqual(['users']);
+    expect(authRows.map((row) => row.table_name).sort()).toEqual([
+      'account',
+      'session',
+      'users',
+      'verification',
+    ]);
   });
 
   it('creates the public-id, membership and invitation indexes', async () => {
@@ -66,9 +75,8 @@ describe('migrations', () => {
         'uk_organization_slug',
         'uk_project_ref',
         'uk_project_organization_id',
-        'uk_org_member_active',
+        'uk_org_member_organization_user',
         'uk_org_member_single_owner',
-        'uk_invite_token',
         'uk_invite_pending_email',
         'idx_activity_logs_org',
         'idx_activity_logs_user',
@@ -97,7 +105,7 @@ describe('migrations', () => {
         AND n.nspname IN ('public', 'auth')
       ORDER BY n.nspname, c.relname`;
 
-    expect(rows).toHaveLength(12);
+    expect(rows).toHaveLength(15);
     for (const row of rows) {
       expect(row.enabled, `${row.schema}.${row.name} RLS`).toBe(true);
       expect(row.forced, `${row.schema}.${row.name} FORCE RLS`).toBe(true);
@@ -137,20 +145,59 @@ describe('migrations', () => {
       WHERE n.nspname = 'auth'`;
 
     expect(functions.map((row) => row.proname)).toEqual(
-      expect.arrayContaining([
-        'sign_up',
-        'find_user_by_email',
-        'get_session_user',
-        'update_password',
-        'update_profile',
-        'soft_delete_user',
-        'accept_invite',
-        'create_organization',
-        'list_org_members',
-        'is_user_in_org_by_email',
-      ])
+      expect.arrayContaining(['archive_organization', 'has_org_role', 'uid'])
     );
   });
+
+  it('aborts the Better Auth migration when legacy rows exist', async () => {
+    const admin = postgres(getTestDatabaseUrl(), {
+      max: 1,
+      onnotice: () => {},
+    });
+    const database = `gramps_guard_${randomUUID().replaceAll('-', '').slice(0, 12)}_test`;
+
+    try {
+      await admin.unsafe(`create database "${database}"`);
+      const tempUrl = new URL(getTestDatabaseUrl());
+      tempUrl.pathname = `/${database}`;
+      const temp = postgres(tempUrl.toString(), {
+        max: 1,
+        onnotice: () => {},
+      });
+
+      try {
+        for (const file of [
+          '0000_baseline.sql',
+          '0001_auth_rls.sql',
+          '0002_app_role_grant.sql',
+        ]) {
+          const migration = readFileSync(
+            join('lib/db/migrations', file),
+            'utf8'
+          );
+          await temp.unsafe(migration);
+        }
+
+        await temp`
+            insert into auth.users (email, name, password_hash)
+            values ('legacy@example.com', 'Legacy', 'legacy-hash')
+          `;
+
+        const betterAuth = readFileSync(
+          join('lib/db/migrations', '0003_better_auth.sql'),
+          'utf8'
+        );
+        await expect(temp.unsafe(betterAuth)).rejects.toThrow(
+          /empty auth\/tenant dataset/
+        );
+      } finally {
+        await temp.end({ timeout: 5 });
+      }
+    } finally {
+      await admin.unsafe(`drop database if exists "${database}" with (force)`);
+      await admin.end({ timeout: 5 });
+    }
+  }, 60_000);
 
   it('keeps activity logs attributable to users without an org', async () => {
     const rows = await getTestSql()<

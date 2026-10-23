@@ -11,6 +11,7 @@ const ORG_ARCHIVED_MESSAGE = '组织已归档，无法继续操作。';
 
 export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   INVALID_EMAIL_OR_PASSWORD: '邮箱或密码不正确，请重试。',
+  INVALID_PASSWORD: '当前密码不正确。',
   USER_ALREADY_EXISTS: '该邮箱已被注册，请直接登录。',
   USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: '该邮箱已被注册，请直接登录。',
   INVITATION_NOT_FOUND: '邀请无效或已过期。',
