@@ -33,25 +33,24 @@ const uuidPk = () => uuid('id').primaryKey().default(sql`uuidv7()`);
 export const authSchema = pgSchema('auth');
 
 /**
- * Self-hosted auth table. Not part of the ten business tables and not
- * reachable by app_rw directly; all access goes through auth.* functions.
+ * Self-hosted Better Auth user table. Not reachable by app_rw directly; the
+ * auth runtime reads it through auth_service and the SECURITY DEFINER
+ * functions in the `auth` schema.
  */
 export const users = authSchema.table(
   'users',
   {
     id: uuidPk(),
     email: text('email').notNull(),
-    name: text('name'),
-    passwordHash: text('password_hash').notNull(),
-    tokenVersion: integer('token_version').notNull().default(0),
+    name: text('name').notNull(),
+    emailVerified: boolean('email_verified').notNull().default(false),
+    image: text('image'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('uk_auth_users_email')
-      .on(sql`lower(${t.email})`)
-      .where(sql`${t.deletedAt} is null`),
+    uniqueIndex('uk_auth_users_email').on(sql`lower(${t.email})`),
+    index('idx_auth_users_email').on(t.email),
   ]
 );
 
@@ -62,8 +61,16 @@ export const organizations = pgTable(
     /** 20-char public id used as the first URL segment. Never user-supplied. */
     slug: text('slug').notNull().default(sql`public.generate_public_id()`),
     name: text('name').notNull(),
+    logo: text('logo'),
+    /**
+     * Better Auth's organization adapter JSON.stringify()s this value before
+     * writing and parses it back only when it is a string, so the column stays
+     * text rather than jsonb.
+     */
+    metadata: text('metadata'),
     status: text('status').notNull().default('active'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
     deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
@@ -77,11 +84,79 @@ export const organizations = pgTable(
   ]
 );
 
+export const sessions = authSchema.table(
+  'session',
+  {
+    id: uuidPk(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    token: text('token').notNull(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    activeOrganizationId: uuid('active_organization_id').references(
+      () => organizations.id,
+      { onDelete: 'set null' }
+    ),
+  },
+  (t) => [
+    uniqueIndex('uk_auth_session_token').on(t.token),
+    index('idx_auth_session_user').on(t.userId),
+  ]
+);
+
+export const accounts = authSchema.table(
+  'account',
+  {
+    id: uuidPk(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamptz('access_token_expires_at'),
+    refreshTokenExpiresAt: timestamptz('refresh_token_expires_at'),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uk_auth_account_provider_account').on(
+      t.providerId,
+      t.accountId
+    ),
+    index('idx_auth_account_user').on(t.userId),
+  ]
+);
+
+export const verifications = authSchema.table(
+  'verification',
+  {
+    id: uuidPk(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_auth_verification_identifier').on(t.identifier),
+    index('idx_auth_verification_expires').on(t.expiresAt),
+  ]
+);
+
 export const orgMembers = pgTable(
   'organization_member',
   {
     id: uuidPk(),
-    orgId: uuid('organization_id')
+    organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
@@ -89,19 +164,16 @@ export const orgMembers = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     role: text('role').notNull(),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by'),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
-    uniqueIndex('uk_org_member_active')
-      .on(t.orgId, t.userId)
-      .where(sql`${t.deletedAt} is null`),
+    uniqueIndex('uk_org_member_organization_user').on(
+      t.organizationId,
+      t.userId
+    ),
     uniqueIndex('uk_org_member_single_owner')
-      .on(t.orgId)
-      .where(sql`${t.role} = 'owner' and ${t.deletedAt} is null`),
-    index('idx_org_member_user')
-      .on(t.userId)
-      .where(sql`${t.deletedAt} is null`),
+      .on(t.organizationId)
+      .where(sql`${t.role} = 'owner'`),
+    index('idx_org_member_user').on(t.userId),
     check(
       'ck_org_member_role',
       sql`${t.role} in ('owner', 'admin', 'editor', 'viewer')`
@@ -113,32 +185,30 @@ export const invitations = pgTable(
   'invite',
   {
     id: uuidPk(),
-    orgId: uuid('organization_id')
+    organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
-    email: text('email'),
+    email: text('email').notNull(),
     role: text('role').notNull(),
-    tokenHash: text('token_hash').notNull(),
+    status: text('status').notNull().default('pending'),
     expiresAt: timestamptz('expires_at').notNull(),
-    acceptedAt: timestamptz('accepted_at'),
-    acceptedBy: uuid('accepted_by').references(() => users.id),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    deletedAt: timestamptz('deleted_at'),
+    inviterId: uuid('inviter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
   },
   (t) => [
-    uniqueIndex('uk_invite_token')
-      .on(t.tokenHash)
-      .where(sql`${t.deletedAt} is null`),
     uniqueIndex('uk_invite_pending_email')
-      .on(t.orgId, sql`lower(${t.email})`)
-      .where(
-        sql`${t.email} is not null and ${t.acceptedAt} is null and ${t.deletedAt} is null`
-      ),
+      .on(t.organizationId, sql`lower(${t.email})`)
+      .where(sql`${t.status} = 'pending'`),
     index('idx_invite_expiry')
       .on(t.expiresAt)
-      .where(sql`${t.acceptedAt} is null and ${t.deletedAt} is null`),
+      .where(sql`${t.status} = 'pending'`),
     check('ck_invite_role', sql`${t.role} in ('admin', 'editor', 'viewer')`),
+    check(
+      'ck_invite_status',
+      sql`${t.status} in ('pending', 'accepted', 'rejected', 'canceled')`
+    ),
   ]
 );
 
@@ -435,7 +505,7 @@ export const activityLogs = pgTable(
 );
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
-  orgMembers: many(orgMembers),
+  members: many(orgMembers),
   activityLogs: many(activityLogs),
   invitations: many(invitations),
   projects: many(projects),
@@ -449,17 +519,37 @@ export const projectsRelations = relations(projects, ({ one }) => ({
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({
-  orgMembers: many(orgMembers),
-  invitationsAccepted: many(invitations),
+  memberships: many(orgMembers),
+  sessions: many(sessions),
+  accounts: many(accounts),
+  invitationsSent: many(invitations),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
+  activeOrganization: one(organizations, {
+    fields: [sessions.activeOrganizationId],
+    references: [organizations.id],
+  }),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, {
+    fields: [accounts.userId],
+    references: [users.id],
+  }),
 }));
 
 export const invitationsRelations = relations(invitations, ({ one }) => ({
   organization: one(organizations, {
-    fields: [invitations.orgId],
+    fields: [invitations.organizationId],
     references: [organizations.id],
   }),
-  acceptedBy: one(users, {
-    fields: [invitations.acceptedBy],
+  inviter: one(users, {
+    fields: [invitations.inviterId],
     references: [users.id],
   }),
 }));
@@ -470,7 +560,7 @@ export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
     references: [users.id],
   }),
   organization: one(organizations, {
-    fields: [orgMembers.orgId],
+    fields: [orgMembers.organizationId],
     references: [organizations.id],
   }),
 }));
@@ -484,6 +574,12 @@ export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+export type Verification = typeof verifications.$inferSelect;
+export type NewVerification = typeof verifications.$inferInsert;
 export type Organization = typeof organizations.$inferSelect;
 export type NewOrganization = typeof organizations.$inferInsert;
 export type OrgMember = typeof orgMembers.$inferSelect;
