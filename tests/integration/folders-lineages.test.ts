@@ -199,7 +199,7 @@ describe('folder service', () => {
     const viewer = await createUser();
     await addMember({
       userId: viewer.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'viewer',
     });
 
@@ -405,7 +405,7 @@ describe('lineage service', () => {
     const viewer = await createUser();
     await addMember({
       userId: viewer.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'viewer',
     });
 

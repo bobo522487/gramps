@@ -50,6 +50,9 @@ export async function resetDatabase() {
        invite,
        organization_member,
        organization,
+       auth.session,
+       auth.account,
+       auth.verification,
        auth.users
      RESTART IDENTITY CASCADE`
   );

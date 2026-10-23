@@ -10,13 +10,9 @@ import {
   searchNodes,
 } from '@/lib/db/queries/nodes';
 import {
-  archiveOrg,
   getOrgById,
   getOrgsForUser,
-  getOrgWithMembersById,
   getOrgWithRoleBySlug,
-  isUserInOrgByEmail,
-  renameOrg,
 } from '@/lib/db/queries/organizations';
 import {
   countProjects,
@@ -25,17 +21,11 @@ import {
   getProjects,
 } from '@/lib/db/queries/projects';
 import {
-  findUserByEmail,
-  getSessionUserById,
-  softDeleteUser,
-  updateUserPassword,
-  updateUserProfile,
-} from '@/lib/db/queries/users';
-import {
   ActivityType,
   folders,
   lineages,
   nodes,
+  organizations,
   projects,
 } from '@/lib/db/schema';
 import { getTestDb } from '../helpers/db';
@@ -254,11 +244,15 @@ describe('node queries', () => {
 });
 
 describe('organization queries', () => {
-  it('reads, renames, archives and membership-checks an organization', async () => {
+  it('reads memberships and hides archived organizations', async () => {
     const owner = await createUser();
     const org = await personalOrgFor(owner.id);
     const member = await createUser();
-    await addMember({ userId: member.id, orgId: org.id, role: 'editor' });
+    await addMember({
+      userId: member.id,
+      organizationId: org.id,
+      role: 'editor',
+    });
 
     expect(await getOrgById(owner.id, org.id)).toMatchObject({ id: org.id });
     expect(await getOrgById(member.id, org.id)).toMatchObject({ id: org.id });
@@ -269,33 +263,24 @@ describe('organization queries', () => {
     const stranger = await createUser();
     expect(await getOrgById(stranger.id, org.id)).toBeNull();
 
-    const withMembers = await getOrgWithMembersById(owner.id, org.id);
-    expect(withMembers?.members.map((row) => row.email).sort()).toEqual(
-      [owner.email, member.email].sort()
-    );
-    expect(await getOrgWithMembersById(stranger.id, org.id)).toBeNull();
-
-    expect(await isUserInOrgByEmail(owner.id, member.email, org.id)).toBe(true);
-    expect(
-      await isUserInOrgByEmail(owner.id, 'nobody@example.com', org.id)
-    ).toBe(false);
-
-    expect(await renameOrg(owner.id, org.id, '颍川陈氏')).toMatchObject({
-      name: '颍川陈氏',
-    });
-    expect((await getOrgsForUser(owner.id))[0].organization.name).toBe(
-      '颍川陈氏'
+    const listed = await getOrgsForUser(member.id);
+    expect(listed.map((row) => row.organization.id)).toContain(org.id);
+    expect(listed.find((row) => row.organization.id === org.id)?.role).toBe(
+      'editor'
     );
 
-    expect(await archiveOrg(owner.id, org.id)).toMatchObject({
-      status: 'closed',
+    expect(await getOrgWithRoleBySlug(owner.id, org.slug)).toMatchObject({
+      role: 'owner',
     });
+    expect(await getOrgWithRoleBySlug(stranger.id, org.slug)).toBeNull();
+
+    await getTestDb()
+      .update(organizations)
+      .set({ status: 'closed', deletedAt: new Date() })
+      .where(eq(organizations.id, org.id));
     expect(await getOrgById(owner.id, org.id)).toBeNull();
     expect(await getOrgWithRoleBySlug(owner.id, org.slug)).toBeNull();
-
-    const archived = await createOrganization({ deletedAt: new Date() });
-    await addMember({ userId: owner.id, orgId: archived.id, role: 'owner' });
-    expect(await getOrgById(owner.id, archived.id)).toBeNull();
+    expect(await getOrgsForUser(owner.id)).toEqual([]);
   });
 });
 
@@ -359,43 +344,5 @@ describe('activity queries', () => {
 
     const other = await createUser();
     expect(await getActivityLogs(other.id)).toEqual([]);
-  });
-});
-
-describe('user queries', () => {
-  it('finds credentials case-insensitively and ignores deleted accounts', async () => {
-    const user = await createUser();
-    const found = await findUserByEmail(user.email.toUpperCase());
-
-    expect(found?.id).toBe(user.id);
-    expect(found?.passwordHash).toBe(user.passwordHash);
-    expect(await findUserByEmail('missing@example.com')).toBeNull();
-
-    const deleted = await createUser({ deletedAt: new Date() });
-    expect(await findUserByEmail(deleted.email)).toBeNull();
-  });
-
-  it('reads the session user, updates credentials and soft-deletes', async () => {
-    const user = await createUser();
-    const sessionUser = await getSessionUserById(user.id);
-    expect(sessionUser?.email).toBe(user.email);
-
-    const tokenVersion = await updateUserPassword(user.id, 'new-hash');
-    expect(tokenVersion).toBeGreaterThan(user.tokenVersion);
-
-    const newEmail = `updated-${user.id}@example.com`;
-    expect(
-      await updateUserProfile({
-        userId: user.id,
-        name: '新名字',
-        email: newEmail,
-      })
-    ).toMatchObject({ name: '新名字', email: newEmail });
-    expect((await findUserByEmail(newEmail))?.id).toBe(user.id);
-
-    await softDeleteUser(user.id);
-    // get_session_user() exposes the row; the auth layer rejects deletedAt.
-    expect((await getSessionUserById(user.id))?.deletedAt).not.toBeNull();
-    expect(await findUserByEmail(newEmail)).toBeNull();
   });
 });

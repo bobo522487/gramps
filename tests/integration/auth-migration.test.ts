@@ -34,7 +34,11 @@ async function personalOrg(userId: string) {
 describe('0003_better_auth migration', () => {
   it('creates the auth tables with forced RLS', async () => {
     const rows = await sql<
-      { relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]
+      {
+        relname: string;
+        relrowsecurity: boolean;
+        relforcerowsecurity: boolean;
+      }[]
     >`
       select c.relname, c.relrowsecurity, c.relforcerowsecurity
       from pg_class c

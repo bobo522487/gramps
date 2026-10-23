@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { hashSync } from 'bcryptjs';
-import { and, eq, isNull } from 'drizzle-orm';
-import { hashInviteToken } from '@/lib/auth/invite-token';
+import { and, eq } from 'drizzle-orm';
+import { getAuth } from '@/lib/auth/better-auth';
 import type { OrgRole } from '@/lib/auth/permissions';
 import {
   articles,
@@ -11,34 +10,32 @@ import {
   invitations,
   lineages,
   type NewOrganization,
-  type NewUser,
   nodes,
   organizations,
   orgMembers,
   projects,
-  users,
 } from '@/lib/db/schema';
 import { generatePublicId } from '@/lib/ids';
 import { getTestDb } from './db';
 
 export const TEST_PASSWORD = 'test-password-123';
-const DEFAULT_PASSWORD_HASH = hashSync(TEST_PASSWORD, 4);
 
 /**
- * Inserts directly into auth.users; the handle_new_user trigger creates the
- * personal organization and its owner membership in the same statement.
+ * Registers through Better Auth so the auth triggers, password hashing and
+ * handle_new_user personal-organization creation all run for real.
  */
-export async function createUser(overrides: Partial<NewUser> = {}) {
-  const [user] = await getTestDb()
-    .insert(users)
-    .values({
-      email: `test-${randomUUID()}@example.com`,
-      name: '测试用户',
-      passwordHash: DEFAULT_PASSWORD_HASH,
-      ...overrides,
-    })
-    .returning();
-  return user;
+export async function createUser(
+  overrides: Partial<{ email: string; name: string; password: string }> = {}
+) {
+  const email = overrides.email ?? `test-${randomUUID()}@example.com`;
+  const result = await getAuth().api.signUpEmail({
+    body: {
+      email,
+      name: overrides.name ?? '测试用户',
+      password: overrides.password ?? TEST_PASSWORD,
+    },
+  });
+  return result.user;
 }
 
 /** The trigger-created personal organization (earliest owned membership). */
@@ -46,14 +43,8 @@ export async function getPersonalOrg(userId: string) {
   const [row] = await getTestDb()
     .select({ organization: organizations, membership: orgMembers })
     .from(orgMembers)
-    .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
-    .where(
-      and(
-        eq(orgMembers.userId, userId),
-        eq(orgMembers.role, 'owner'),
-        isNull(orgMembers.deletedAt)
-      )
-    )
+    .innerJoin(organizations, eq(orgMembers.organizationId, organizations.id))
+    .where(and(eq(orgMembers.userId, userId), eq(orgMembers.role, 'owner')))
     .orderBy(organizations.createdAt)
     .limit(1);
   return row ?? null;
@@ -75,13 +66,16 @@ export async function createOrganization(
 
 export async function addMember(params: {
   userId: string;
-  orgId: string;
+  organizationId: string;
   role?: OrgRole;
-  createdBy?: string;
 }) {
   const [member] = await getTestDb()
     .insert(orgMembers)
-    .values({ role: 'viewer', ...params })
+    .values({
+      userId: params.userId,
+      organizationId: params.organizationId,
+      role: params.role ?? 'viewer',
+    })
     .returning();
   return member;
 }
@@ -265,25 +259,24 @@ export async function createCatalogItem(params: {
   return item;
 }
 export async function createInvitation(params: {
-  orgId: string;
-  invitedBy: string;
+  organizationId: string;
+  inviterId: string;
   email: string;
   role?: Exclude<OrgRole, 'owner'>;
   expiresAt?: Date;
-  token?: string;
+  status?: 'pending' | 'accepted' | 'rejected' | 'canceled';
 }) {
-  const token = params.token ?? randomUUID().replaceAll('-', '');
   const [invitation] = await getTestDb()
     .insert(invitations)
     .values({
-      orgId: params.orgId,
+      organizationId: params.organizationId,
       email: params.email,
       role: params.role ?? 'viewer',
-      tokenHash: hashInviteToken(token),
+      status: params.status ?? 'pending',
       expiresAt:
         params.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      createdBy: params.invitedBy,
+      inviterId: params.inviterId,
     })
     .returning();
-  return { ...invitation, token };
+  return invitation;
 }

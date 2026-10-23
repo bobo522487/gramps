@@ -38,7 +38,7 @@ describe('organization and project scope', () => {
     const organization = await createOrganization({ name: '陈氏族谱' });
     await addMember({
       userId: alice.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'owner',
     });
 
@@ -57,7 +57,7 @@ describe('organization and project scope', () => {
     const organization = await createOrganization({ deletedAt: new Date() });
     await addMember({
       userId: alice.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'owner',
     });
 
@@ -69,7 +69,7 @@ describe('organization and project scope', () => {
     const personal = await getPersonalOrg(alice.id);
     const organization = await createOrganization();
     const foreignOrganization = await createOrganization();
-    await addMember({ userId: alice.id, orgId: organization.id });
+    await addMember({ userId: alice.id, organizationId: organization.id });
 
     const rows = await getOrgsForUser(alice.id);
     const ids = rows.map((row) => row.organization.id);
@@ -84,8 +84,16 @@ describe('organization and project scope', () => {
     const bob = await createUser();
     const aliceOrg = await createOrganization();
     const bobOrg = await createOrganization();
-    await addMember({ userId: alice.id, orgId: aliceOrg.id, role: 'owner' });
-    await addMember({ userId: bob.id, orgId: bobOrg.id, role: 'owner' });
+    await addMember({
+      userId: alice.id,
+      organizationId: aliceOrg.id,
+      role: 'owner',
+    });
+    await addMember({
+      userId: bob.id,
+      organizationId: bobOrg.id,
+      role: 'owner',
+    });
     const aliceProject = await createProject({
       orgId: aliceOrg.id,
       createdBy: alice.id,
@@ -109,7 +117,11 @@ describe('organization and project scope', () => {
     const alice = await createUser();
     const aliceOrg = await createOrganization();
     const otherOrg = await createOrganization();
-    await addMember({ userId: alice.id, orgId: aliceOrg.id, role: 'owner' });
+    await addMember({
+      userId: alice.id,
+      organizationId: aliceOrg.id,
+      role: 'owner',
+    });
     const project = await createProject({
       orgId: aliceOrg.id,
       createdBy: alice.id,
@@ -157,7 +169,7 @@ describe('organization and project scope', () => {
     const organization = await createOrganization();
     await addMember({
       userId: alice.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'owner',
     });
     const project = await createProject({
@@ -199,15 +211,18 @@ describe('role permissions for project.write', () => {
     const editor = await createUser();
     const admin = await createUser();
     const organization = await createOrganization();
-    await addMember({ userId: viewer.id, orgId: organization.id });
+    await addMember({
+      userId: viewer.id,
+      organizationId: organization.id,
+    });
     await addMember({
       userId: editor.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'editor',
     });
     await addMember({
       userId: admin.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'admin',
     });
 
@@ -234,7 +249,7 @@ describe('row level security', () => {
   it('returns no rows without JWT claims', async () => {
     const alice = await createUser();
     const organization = await createOrganization();
-    await addMember({ userId: alice.id, orgId: organization.id });
+    await addMember({ userId: alice.id, organizationId: organization.id });
     await createProject({ orgId: organization.id, createdBy: alice.id });
 
     const counts = await getTestSql().begin(async (tx) => {
@@ -318,7 +333,7 @@ describe('row level security', () => {
   it('blocks viewers from writing projects through RLS', async () => {
     const viewer = await createUser();
     const organization = await createOrganization();
-    await addMember({ userId: viewer.id, orgId: organization.id });
+    await addMember({ userId: viewer.id, organizationId: organization.id });
 
     await expect(
       withOrg(viewer.id, (tx) =>
