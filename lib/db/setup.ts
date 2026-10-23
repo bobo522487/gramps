@@ -91,8 +91,8 @@ volumes:
   }
 }
 
-function generateAuthSecret(): string {
-  console.log('Step 2: Generating AUTH_SECRET...');
+function generateBetterAuthSecret(): string {
+  console.log('Step 2: Generating BETTER_AUTH_SECRET...');
   return crypto.randomBytes(32).toString('hex');
 }
 
@@ -108,11 +108,12 @@ async function writeEnvFile(envVars: Record<string, string>) {
 
 async function main() {
   const POSTGRES_URL = await checkPostgres();
-  const AUTH_SECRET = generateAuthSecret();
+  const BETTER_AUTH_SECRET = generateBetterAuthSecret();
 
   await writeEnvFile({
     POSTGRES_URL,
-    AUTH_SECRET,
+    BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: 'http://localhost:3000',
   });
 
   console.log('🎉 Setup completed successfully!');

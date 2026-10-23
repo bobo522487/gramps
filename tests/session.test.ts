@@ -19,7 +19,8 @@ let dbUser: {
 const USER_ID = '0190a5b0-0000-7000-8000-000000000001';
 
 beforeAll(async () => {
-  process.env.AUTH_SECRET = 'test-secret-value-long-enough-for-hs256-abcd';
+  process.env.BETTER_AUTH_SECRET =
+    'test-secret-value-long-enough-for-hs256-abcd';
 
   vi.doMock('next/headers', () => ({
     cookies: async () => ({
@@ -77,7 +78,7 @@ describe('session token', () => {
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
       .setExpirationTime('-1s')
-      .sign(new TextEncoder().encode(process.env.AUTH_SECRET));
+      .sign(new TextEncoder().encode(process.env.BETTER_AUTH_SECRET));
     await expect(verifyToken(token)).rejects.toThrow();
   });
 });

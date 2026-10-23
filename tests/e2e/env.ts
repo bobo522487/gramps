@@ -1,7 +1,7 @@
 import { resolveTestDatabaseUrl } from '../helpers/db-url';
 
 export const E2E_PORT = 3100;
-export const E2E_AUTH_SECRET = 'e2e-test-auth-secret-0123456789abcdef';
+export const E2E_BETTER_AUTH_SECRET = 'e2e-test-auth-secret-0123456789abcdef';
 
 export function isExternalMode(): boolean {
   return process.env.E2E_EXTERNAL_SERVER === '1';

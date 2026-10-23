@@ -6,13 +6,13 @@ import { cookies } from 'next/headers';
 
 let cachedKey: Uint8Array | null = null;
 
-/** Built on first use so missing AUTH_SECRET doesn't crash import-time. */
+/** Built on first use so missing BETTER_AUTH_SECRET doesn't crash import-time. */
 function getKey(): Uint8Array {
   if (!cachedKey) {
-    if (!process.env.AUTH_SECRET) {
-      throw new Error('AUTH_SECRET environment variable is not set');
+    if (!process.env.BETTER_AUTH_SECRET) {
+      throw new Error('BETTER_AUTH_SECRET environment variable is not set');
     }
-    cachedKey = new TextEncoder().encode(process.env.AUTH_SECRET);
+    cachedKey = new TextEncoder().encode(process.env.BETTER_AUTH_SECRET);
   }
   return cachedKey;
 }

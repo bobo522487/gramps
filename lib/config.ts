@@ -2,30 +2,41 @@ import 'server-only';
 
 import { z } from 'zod';
 
-const serverConfigSchema = z.object({
-  POSTGRES_URL: z
-    .string()
-    .min(1, 'POSTGRES_URL is required')
-    .refine(
-      (value) =>
-        value.startsWith('postgres://') || value.startsWith('postgresql://'),
-      'POSTGRES_URL must be a postgres:// or postgresql:// URL'
-    ),
-  APP_POSTGRES_URL: z
-    .string()
-    .min(1, 'APP_POSTGRES_URL must not be empty')
-    .refine(
-      (value) =>
-        value.startsWith('postgres://') || value.startsWith('postgresql://'),
-      'APP_POSTGRES_URL must be a postgres:// or postgresql:// URL'
-    )
-    .optional(),
-  AUTH_SECRET: z
-    .string()
-    .min(32, 'AUTH_SECRET must be at least 32 characters long'),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional(),
-  BASE_URL: z.string().url('BASE_URL must be a valid URL').optional(),
-});
+const postgresUrl = z
+  .string()
+  .min(1, 'must not be empty')
+  .refine(
+    (value) =>
+      value.startsWith('postgres://') || value.startsWith('postgresql://'),
+    'must be a postgres:// or postgresql:// URL'
+  );
+
+const serverConfigSchema = z
+  .object({
+    POSTGRES_URL: postgresUrl,
+    APP_POSTGRES_URL: postgresUrl.optional(),
+    AUTH_POSTGRES_URL: postgresUrl.optional(),
+    BETTER_AUTH_SECRET: z
+      .string()
+      .min(32, 'BETTER_AUTH_SECRET must be at least 32 characters long'),
+    BETTER_AUTH_URL: z.string().url('BETTER_AUTH_URL must be a valid URL'),
+    LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  })
+  .superRefine((config, ctx) => {
+    if (!process.env.VERCEL) {
+      return;
+    }
+
+    for (const key of ['APP_POSTGRES_URL', 'AUTH_POSTGRES_URL'] as const) {
+      if (!config[key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required in production`,
+        });
+      }
+    }
+  });
 
 export type ServerConfig = z.infer<typeof serverConfigSchema>;
 
