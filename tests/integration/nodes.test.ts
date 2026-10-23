@@ -610,7 +610,7 @@ describe('node tree semantics', () => {
     const viewer = await createUser();
     await addMember({
       userId: viewer.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'viewer',
     });
     const denied = await createRootNodeInTransaction({

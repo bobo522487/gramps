@@ -6,7 +6,6 @@ import {
   folders,
   invitations,
   orgMembers,
-  users,
 } from '@/lib/db/schema';
 import { getTestDb, getTestSql } from '../helpers/db';
 import {
@@ -23,20 +22,10 @@ describe('database constraints', () => {
 
     await expect(
       createUser({ email: user.email.toUpperCase() })
-    ).rejects.toMatchObject({ code: '23505' });
-  });
-
-  it('allows reusing an email after the account is soft-deleted', async () => {
-    const user = await createUser({ email: 'reuse@example.com' });
-
-    await getTestDb()
-      .update(users)
-      .set({ deletedAt: new Date() })
-      .where(eq(users.id, user.id));
-
-    await expect(
-      createUser({ email: 'reuse@example.com' })
-    ).resolves.toBeDefined();
+    ).rejects.toMatchObject({
+      status: 'UNPROCESSABLE_ENTITY',
+      body: { code: 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' },
+    });
   });
 
   it('rejects duplicate organization slugs', async () => {
@@ -79,10 +68,14 @@ describe('database constraints', () => {
   it('rejects duplicate active memberships', async () => {
     const user = await createUser();
     const organization = await createOrganization();
-    await addMember({ userId: user.id, orgId: organization.id });
+    await addMember({ userId: user.id, organizationId: organization.id });
 
     await expect(
-      addMember({ userId: user.id, orgId: organization.id, role: 'editor' })
+      addMember({
+        userId: user.id,
+        organizationId: organization.id,
+        role: 'editor',
+      })
     ).rejects.toMatchObject({ code: '23505' });
   });
 
@@ -91,16 +84,19 @@ describe('database constraints', () => {
     const organization = await createOrganization();
     const membership = await addMember({
       userId: user.id,
-      orgId: organization.id,
+      organizationId: organization.id,
     });
 
     await getTestDb()
-      .update(orgMembers)
-      .set({ deletedAt: new Date() })
+      .delete(orgMembers)
       .where(eq(orgMembers.id, membership.id));
 
     await expect(
-      addMember({ userId: user.id, orgId: organization.id, role: 'editor' })
+      addMember({
+        userId: user.id,
+        organizationId: organization.id,
+        role: 'editor',
+      })
     ).resolves.toBeDefined();
   });
 
@@ -109,9 +105,11 @@ describe('database constraints', () => {
     const organization = await createOrganization();
 
     await expect(
-      getTestDb()
-        .insert(orgMembers)
-        .values({ userId: user.id, orgId: organization.id, role: 'member' })
+      getTestDb().insert(orgMembers).values({
+        userId: user.id,
+        organizationId: organization.id,
+        role: 'member',
+      })
     ).rejects.toMatchObject({ code: '23514' });
   });
 
@@ -121,14 +119,14 @@ describe('database constraints', () => {
     const organization = await createOrganization();
     await addMember({
       userId: first.id,
-      orgId: organization.id,
+      organizationId: organization.id,
       role: 'owner',
     });
 
     await expect(
       addMember({
         userId: second.id,
-        orgId: organization.id,
+        organizationId: organization.id,
         role: 'owner',
       })
     ).rejects.toMatchObject({ code: '23505' });
@@ -142,12 +140,11 @@ describe('database constraints', () => {
       getTestDb()
         .insert(invitations)
         .values({
-          orgId: organization.id,
+          organizationId: organization.id,
           email: 'owner@example.com',
           role: 'owner',
-          tokenHash: 'f'.repeat(64),
+          inviterId: owner.id,
           expiresAt: new Date(Date.now() + 86_400_000),
-          createdBy: owner.id,
         })
     ).rejects.toMatchObject({ code: '23514' });
   });
@@ -156,15 +153,15 @@ describe('database constraints', () => {
     const invitedBy = await createUser();
     const organization = await createOrganization();
     await createInvitation({
-      orgId: organization.id,
-      invitedBy: invitedBy.id,
+      organizationId: organization.id,
+      inviterId: invitedBy.id,
       email: 'Dup@Example.com',
     });
 
     await expect(
       createInvitation({
-        orgId: organization.id,
-        invitedBy: invitedBy.id,
+        organizationId: organization.id,
+        inviterId: invitedBy.id,
         email: 'dup@example.com',
       })
     ).rejects.toMatchObject({ code: '23505' });
@@ -174,43 +171,43 @@ describe('database constraints', () => {
     const invitedBy = await createUser();
     const organization = await createOrganization();
     const first = await createInvitation({
-      orgId: organization.id,
-      invitedBy: invitedBy.id,
+      organizationId: organization.id,
+      inviterId: invitedBy.id,
       email: 'again@example.com',
     });
 
     await getTestDb()
       .update(invitations)
-      .set({ acceptedAt: new Date(), acceptedBy: invitedBy.id })
+      .set({ status: 'accepted' })
       .where(eq(invitations.id, first.id));
 
     await expect(
       createInvitation({
-        orgId: organization.id,
-        invitedBy: invitedBy.id,
+        organizationId: organization.id,
+        inviterId: invitedBy.id,
         email: 'again@example.com',
       })
     ).resolves.toBeDefined();
   });
 
-  it('allows a new invitation after the previous one is revoked', async () => {
+  it('allows a new invitation after the previous one is canceled', async () => {
     const invitedBy = await createUser();
     const organization = await createOrganization();
     const first = await createInvitation({
-      orgId: organization.id,
-      invitedBy: invitedBy.id,
+      organizationId: organization.id,
+      inviterId: invitedBy.id,
       email: 'revoked@example.com',
     });
 
     await getTestDb()
       .update(invitations)
-      .set({ deletedAt: new Date() })
+      .set({ status: 'canceled' })
       .where(eq(invitations.id, first.id));
 
     await expect(
       createInvitation({
-        orgId: organization.id,
-        invitedBy: invitedBy.id,
+        organizationId: organization.id,
+        inviterId: invitedBy.id,
         email: 'revoked@example.com',
       })
     ).resolves.toBeDefined();

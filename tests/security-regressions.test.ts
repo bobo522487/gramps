@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -15,33 +15,18 @@ const actionTypes = read('../lib/auth/types.ts');
 const userRouteSource = read('../app/api/user/route.ts');
 const rootLayoutSource = read('../app/layout.tsx');
 const contextSource = read('../lib/auth/context.ts');
+const proxySource = read('../proxy.ts');
 const orgQueriesSource = read('../lib/db/queries/organizations.ts');
 const projectQueriesSource = read('../lib/db/queries/projects.ts');
-const usersQueriesSource = read('../lib/db/queries/users.ts');
 const drizzleSource = read('../lib/db/drizzle.ts');
 
 describe('auth action source guards', () => {
   it('never echoes password fields back in action state', () => {
     // Return-position shorthand properties would leak plaintext credentials
     // into the RSC payload, e.g. `return { error, password }`.
-    for (const field of [
-      'password,',
-      'currentPassword,',
-      'newPassword,',
-      'confirmPassword,',
-    ]) {
-      expect(actionsSource).not.toContain(`\n        ${field}`);
-    }
     expect(actionsSource).not.toMatch(/return \{[^}]*[\s,]password\s*[,}]/);
     expect(actionsSource).not.toMatch(
       /return \{[^}]*[\s,](currentPassword|newPassword|confirmPassword)\s*[,}]/
-    );
-  });
-
-  it('equalizes sign-in timing for unknown emails', () => {
-    // Without the dummy comparison, response time reveals registered emails
-    expect(actionsSource).toMatch(
-      /if \(!foundUser\) \{[\s\S]*?comparePasswords\(\s*password,\s*DUMMY_PASSWORD_HASH\s*\)/
     );
   });
 
@@ -59,6 +44,24 @@ describe('auth action source guards', () => {
     expect(rootLayoutSource).toContain(
       '{ id: user.id, name: user.name, email: user.email }'
     );
+  });
+
+  it('keeps Better Auth behind the server and Server Actions', () => {
+    expect(existsSync(resolve(import.meta.dirname, '../app/api/auth'))).toBe(
+      false
+    );
+    expect(proxySource).toContain('getSessionCookie');
+    expect(proxySource).not.toContain('verifySessionToken');
+    expect(contextSource).toContain('getAuth().api.getSession');
+    expect(contextSource).toMatch(
+      /return \{\s*id: session\.user\.id,\s*name: session\.user\.name,\s*email: session\.user\.email,?\s*\}/
+    );
+  });
+
+  it('has no bcrypt or JWT dependencies left in auth code', () => {
+    expect(actionsSource).not.toContain('bcrypt');
+    expect(actionsSource).not.toContain('signToken');
+    expect(proxySource).not.toContain('jose');
   });
 });
 
@@ -90,18 +93,17 @@ describe('authorization invariants', () => {
     expect(projectScope).toContain('eq(projects.ref, ref)');
   });
 
-  it('runs every business query as app_rw with verified JWT claims', () => {
+  it('runs every business query as app_rw with verified claims', () => {
     // RLS only protects the app if SET LOCAL role and claims are set in the
     // same transaction; a session-level SET would leak into pooled requests.
     expect(drizzleSource).toContain('set local role app_rw');
     expect(drizzleSource).toContain("set_config('request.jwt.claims'");
   });
 
-  it('reaches auth.users only through SECURITY DEFINER functions', () => {
-    expect(usersQueriesSource).toContain('auth.find_user_by_email');
-    expect(usersQueriesSource).toContain('auth.get_session_user');
-    expect(usersQueriesSource).not.toMatch(/from\(users\)/);
-    expect(usersQueriesSource).not.toMatch(/insert\(users\)/);
+  it('keeps organization membership in Better Auth tables only', () => {
+    expect(orgQueriesSource).toContain('eq(orgMembers.organizationId');
+    expect(orgQueriesSource).not.toContain('orgMembers.deletedAt');
+    expect(orgQueriesSource).not.toContain('eq(orgMembers.orgId');
   });
 
   it('keeps public-id routes behind the membership gate', () => {

@@ -11,26 +11,26 @@ import {
   getPersonalOrg,
 } from '../helpers/factories';
 
-const session = vi.hoisted(() => ({ token: undefined as string | undefined }));
+const session = vi.hoisted(() => ({
+  cookie: undefined as string | undefined,
+}));
 
 vi.mock('next/headers', () => ({
-  cookies: async () => ({
-    get: (name: string) => {
-      if (name !== 'session' || !session.token) {
-        return undefined;
-      }
-      return { name, value: session.token };
-    },
-  }),
-  headers: async () => new Headers(),
+  headers: async () => {
+    const headers = new Headers();
+    if (session.cookie) {
+      headers.set('cookie', session.cookie);
+    }
+    return headers;
+  },
 }));
 
 beforeEach(() => {
-  session.token = undefined;
+  session.cookie = undefined;
 });
 
-async function signIn(user: { id: string; tokenVersion: number }) {
-  session.token = await signSessionFor(user.id, user.tokenVersion);
+async function signIn(user: { email: string }) {
+  session.cookie = await signSessionFor(user.email);
 }
 
 describe('read-only API authentication', () => {
@@ -95,7 +95,7 @@ describe('read-only API contracts', () => {
     const foreign = await getPersonalOrg(bob.id);
     await addMember({
       userId: alice.id,
-      orgId: joined.id,
+      organizationId: joined.id,
       role: 'editor',
     });
     await signIn(alice);
