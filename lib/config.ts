@@ -11,6 +11,15 @@ const serverConfigSchema = z.object({
         value.startsWith('postgres://') || value.startsWith('postgresql://'),
       'POSTGRES_URL must be a postgres:// or postgresql:// URL'
     ),
+  APP_POSTGRES_URL: z
+    .string()
+    .min(1, 'APP_POSTGRES_URL must not be empty')
+    .refine(
+      (value) =>
+        value.startsWith('postgres://') || value.startsWith('postgresql://'),
+      'APP_POSTGRES_URL must be a postgres:// or postgresql:// URL'
+    )
+    .optional(),
   AUTH_SECRET: z
     .string()
     .min(32, 'AUTH_SECRET must be at least 32 characters long'),

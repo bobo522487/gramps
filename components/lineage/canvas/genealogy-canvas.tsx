@@ -146,9 +146,22 @@ function CanvasInner({
     }
   }, [focus]);
 
+  const lastMaxGeneration = useRef(index.maxGeneration);
+
   useEffect(() => {
+    const previousMax = lastMaxGeneration.current;
+    lastMaxGeneration.current = index.maxGeneration;
+
     if (renderGenerationLimit === 0 && index.maxGeneration > 0) {
       setRenderGenerationLimit(freshLimit);
+    } else if (
+      index.maxGeneration > previousMax &&
+      renderGenerationLimit >= previousMax
+    ) {
+      // New generations were added while the whole tree was rendered (e.g. a
+      // child was just created); keep the new node visible instead of hiding
+      // it behind the lazy window until a reload.
+      setRenderGenerationLimit(index.maxGeneration);
     } else if (renderGenerationLimit > index.maxGeneration) {
       setRenderGenerationLimit(index.maxGeneration);
     }

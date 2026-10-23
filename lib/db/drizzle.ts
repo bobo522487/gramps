@@ -20,18 +20,21 @@ type Db = PostgresJsDatabase<typeof schema> & {
 };
 
 function createDb(): Db {
-  const { POSTGRES_URL } = getServerConfig();
+  const { POSTGRES_URL, APP_POSTGRES_URL } = getServerConfig();
+  // APP_POSTGRES_URL points at the dedicated non-owner login role (`app`)
+  // when the platform-managed URL uses the database owner.
+  const connectionString = APP_POSTGRES_URL ?? POSTGRES_URL;
 
   if (process.env.VERCEL) {
     // Vercel Fluid compute: let the platform freeze/resume the pg pool
     // instead of leaking connections between invocations.
-    const pool = new Pool({ connectionString: POSTGRES_URL, max: 5 });
+    const pool = new Pool({ connectionString, max: 5 });
     attachDatabasePool(pool);
     // The SQL surface used by the app is driver-agnostic.
     return drizzleNodePg(pool, { schema }) as unknown as Db;
   }
 
-  return drizzlePostgres(postgres(POSTGRES_URL), { schema });
+  return drizzlePostgres(postgres(connectionString), { schema });
 }
 
 let instance: Db | null = null;

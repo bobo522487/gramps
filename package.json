@@ -16,7 +16,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:coverage": "vitest run --config vitest.coverage.config.ts --coverage",
+    "test:e2e": "playwright test",
+    "verify:deploy": "node scripts/verify-deployment.mjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "4.1.7",
@@ -47,10 +50,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
+    "@playwright/test": "1.64.1",
     "@types/node": "^22.15.18",
     "@types/pg": "^8.23.1",
     "@types/react": "19.1.4",
     "@types/react-dom": "19.1.5",
+    "@vitest/coverage-v8": "3.2.7",
     "dotenv": "^16.5.0",
     "drizzle-kit": "^0.31.1",
     "typescript": "^5.8.3",

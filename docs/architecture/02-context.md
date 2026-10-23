@@ -1,0 +1,122 @@
+# 系统上下文与部署
+
+> **回答什么问题**：系统边界在哪？谁跟它交互？部署成什么样？本地和生产有什么差别？
+> **读者**：开发 · 运维　**长度上限**：3 页
+> **来源**：原 `architect.md` §2 · §3 · §10（编号保持不变）
+> **目标 vs 现状**：本文描述目标架构。差异见 [实现状态](../implementation-status.md)。
+
+---
+
+## 2. 系统上下文
+
+```
+                    ┌──────────────────────────┐
+                    │   谱系编纂 SaaS（本系统）  │
+                    └────────────┬─────────────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              │                  │                  │
+        ┌─────▼─────┐     ┌──────▼──────┐    ┌──────▼──────┐
+        │  编纂者    │     │   Vercel    │    │  运维        │
+        │ (浏览器)   │     │ Next.js +   │    │ (日志/探针)  │
+        └───────────┘     │ 自定义域名   │    └─────────────┘
+                          └──────┬──────┘
+                                 │ pg.Pool + attachDatabasePool（Neon pooled）
+                          ┌──────▼──────┐
+                          │    Neon     │
+                          │ PostgreSQL  │
+                          │    18+      │
+                          └─────────────┘
+```
+
+| 外部角色 | 交互方式 | 说明 |
+|---|---|---|
+| 编纂者 | 浏览器，登录后使用 | 修谱工作室成员或家族内部人员 |
+| Vercel | HTTPS + 托管 Next.js | 应用运行、TLS、自定义域名、CDN |
+| Neon | `pg` 连接池 + `attachDatabasePool` | 托管 PostgreSQL 18+；10 张业务表 + `auth.users` |
+| 运维 | Vercel / Neon 日志、`GET /api/health` | 无外部监控服务；故障排查靠结构化日志与探针 |
+
+**M1 没有匿名访问者。** 所有页面都需要登录——没有分享页，没有公开 API。M2 引入分享后才出现「族内读者」这个角色。
+
+---
+
+## 3. 部署视图
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│ 浏览器                                                         │
+│  React 19 客户端组件（画布、编辑器、表单）                        │
+└───────────────────────────┬───────────────────────────────────┘
+                            │ HTTPS
+┌───────────────────────────▼───────────────────────────────────┐
+│ Vercel（Next.js 运行时，多实例无状态）                            │
+│                                                               │
+│  Next.js 16 App Router                                        │
+│   ├─ RSC            读操作，服务端直出                          │
+│   ├─ Server Action  写操作                                      │
+│   └─ Route Handler  1 个：/api/health                           │
+│                                                               │
+│  业务模块（6 个）                                               │
+│  认证：bcrypt 校验 + jose JWT 签发/验签（进程内）                 │
+│  仓储层（Drizzle；本地 postgres.js / 生产 pg）                   │
+└───────────────────────────┬───────────────────────────────────┘
+                            │ pg.Pool + attachDatabasePool（pooled endpoint）
+┌───────────────────────────▼───────────────────────────────────┐
+│ Neon PostgreSQL 18+                                           │
+│  ├─ public schema：10 张业务表（全部强制 RLS）                   │
+│  └─ auth schema：auth.users 与 SECURITY DEFINER 认证函数         │
+└───────────────────────────────────────────────────────────────┘
+```
+
+本地开发时，数据库由 Docker 提供，Next.js 用 `next dev` 在宿主机运行；Vercel 与 Neon 只用于生产。
+
+### 3.1 运行时清单
+
+| 运行时 | 技术 | 职责 | 伸缩 |
+|---|---|---|---|
+| Web 应用 | Vercel（Next.js 16 / Node 22） | 全部业务逻辑、页面渲染、认证与会话 | 自动水平扩 |
+| 数据库 | Neon PostgreSQL 18+ | 数据存储、RLS 隔离、`auth` schema | 托管 |
+
+### 3.2 关键形态决策
+
+| 决策 | 结论 | 依据 |
+|---|---|---|
+| 进程数 | **Vercel Functions 多实例，无状态** | 所有工作在单次请求内完成 |
+| 后台任务 | **0 个** | 邀请过期由查询时判断；软删无清理任务；无异步需求 |
+| 消息队列 | **无** | 没有消费者 |
+| 缓存层 | **无**（M1） | Next.js 自带 RSC 缓存足够；触发条件见 [08-evolution §12.1](./08-evolution.md) |
+| 数据库连接 | **Neon pooled endpoint；生产 `pg.Pool` 每实例 max = 1–5** | serverless 多实例下避免连接数爆炸 |
+| 数据库驱动 | 本地 `postgres.js`；生产 `pg` + `@vercel/functions` 的 `attachDatabasePool` | 本地轻量、API 简洁；生产按 Vercel 官方方式管理连接生命周期 |
+| 迁移/备份 | 使用 Neon direct 连接 `POSTGRES_URL_DIRECT` | 长事务与 `pg_dump` 不占应用连接池 |
+| 认证 | **应用运行时内** | bcrypt + jose，不依赖外部 IdP |
+| 对外接口 | **1 个 Route Handler** | 只有健康检查需要标准 HTTP 语义 |
+
+> **关于「1 个 Route Handler」**：这是**目标**口径。当前实现有 4 个（`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`），用于交互工作区的只读刷新。是否把只读端点保留为正式设计、还是按原计划「收敛为 Server Action」，是一个待决策项，见 [待决策 D-2](../decisions/README.md#待决策)。在决策前，以 [实现状态](../implementation-status.md) §1.3 为准。
+
+---
+
+## 10. 部署拓扑
+
+```
+            ┌──────────────────────────┐
+  用户 ────▶│  Vercel                  │  自定义域名、TLS、CDN
+            │  Next.js + /api/health   │  多实例无状态
+            └────────────┬─────────────┘
+                         │ pg.Pool + attachDatabasePool（pooled）
+                         ▼
+            ┌──────────────────────────┐
+            │  Neon PostgreSQL 18+     │  托管，与函数同区域
+            └──────────────────────────┘
+```
+
+| 项 | 配置 |
+|---|---|
+| 应用实例 | Vercel Functions，按请求伸缩 |
+| 部署方式 | Git push → Vercel 构建部署；支持即时回滚到上一版本 |
+| 域名 | Vercel 自定义域名 + 自动 TLS；`BASE_URL` 使用正式域名 |
+| 静态资源 | Vercel CDN，`/_next/static` 长缓存 |
+| 数据库 | Neon PostgreSQL 18+（PITR / 分支） |
+| 备份 | Neon PITR；另可 `pg_dump --schema=public --schema=auth --schema=drizzle` 导出 |
+| 本地开发 | Docker 只跑 PostgreSQL，应用用 `next dev` |
+
+> **环境缺口（已知）**：目标只有「本地 + 生产」两套环境，没有 staging 或 PR preview 环境。这导致生产形态的三个假设（`pg.Pool` + `attachDatabasePool` 的连接生命周期、非属主 `app` 角色下 `FORCE RLS` 的兜底、pooled/direct 双 URL 分离）从未在真实环境验证。建议补一套 Vercel Preview + Neon 分支，见 [08-evolution](./08-evolution.md) 风险 R16。

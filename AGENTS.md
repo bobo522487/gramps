@@ -41,7 +41,7 @@
 | 客户端数据 | TanStack Query 5；RSC 首屏通过 `dehydrate` / `HydrationBoundary` 注入 |
 | 客户端 UI 状态 | Zustand 5（仅谱系工作区 UI，不存实体数据） |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 13 文件/73 用例；真实 PostgreSQL 集成测试 11 文件/126 用例 |
+| 测试 | Vitest：单测 13 文件/73 用例；真实 PostgreSQL 集成测试 12 文件/134 用例；Playwright E2E 1 条关键路径 |
 
 ---
 
@@ -72,6 +72,9 @@ pnpm typecheck      # tsc --noEmit
 pnpm test           # 全部单测（不连数据库）
 pnpm test:unit      # 同 pnpm test
 pnpm test:integration # 真实 PostgreSQL 集成测试，需要 *_test 数据库
+pnpm test:coverage  # 单测 + 集成 + V8 覆盖率门槛，需要 *_test 数据库
+pnpm test:e2e       # Playwright 关键路径 E2E（本地模式会清空 *_test 库）
+pnpm verify:deploy  # HTTP 健康/安全头/鉴权 + 数据库结构/RLS/角色验证
 pnpm db:setup       # 交互式创建 .env / 本地 Postgres
 pnpm db:seed        # 灌入演示数据（幂等，复用 test@test.com）
 pnpm db:generate    # 生成迁移 SQL，必须人工 review
@@ -85,9 +88,11 @@ pnpm db:studio      # Drizzle Studio
 pnpm check && pnpm typecheck && pnpm test
 ```
 
-CI 还会额外执行 `pnpm test:integration`（连接 `postgres:18` 服务）与迁移漂移检查，最后执行 `pnpm build`。
+CI 还会连接 `postgres:18` 服务执行 `pnpm test:coverage`（单测 + 集成 + 覆盖率门槛）、迁移漂移检查、`pnpm build`、`pnpm test:e2e`（production server）与 `pnpm verify:deploy`。
 
-**不存在的命令**：`pnpm test:e2e`、`pnpm db:reset`、ESLint、dependency-cruiser。当前没有 Playwright/E2E。
+E2E 选择器与外部模式约束见 `tests/e2e/`：外部模式必须同时设置 `E2E_EXTERNAL_SERVER=1` 与 `E2E_ALLOW_EXTERNAL=1`，仅限 staging。
+
+**不存在的命令**：`pnpm db:reset`、ESLint、dependency-cruiser。
 
 ---
 
@@ -250,7 +255,7 @@ getProjectById(projectId);
 ### 5.5 数据访问
 
 - 查询集中在 `lib/db/queries/<domain>.ts`（users、organizations、invitations、projects、activity、folders、lineages、nodes）；不要在页面里拼 SQL。
-- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。当前迁移是重置后的 `0000_baseline` + `0001_auth_rls`。
+- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。当前迁移是重置后的 `0000_baseline` + `0001_auth_rls` + `0002_app_role_grant`；`drizzle.config.ts` 优先使用 `POSTGRES_URL_DIRECT`。
 - 主键是 PostgreSQL 18 `uuidv7()` 生成的 UUID；20 位公开 `slug`/`ref` 只用于 URL，不进入外键。
 - 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 `ref` 冲突时每次重试重新生成，最多尝试 3 次。
 - 数据库约束：成员 `(organization_id, user_id)` 活动行唯一、单组织仅一个 `owner`（部分唯一索引）、角色 `CHECK`、待处理邀请 `(organization_id, lower(email))` 部分唯一、`auth.users` 活动邮箱唯一、业务表软删。捕获 `23505`/`23514`/`23503` 时转换为中文提示，不要吞掉或重试成重复数据。
@@ -469,7 +474,7 @@ docs(setup): 对齐当前环境变量
 - [ ] `pnpm check && pnpm typecheck && pnpm test` 全绿
 - [ ] 涉及真实 SQL / 约束 / 成员隔离的改动补了 `pnpm test:integration`
 - [ ] 多步写/事务流程有集成测试，失败路径不会留下半成品数据
-- [ ] CI 的 `pnpm test:integration` 与迁移漂移检查能通过
+- [ ] CI 的 `pnpm test:coverage`、`pnpm test:e2e`、`pnpm verify:deploy` 与迁移漂移检查能通过
 - [ ] 新增的组织级查询/写入都带 `orgId` 且做了成员校验
 - [ ] 公开 ID 查询带 `userId` 过滤，非成员返回 404
 - [ ] 没有返回 `password_hash`
@@ -521,7 +526,7 @@ docs(setup): 对齐当前环境变量
 - 目标业务功能尚未实现：谱文、谱书、谱文/谱书分类接入、人丁自定义字段 UI、分享、回收站、编辑锁。
 - 目录与分层仍是当前的 `app/` + `components/` + `lib/`；没有 `src/modules`、`*.service.ts`/`*.repo.ts`，也没有 Biome `noRestrictedImports`。
 - 目标接口以 RSC + Server Action 为主；当前 4 个只读 Route Handler 是过渡，见 §5.6。
-- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`），但尚未做真实 Vercel/Neon 部署验证；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`（[部署蓝图](docs/ops-target.md)）。
+- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`）；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`。**本地生产模式已用 `pnpm verify:deploy` 全项验证**；真实 Vercel/Neon 部署仍未执行（无凭据），云端验证入口为 `verify:deploy` 与 external E2E（[部署蓝图](docs/ops-target.md)）。
 
 实现家谱业务功能时：
 

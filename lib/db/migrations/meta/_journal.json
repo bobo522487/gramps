@@ -15,6 +15,13 @@
       "when": 1792598547805,
       "tag": "0001_auth_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792633938641,
+      "tag": "0002_app_role_grant",
+      "breakpoints": true
     }
   ]
 }

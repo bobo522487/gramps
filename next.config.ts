@@ -17,6 +17,10 @@ const cspDirectives = [
 ].join('; ');
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  // Playwright drives the dev server on 127.0.0.1; Next 16 otherwise blocks
+  // its dev resources as cross-origin and the page never hydrates.
+  allowedDevOrigins: ['127.0.0.1'],
   async headers() {
     return [
       {
@@ -31,6 +35,7 @@ const nextConfig: NextConfig = {
             value: 'max-age=63072000; includeSubDomains',
           },
           { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
           {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',

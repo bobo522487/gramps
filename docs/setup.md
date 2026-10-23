@@ -6,9 +6,9 @@
 | 最后更新 | 2026-10-22 |
 | 运行环境 | Node.js 22（CI）· pnpm 9（CI） |
 | 依赖服务 | PostgreSQL 18 |
-| 相关文档 | [文档中心](./README.md) · [实现状态](./implementation-status.md) · [工程协作](../AGENTS.md) · [ADR 0001](./adr/0001-foundation-reset.md) · [目标部署蓝图](./ops-target.md) |
+| 相关文档 | [文档中心](./README.md) · [实现状态](./implementation-status.md) · [工程协作](../AGENTS.md) · [ADR 0001](./decisions/0001-foundation-reset.md) · [目标部署蓝图](./ops-target.md) |
 
-> 基础层已按 [ADR 0001](./adr/0001-foundation-reset.md) 重置：PostgreSQL 18 + UUIDv7 + RLS（`app_rw`）+ `auth.users` + 4 角色 + 软删 + 邀请 token。家谱业务页面/Action 尚未实现。生产预期部署到 Vercel + 自定义域名 + Neon，本地 Docker 只跑 PostgreSQL、应用用 `next dev`；真实 Vercel/Neon 部署尚未验证。目标设计不包含支付；当前实现也已移除 Stripe、套餐、计费与订阅。目标蓝图见 [ops-target.md](./ops-target.md)。
+> 基础层已按 [ADR 0001](./decisions/0001-foundation-reset.md) 重置：PostgreSQL 18 + UUIDv7 + RLS（`app_rw`）+ `auth.users` + 4 角色 + 软删 + 邀请 token。谱系/人丁的画布、世系表、检查器与写流程已实现；谱文、谱书、分享、回收站尚未实现。生产预期部署到 Vercel + 自定义域名 + Neon，本地 Docker 只跑 PostgreSQL、应用用 `next dev`；本地生产模式已用 `verify-deployment` 验证，真实 Vercel/Neon 部署尚未验证。目标设计不包含支付；当前实现也已移除 Stripe、套餐、计费与订阅。目标蓝图见 [ops-target.md](./ops-target.md)。
 
 ---
 
@@ -72,7 +72,9 @@ pnpm dev
 |---|:--:|---|---|
 | `POSTGRES_URL` | ✅ | `postgres://postgres:postgres@localhost:54322/postgres` | 数据库连接串，必须是 `postgres://` 或 `postgresql://` |
 | `AUTH_SECRET` | ✅ | `openssl rand -hex 32` 生成 | JWT HS256 签名密钥，至少 32 字符 |
-| `TEST_POSTGRES_URL` | — | `postgres://postgres:postgres@localhost:54322/gramps_test` | `pnpm test:integration` 专用库；名称必须以 `_test` 结尾。未设置时回退到 `POSTGRES_URL`，同样要求库名以 `_test` 结尾 |
+| `TEST_POSTGRES_URL` | — | `postgres://postgres:postgres@localhost:54322/gramps_test` | 集成测试、覆盖率与 E2E 专用库；名称必须以 `_test` 结尾。未设置时回退到 `POSTGRES_URL`，同样要求库名以 `_test` 结尾 |
+| `POSTGRES_URL_DIRECT` | — | Neon Direct connection | 迁移/运维直连地址；`drizzle.config.ts` 优先使用它，未设置时回退到 `POSTGRES_URL` |
+| `APP_DATABASE_URL` | — | `postgresql://app:...@host/db` | 仅 `verify:deploy` 使用：以运行期登录角色连接并验证 RLS；未提供时跳过运行期断言 |
 | `BASE_URL` | — | `http://localhost:3000` | 应用对外地址；必须是合法 URL |
 | `LOG_LEVEL` | — | `debug` / `info` / `warn` / `error` | 默认开发 `debug`、生产 `info` |
 | `NODE_ENV` | — | `development` / `production` | Next.js 与日志默认级别使用 |
@@ -108,7 +110,7 @@ cp .env.example .env
 
 ### 4.1 当前模型
 
-Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前只有 `0000_baseline` 与 `0001_auth_rls`）。
+Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为 `0000_baseline`、`0001_auth_rls`、`0002_app_role_grant`）。
 
 | 表 | 用途 |
 |---|---|
@@ -117,7 +119,8 @@ Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前只
 | `organization_member` | 用户与组织的关系、角色；活动成员唯一、单组织单 owner |
 | `invite` | 邀请；只存 token 哈希、7 天过期、一次性 |
 | `project` | 云谱空间；`ref` 为 20 位公开 ID；目标字段（姓氏/郡望/地区） |
-| `folder` / `lineage` / `node` / `article` / `book` / `book_catalog` | 家谱业务表；已建表与 RLS，无页面/Action |
+| `folder` / `lineage` / `node` | 分类、谱系与人丁；已接入左侧谱系管理、画布、世系表、检查器与写流程 |
+| `article` / `book` / `book_catalog` | 谱文/谱书表；已建表与 RLS，尚无页面/Action |
 | `activity_logs` | 产品活动流；账号级事件的 `organization_id` 为空 |
 
 - 全部主键是 UUIDv7（`uuidv7()`），20 位公开 ID 只用于 URL，不参与外键。
@@ -128,19 +131,20 @@ Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前只
 - 邀请 `(organization_id, lower(email))` 在待处理状态下唯一；token 只存 SHA-256 哈希。
 - `auth.users` 的活动邮箱唯一；软删后邮箱可复用。
 - `0000_baseline` 由 Drizzle 生成；`0001_auth_rls` 是 custom migration，包含 `app_rw`、`auth` 函数、注册触发器、GRANT、RLS 策略、`ltree`/`pg_trgm`/`btree_gist` 与 GIN/GiST 索引。
+- `0002_app_role_grant` 是 custom migration：仅当登录角色 `app` 存在时执行 `GRANT app_rw TO app`，角色不存在时安全跳过。角色本身仍由本地/运维创建，迁移不保存密码。
 
 当前数据库**已有**：
 
 - RLS + `FORCE ROW LEVEL SECURITY`，`app_rw`（NOLOGIN、NOBYPASSRLS、无 `auth.users` 权限、无业务表 `DELETE`）。
 - 注册触发器 `handle_new_user`：每个 `auth.users` 插入自动创建个人组织与 owner 成员关系。
-- 家谱业务表（`folder`、`lineage`、`node`、`article`、`book`、`book_catalog`），但没有业务 UI/Action。
+- 谱系/人丁的页面、Server Action 与画布；分类树与左侧谱系管理。
 - 软删列与复合外键。
 
 当前数据库**没有**：
 
 - 支付、套餐、订阅相关表或字段。
 - 分享页、回收站、编辑锁、审计表。
-- 家谱业务功能（谱系/人丁/谱文/谱书/分类）的页面与写流程。
+- 谱文/谱书页面与写流程；人丁自定义字段 UI。
 
 ### 4.2 迁移命令
 
@@ -150,8 +154,8 @@ pnpm db:migrate    # 执行全部待执行迁移
 pnpm db:studio     # 打开 Drizzle Studio
 ```
 
-- 空库直接 `pnpm db:migrate`，会依次执行 `0000_baseline` 与 `0001_auth_rls`。
-- `0001_auth_rls` 是 custom migration：新增 RLS/角色/函数时同样手工维护，生成后必须 review。
+- 空库直接 `pnpm db:migrate`，会依次执行 `0000_baseline`、`0001_auth_rls`、`0002_app_role_grant`。
+- `0001_auth_rls` 与 `0002_app_role_grant` 是 custom migration：新增 RLS/角色/函数时同样手工维护，生成后必须 review。
 - 迁移角色需要能创建扩展、角色并执行 `SET ROLE app_rw`；生产把迁移角色与运行角色分开（见 §4.2.1）。
 - 迁移里不写数据修复；演示数据由 `pnpm db:seed` 重建。
 - 不要修改已应用迁移的 SQL；需要修正时新增迁移。
@@ -159,8 +163,18 @@ pnpm db:studio     # 打开 Drizzle Studio
 #### 4.2.1 生产角色分离
 
 - 运行时连接（`POSTGRES_URL`）必须使用仅 `GRANT app_rw` 的登录角色 `app`，**不能是表属主或超级用户**；否则 RLS 的兜底会被绕过。
-- 迁移连接使用数据库所有者/迁移角色。当前 `drizzle.config.ts` 只读取 `POSTGRES_URL`，所以生产迁移必须在独立的受保护 job 中把 `POSTGRES_URL` 指向迁移角色/直连地址；目标设计的 `POSTGRES_URL_DIRECT` 尚未接入代码。
+- `drizzle.config.ts` 优先读取 `POSTGRES_URL_DIRECT`（未设置时回退 `POSTGRES_URL`），生产迁移在独立的受保护 job 中执行，并把该变量指向直连/迁移角色地址。
+- `0002_app_role_grant` 只在 `app` 角色已存在时补 `GRANT app_rw TO app`；角色本身由本地/运维创建，迁移不保存密码。
 - `app` 的密码只放 Neon/Vercel 环境变量，不写进迁移。
+
+本地验证运行时 RLS 时，可手工创建同名登录角色（密码仅用于本地）：
+
+```sql
+CREATE ROLE app LOGIN PASSWORD '<local-only>';
+GRANT app_rw TO app;
+```
+
+然后把 `APP_DATABASE_URL=postgres://app:<local-only>@localhost:54322/postgres` 交给 `pnpm verify:deploy` 做运行期断言。
 
 ### 4.3 种子数据
 
@@ -216,8 +230,11 @@ pnpm db:seed
 | `pnpm test` | Vitest 单测（不连数据库） |
 | `pnpm test:unit` | 同 `pnpm test` |
 | `pnpm test:integration` | 真实 PostgreSQL 集成测试（需要 `*_test` 数据库） |
+| `pnpm test:coverage` | 单测 + 集成测试合并采集 V8 覆盖率，含门槛检查（需要 `*_test` 数据库） |
+| `pnpm test:e2e` | Playwright 关键路径 E2E（本地模式会清空 `*_test` 数据库） |
+| `pnpm verify:deploy` | 部署验证：HTTP 健康/安全头/鉴权 + 数据库结构/RLS/角色 |
 
-**没有** `test:e2e`、`db:reset`、ESLint、dependency-cruiser 或 Playwright 脚本。
+**没有** `db:reset`、ESLint 或 dependency-cruiser 脚本。E2E 通过 Playwright 提供。
 
 ---
 
@@ -265,7 +282,7 @@ pnpm typecheck
 pnpm test:unit
 ```
 
-集成测试使用真实 PostgreSQL。先建一个独立测试库，库名必须以 `_test` 结尾：
+集成测试、覆盖率与 E2E 使用真实 PostgreSQL。先建一个独立测试库，库名必须以 `_test` 结尾：
 
 ```bash
 # 使用 db:setup 生成的本地 Docker Postgres
@@ -275,13 +292,28 @@ docker compose exec postgres createdb -U postgres gramps_test
 TEST_POSTGRES_URL=postgres://postgres:postgres@localhost:54322/gramps_test
 
 pnpm test:integration
+pnpm test:coverage        # 单测 + 集成，合并 V8 覆盖率
 ```
+
+E2E 需要 Playwright 浏览器：
+
+```bash
+pnpm exec playwright install chromium
+pnpm test:e2e             # 本地 dev 模式，端口 3100
+CI=1 pnpm test:e2e        # 生产构建模式（先 pnpm build）
+```
+
+> **警告**：E2E 本地模式会先对 `TEST_POSTGRES_URL` 指向的库执行 `resetAndMigrate`（删除 `public`/`auth`/`drizzle` schema 与扩展后重新迁移），库名不以 `_test` 结尾会直接拒绝。不要把它指向开发库。
+>
+> E2E 与集成测试共用同一个 `_test` 库，`workers: 1` 串行执行；不要并行运行两者。
+>
+> 注册接口限流为 5 次/小时/IP（进程内）。本地重启服务会重置；外部模式连续运行可能触发限流，需要等待窗口或换环境。
 
 安全护栏：
 
 - 测试 helper 拒绝名称不以 `_test` 结尾的数据库，避免误清开发/生产数据。
 - `globalSetup` 会先删除测试库的 `public`/`auth`/`drizzle` schema 与扩展，再从空库执行全部迁移；不要把它指向开发库。
-- 每个测试用例开始前（`beforeEach`）`TRUNCATE` 11 张业务表与 `auth.users`。
+- 每个集成测试用例开始前（`beforeEach`）`TRUNCATE` 11 张业务表与 `auth.users`。
 - 测试文件串行执行，避免共享库竞争。
 
 ### 7.2 CI
@@ -292,17 +324,22 @@ pnpm test:integration
 pnpm install --frozen-lockfile
 pnpm check
 pnpm typecheck
-pnpm test:unit
-pnpm test:integration     # postgres:18-alpine，库名 gramps_test
+pnpm test:coverage        # 单测 + 集成 + 覆盖率门槛（postgres:18-alpine，库名 gramps_test）
+上传 coverage/             # actions/upload-artifact，if: always()
 pnpm db:generate && git status --porcelain lib/db/migrations  # 漂移检查
 pnpm build
+pnpm exec playwright install --with-deps chromium
+pnpm test:e2e             # CI=1，production server（pnpm start -p 3100）
+pnpm start -p 3100 &      # 部署验证：健康检查后执行 verify:deploy
+pnpm verify:deploy -- --base-url http://127.0.0.1:3100
+上传 playwright-report/ 与 test-results/  # 失败时
 ```
 
-CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成测试从空库执行全部迁移。
+CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，测试从空库执行全部迁移。
 
 ### 7.3 测试覆盖
 
-单测 10 个文件 44 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
+单测 13 个文件 73 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
 
 | 文件 | 关注点 |
 |---|---|
@@ -316,8 +353,11 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成
 | `tests/permissions.test.ts` | 4 角色 × 9 权限矩阵、`isOrgRole` |
 | `tests/security-regressions.test.ts` | 密码回显、计时攻击、DTO、公开 ID 成员过滤、`withOrg` 的 `SET LOCAL ROLE`/claims |
 | `tests/design-system.test.ts` | 设计令牌边界、角色中文映射 |
+| `tests/lineage-schemas.test.ts` | 谱系/人丁/分类 Zod schema |
+| `tests/lineage-store.test.ts` | zustand 工作区 UI 状态 |
+| `tests/lineage-canvas-layout.test.ts` | 欧式书本布局与代际索引纯函数 |
 
-集成测试 9 个文件 103 个用例，使用真实 PostgreSQL：
+集成测试 12 个文件 134 个用例，使用真实 PostgreSQL：
 
 | 文件 | 关注点 |
 |---|---|
@@ -330,10 +370,23 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，集成
 | `tests/integration/api-auth.test.ts` | 三个业务路由 401、DTO 形状、非法 UUID 404、非成员 403 |
 | `tests/integration/health.test.ts` | `/api/health` 数据库探活与 `x-request-id` |
 | `tests/integration/projects.test.ts` | 项目创建时 `ref` 冲突后重新生成并重试 |
+| `tests/integration/folders-lineages.test.ts` | 分类树与谱系 CRUD、排序、软删、组织隔离 |
+| `tests/integration/nodes.test.ts` | 人丁 CRUD、关系、搜索、组织隔离 |
+| `tests/integration/queries.test.ts` | 组织级查询：软删过滤、跨组织、排序、搜索转义、账号级活动日志 |
 
-公共 helper 位于 `tests/helpers/`：测试库连接与清理、用户/组织/项目/邀请工厂、会话签名。
+公共 helper 位于 `tests/helpers/`：测试库连接与清理、数据库重建与迁移（`db-url.ts` / `db-setup.ts`）、用户/组织/项目/邀请工厂、会话签名。
 
-没有端到端测试。
+E2E 1 个文件 1 条用例（`tests/e2e/critical-path.spec.ts`），覆盖：注册 → 建项目 → 左侧谱系管理（文件夹/谱系） → 录入始祖 → 添子女 → 检查器编辑并持久化 → 侧栏搜索/折叠。
+
+### 7.4 覆盖率
+
+`pnpm test:coverage` 用 `vitest.coverage.config.ts` 把单测与集成测试合并为一次 V8 覆盖率采集（`text`、`json-summary`、`lcov` 输出到 `coverage/`）。
+
+- 采集范围：`lib/**/*.ts`、`app/api/**/route.ts`、`components/lineage` 的纯逻辑模块与 `canvas/layout/**`。
+- 排除：`lib/db/schema.ts`、迁移、seed、`lib/db/drizzle.ts` 与类型声明文件。
+- 全局门槛：lines/statements 60、functions 55、branches 50。
+- 关键服务层门槛：`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts` 为 lines 70、functions 60。
+- 当前基线显著高于门槛（最近一次约 lines 75%、branches 85%、functions 88%）；门槛按基线下方安全垫设定，不以 `skip` 凑数。
 
 ---
 
@@ -346,21 +399,57 @@ pnpm build
 pnpm start
 ```
 
-### 8.2 当前仓库的部署状态
+### 8.2 部署验证
 
-当前仓库**没有提供可直接使用的生产部署配置**：
+`scripts/verify-deployment.mjs`（`pnpm verify:deploy`）同时检查 HTTP 与数据库：
 
-- `next.config.ts` 没有设置 `output: 'standalone'`。
-- 仓库没有 `public/` 目录。
-- 没有 Dockerfile，也没有纳入版本管理的部署 Compose（`db:setup` 生成的 Compose 只用于本地 PostgreSQL）。
-- 没有 Vercel 项目配置或 Neon 连接；`/api/health` 已实现，生产驱动分支（`pg` + `attachDatabasePool`）已接入但尚未在真实 Vercel 部署中验证。
+```bash
+# 本地生产模式：先构建，再启动，再验证
+POSTGRES_URL=<test-url> pnpm build
+POSTGRES_URL=<test-url> AUTH_SECRET=<dev-secret> BASE_URL=http://127.0.0.1:3100 pnpm start -p 3100
+node scripts/verify-deployment.mjs --base-url http://127.0.0.1:3100
+```
+
+HTTP 检查（未登录）：`/api/health` 返回 200 且 `database: up`；`/api/orgs` 返回 401 且带 `x-request-id`；`/dashboard` 重定向到 `/sign-in`；所有响应带 `nosniff`、`X-Frame-Options: DENY`、`referrer-policy`、`permissions-policy`、`content-security-policy-report-only`，且没有 `x-powered-by`。
+
+数据库检查（`POSTGRES_URL_DIRECT ?? POSTGRES_URL`）：PostgreSQL ≥ 18；11 张业务表存在且启用并强制 RLS；`drizzle.__drizzle_migrations` ≥ 3；`app_rw` 存在且不绕过 RLS；若 `app` 角色存在则校验其 `app_rw` 成员关系。提供 `APP_DATABASE_URL` 时额外以运行时角色验证：无 JWT claims 查询组织表返回 0 行、读取 `auth.users` 被拒绝。脚本输出逐项 `PASS`/`FAIL`/`SKIP`，任一失败退出码为 1。
+
+认证用的浏览器 E2E（Playwright）也能打到已部署环境，但需要显式双开关且仅限 staging：
+
+```bash
+E2E_ALLOW_EXTERNAL=1 E2E_EXTERNAL_SERVER=1 E2E_BASE_URL=https://<staging> pnpm test:e2e
+```
+
+外部模式不清库、不启动本地服务；禁止指向生产。
+
+### 8.3 当前仓库的部署状态
+
+本地生产模式（`pnpm build` + `pnpm start -p 3100`）已用 `verify:deploy` 全项验证通过。真实云端部署尚未执行：
+
+- 本机没有 Vercel/Neon CLI 或凭据，无法在本轮完成真实部署。
+- 仓库没有 `output: 'standalone'`、Dockerfile、`public/` 或版本管理的部署 Compose（`db:setup` 生成的 Compose 只用于本地 PostgreSQL）。
+- 生产驱动分支（`pg` + `attachDatabasePool`）已接入但未在真实 Vercel 环境验证。
+- `POSTGRES_URL_DIRECT` 已接入 `drizzle.config.ts`；`0002_app_role_grant` 已就绪，`app` 登录角色仍需运维先行创建。
 
 目标架构选择 **Vercel + 自定义域名 + Neon**：应用由 Vercel 构建与运行，数据库使用 Neon PostgreSQL 18+，生产驱动为 `pg` Pool + `attachDatabasePool`，本地开发用 `postgres.js`；本地 Docker 只跑 PostgreSQL、应用用 `next dev`。迁移对 Neon 直连执行，不放进 Vercel 构建。完整蓝图见 [ops-target.md](./ops-target.md)。
 
-### 8.3 生产环境至少需要
+拿到 staging 凭据后：
+
+```bash
+BASE_URL=https://<staging> \
+POSTGRES_URL_DIRECT=<neon-direct-url> \
+APP_DATABASE_URL=<app-login-url> \
+pnpm verify:deploy
+
+E2E_ALLOW_EXTERNAL=1 E2E_EXTERNAL_SERVER=1 E2E_BASE_URL=https://<staging> pnpm test:e2e
+```
+
+以上云端命令**本轮未执行**（无凭据），属于交付的可复用验证入口。
+
+### 8.4 生产环境至少需要
 
 - 一个可用的 Postgres（含迁移）。目标设计使用 Neon PostgreSQL 18+。
-- `POSTGRES_URL`、`AUTH_SECRET`。
+- `POSTGRES_URL`、`AUTH_SECRET`；迁移 job 另需 `POSTGRES_URL_DIRECT`。
 - 以 `pnpm build` + `pnpm start` 或平台适配方式运行 Next.js；目标设计使用 Vercel。
 
 ---
@@ -383,6 +472,13 @@ pnpm start
 | 应用查询返回 0 行但数据存在 | 运行时角色是表属主或 RLS claims 未设置 | 生产用 `app`（仅 `GRANT app_rw`）；应用查询走 `withOrg` |
 | 限流很快失效 | 限流是进程内内存实现 | 重启后清零；多实例不共享；生产需替换为共享存储（P1） |
 | 集成测试报 `database name must end with "_test"` | `TEST_POSTGRES_URL` 指向了开发库或生产库 | 创建独立 `gramps_test` 库，设置专用 `TEST_POSTGRES_URL` |
+| `pnpm test:e2e` 报 `Executable doesn't exist` | 未安装 Playwright 浏览器 | `pnpm exec playwright install chromium` |
+| Playwright 报缺少 `libasound.so.2`（WSL/Linux） | 系统缺少 Chromium 运行库 | `pnpm exec playwright install --with-deps chromium`，或安装 `libasound2` |
+| E2E 点击无反应、页面未 hydration | 通过 `127.0.0.1` 访问且 Next 16 拦截跨源 dev 资源 | `next.config.ts` 已允许 `allowedDevOrigins: ['127.0.0.1']`；不要删除 |
+| E2E 注册失败并提示操作频繁 | 注册限流 5 次/小时/IP（进程内） | 重启本地服务或等待窗口；外部模式换环境 |
+| `pnpm test:e2e` 清空了测试库数据 | E2E 本地模式会执行 `resetAndMigrate` | 预期行为；确认 `TEST_POSTGRES_URL` 指向 `*_test` 库 |
+| `verify:deploy` 报 `x-powered-by` | 启动的进程不是当前构建 | 重新 `pnpm build` 并用 `pnpm start -p 3100` 启动 |
+| `verify:deploy` 运行期 RLS 断言被 SKIP | 未提供 `APP_DATABASE_URL` | 按 §4.2.1 创建本地 `app` 登录角色并设置该变量 |
 | 修改密码后其他设备退出 | `tokenVersion` 被递增 | 预期行为；当前设备已重签保持登录，其他设备旧会话失效 |
 
 ---
@@ -392,12 +488,12 @@ pnpm start
 - 没有邮箱确认、密码重置或持久化账号锁定。
 - 有 4 角色与权限矩阵，但没有转让所有权；`org.transfer` 尚无 Action/UI。
 - 邀请不会发送邮件；需要人工复制链接。token 7 天过期、一次性、禁止邀请 `owner`。
-- 没有家谱业务功能（谱系、人丁、谱文、谱书、分类）；相关表与 RLS 已存在。
+- 谱系/人丁已实现画布、世系表、检查器与写流程；谱文、谱书、编目、分类页面、人丁自定义字段 UI 尚未实现。
 - 没有回收站、编辑锁、分享页；业务表是软删，但用户无法自助恢复。
 - 最后一个 owner 保护只在服务层；数据库只有“至多一个 owner”约束。
-- RLS 的生产语义依赖运行角色不是表属主；本地/CI 已用 `SET LOCAL ROLE app_rw` 验证。
+- RLS 的生产语义依赖运行角色不是表属主；本地/CI 已用 `SET LOCAL ROLE app_rw` 验证，本地生产模式已用 `verify:deploy` + `app` 角色验证。
 - 限流为单进程内存实现，不适合多实例生产环境。
-- 没有 Playwright/E2E。
-- `/api/health` 与 Vercel 数据库驱动分支已实现，但未在真实 Vercel/Neon 环境验证。
+- E2E 只覆盖一条关键路径，没有视觉回归或全量 CRUD 矩阵。
+- `/api/health` 与 Vercel 数据库驱动分支已实现，但未在真实 Vercel/Neon 环境验证；云端验证入口（`verify:deploy` 与 external E2E）待有凭据时执行。
 
 目标设计的差异与后续待办见 [implementation-status.md](./implementation-status.md)。

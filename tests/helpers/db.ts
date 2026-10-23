@@ -2,32 +2,12 @@ import dotenv from 'dotenv';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@/lib/db/schema';
+import { resolveTestDatabaseUrl } from './db-url';
 
 dotenv.config();
 
 export function getTestDatabaseUrl(): string {
-  const url = process.env.TEST_POSTGRES_URL ?? process.env.POSTGRES_URL;
-  if (!url) {
-    throw new Error(
-      'Integration tests need TEST_POSTGRES_URL (or POSTGRES_URL) pointing to a dedicated test database.'
-    );
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error('TEST_POSTGRES_URL is not a valid PostgreSQL URL.');
-  }
-
-  const database = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
-  if (!database.endsWith('_test')) {
-    throw new Error(
-      `Refusing to run integration tests against "${database}": database name must end with "_test". Set TEST_POSTGRES_URL to a dedicated test database.`
-    );
-  }
-
-  return url;
+  return resolveTestDatabaseUrl(process.env);
 }
 
 // Point the application's lazy pool at the test database before any query.
