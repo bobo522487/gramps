@@ -68,6 +68,23 @@ test('critical path: sign up, create project, record founder, add child, edit in
     new URL(page.url()).pathname.split('/').filter(Boolean).at(-1) ?? '';
   expect(projectRef).not.toBe('');
 
+  await expect(page.getByText('进行中', { exact: true })).toBeVisible();
+  await expect(page.getByText('3 / 5', { exact: true })).toBeVisible();
+  await expect(page.getByText('E2E 备注', { exact: true })).toBeVisible();
+
+  await page.goto(`/dashboard/project/${projectRef}/settings`);
+  await expect(page.locator('input#project-surname')).toHaveCount(0);
+  await expect(page.locator('input#project-theme-name')).toHaveCount(0);
+  await expect(page.locator('#project-surname')).toHaveText('陈');
+  await expect(page.locator('#project-theme-name')).toHaveText('E2E 陈氏宗谱');
+  await expect(page.locator('#project-name')).toHaveValue('E2E 云谱');
+  await expect(page.locator('#project-notes')).toHaveValue('E2E 备注');
+  await expect(page.locator('#project-status')).toContainText('进行中');
+  await expect(page.getByRole('button', { name: '3 星' })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+
   await page.goto(`/dashboard/project/${projectRef}/lineages`);
   await expect(
     page.getByRole('complementary').getByText('谱系管理', { exact: true })

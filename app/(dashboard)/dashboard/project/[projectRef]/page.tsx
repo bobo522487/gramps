@@ -2,6 +2,7 @@ import { Home } from 'lucide-react';
 import { PageHeader } from '@/components/console/page-header';
 import { Card } from '@/components/ui/card';
 import { requireProjectContext } from '@/lib/auth/context';
+import { projectStatusLabel } from '@/lib/project/constants';
 
 function formatDate(value: Date | null): string {
   if (!value) {
@@ -19,10 +20,13 @@ export default async function ProjectOverviewPage({
   const { project, organization } = await requireProjectContext(projectRef);
   const facts: { label: string; value: string; mono?: boolean }[] = [
     { label: '项目 ID', value: project.ref, mono: true },
-    { label: '主姓名', value: project.primaryName },
-    { label: '主姓氏', value: project.primarySurname },
+    { label: '主题名', value: project.themeName ?? '—' },
+    { label: '姓氏', value: project.surname ?? '—' },
+    { label: '地区', value: project.countriesRegions ?? '—' },
+    { label: '状态', value: projectStatusLabel(project.status) },
+    { label: '重要等级', value: `${project.importance} / 5` },
+    { label: '备注', value: project.notes ?? '—' },
     { label: '郡望 / 堂号', value: project.hallCode ?? '—' },
-    { label: '国家 / 地区', value: project.countriesRegions ?? '—' },
     { label: '创建时间', value: formatDate(project.createdAt), mono: true },
     { label: '最近更新', value: formatDate(project.updatedAt), mono: true },
   ];

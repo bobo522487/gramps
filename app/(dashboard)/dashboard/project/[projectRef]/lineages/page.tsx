@@ -26,7 +26,7 @@ export default async function ProjectLineagesPage({
       orgId={organization.id}
       projectId={project.id}
       projectRef={project.ref}
-      defaultSurname={project.primarySurname}
+      defaultSurname={project.surname ?? ''}
       folders={folders.map((folder) => ({
         id: folder.id,
         name: folder.name,

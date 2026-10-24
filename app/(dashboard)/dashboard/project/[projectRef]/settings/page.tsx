@@ -17,16 +17,19 @@ export default async function ProjectSettingsPage({
       <PageHeader
         icon={Settings}
         title="项目设置"
-        description="维护云谱空间的主姓名、郡望与地区信息。项目 ID 创建后不可更改。"
+        description="维护项目名、地区、状态、重要等级与备注；姓氏、主题名和项目 ID 创建后不可更改。"
       />
       <ProjectSettingsPanel
         orgId={context.organization.id}
         projectId={context.project.id}
         name={context.project.name}
-        primaryName={context.project.primaryName}
-        primarySurname={context.project.primarySurname}
+        surname={context.project.surname}
+        themeName={context.project.themeName}
         hallCode={context.project.hallCode}
         countriesRegions={context.project.countriesRegions}
+        status={context.project.status}
+        importance={context.project.importance}
+        notes={context.project.notes}
         projectRef={context.project.ref}
         canManage={hasPermission(context.role, 'project.write')}
       />

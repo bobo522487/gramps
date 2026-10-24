@@ -1,33 +1,55 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { useActionState, useEffect } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { StarRating } from '@/components/ui/star-rating';
+import { Textarea } from '@/components/ui/textarea';
 import type { ActionState } from '@/lib/auth/types';
 import { updateProjectAction } from '@/lib/project/actions';
+import {
+  MAX_PROJECT_NAME_LENGTH,
+  MAX_PROJECT_NOTES_LENGTH,
+  MAX_PROJECT_REGIONS_LENGTH,
+  PROJECT_STATUS_OPTIONS,
+  type ProjectStatus,
+} from '@/lib/project/constants';
 import { queryKeys } from '@/lib/query-keys';
 
 export function ProjectSettingsPanel({
   orgId,
   projectId,
   name,
-  primaryName,
-  primarySurname,
+  surname,
+  themeName,
   hallCode,
   countriesRegions,
+  status: initialStatus,
+  importance: initialImportance,
+  notes,
   projectRef,
   canManage,
 }: {
   orgId: string;
   projectId: string;
   name: string;
-  primaryName: string;
-  primarySurname: string;
+  surname: string | null;
+  themeName: string | null;
   hallCode: string | null;
   countriesRegions: string | null;
+  status: ProjectStatus;
+  importance: number;
+  notes: string | null;
   projectRef: string;
   canManage: boolean;
 }) {
@@ -36,6 +58,8 @@ export function ProjectSettingsPanel({
     {}
   );
   const queryClient = useQueryClient();
+  const [status, setStatus] = useState<ProjectStatus>(initialStatus);
+  const [importance, setImportance] = useState(initialImportance);
 
   useEffect(() => {
     if (state.success) {
@@ -58,13 +82,15 @@ export function ProjectSettingsPanel({
         <form action={action} noValidate className="space-y-3">
           <input type="hidden" name="orgId" value={orgId} />
           <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="status" value={status} />
+          <input type="hidden" name="importance" value={importance} />
           <div>
-            <Label htmlFor="project-name">空间名称</Label>
+            <Label htmlFor="project-name">项目名</Label>
             <Input
               id="project-name"
               name="name"
               defaultValue={name}
-              maxLength={100}
+              maxLength={MAX_PROJECT_NAME_LENGTH}
               className="mt-1"
               size="sm"
               disabled={!canManage}
@@ -72,28 +98,21 @@ export function ProjectSettingsPanel({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label htmlFor="project-primary-surname">主姓氏</Label>
-              <Input
-                id="project-primary-surname"
-                name="primarySurname"
-                defaultValue={primarySurname}
-                maxLength={30}
-                className="mt-1"
-                size="sm"
-                disabled={!canManage}
-              />
+              <p className="text-sm font-medium">姓氏</p>
+              <p id="project-surname" className="text-sm text-muted-foreground">
+                {surname ?? '—'}
+              </p>
+              <p className="text-xs text-muted-foreground">创建后不可修改</p>
             </div>
             <div>
-              <Label htmlFor="project-primary-name">主姓名</Label>
-              <Input
-                id="project-primary-name"
-                name="primaryName"
-                defaultValue={primaryName}
-                maxLength={60}
-                className="mt-1"
-                size="sm"
-                disabled={!canManage}
-              />
+              <p className="text-sm font-medium">主题名</p>
+              <p
+                id="project-theme-name"
+                className="text-sm text-muted-foreground"
+              >
+                {themeName ?? '—'}
+              </p>
+              <p className="text-xs text-muted-foreground">创建后不可修改</p>
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -110,17 +129,62 @@ export function ProjectSettingsPanel({
               />
             </div>
             <div>
-              <Label htmlFor="project-regions">国家 / 地区</Label>
+              <Label htmlFor="project-regions">地区</Label>
               <Input
                 id="project-regions"
                 name="countriesRegions"
                 defaultValue={countriesRegions ?? ''}
-                maxLength={100}
+                maxLength={MAX_PROJECT_REGIONS_LENGTH}
                 className="mt-1"
                 size="sm"
                 disabled={!canManage}
               />
             </div>
+          </div>
+          <div>
+            <Label htmlFor="project-status">状态</Label>
+            <Select
+              value={status}
+              onValueChange={(value) => setStatus(value as ProjectStatus)}
+              disabled={!canManage}
+            >
+              <SelectTrigger
+                id="project-status"
+                aria-label="状态"
+                className="mt-1"
+                size="sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PROJECT_STATUS_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>重要等级</Label>
+            <div className="mt-1">
+              <StarRating
+                value={importance}
+                onChange={setImportance}
+                disabled={!canManage}
+              />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="project-notes">备注</Label>
+            <Textarea
+              id="project-notes"
+              name="notes"
+              defaultValue={notes ?? ''}
+              maxLength={MAX_PROJECT_NOTES_LENGTH}
+              className="mt-1"
+              disabled={!canManage}
+            />
           </div>
           {state.error ? (
             <p className="text-xs text-destructive">{state.error}</p>

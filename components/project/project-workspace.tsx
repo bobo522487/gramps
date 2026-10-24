@@ -24,8 +24,8 @@ export type ProjectView = {
   id: string;
   name: string;
   ref: string;
-  primaryName: string;
-  primarySurname: string;
+  themeName: string | null;
+  surname: string | null;
   hallCode: string | null;
   countriesRegions: string | null;
   /** Display date, e.g. 2026-10-16. */
@@ -98,8 +98,8 @@ export function ProjectWorkspace({
         return (
           project.name.toLowerCase().includes(needle) ||
           project.ref.toLowerCase().includes(needle) ||
-          project.primaryName.toLowerCase().includes(needle) ||
-          project.primarySurname.toLowerCase().includes(needle)
+          project.themeName?.toLowerCase().includes(needle) ||
+          project.surname?.toLowerCase().includes(needle)
         );
       })
       .sort(SORTS[sort]);
@@ -197,12 +197,12 @@ export function ProjectWorkspace({
                   ) : null}
                 </div>
                 <p className="text-sm">
-                  {project.primarySurname}
-                  {project.primaryName}
+                  {project.themeName ?? '未填写主题名'}
                   {project.hallCode ? ` · ${project.hallCode}` : ''}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {project.countriesRegions ?? '未填写国家/地区'} ·{' '}
+                  {project.surname ? `${project.surname}氏` : '未填写姓氏'} ·{' '}
+                  {project.countriesRegions ?? '未填写地区'} ·{' '}
                   <span className="font-mono">{project.ref}</span>
                 </p>
                 <p className="text-xs text-muted-foreground">
