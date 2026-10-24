@@ -272,17 +272,19 @@ LIMIT 10;
 | 连接数接近上限但无长查询 | 检查 Vercel 实例数是否异常增长；确认每实例 `pool.max` 为 1–5，且已调用 `attachDatabasePool` |
 | 某个查询持续变慢 | 单独 `EXPLAIN (ANALYZE, BUFFERS)`；多半是缺索引或统计信息过期 |
 
-### 根治（当前缺失）
+### 根治（已配置）
 
-系统**没有** `statement_timeout`。一条退化查询可以占满全部连接，导致整个实例不可用。建议在数据库角色上设置：
+迁移 `0006_statement_timeouts` 已为运行期角色设置：
 
 ```sql
 ALTER ROLE app_rw SET statement_timeout = '10s';
 ALTER ROLE app_rw SET idle_in_transaction_session_timeout = '30s';
 ALTER ROLE app_rw SET lock_timeout = '5s';
+ALTER ROLE auth_service SET statement_timeout = '10s';
+ALTER ROLE auth_service SET idle_in_transaction_session_timeout = '30s';
 ```
 
-这是成本最低、收益最高的一条护栏。
+这是成本最低、收益最高的一条护栏；`verify:deploy` 尚未断言 `rolconfig`（评审 P1-11 验收项）。
 
 ---
 
@@ -305,7 +307,7 @@ SELECT id, hash, created_at FROM drizzle._drizzle_migrations ORDER BY created_at
 | 迁移在 CI 阶段失败，未上生产 | 修 SQL，重跑。生产库未被触碰 |
 | 迁移已应用，应用启动失败 | **回滚应用版本**（Vercel 即时回滚到上一版本）。新列是可空的、新表未被读写，旧版本可以正常运行 |
 | 迁移写坏了数据 | 用 Neon 分支或 PITR 恢复到迁移前时间点，再在分支上验证新迁移 |
-| 迁移卡住（锁等待） | 查 `pg_locks` + `pg_stat_activity`；`lock_timeout` 会在 5s 后自动放弃（若已配置） |
+| 迁移卡住（锁等待） | 查 `pg_locks` + `pg_stat_activity`；`lock_timeout` 已由 `0006` 配置为 5s（迁移/备份连接可能例外） |
 
 ### 恢复演练
 

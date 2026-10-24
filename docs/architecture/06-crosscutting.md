@@ -64,7 +64,7 @@ M2 引入分享页时，必须补「在世人口脱敏在服务端完成」这�
 > **三处需要补充的安全设计**（详见 [08-evolution](./08-evolution.md) 风险登记簿）：
 > 1. **限流的 key 可信性**：`x-forwarded-for` 可伪造。应只信任平台注入的头，并对账号维度独立计数。
 > 2. **密钥轮换**：`BETTER_AUTH_SECRET` 是全局对称密钥，轮换会使现有会话 Cookie 失效（等价全量登出）。Better Auth 不提供双密钥过渡，只能轮换后按需批量删除 `auth.session`；见 [R20](./08-evolution.md) 与 [RB-4](../guides/runbooks.md)。
-> 3. **慢查询护栏**：无 `statement_timeout`。一条退化查询即可占满 1–5 个连接，导致整个实例不可用。建议在数据库角色上设置 `statement_timeout` / `idle_in_transaction_session_timeout` / `lock_timeout`。
+> 3. **慢查询护栏**：迁移 `0006_statement_timeouts` 已为 `app_rw` 设置 `statement_timeout=10s` / `idle_in_transaction_session_timeout=30s` / `lock_timeout=5s`，为 `auth_service` 设置前两项；`verify:deploy` 尚未断言 `rolconfig`（评审 P1-11 的验收项）。
 
 ### 9.5 可观测性
 

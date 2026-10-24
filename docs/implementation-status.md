@@ -38,7 +38,7 @@
 
 ### 1.1 当前数据表
 
-迁移是重置后的六个文件：`0000_baseline.sql`（Drizzle 生成）、`0001_auth_rls.sql`、`0002_app_role_grant.sql`、`0003_better_auth.sql`（custom migration）、`0004_steep_lizard.sql`（项目身份与元数据列）与 `0005_round_grim_reaper.sql`（删除旧项目列）。
+迁移是重置后的七个文件：`0000_baseline.sql`（Drizzle 生成）、`0001_auth_rls.sql`、`0002_app_role_grant.sql`、`0003_better_auth.sql`（custom migration）、`0004_steep_lizard.sql`（项目身份与元数据列）、`0005_round_grim_reaper.sql`（删除旧项目列）与 `0006_statement_timeouts.sql`（运行期角色超时）。
 
 | 表 | 说明 |
 |---|---|
@@ -59,6 +59,7 @@
 
 - `app_rw`（NOLOGIN、NOBYPASSRLS、无 `auth.*` 表权限、无业务表 `DELETE`、无组织/成员/邀请写权限）。
 - `auth_service`（NOLOGIN、NOBYPASSRLS）：拥有 `auth.*` 与组织/成员/邀请的写权限；Better Auth 连接固定 `role=auth_service`。
+- 运行时超时（`0006`）：`app_rw` 设置 `statement_timeout=10s` / `idle_in_transaction_session_timeout=30s` / `lock_timeout=5s`；`auth_service` 设置前两项。
 - 登录角色 `app`（成员 `app_rw`）与 `auth_runtime`（成员 `auth_service`）；生产分别用于业务连接与认证连接。
 - `auth` schema 的 `SECURITY DEFINER` 辅助函数：`auth.has_org_role()`、`auth.archive_organization()` 等；旧的自研认证函数已在 `0003` 删除。
 - 注册触发器 `trg_auth_user_created` / `handle_new_user()`：创建 `auth.users` 时自动建立个人组织与 `owner` 成员关系。
