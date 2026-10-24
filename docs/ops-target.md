@@ -101,9 +101,9 @@ docker compose up -d db
 # 2. 安装依赖
 pnpm install
 
-# 3. 创建 .env.local（内容见 §2.3）
+# 3. 创建 .env（内容见 §2.3）
 
-# 4. 执行迁移（本地直连 5432）
+# 4. 执行迁移（本地直连 54322）
 pnpm db:migrate
 
 # 5. 启动 Next.js 开发服务器
@@ -113,21 +113,20 @@ pnpm dev
 | 服务 | 地址 |
 |---|---|
 | Next.js（`next dev --turbopack`） | `http://localhost:3000` |
-| PostgreSQL（Docker） | `localhost:5432` / 数据库 `genealogy` |
+| PostgreSQL（Docker） | `localhost:54322` / 数据库 `postgres` |
 
 ### 2.3 本地环境变量
 
-本地使用 `.env.local`（不提交）：
+本地使用 `.env`（不提交；`dotenv` 读取）：
 
 ```bash
-POSTGRES_URL=postgresql://app:dev-only-not-for-production@localhost:5432/genealogy
-POSTGRES_URL_DIRECT=postgresql://app:dev-only-not-for-production@localhost:5432/genealogy
-AUTH_SECRET=local-development-secret-at-least-32-bytes
-BASE_URL=http://localhost:3000
+POSTGRES_URL=postgresql://postgres:postgres@localhost:54322/postgres
+BETTER_AUTH_SECRET=local-development-secret-at-least-32-bytes
+BETTER_AUTH_URL=http://localhost:3000
 LOG_LEVEL=debug
 ```
 
-当前仓库使用 `.env` + `dotenv`；目标设计改用 Next.js 原生的 `.env.local`，两者不要混用。
+生产环境额外提供 `APP_POSTGRES_URL`（`app` 登录角色）与 `AUTH_POSTGRES_URL`（`auth_runtime` 登录角色）；本地可省略，两个连接都回退到 `POSTGRES_URL`。当前仓库使用 `.env` + `dotenv`；不要改名为 `.env.local` 而不改代码。
 
 ### 2.4 重置本地数据库
 
@@ -146,10 +145,12 @@ pnpm db:migrate
 | 变量 | 必填 | 本地 | 生产（Vercel） | 说明 |
 |---|:--:|---|---|---|
 | `NODE_ENV` | ✅ | `development` | 由 Vercel 注入 | 不要在生产手动改成其他值 |
-| `POSTGRES_URL` | ✅ | 本地 `localhost:5432` | Neon **pooled** endpoint | 运行期连接串；本地用 postgres.js 直连，生产用 pg Pool |
-| `POSTGRES_URL_DIRECT` | — | 可省略，回落到 `POSTGRES_URL` | **只放 CI / 运维环境，不进 Vercel** | 迁移、备份、DDL；Neon direct endpoint |
-| `AUTH_SECRET` | ✅ | 本地随机值 | 随机生成，**≥ 32 字节** | JWT HS256 签名密钥 |
-| `BASE_URL` | ✅ | `http://localhost:3000` | 自定义域名，如 `https://family.example.com` | 生成邀请链接等绝对 URL |
+| `POSTGRES_URL` | ✅ | 本地 `localhost:54322` | Neon **pooled** endpoint | 业务运行期连接串；本地用 postgres.js 直连，生产用 pg Pool 并以 `app` 登录角色连接 |
+| `APP_POSTGRES_URL` | 生产必填 | 可省略，回退 `POSTGRES_URL` | Neon pooled endpoint（`app` 角色） | 业务查询连接；经 `withOrg` 在事务内 `SET LOCAL ROLE app_rw` |
+| `AUTH_POSTGRES_URL` | 生产必填 | 可省略，回退 `POSTGRES_URL` | Neon pooled endpoint（`auth_runtime` 角色） | Better Auth 连接；连接初始化固定 `role=auth_service` |
+| `POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` | — | 可省略，回落到 `POSTGRES_URL` | **只放 CI / 运维环境，不进 Vercel** | 迁移、备份、DDL；Neon direct endpoint |
+| `BETTER_AUTH_SECRET` | ✅ | 本地随机值 | 随机生成，**≥ 32 字符** | Better Auth Cookie 签名密钥 |
+| `BETTER_AUTH_URL` | ✅ | `http://localhost:3000` | 自定义域名，如 `https://family.example.com` | Better Auth 基地址；生成邀请链接与回调 URL |
 | `LOG_LEVEL` | — | `debug` | `info` | 默认 `info`，生产不要设 `debug` |
 
 启动时用 Zod 校验，缺必填项直接退出：
@@ -164,7 +165,7 @@ export const config = schema.parse(process.env);
 ```text
 ❌ Invalid environment variables:
    POSTGRES_URL: Required
-   AUTH_SECRET: String must contain at least 32 character(s)
+   BETTER_AUTH_SECRET: String must contain at least 32 character(s)
 ```
 
 **目标规则**：应用代码里禁止出现 `process.env`，只能 `import { config } from '@/server/config'`。Biome 的 `noRestrictedProperties` 规则拦截。`drizzle.config.ts` 属于工具链配置，可以直接读 `process.env`。
@@ -173,22 +174,36 @@ export const config = schema.parse(process.env);
 
 | 环境 | 推荐驱动 | 连接 | 说明 |
 |---|---|---|---|
-| 本地 Docker PostgreSQL 18 | `postgres.js` + `drizzle-orm/postgres-js` | `localhost:5432` 直连 | 轻量、API 简洁，长连接没问题；可用默认 prepared statements |
-| Vercel + Neon 生产 | `pg` 的 `Pool` + `drizzle-orm/node-postgres` + `attachDatabasePool` | `POSTGRES_URL`（Neon pooled endpoint） | Vercel 官方推荐；函数实例回收时自动释放空闲连接 |
+| 本地 Docker PostgreSQL 18 | `postgres.js` + `drizzle-orm/postgres-js` | `localhost:54322` 直连 | 轻量、API 简洁，长连接没问题；可用默认 prepared statements |
+| Vercel + Neon 生产 | `pg` 的 `Pool` + `drizzle-orm/node-postgres` + `attachDatabasePool` | `APP_POSTGRES_URL` / `AUTH_POSTGRES_URL`（Neon pooled endpoint） | Vercel 官方推荐；函数实例回收时自动释放空闲连接 |
 
 | 用途 | 变量 | 取值 |
 |---|---|---|
-| 运行期查询 | `POSTGRES_URL` | 本地直连 / Neon 控制台的 **Pooled connection**（主机名含 `-pooler`） |
-| 迁移 / 备份 / DDL | `POSTGRES_URL_DIRECT` | Neon 控制台的 **Direct connection**（不带 pooler） |
+| 业务运行期查询 | `APP_POSTGRES_URL`（回退 `POSTGRES_URL`） | 本地直连 / Neon 控制台的 **Pooled connection**（主机名含 `-pooler`） |
+| 认证与租户写 | `AUTH_POSTGRES_URL`（回退 `POSTGRES_URL`） | 同上；登录角色 `auth_runtime` |
+| 迁移 / 备份 / DDL | `POSTGRES_URL_DIRECT`（回退 `POSTGRES_URL_NON_POOLING`） | Neon 控制台的 **Direct connection**（不带 pooler） |
 
 | 规则 | 说明 |
 |---|---|
 | 连接池 | 每个 Vercel 函数实例 `max: 1–5`，不要按请求新建连接 |
+| 两个连接 | 业务连接固定 `app` → `app_rw`；认证连接固定 `auth_runtime` → `auth_service`，**不能互换** |
 | 模块级单例 | 连接池在模块作用域创建并复用，不在请求里创建 |
 | 直连隔离 | `POSTGRES_URL_DIRECT` 不配置到 Vercel 运行期，避免应用拿到绕过连接池的管理连接 |
 | 事务池 | DDL 与长事务走直连；池化连接只跑短查询 |
-| Prepared statements | 生产 `pg` 默认不创建命名 prepared statements，无需 `prepare: false`；本地 postgres.js 可直接用默认值 |
-| 类型边界 | 驱动工厂导出 `db` 与 `Db` 类型；仓储层只 import 这两者，不直接 import `pg` 或 `postgres` |
+| Prepared statements | 生产 `pg` 默认不创建命名 prepared statements；本地 postgres.js 可直接用默认值 |
+| 类型边界 | 驱动工厂导出 `db` 与 `Db` 类型；查询层只 import 这两者，不直接 import `pg` 或 `postgres` |
+
+```typescript
+// lib/db/auth-db.ts（认证连接示意）
+const pool = new Pool({
+  connectionString: config.AUTH_POSTGRES_URL ?? config.POSTGRES_URL,
+  max: 5,
+  options: '-c role=auth_service',
+});
+attachDatabasePool(pool);
+
+export const authDb = drizzle(pool, { schema: authSchema });
+```
 
 ```typescript
 // src/server/db/client.ts（生产示意）
@@ -224,7 +239,7 @@ Neon 的 Vercel 集成可能注入 `DATABASE_URL` / `DATABASE_URL_UNPOOLED`。�
 
 ### 3.2 环境作用域
 
-| 环境 | 数据库 | `BASE_URL` | 说明 |
+| 环境 | 数据库 | `BETTER_AUTH_URL` | 说明 |
 |---|---|---|---|
 | Development | 本地 Docker | `http://localhost:3000` | 不需要 Neon |
 | Preview | Neon 预览分支或独立 staging 分支 | 该预览部署的域名 | **禁止**指向生产直连 URL；需要迁移时先对分支执行 |
@@ -250,13 +265,15 @@ Vercel 的环境变量同时用于构建与运行。构建命令中**不得**包
 
 ### 4.2 迁移顺序
 
-当前仓库实际是三个迁移（目标设计曾计划拆成更多文件，已合并为基线 + 安全层 + 角色授权）：
+当前仓库实际是四个迁移（目标设计曾计划拆成更多文件，已合并为基线 + 安全层 + 角色授权 + Better Auth）：
 
 ```text
 0000_baseline         Drizzle 生成：11 张组织级业务表 + auth.users + 普通索引
 0001_auth_rls         自定义：ltree/pg_trgm/btree_gist、auth schema 与 SECURITY DEFINER 函数、
                       app_rw 角色、注册触发器、GRANT、RLS 策略与部分唯一索引
 0002_app_role_grant   自定义：app 登录角色存在时 GRANT app_rw TO app
+0003_better_auth      自定义：Better Auth 表结构、auth_service 角色、双角色边界、
+                      organization 插件所需的策略与触发器；要求 auth/租户数据为空
 ```
 
 | 迁移 | 为什么必须存在 |
@@ -264,6 +281,7 @@ Vercel 的环境变量同时用于构建与运行。构建命令中**不得**包
 | `0000` | 业务表与 `auth.users`；主键统一 `DEFAULT uuidv7()`，软删列与部分唯一索引 |
 | `0001` | 没有 `app_rw`，`SET LOCAL ROLE` 失败；没有 `auth` schema/函数无法认证；没有 RLS 策略与授权，查询越权或返回 0 行；没有触发器，注册后没有默认组织 |
 | `0002` | 运行期登录角色 `app` 必须在迁移前创建；该迁移补 `GRANT app_rw TO app`，角色不存在时安全跳过 |
+| `0003` | 认证切到自托管 Better Auth；创建 `auth_service`，收回 `app_rw` 对组织/成员/邀请的写权限，并重建 RLS 策略与最后 owner 触发器。**要求空库**：已有 `auth.users` 或 `organization` 行时直接报错 |
 
 自定义迁移用 Drizzle Kit 的空迁移能力创建，例如 `drizzle-kit generate --custom --name=extensions`，再手写 SQL。**已应用的迁移不修改**；修正用新迁移。
 
@@ -310,14 +328,17 @@ export default defineConfig({
 
 ### 4.4 角色与授权
 
-顺序是：先创建运行期登录角色 `app`（一次性），再执行迁移（`0001` 创建受限角色 `app_rw`、GRANT 与 RLS），`0002` 在 `app` 存在时补 `GRANT app_rw TO app`。密码只存在于环境变量与 Neon 中，不写进迁移文件。
+顺序是：先创建两个运行期登录角色 `app` 与 `auth_runtime`（一次性），再执行迁移。`0001` 创建受限角色 `app_rw`，`0002`/`0003` 在登录角色存在时补授权，`0003` 另外创建 `auth_service`。密码只存在于环境变量与 Neon 中，不写进迁移文件。
 
 **第 1 步：运行期登录角色（迁移之前，一次性）**
 
 ```sql
--- 本地由 POSTGRES_USER=app 提供；生产手工执行一次
+-- 本地由 POSTGRES_USER=postgres 提供；生产手工执行一次
 -- 不要用 Neon 控制台创建运行期角色：控制台创建的角色会加入 neon_superuser。
 CREATE ROLE app LOGIN PASSWORD '<generated>'
+  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+
+CREATE ROLE auth_runtime LOGIN PASSWORD '<generated>'
   NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 ```
 
@@ -328,30 +349,36 @@ CREATE ROLE app LOGIN PASSWORD '<generated>'
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE ROLE app_rw NOLOGIN NOSUPERUSER NOBYPASSRLS;
 
--- 0002_app_role_grant.sql
+-- 0003_better_auth.sql（节选）
+CREATE ROLE auth_service NOLOGIN NOSUPERUSER NOBYPASSRLS;
+
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
-    GRANT app_rw TO app;   -- app 已在第 1 步创建
+    GRANT app_rw TO app;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_runtime') THEN
+    GRANT auth_service TO auth_runtime;
   END IF;
 END
 $$;
 ```
 
-`app` 的密码同时写入 Neon 与 Vercel 的 `POSTGRES_URL`，不要进入 Git。迁移连接使用 Neon 项目所有者角色（默认 `neondb_owner`），与运行期角色分离。
+`app` 的密码写入 Vercel 的 `APP_POSTGRES_URL`，`auth_runtime` 的密码写入 `AUTH_POSTGRES_URL`；两者都不要进入 Git。迁移连接使用 Neon 项目所有者角色（默认 `neondb_owner`），与运行期角色分离。
 
 ```sql
--- 0001_auth_rls.sql 的授权矩阵（示意）
+-- 授权矩阵（示意）
 GRANT USAGE ON SCHEMA public TO app_rw;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_rw;
 -- 不授予 DELETE：软删统一走 UPDATE deleted_at
+REVOKE INSERT, UPDATE, DELETE ON organization_member FROM app_rw;
+REVOKE SELECT, INSERT, UPDATE, DELETE ON invite FROM app_rw;
 
--- auth schema 只给 schema 使用与函数执行权
-GRANT USAGE ON SCHEMA auth TO app_rw;
-GRANT EXECUTE ON FUNCTION auth.uid() TO app_rw;
--- 其余认证函数按实际签名逐个授权，禁止 ALL FUNCTIONS 一把梭：
--- auth.sign_up / auth.find_login / auth.get_session_user / auth.change_password
--- auth.accept_invite
+-- 认证与租户写只属于 auth_service
+GRANT USAGE ON SCHEMA auth TO auth_service;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.users, auth.session, auth.account, auth.verification TO auth_service;
+GRANT SELECT, INSERT, UPDATE, DELETE ON organization_member TO auth_service;
+GRANT SELECT, INSERT, UPDATE ON organization, invite TO auth_service;
 
 -- app_rw 不得直接读写 auth 表
 REVOKE ALL ON auth.users FROM app_rw;
@@ -359,7 +386,7 @@ REVOKE ALL ON auth.users FROM app_rw;
 
 > `GRANT ... ON ALL TABLES` 只影响执行时已存在的表。新增表后需要在同一迁移中重新授权，或配置 `ALTER DEFAULT PRIVILEGES`。
 >
-> `auth.users` 的密码哈希只允许认证函数读取；`app_rw` 只有 `USAGE ON SCHEMA auth` 与函数 `EXECUTE`，没有表权限。
+> 密码由 Better Auth 以 scrypt 存入 `auth.account`；只有 `auth_service` 能读写。`app_rw` 没有 `auth.*` 表权限。
 >
 > 迁移角色必须能绕过 RLS（Neon 默认所有者角色与本地超级用户满足）。否则 `SECURITY DEFINER` 触发器在 `FORCE RLS` 表上仍会失败，注册会整体回滚。
 
@@ -439,14 +466,14 @@ pnpm db:migrate
 1. Vercel 项目 → Settings → Domains → 添加 family.example.com
 2. 按 Vercel 提示配置 DNS（A / CNAME）
 3. 等待 TLS 证书自动签发
-4. 把 BASE_URL 设为 https://family.example.com
-5. 重新部署，使构建与运行期都读取新的 BASE_URL
+4. 把 BETTER_AUTH_URL 设为 https://family.example.com
+5. 重新部署，使构建与运行期都读取新的 BETTER_AUTH_URL
 ```
 
 | 检查项 | 说明 |
 |---|---|
-| `BASE_URL` 与域名一致 | 邀请链接、Cookie 安全属性与回跳都依赖它 |
-| Cookie | `session`：HttpOnly + Secure + SameSite=Lax；自定义域名下必须能落盘 |
+| `BETTER_AUTH_URL` 与域名一致 | 邀请链接、Cookie 安全属性与回跳都依赖它 |
+| Cookie | `better-auth.session_token`：HttpOnly + Secure + SameSite=Lax；自定义域名下必须能落盘 |
 | Neon 网络限制 | 若开启 IP Allow，需要放行 Vercel 出口，或改用可固定出口的方案；否则函数无法连库 |
 | 代理链 | Vercel 已终止 TLS；应用不需要再信任额外的 `X-Forwarded-*` 代理头 |
 
@@ -456,7 +483,7 @@ pnpm db:migrate
 1. CI：pnpm check → pnpm typecheck → pnpm test:coverage → 迁移漂移检查 → pnpm build → pnpm test:e2e → pnpm verify:deploy
 2. 对 Neon 生产分支执行迁移（POSTGRES_URL_DIRECT，独立受保护步骤）
 3. 部署 / Promote Vercel 生产部署
-4. 外部验证：BASE_URL=https://<staging> POSTGRES_URL_DIRECT=<direct> APP_DATABASE_URL=<app-login> pnpm verify:deploy
+4. 外部验证：BETTER_AUTH_URL=https://<staging> POSTGRES_URL_DIRECT=<direct> APP_POSTGRES_URL=<app-login> pnpm verify:deploy
 5. 外部 E2E（仅 staging）：E2E_ALLOW_EXTERNAL=1 E2E_EXTERNAL_SERVER=1 E2E_BASE_URL=https://<staging> pnpm test:e2e
 6. 回滚：Vercel 即时回退到上一部署；数据库按 §6.2 恢复
 ```
@@ -552,18 +579,19 @@ pg_restore -d "$POSTGRES_URL_DIRECT" --no-owner --clean --if-exists backup-2026-
 | `info` | 关键业务动作（组织创建、成员变更） |
 | `debug` | 仅开发环境 |
 
-**不要**把日志写文件（函数实例随时回收）。**不要**记录密码、JWT、Cookie、邀请 token、完整邮箱。认证相关日志只记录 `user_id` 与结果码。Vercel 日志保留期有限，超出保留期的逐条追溯只能依赖日志导出或 PITR 恢复；M1 不建审计表。
+**不要**把日志写文件（函数实例随时回收）。**不要**记录密码、Cookie、会话 token、邀请 ID、完整邮箱。认证相关日志只记录 `user_id` 与结果码。Vercel 日志保留期有限，超出保留期的逐条追溯只能依赖日志导出或 PITR 恢复；M1 不建审计表。
 
 ### 6.5 密钥与权限运维
 
 | 项 | 规则 |
 |---|---|
-| `AUTH_SECRET` | 每个环境独立；轮换后该环境全员重新登录，按应急操作处理 |
-| `POSTGRES_URL` | 只使用运行期角色 `app`（`NOBYPASSRLS`）+ Neon pooled endpoint |
+| `BETTER_AUTH_SECRET` | 每个环境独立；轮换后该环境全员重新登录，按应急操作处理 |
+| `APP_POSTGRES_URL` | 只使用运行期角色 `app`（`NOBYPASSRLS`）+ Neon pooled endpoint |
+| `AUTH_POSTGRES_URL` | 只使用运行期角色 `auth_runtime` + Neon pooled endpoint；连接固定 `role=auth_service` |
 | `POSTGRES_URL_DIRECT` | 只在 CI / 运维环境；不配置到 Vercel 运行期 |
 | 运行期角色 | 不用 Neon 控制台创建（会加入 `neon_superuser`）；用 SQL 创建普通登录角色 |
-| 日志脱敏 | 邀请 token、Cookie、密码、完整邮箱一律不落日志 |
-| 最小权限 | `app_rw` 无 DELETE；`auth.users` 无表权限；业务表只授予 SELECT/INSERT/UPDATE |
+| 日志脱敏 | 邀请 ID、Cookie、密码、完整邮箱一律不落日志 |
+| 最小权限 | `app_rw` 无 DELETE、无 `auth.*` 表权限、无组织/成员/邀请写权限；这些写操作只属于 `auth_service` |
 
 ---
 
@@ -576,21 +604,21 @@ pg_restore -d "$POSTGRES_URL_DIRECT" --no-owner --clean --if-exists backup-2026-
 | 连接报 `password authentication failed` | 使用了直连密码配 pooled 主机，或角色不是 `app` | 核对 §3.1 的两条连接串与角色 |
 | 报 `too many connections` | 每实例 pool 过大、实例过多或连接泄漏 | 用 pooled endpoint；`max` 降到 1–5；监控 Neon 连接数 |
 | 报 prepared statement 冲突 | 生产用了 `postgres.js` 的预编译语句穿过 Neon 事务池 | 生产改用 `pg` Pool + pooled endpoint；本地 `postgres.js` 不受影响 |
-| 所有查询返回 0 行 | `SET LOCAL ROLE app_rw` 没执行，或 `app_rw` 无 `GRANT` | 检查 `withOrg` 与 `0005_grants.sql` |
-| 查询报 `permission denied for schema auth` | `app_rw` 缺 `USAGE ON SCHEMA auth` 或函数 `EXECUTE` | 检查 `0005_grants.sql` 的授权矩阵 |
-| 查询报 `infinite recursion detected in policy` | `organization_member` 的策略子查询了自己 | 改成 `user_id = auth.uid()`，或在 P1 重构为 `SECURITY DEFINER` helper |
-| 登录后立即掉线 | Cookie 域名 / `SameSite` / `Secure` 配置错，或 `AUTH_SECRET` 已轮换 | 检查 `BASE_URL`、Cookie 设置与最近一次密钥轮换 |
-| 登录后反复跳回登录页 | `proxy.ts` 与 `getUser()` 对同一 Cookie 的判断不一致 | 统一验签密钥与 Cookie 名；确认 `token_version` 校验 |
-| 修改密码后其他设备被登出 | `token_version` 已递增 | 预期行为；重新登录即可 |
-| 登录后访问组织 404 | 注册触发器没建或没生效，账号没有组织 | 检查 `0006_signup_trigger.sql`；查 `organization_member` |
-| 注册直接失败 | 触发器报错（多为 slug 冲突或权限不足） | 看 Neon 日志；确认函数是 `SECURITY DEFINER` 且 `search_path = public` |
-| 接受邀请报 `INVITE_INVALID` | token 错误、过期、已接受或已撤销 | 让邀请人重新生成链接；检查 `invite.deleted_at` 与 `expires_at` |
+| 所有查询返回 0 行 | `SET LOCAL ROLE app_rw` 没执行，或 `app_rw` 无 `GRANT` | 检查 `withOrg` 与 `0003_better_auth.sql` 的授权 |
+| 查询报 `permission denied for schema auth` | 用业务连接访问了 `auth.*` | 业务查询只走 `APP_POSTGRES_URL` + `withOrg`；认证读写只经 Better Auth（`AUTH_POSTGRES_URL`） |
+| 查询报 `infinite recursion detected in policy` | `organization_member` 的策略子查询了自己 | 使用 `auth.has_org_role()`（已落地），不要回到裸子查询 |
+| 登录后立即掉线 | Cookie 域名 / `SameSite` / `Secure` 配置错，或 `BETTER_AUTH_SECRET` 已轮换 | 检查 `BETTER_AUTH_URL`、Cookie 设置与最近一次密钥轮换 |
+| 登录后反复跳回登录页 | `proxy.ts` 只检查 Cookie 存在，权威校验在 `getSessionUser()` | 确认 Cookie 名是 `better-auth.session_token`，且 `BETTER_AUTH_URL` 与访问域名一致 |
+| 修改密码后其他设备被登出 | `changePassword({ revokeOtherSessions: true })` 已执行 | 预期行为；重新登录即可 |
+| 登录后访问组织 404 | 注册触发器没建或没生效，账号没有组织 | 检查 `trg_auth_user_created` / `handle_new_user()`；查 `organization_member` |
+| 注册直接失败 | 触发器报错（多为 slug 冲突或权限不足） | 看 Neon 日志；确认函数是 `SECURITY DEFINER`、owner 为 `auth_service`、`search_path = public, auth, pg_temp` |
+| 接受邀请报 `INVITE_INVALID` | 邀请 ID 错误、过期、已接受或已撤销 | 让邀请人重新生成链接；检查 `invite` 与 Better Auth invitation 状态 |
 | 切换组织后看到旧数据 | 查询漏了 `WHERE organization_id` | 走 RLS 兜底但性能差，补上应用层条件 |
 | 建同名谱书报 23505 | 唯一索引没加 `WHERE deleted_at IS NULL` | 见 [data-model §11.2](./data-model.md#112-唯一约束必须是部分索引) |
 | 列表里出现已删数据 | 查询漏了 `deleted_at IS NULL` | 所有业务查询都要带这个条件 |
 | 迁移改错了分支 | 直连 URL 指向了生产或错误的 Neon 分支 | 执行前先看 `current_database()`；用分支恢复，不要手改生产 |
 | Vercel 构建或函数报连接超时 | Neon IP Allow 未放行、区域不一致或 `sslmode` 缺失 | 检查网络限制与区域；连接串加 `sslmode=require` |
-| Vercel 预览能打开但数据异常 | Preview 指向了 staging / 预览分支 | 确认环境作用域与 `BASE_URL`，不要拿生产库做预览 |
+| Vercel 预览能打开但数据异常 | Preview 指向了 staging / 预览分支 | 确认环境作用域与 `BETTER_AUTH_URL`，不要拿生产库做预览 |
 | `/api/health` 返回 503 | 数据库不可达或迁移未完成 | 查 Neon 状态与连接数；确认迁移步骤已执行 |
 | 日志里没有 `request_id` | 请求入口未生成或未透传 | 在 Server Action / Route Handler 入口统一生成 |
 
@@ -602,8 +630,8 @@ pg_restore -d "$POSTGRES_URL_DIRECT" --no-owner --clean --if-exists backup-2026-
 | 跨组织数据泄露 | 立即下线应用 → 用结构化日志（`request_id` / `user_id` / `organization_id`）定位 → 修复策略 → 隔离验证 → 上线 |
 | 数据库连接耗尽 | 降低函数实例数或 `max`；排查未关闭的事务；必要时在 Neon 侧终止会话 |
 | 注册触发器异常 | 暂停注册入口 → 修触发器 → 补偿缺失的组织 → 恢复 |
-| `AUTH_SECRET` 疑似泄露 | 立即轮换密钥 → 全员重新登录 → 排查异常登录日志 |
-| 忘记密码且无法登录 | 人工核验身份后，由运维调用改密函数并 `token_version + 1`；无自助找回 |
+| `BETTER_AUTH_SECRET` 疑似泄露 | 立即轮换密钥 → 全员重新登录 → 排查异常登录日志 |
+| 忘记密码且无法登录 | 人工核验身份后，按 [RB-2](./guides/runbooks.md#rb-2-用户忘记密码--强制下线) 更新 `auth.account.password` 并删除该用户会话；无自助找回 |
 | Neon 故障 | 查看状态页；短时等待；必要时用最近备份/分支恢复并切换连接串 |
 | Vercel 故障 | 查看状态页；回退上一部署；静态资源由 CDN 兜底，动态功能不可用 |
 
@@ -620,4 +648,4 @@ pg_restore -d "$POSTGRES_URL_DIRECT" --no-owner --clean --if-exists backup-2026-
 - ~~补齐 Playwright 关键路径 E2E~~：已实现（注册 → 建项目 → 建谱系 → 录入始祖/子女 → 检查器 → 侧栏），云端 external 模式待 staging 凭据执行。
 - 在 staging 执行 `pnpm verify:deploy` 与 external E2E，覆盖 `pg` + `attachDatabasePool`、pooled/direct 连接分离与 Cookie 落盘。
 - 配置外部探针访问 `GET /api/health`，并确认 Vercel 与 Neon 的日志与指标可用于定位 `request_id`。
-- 在 Vercel 中配置自定义域名与 `BASE_URL`，验证 Cookie 能正常落盘。
+- 在 Vercel 中配置自定义域名与 `BETTER_AUTH_URL`，验证 Cookie 能正常落盘。
