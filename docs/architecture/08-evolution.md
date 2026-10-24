@@ -11,8 +11,8 @@
 
 | 阶段 | 范围 | 架构影响 |
 |---|---|---|
-| **M1**（当前） | 录入、编目、成员、默认组织 | 本文档描述的全部 |
-| M2 | 谱书预览与分享、回收站、编辑锁、媒体上传、版式设置 | 加 4 张表（`share_link`、`delete_batch`、`resource_lock`、`media`）+ `collab` / `media` 两个模块 + 第 2 个 Route Handler |
+| **M1** 目标 | 录入、编目、成员、默认组织 | 本文档描述的全部 |
+| M2 | 谱书预览与分享、回收站、编辑锁、媒体上传、版式设置 | 加 4 张表（`share_link`、`delete_batch`、`resource_lock`、`media`）+ `collab` / `media` 两个域 + 按需新增只读 Route Handler（ADR 0008） |
 | M3 | PDF 排版成书、导出 | 加 `edition` 表 + 排版服务；渲染进程独立部署（Vercel 之外），不进入主应用运行时 |
 | M4 | 手机验证码 / OAuth、邮件通道与密码找回、实时协同、OCR | 邮件通道引入第三方投递依赖；实时协同需 CRDT 或 OT |
 
@@ -51,7 +51,7 @@
 | R14 | Vercel 函数执行时长超限 | 长请求被中断 | M1 无长任务；批量写上限 500 行；超时前完成响应 |
 | R15 | 登录限流只存在于进程内 | Vercel 多实例下失败计数不共享，暴力尝试可分散到不同实例 | 接受为 best-effort；配合强密码策略；需要严格锁定时再引入持久化计数或上游防护 |
 
-### 14.2 本次评审新增的风险
+### 14.2 评审补充风险（2026-10-22）
 
 以下 5 条在原文档中没有登记，但属于同一类「已知且需要决策」的风险。
 
@@ -71,20 +71,10 @@
 | R4 / R10 / R18 | [ADR-0004 软删永存](../decisions/0004-soft-delete-forever.md) | 首个客户询问数据处置能力时 |
 | R9 | [ADR-0003 ltree 树存储](../decisions/0003-tree-storage-ltree.md) | 支持过继/兼祧时 |
 | R18 | [ADR-0005 零后台任务](../decisions/0005-zero-background-jobs.md) | 引入第一个清理任务时 |
-| R8 | [ADR-0006 RLS 隔离](../decisions/0006-rls-isolation.md) | 迁移角色权限调整时 |
+| R8 | [ADR-0006 RLS 隔离](../decisions/0006-rls-isolation.md) | `app_rw` / `auth_service` 角色或策略调整时 |
 
 ---
 
 ## 15. 待决策项
 
-以下问题在文档内部存在两种说法或明确空白，需要一次明确表态。决策后应转为 ADR，并从本表移除。
-
-| # | 问题 | 现状 | 影响面 |
-|---|---|---|---|
-| D-1 | 模块目录：`src/modules/` 还是 `lib/<domain>/` | 目标写 `src/modules`，实现是 `lib/<domain>` | 目录约定；影响所有 import 路径 |
-| D-2 | 读通道：收敛为 Server Action 还是保留只读 Route Handler | 目标写「收敛」，实现有 4 个端点 | 缓存、预取、可观测性 |
-| D-3 | 模块内分层：固定三层还是垂直切片 | 目标写三层，代码已漂向按域聚合 | 新增实体的文件数与心智负担 |
-| D-4 | 关系模型：`parent_id` 单列能否表达过继 / 兼祧 / 入赘 | 未在 PRD 开放问题中列出，但 M3 排版会固化它 | 跨全表数据迁移（若后期才改） |
-| D-5 | G3 判据：「≤3 文件 + 1 迁移」是否修订为可执行版本 | 实践上不可达 | 可维护性目标的度量口径 |
-| D-6 | 隐私保留期与物理删除路径 | 完全空白 | 合规承诺、ADR-0004 与 ADR-0005 |
-| D-7 | Action 返回形态 | 目标写 `ActionResult<T>` 判别联合 · 实现用 `ActionState = { error, fieldErrors, success, code }` | 所有 Action 的签名与 UI 错误处理 |
+统一维护在 [decisions/README §待决策](../decisions/README.md#待决策)。本文件不复制。

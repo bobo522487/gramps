@@ -9,18 +9,19 @@
 
 ## 11. 质量属性与验证
 
-| 属性 | 目标 | 验证方式 |
-|---|---|---|
-| 隔离 | 跨组织查询 0 行 | 集成测试，`app_rw` 无 claims 执行查询 |
-| 注册完整性 | 有账号必有组织 | 集成测试：注册后断言 1 条 owner 成员关系 |
-| 性能（画布） | 1000 节点 ≥ 45fps | Playwright + `performance` API 采样 |
-| 性能（页面） | 内部页面 TTFB < 400ms | 结构化日志 `duration_ms` p95 |
-| 可用性 | 月度 99.5% | 外部探针 5 分钟一次 |
-| 可维护性 | 单文件 ≤ 400 行，函数 ≤ 50 行 | Biome 规则 + 代码评审 |
-| 可测试性 | 关键服务层覆盖率 ≥ 70% | Vitest coverage（`pnpm test:coverage`，合并单测 + 集成门槛） |
-| 关键路径 | 注册 → 建项目 → 建谱系 → 录入人丁可用 | Playwright E2E（`pnpm test:e2e`） |
-| 部署就绪 | 健康检查、安全头、鉴权、RLS/角色 | `pnpm verify:deploy` |
-| 恢复 | RPO ≤ 1 天，RTO ≤ 4 小时 | 每季度一次恢复演练 |
+| 属性 | 目标 | 证据 | 状态 |
+|---|---|---|---|
+| 隔离 | 跨组织查询 0 行 | `pnpm test:integration`（org-scope） | 本地/CI 已验证；生产角色未验证 |
+| 注册完整性 | 有账号必有组织 | 集成测试 | 已验证 |
+| 性能（画布） | 1000 节点 ≥45fps | Playwright 性能采样 | 未验证（R2） |
+| 性能（页面） | TTFB <400ms | 日志/外部聚合 p95 | 部分：有 duration_ms，无聚合 |
+| 可用性 | 月度 99.5% | 外部探针 5 分钟 | 未验证（R19） |
+| 保存失败率 | <0.1% | 服务端 error.code / 客户端上报 | 未验证（R19） |
+| 可维护性 | 单文件 ≤400 行 | 脚本统计 | 未配置（评审 P1-12） |
+| 可测试性 | 关键查询/事务模块覆盖率 ≥70% | `pnpm test:coverage` | 已验证 |
+| 关键路径 | 注册→建项目→建谱系→录入可用 | Playwright | 已验证（2 条） |
+| 部署就绪 | 健康/安全头/鉴权/RLS | `pnpm verify:deploy` | 本地生产模式已验证；云端未验证 |
+| 恢复 | RPO≤1 天，RTO≤4 小时 | 季度恢复演练 | 未演练 |
 
 ### 11.1 从指标到场景（新增）
 
@@ -45,22 +46,20 @@
 | QA-SEC-1 | 持 A 组织会话请求 B 组织谱系，返回 404 且不泄露存在性 | RLS + 应用层过滤 + 复合外键 |
 | QA-DATA-1 | 误删 200 人子树，15 分钟内整组恢复，零丢失 | 软删 + 同事务时间戳 + runbook |
 | QA-MAINT-1 | 新增一个实体，改动 ≤5 个源文件，CI 全绿 | 垂直切片 + [add-a-feature 清单](../guides/add-a-feature.md) |
+| QA-PRIV-1 | 数据主体要求删除个人信息，30 天内完成物理删除 | 数据分级 + 保留期 + 硬删路径（当前不成立，R18） |
 
-> 该清单目前是**建议**，尚未写入本文档正文。补全后应替换 §11 的指标表，而不是并列——两套并存会继续产生「指标与场景各说各话」的问题。
+上表是 §11 指标的判定场景；场景与证据是一套东西，不再并列两套指标。
 
 ### 11.2 架构约束的自动执行（Fitness Function）
 
-文档里写了大量约束，但**当前没有一条由 CI 执行**。以下是最低成本的一批，建议逐条落地：
+**已执行**
 
-| # | 约束 | 检查方式 | 现状 |
-|---|---|---|---|
-| F1 | `service.ts` 不得 import `next/*` | Biome `noRestrictedImports` | 未配置 |
-| F2 | 只有 repo 层能 import `src/server/db` | Biome `noRestrictedImports` | 未配置 |
-| F3 | 每张业务表都启用 RLS | 查 `pg_class.relrowsecurity`，白名单仅迁移表 | 已有 |
-| F4 | 唯一约束必须是部分索引（`WHERE deleted_at IS NULL`） | 查 `pg_indexes` 中含 `UNIQUE` 且不含 `deleted_at` 的业务索引 | 未配置 |
-| F5 | 新增表不得使用裸子查询式 RLS 策略 | 查 `pg_policies.qual` 含 `organization_member` 但不含 `has_org_role` | 未配置 |
-| F6 | 单文件 ≤ 400 行 | Biome 规则 / 脚本统计 | 未配置 |
-| F7 | 代码中不出现 `process.env`（除 `lib/config.ts`） | grep / Biome | 未配置 |
-| F8 | 迁移目录与 schema 无漂移 | `pnpm db:generate` 后无变更 | 已有 |
+| # | 约束 | 检查方式 |
+|---|---|---|
+| F3 | 每张业务表都启用 RLS | 查 `pg_class.relrowsecurity`（已有） |
+| F8 | 迁移目录与 schema 无漂移 | `pnpm db:generate` 后无变更（已有） |
+| F9 | 文档链接/过期路径/矛盾措辞 | `pnpm docs:check --strict`（本计划新增） |
 
-> **判据**：一条架构约束如果没有 lint 或 CI 在执行它，它就不是约束，是愿望。当前 8 条里只有 2 条在执行。
+**未执行（代码评审 P1-12）**
+
+F1/F2/F4/F5/F6/F7 仍只是评审规则；在 Biome/CI 接入前，不要写成“已由工具拦截”。
