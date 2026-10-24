@@ -301,6 +301,24 @@ describe('registration and session lifecycle', () => {
     expect(path).toBe(`/dashboard/join?invite=${invitationId}`);
   });
 
+  it('rejects redirect targets that browsers treat as another origin', async () => {
+    const user = await createUser({ email: 'redirect@example.com' });
+
+    for (const target of ['//evil.example', '/\\evil.example']) {
+      const path = await expectRedirect(
+        signIn(
+          {},
+          form({
+            email: user.email,
+            password: TEST_PASSWORD,
+            redirect: target,
+          })
+        )
+      );
+      expect(path).toBe('/dashboard');
+    }
+  });
+
   it('treats the session row as authoritative', async () => {
     const user = await createUser({ email: 'revoked@example.com' });
     await authenticate(user.email);
@@ -904,6 +922,63 @@ describe('member management', () => {
     expect(removed).toMatchObject({
       error: '管理员不能管理其他管理员',
     });
+
+    const promotion = await updateOrgMemberRole(
+      {},
+      form({
+        orgId: context.organization.id,
+        memberId: context.editorMember.id,
+        role: 'admin',
+      })
+    );
+    expect(promotion).toMatchObject({
+      error: '管理员不能管理其他管理员',
+    });
+
+    const invitation = await inviteOrgMember(
+      {},
+      form({
+        orgId: context.organization.id,
+        email: 'second-admin@example.com',
+        role: 'admin',
+      })
+    );
+    expect(invitation).toMatchObject({
+      error: '管理员不能管理其他管理员',
+    });
+    expect(await invitationRows(context.organization.id)).toHaveLength(0);
+  });
+
+  it('blocks member changes after the organization is archived', async () => {
+    const context = await setUpMembers();
+
+    const archived = await deleteOrgAction(
+      {},
+      form({ orgId: context.organization.id })
+    );
+    expect(archived).toMatchObject({ success: '组织已归档' });
+
+    const role = await updateOrgMemberRole(
+      {},
+      form({
+        orgId: context.organization.id,
+        memberId: context.editorMember.id,
+        role: 'viewer',
+      })
+    );
+    expect(role).toMatchObject({ error: '组织不存在或已归档' });
+
+    const removed = await removeOrgMember(
+      {},
+      form({
+        orgId: context.organization.id,
+        memberId: context.editorMember.id,
+      })
+    );
+    expect(removed).toMatchObject({ error: '组织不存在或已归档' });
+    expect(
+      (await membership(context.organization.id, context.editor.id))?.role
+    ).toBe('editor');
   });
 
   it('rejects member management without the permission', async () => {

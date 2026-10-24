@@ -28,11 +28,13 @@ function inviteId(value: FormDataEntryValue | null): string | null {
 
 /** Only same-origin absolute paths are accepted, never protocol-relative ones. */
 function safeRedirectPath(value: FormDataEntryValue | null): string | null {
-  return typeof value === 'string' &&
-    value.startsWith('/') &&
-    !value.startsWith('//')
-    ? value
-    : null;
+  if (typeof value !== 'string' || !value.startsWith('/')) {
+    return null;
+  }
+  // Browsers normalise a backslash after the leading slash to another slash,
+  // so `/\evil.example` would leave the origin just like `//evil.example`.
+  const second = value.charAt(1);
+  return second === '/' || second === '\\' ? null : value;
 }
 
 async function logBestEffort(

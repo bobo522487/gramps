@@ -365,6 +365,7 @@ async function checkDb() {
         has_table_privilege('auth_service', 'public.organization_member', 'UPDATE') as auth_member_update,
         has_table_privilege('app_rw', 'auth.users', 'SELECT') as app_auth_users_select,
         has_table_privilege('app_rw', 'public.organization', 'INSERT') as app_org_insert,
+        has_table_privilege('app_rw', 'public.organization', 'UPDATE') as app_org_update,
         has_table_privilege('app_rw', 'public.organization_member', 'UPDATE') as app_member_update,
         has_table_privilege('app_rw', 'public.invite', 'SELECT') as app_invite_select,
         has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select
@@ -379,6 +380,7 @@ async function checkDb() {
     check(
       privileges?.app_auth_users_select === false &&
         privileges?.app_org_insert === false &&
+        privileges?.app_org_update === false &&
         privileges?.app_member_update === false &&
         privileges?.app_invite_select === false,
       'app_rw cannot read auth or write tenant tables'

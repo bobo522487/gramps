@@ -134,7 +134,7 @@ Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为
 
 - 全部主键是 UUIDv7（`uuidv7()`），20 位公开 ID 只用于 URL，不参与外键。
 - `organization_member` 与 `invite` 不再保留软删列，成员移除/邀请取消即删除行；`organization` 用 `deleted_at` 归档；`project` 与 6 张家谱表保留 `deleted_at` 软删。`activity_logs` 是产品活动流，没有软删列。
-- `organization.slug` 与 `project.ref` 是 `varchar(20)`、非空、唯一，字符集 `[0-9a-z]`。
+- `organization.slug` 与 `project.ref` 是 `text`（20 位公开 ID）、非空、唯一，字符集 `[0-9a-z]`。
 - 复合外键把子资源的 `(organization_id, project_id)` 约束在同一个组织内。
 - 活动成员 `(organization_id, user_id)` 唯一；`uk_org_member_single_owner` 保证单组织最多一个 `owner`；触发器在数据库层阻止移除/降级最后一个 owner。
 - 邀请 `(organization_id, lower(email))` 在待处理状态下唯一；角色只能是 `admin`/`editor`/`viewer`。
@@ -375,7 +375,7 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，测试
 
 ### 7.3 测试覆盖
 
-单测 17 个文件 122 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
+单测 17 个文件 125 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
 
 | 文件 | 关注点 |
 |---|---|
@@ -397,7 +397,7 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，测试
 | `tests/lineage-store.test.ts` | zustand 工作区 UI 状态 |
 | `tests/lineage-canvas-layout.test.ts` | 欧式书本布局与代际索引纯函数 |
 
-集成测试 11 个文件 113 个用例，使用真实 PostgreSQL：
+集成测试 11 个文件 115 个用例，使用真实 PostgreSQL：
 
 | 文件 | 关注点 |
 |---|---|
