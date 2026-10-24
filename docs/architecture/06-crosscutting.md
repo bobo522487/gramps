@@ -13,24 +13,7 @@
 
 全部来自环境变量，启动时用 Zod 校验，缺一个就拒绝启动。
 
-```typescript
-// src/server/config.ts
-const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']),
-  POSTGRES_URL: z.string().url(),
-  POSTGRES_URL_DIRECT: z.string().url().optional(),
-  APP_POSTGRES_URL: z.string().url(),
-  AUTH_POSTGRES_URL: z.string().url(),
-  BETTER_AUTH_SECRET: z.string().min(32),
-  BETTER_AUTH_URL: z.string().url(),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-});
-export const config = schema.parse(process.env);   // 失败即崩，不带病运行
-```
-
-完整变量表与各环境取值见 [部署蓝图 §3](../ops-target.md#3-目标环境变量)。
-
-代码中**禁止出现 `process.env`**，只能 `import { config }`。
+实现见 `lib/config.ts`；环境变量表见 [部署蓝图 §3](../ops-target.md#3-目标环境变量)。约定：业务代码不直接读 `process.env`，当前靠评审（Biome 规则未配置）。
 
 > **现状**：`lib/config.ts` 用 `getServerConfig()` 惰性校验，由 `instrumentation.ts` 在启动时触发；`POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` 只在迁移脚本中读取，不在运行时 schema 内。本地与 CI 可省略 `APP_POSTGRES_URL` / `AUTH_POSTGRES_URL`（回退到 `POSTGRES_URL`），Vercel 生产环境必须提供两者。认证连接必须使用 direct endpoint：配置校验会拒绝主机名含 `-pooler.` 的 `AUTH_POSTGRES_URL`（或回退的 `POSTGRES_URL`）。`LOG_LEVEL` 为可选。
 
@@ -40,8 +23,9 @@ export const config = schema.parse(process.env);   // 失败即崩，不带病�
 
 | 出口 | 格式 | 用于 |
 |---|---|---|
-| Server Action | `{ ok, data } \| { ok, error }` 判别联合 | 全部写操作 |
-| Route Handler | RFC 9457 `application/problem+json` | `/api/health` 的 503 |
+| Server Action | `ActionState` | 全部写操作 |
+| Route Handler | `{ error, code? }` | 业务路由 401/403/404 |
+| Route Handler | `{ status, database }` | `/api/health` 503 |
 
 Server Action 不 throw：throw 会被框架转成 500 错误页，UI 无法区分「同名冲突」和「校验失败」。详见 [api §4](../api.md#4-错误模型)。
 
@@ -87,7 +71,7 @@ M2 引入分享页时，必须补「在世人口脱敏在服务端完成」这�
 | 项 | 方案 |
 |---|---|
 | 错误聚合 | 无外部服务；未预期异常写 `error` 级结构化日志，带 `request_id`，由 Vercel 日志收集 |
-| 性能 | 从日志的 `duration_ms` 按路由聚合 p95 |
+| 性能 | Vercel 日志可检索但不支持聚合；p95 需要导出到外部存储或错误聚合服务。当前只有 `duration_ms` 原始日志，p95 未聚合（见 R19） |
 | 业务指标 | 关键动作写结构化日志，不建独立埋点表与审计表 |
 | 存活探针 | `GET /api/health`，检查数据库连通性 |
 

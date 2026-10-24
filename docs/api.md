@@ -4,8 +4,8 @@
 |---|---|
 | 文档版本 | 1.7 |
 | 最后更新 | 2026-10-23 |
-| 接口风格 | Server Action（内部写）+ RSC（内部首屏读）+ TanStack Query（客户端缓存）+ Route Handler（健康检查） |
-| 序列化 | JSON；错误按 RFC 9457 |
+| 接口风格 | Server Action（内部写）+ RSC（内部首屏读）+ TanStack Query（客户端缓存）+ 4 个只读 Route Handler |
+| 序列化 | JSON；Route Handler 非 2xx 返回 `{ error, code? }` |
 | 相关文档 | [架构](./architecture/00-overview.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
 
 ---
@@ -19,13 +19,13 @@
 | 操作 | 通道 | 理由 |
 |---|---|---|
 | 内部读（首屏） | RSC 服务端直读 | 零客户端请求、无 loading 闪烁、类型天然贯通 |
-| 内部读（客户端刷新） | TanStack Query → 只读 Route Handler | 统一缓存、失效与乐观更新；目标收敛为 Server Action |
+| 内部读（客户端刷新） | TanStack Query → 4 个只读 GET Route Handler | 统一缓存、失效与乐观更新；读请求可缓存、可预取、按路由观测（ADR 0008） |
 | 内部写 | Server Action | 免手写路由与 fetch、内置 CSRF、渐进增强 |
 | 探活 | Route Handler | 需要标准 HTTP 语义 |
 
 M1 的 Route Handler 全部是只读 GET：`/api/health`、`/api/user`、`/api/orgs`、`/api/orgs/[orgId]/projects`。**没有 `/api/auth/*`**：认证与租户写只从 Server Action 调 `auth.api.*`。
 
-TanStack Query 只做客户端缓存层：`mutationFn` 调用 Server Action；`queryFn` 当前调用 4 个只读 Route Handler，目标收敛为 Server Action，组件内不手写 `fetch`。
+TanStack Query 只做客户端缓存层：`mutationFn` 调用 Server Action；`queryFn` 调用 4 个只读 Route Handler（[ADR 0008](./decisions/0008-read-only-route-handlers.md)），组件内不手写 `fetch`。
 
 M1 没有公开接口——没有分享页，没有第三方消费者。引入 REST 层意味着多维护一份契约（DTO、校验、鉴权、文档），而收益是零。
 
@@ -33,10 +33,10 @@ M1 没有公开接口——没有分享页，没有第三方消费者。引入 R
 
 | 对象 | 规则 | 示例 |
 |---|---|---|
-| Server Action | 动词 + 名词，驼峰 | `createLineage`、`addChild` |
-| Action 文件 | `actions.ts`，按模块 | `src/modules/lineage/actions.ts` |
+| Server Action | 动词 + 名词 + `Action` 后缀，驼峰 | `createLineageAction`、`addChildAction` |
+| Action 文件 | `actions.ts`，按域 | `lib/lineage/actions.ts` |
 | 入参类型 | `<Action>Input` | `CreateLineageInput` |
-| 出参类型 | `ActionResult<T>` | `ActionResult<Lineage>` |
+| 出参类型 | `ActionState`（权威定义 `lib/auth/types.ts`） | `ActionState` |
 
 ### 1.3 数据格式
 
@@ -69,24 +69,9 @@ M1 没有公开接口——没有分享页，没有第三方消费者。引入 R
 
 ### 2.2 组织上下文
 
-组织的唯一来源是 URL 第一段。
+页面/布局用 `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)` 把公开 ID 解析成内部 scope（`organizationId`、`projectId`、`role`）。Action 入参使用内部 UUID（`orgId`、`projectId`、`lineageId` 等），不使用公开 ID 作为授权依据。即使 UUID 被篡改，事务内仍需 `getOrgRoleInTx` + `hasPermission` 复核；非成员返回 404，权限不足返回 403。
 
-```
-/{orgSlug}/{projectRef}/...
-```
-
-`orgSlug` 与 `projectRef` 都是 20 位 `[0-9a-z]` 随机公开 ID，不是授权凭证。项目内页面先用 `orgSlug + projectRef` 解析出内部 `projectId`；Action 使用内部 ID，不在每次调用中重复传 `ref`。
-
-除认证与 `acceptInvite` 外，所有组织内 Action 的第一个参数都是 `orgSlug`（或从 `params` 推导），服务端解析成 `OrgContext`：
-
-```typescript
-interface OrgContext {
-  userId: string;
-  organizationId: string;
-  organizationSlug: string;
-  role: 'owner' | 'admin' | 'editor' | 'viewer';
-}
-```
+公开 ID 只用于 URL 定位；不要新增按公开 ID 写入的入口。
 
 | 情况 | 返回 |
 |---|---|
@@ -94,7 +79,7 @@ interface OrgContext {
 | 不是该组织成员 | `NOT_FOUND` (404) — 不返回 403，避免泄露组织存在性 |
 | 组织已停用 + 写操作 | `ORG_SUSPENDED` (403) |
 
-**M1 的 `OrgContext` 没有 `planId`**。目标设计不包含付费档位或用量上限，所有组织功能无差别。
+**M1 的 scope 没有 `planId`**。目标设计不包含付费档位或用量上限，所有组织功能无差别。
 
 ### 2.3 注册与默认组织
 
@@ -117,7 +102,7 @@ M1 **不发送验证邮件**：`auth.users` 插入后即可登录，不存在「
 
 ### 2.4 CSRF
 
-Server Action 由 Next.js 内置 Origin 校验。M1 唯一的 Route Handler 是 GET，无副作用，不需要 CSRF 防护。
+Server Action 由 Next.js 内置 Origin 校验。4 个 Route Handler 全部是只读 GET，无副作用，不需要 CSRF 防护。
 
 ---
 
@@ -192,42 +177,35 @@ export class ConflictError        extends AppError { code: string; status = 409;
 
 M1 有 6 个错误类。`RateLimitedError` 用于登录与注册的进程内滑窗限流；M2 的编辑锁另加 `LockError`。
 
-### 4.2 出口一：Server Action → 判别联合
+### 4.2 出口一：Server Action → ActionState
 
 Server Action 无法设置 HTTP 状态码，也**不应该 throw**——throw 会被框架转成 500 错误页，UI 无法区分「同名冲突」和「校验失败」。
 
-```typescript
-export type ActionResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: { code: string; message: string; fields?: FieldError[]; meta?: unknown } };
-```
+Action 返回 `ActionState`，权威定义在 `lib/auth/types.ts`。语义：
+
+- `error` / `success`：面向用户的中文文案；
+- `code`：稳定机器码（如 `FORBIDDEN`、`CONFLICT_DUPLICATE`）；
+- `fieldErrors`：字段级错误；
+- `orgId` / `projectId` / `lineageId` 等：成功后的内部 UUID，供 UI 导航或刷新。
+
+不要回显密码；不要把异常堆栈放进返回值。
 
 UI 消费方式：
 
 ```tsx
-const result = await addChild({ lineageId, parentId, name });
-if (!result.ok) {
-  if (result.error.code === 'CONFLICT_DUPLICATE') return showNameConflict();
-  if (result.error.fields) return setFieldErrors(result.error.fields);
-  return showToast(result.error.message);
+const result = await addChildAction({ ... });
+if (result.error) {
+  if (result.code === 'CONFLICT_DUPLICATE') return showNameConflict();
+  if (result.fieldErrors) return setFieldErrors(result.fieldErrors);
+  return showToast(result.error);
 }
 ```
 
-### 4.3 出口二：Route Handler → RFC 9457
+### 4.3 出口二：Route Handler → JSON
 
-```json
-{
-  "type": "https://api.example.com/errors/INTERNAL",
-  "title": "服务内部错误",
-  "status": 500,
-  "code": "INTERNAL",
-  "request_id": "req_01J9Z8K2QH"
-}
-```
+Route Handler 非 2xx 统一返回 `{ "error": "Unauthorized" }` 这类 JSON；需要机器码时加 `code`。`/api/health` 503 返回 `{ "status": "error", "database": "down" }`。此前文档写的 RFC 9457 没有落地，删除该承诺。
 
-`Content-Type: application/problem+json`。未预期异常不返回堆栈，只返回 `request_id`（用户报障凭它在结构化日志里串联完整链路）。
-
-M1 唯一的 Route Handler 是 `/api/health`，正常路径不产生错误响应，这个出口只在探针失败（503）时用。
+未预期异常不返回堆栈；`request_id` 在响应头与日志里。4 个 Route Handler 中只有 `/api/health` 会产生 503，其余业务路由返回 401/403/404。
 
 ### 4.4 错误码
 
@@ -260,35 +238,48 @@ M1 唯一的 Route Handler 是 `/api/health`，正常路径不产生错误响应
 ```typescript
 'use server';
 
-export async function addChild(raw: unknown): Promise<ActionResult<Node>> {
-  try {
-    // 1. 校验（不信任客户端）
-    const input = AddChildInput.parse(raw);
-
-    // 2. 上下文（认证 + 组织 + 角色）
-    const ctx = await requireOrgContext(input.orgSlug);
-    assertPermission(ctx, 'lineage.write');
-
-    // 3. 事务：业务写入
-    const node = await withOrg(ctx, async (tx) => {
-      return nodeService.create(tx, ctx, input);
+export const updateNodeAction = validatedActionWithUser(
+  updateNodeSchema,
+  async (data, _formData, user) => {
+    const result = await updateNodeInTransaction({
+      userId: user.id,
+      orgId: data.orgId,
+      lineageId: data.lineageId,
+      nodeId: data.nodeId,
+      updates: {
+        name: data.name,
+        surname: data.surname,
+        sex: data.sex,
+        courtesy: data.courtesy,
+        namePrefix: data.namePrefix,
+        isAlive: data.isAlive,
+        birthText: data.birthText,
+        deathText: data.deathText,
+        birthYear: data.birthYear,
+        deathYear: data.deathYear,
+        burialPlace: data.burialPlace,
+        biography: data.biography,
+      },
     });
 
-    // 4. 缓存失效
-    revalidateTag(`lineage:${input.lineageId}`);
-    return { ok: true, data: node };
-  } catch (err) {
-    return toActionResult(err);
+    if (!result.ok) {
+      return lineageError(result.reason);
+    }
+
+    revalidateProject();
+    return { success: '人丁信息已保存', nodeId: result.node.id };
   }
-}
+);
 ```
+
+`updateNodeInTransaction` 在内部用 `withOrg` + `requireLineageWrite` 复核；Action 只传内部 UUID。`revalidateProject()` 目前仍是整树失效，收窄到项目/谱系是评审 P1-8 的代码任务；文档可以把它写成目标，但不能写成现状。
 
 | 规则 | 说明 |
 |---|---|
-| 入参 | 单个对象，`unknown` 类型，Zod 解析后才可信 |
-| 出参 | 恒为 `ActionResult<T>`，永不 throw |
-| 副作用顺序 | 业务写入 → `revalidateTag`；写失败不失效缓存 |
-| 缓存 | 写后 `revalidateTag`，粒度到资源 |
+| 入参 | 单个对象，Zod 解析后才可信 |
+| 出参 | 恒为 `ActionState`，永不 throw |
+| 副作用顺序 | 业务写入 → `revalidatePath`；写失败不失效缓存 |
+| 缓存 | 写后 `revalidatePath`，粒度到受影响的页面 |
 | 幂等 | 不保证。重复提交由唯一索引挡住 |
 
 **M1 的骨架里没有编辑锁**。M2 引入编辑锁后，顺序变为「锁 → 业务 → 缓存失效」。
@@ -296,6 +287,8 @@ export async function addChild(raw: unknown): Promise<ActionResult<Node>> {
 M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./data-model.md#9-审计与追溯)），日志失败不阻塞业务。
 
 ### 5.2 Action 清单
+
+下表用语义名；实际导出统一为 `<verb><Noun>Action`（如 `createLineageAction`、`addChildAction`）。
 
 #### auth
 
@@ -329,7 +322,7 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
 | `createOrganization` | `{ name }` | `Organization` | 登录即可 |
-| `updateOrganization` | `{ orgSlug, name? }` | `Organization` | `org.settings` |
+| `updateOrganization` | `{ orgId, name? }` | `Organization` | `org.settings` |
 
 `slug` 由服务端生成（20 位 `[0-9a-z]` 随机公开 ID），不可修改；客户端只在需要 URL 时读取返回值。
 
@@ -337,12 +330,12 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `createProject` | `{ orgSlug, name, surname, themeName, countriesRegions, status?, importance?, notes? }` | `Project` | `project.write` |
-| `updateProject` | `{ orgSlug, projectId, name?, countriesRegions?, hallCode?, status?, importance?, notes? }`（`surname` / `themeName` 不可修改） | `Project` | `project.write` |
-| `deleteProject` | `{ orgSlug, projectId }` | `void` | `project.write` |
-| `createFolder` | `{ orgSlug, projectId, kind, parentId?, name }` | `Folder` | `project.write` |
-| `renameFolder` | `{ orgSlug, folderId, name }` | `Folder` | `project.write` |
-| `deleteFolder` | `{ orgSlug, folderId }` | `void` | `project.write` |
+| `createProject` | `{ orgId, name, surname, themeName, countriesRegions, status?, importance?, notes? }` | `Project` | `project.write` |
+| `updateProject` | `{ orgId, projectId, name?, countriesRegions?, hallCode?, status?, importance?, notes? }`（`surname` / `themeName` 不可修改） | `Project` | `project.write` |
+| `deleteProject` | `{ orgId, projectId }` | `void` | `project.write` |
+| `createFolder` | `{ orgId, projectId, kind, parentId?, name }` | `Folder` | `project.write` |
+| `renameFolder` | `{ orgId, folderId, name }` | `Folder` | `project.write` |
+| `deleteFolder` | `{ orgId, folderId }` | `void` | `project.write` |
 
 `ref` **不由客户端传入**：服务端生成 20 位随机公开 ID，作为 URL 第二段（PRD FR-PROJ-1）。`projectId` 是内部 UUIDv7，只用于 Action；客户端需要 URL 时读取返回的 `ref`。
 
@@ -350,17 +343,17 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `createLineage` | `{ orgSlug, projectId, name, surname, hallCode?, generationWords? }` | `Lineage` | `lineage.write` |
-| `updateLineage` | `{ orgSlug, lineageId, ...可选 }` | `Lineage` | `lineage.write` |
-| `deleteLineage` | `{ orgSlug, lineageId }` | `void` | `lineage.write` |
-| `createRootNode` | `{ orgSlug, lineageId, name, surname, sex }` | `Node` | `lineage.write` |
-| `addSpouse` | `{ orgSlug, lineageId, spouseOfId, name, sex }` | `Node` | `lineage.write` |
-| `addSibling` | `{ orgSlug, lineageId, siblingOfId, name, sex }` | `Node` | `lineage.write` |
-| `addChild` | `{ orgSlug, lineageId, parentId, name, sex }` | `Node` | `lineage.write` |
-| `updateNode` | `{ orgSlug, lineageId, nodeId, ...字段 }` | `Node` | `lineage.write` |
-| `deleteNode` | `{ orgSlug, lineageId, nodeId }` | `void` | `lineage.write` |
-| `moveNode` | `{ orgSlug, lineageId, nodeId, newParentId }` | `Node` | `lineage.write` |
-| `reorderSiblings` | `{ orgSlug, lineageId, parentId, orderedIds }` | `void` | `lineage.write` |
+| `createLineage` | `{ orgId, projectId, name, surname, hallCode?, generationWords? }` | `Lineage` | `lineage.write` |
+| `updateLineage` | `{ orgId, lineageId, ...可选 }` | `Lineage` | `lineage.write` |
+| `deleteLineage` | `{ orgId, lineageId }` | `void` | `lineage.write` |
+| `createRootNode` | `{ orgId, lineageId, name, surname, sex }` | `Node` | `lineage.write` |
+| `addSpouse` | `{ orgId, lineageId, spouseOfId, name, sex }` | `Node` | `lineage.write` |
+| `addSibling` | `{ orgId, lineageId, siblingOfId, name, sex }` | `Node` | `lineage.write` |
+| `addChild` | `{ orgId, lineageId, parentId, name, sex }` | `Node` | `lineage.write` |
+| `updateNode` | `{ orgId, lineageId, nodeId, ...字段 }` | `Node` | `lineage.write` |
+| `deleteNode` | `{ orgId, lineageId, nodeId }` | `void` | `lineage.write` |
+| `moveNode` | `{ orgId, lineageId, nodeId, newParentId }` | `Node` | `lineage.write` |
+| `reorderSiblings` | `{ orgId, lineageId, parentId, orderedIds }` | `void` | `lineage.write` |
 
 **四种新增方式的语义**：
 
@@ -375,21 +368,21 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `createArticle` | `{ orgSlug, projectId, title, kind?, content }` | `Article` | `article.write` |
-| `updateArticle` | `{ orgSlug, articleId, title?, content? }` | `Article` | `article.write` |
-| `deleteArticle` | `{ orgSlug, articleId }` | `void` | `article.write` |
+| `createArticle` | `{ orgId, projectId, title, kind?, content }` | `Article` | `article.write` |
+| `updateArticle` | `{ orgId, articleId, title?, content? }` | `Article` | `article.write` |
+| `deleteArticle` | `{ orgId, articleId }` | `void` | `article.write` |
 
 #### publishing
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `createBook` | `{ orgSlug, projectId, name, title, surname, coverSpec }` | `Book` | `book.write` |
-| `updateBook` | `{ orgSlug, bookId, ...可选 }` | `Book` | `book.write` |
-| `deleteBook` | `{ orgSlug, bookId }` | `void` | `book.write` |
-| `addCatalogItem` | `{ orgSlug, bookId, parentId?, name, section, articleId?, lineageId? }` | `BookCatalog` | `book.write` |
-| `updateCatalogItem` | `{ orgSlug, bookId, catalogId, name?, section?, hide? }` | `BookCatalog` | `book.write` |
-| `moveCatalogItem` | `{ orgSlug, bookId, catalogId, parentId?, sort }` | `BookCatalog` | `book.write` |
-| `removeCatalogItem` | `{ orgSlug, bookId, catalogId }` | `void` | `book.write` |
+| `createBook` | `{ orgId, projectId, name, title, surname, coverSpec }` | `Book` | `book.write` |
+| `updateBook` | `{ orgId, bookId, ...可选 }` | `Book` | `book.write` |
+| `deleteBook` | `{ orgId, bookId }` | `void` | `book.write` |
+| `addCatalogItem` | `{ orgId, bookId, parentId?, name, section, articleId?, lineageId? }` | `BookCatalog` | `book.write` |
+| `updateCatalogItem` | `{ orgId, bookId, catalogId, name?, section?, hide? }` | `BookCatalog` | `book.write` |
+| `moveCatalogItem` | `{ orgId, bookId, catalogId, parentId?, sort }` | `BookCatalog` | `book.write` |
+| `removeCatalogItem` | `{ orgId, bookId, catalogId }` | `void` | `book.write` |
 
 M1 没有 `createShareLink` / `revokeShareLink`（分享在 M2）。
 
@@ -400,10 +393,10 @@ M1 没有 `createShareLink` / `revokeShareLink`（分享在 M2）。
 ### 6.1 `GET /api/health`
 
 ```json
-{ "status": "ok", "db": "ok", "version": "1.0.0", "uptime": 3600 }
+{ "status": "ok", "database": "up" }
 ```
 
-数据库不可达时返回 503，`db: "fail"`。这是 M1 唯一的 Route Handler。
+数据库不可达时返回 503，`{ "status": "error", "database": "down" }`。这是 4 个只读 Route Handler 之一。
 
 ---
 
@@ -411,13 +404,13 @@ M1 没有 `createShareLink` / `revokeShareLink`（分享在 M2）。
 
 ### 7.1 读
 
-页面是 RSC，首屏数据在服务端取好后通过 `initialData` 或 `dehydrate` / `HydrationBoundary` 注入 TanStack Query，**客户端首屏不发起数据请求**。交互工作区需要刷新时，`queryFn` 调用只读 Route Handler（当前过渡），目标收敛为服务端读 Action。
+页面是 RSC，首屏数据在服务端取好后通过 `initialData` 或 `dehydrate` / `HydrationBoundary` 注入 TanStack Query，**客户端首屏不发起数据请求**。交互工作区需要刷新时，`queryFn` 调用 4 个只读 Route Handler（[ADR 0008](./decisions/0008-read-only-route-handlers.md)）。
 
 ```tsx
-// app/(app)/[orgSlug]/[projectRef]/lineages/[lineageId]/page.tsx
+// app/(dashboard)/dashboard/project/[projectRef]/lineages/[lineageId]/page.tsx
 export default async function Page({ params }: Props) {
-  const ctx = await requireOrgContext(params.orgSlug);
-  const graph = await lineageQuery.getGraph(ctx, params.lineageId);
+  const ctx = await requireProjectContext(params.projectRef);
+  const graph = await getLineageGraph(ctx, params.lineageId);
   return <LineageCanvas initialGraph={graph} />;
 }
 ```
@@ -431,7 +424,7 @@ export default async function Page({ params }: Props) {
 
 const queryClient = useQueryClient();
 const addChildMutation = useMutation({
-  mutationFn: addChild,
+  mutationFn: addChildAction,
   onSuccess: (result) => {
     if (!result.ok) return handleError(result.error);
     queryClient.invalidateQueries({ queryKey: lineageKeys.graph(lineageId) });
@@ -439,13 +432,13 @@ const addChildMutation = useMutation({
 });
 
 function handleAddChild() {
-  addChildMutation.mutate({ orgSlug, lineageId, parentId, name, sex });
+  addChildMutation.mutate({ orgId, lineageId, parentId, name, sex });
 }
 ```
 
 ### 7.3 错误映射
 
-每个错误码映射到一种 UI 表现，映射表集中在 `lib/error-ui.ts`：
+每个错误码映射到一种 UI 表现；当前没有集中的映射文件，映射由各表单/Toast 就地处理：
 
 | 类别 | UI |
 |---|---|
@@ -474,4 +467,4 @@ function handleAddChild() {
 
 内部接口没有版本号。契约由 TypeScript 类型保证，破坏性变更在编译期就会被发现。
 
-M2 引入编辑锁后，`lineage` 与 `publishing` 的写 Action 会增加必填参数 `lockToken`。这会破坏现有契约——所以 M2 的做法是**新增带锁的 Action 变体**，而不是改签名。
+M2 引入编辑锁后，`lineage` 与 `publishing` 的写 Action 新增带锁的 Action 变体，而不是改现有签名。

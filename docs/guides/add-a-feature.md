@@ -21,7 +21,7 @@
 
 ### ① 写清不变量
 
-动手前先回答三个问题，写进代码注释或 `docs/product/glossary.md`：
+动手前先回答三个问题，写进代码注释或 PRD §2 术语 + 本域 Zod schema：
 
 - 这个实体属于哪个组织维度？（几乎总是 `organization_id`）
 - 哪些字段组合是**非法状态**？（例如「配偶不能有 `path`」）
@@ -69,7 +69,7 @@ pnpm db:generate
 
 ### ④ 手写 custom migration：RLS + 授权 + 索引
 
-Drizzle 不生成 RLS 策略，必须另写一个 custom migration。**照抄 `0001_auth_rls.sql` 的 DO 块结构**，不要手写裸子查询。
+Drizzle 不生成 RLS 策略，必须另写一个 custom migration。**照抄 `0001_auth_rls.sql` 的 DO 块结构**，不要手写裸子查询。权威定义在 `0001_auth_rls.sql`；这里是新增表的最小模板。
 
 ```sql
 ALTER TABLE thing ENABLE ROW LEVEL SECURITY;
@@ -99,7 +99,7 @@ GRANT SELECT, INSERT, UPDATE ON thing TO app_rw;   -- 不给 DELETE
 
 - [ ] `ENABLE` + `FORCE` 都写了
 - [ ] SELECT 含 `viewer`，INSERT/UPDATE **不含**
-- [ ] 策略体用 `auth.has_org_role(...)`，**不用** `organization_id IN (SELECT ... FROM organization_member ...)`
+- [ ] 策略体用 `auth.has_org_role(...)`，**不用**裸子查询
   —— 裸子查询会漏掉 `deleted_at IS NULL`，导致**已移除的成员仍能读到数据**
 - [ ] 唯一索引带 `WHERE deleted_at IS NULL`
 - [ ] `app_rw` 没有 `DELETE`
@@ -137,29 +137,34 @@ export async function getThings(userId: string, orgId: string, projectId: string
 ```ts
 'use server';
 
-export const createThing = validatedActionWithUser(createThingSchema, async (data, _formData, user) => {
-  const ctx = await requireOrgContext(data.orgSlug);
-  if (!checkOrgPermission(ctx.role, 'content.write')) {
-    return actionError('FORBIDDEN', '没有编辑权限。');
+export const createThingAction = validatedActionWithUser(
+  createThingSchema,
+  async (data, _formData, user) => {
+    const result = await createThingInTransaction({
+      userId: user.id,
+      orgId: data.orgId,
+      projectId: data.projectId,
+      ...data,
+    });
+
+    if (!result.ok) {
+      return actionError('FORBIDDEN', '没有编辑权限。');
+    }
+
+    revalidatePath(`/dashboard/project/${data.projectRef}/things`);
+    return { success: '已创建' };
   }
-
-  const thing = await withOrg(user.id, (tx) =>
-    createThingInTransaction({ tx, userId: user.id, orgId: ctx.organizationId, ...data }),
-  );
-
-  revalidatePath(`/dashboard/project/${data.projectRef}/things`);
-  return { success: true, id: thing.id };
-});
+);
 ```
 
 **检查点**：
 
 - [ ] 用 `validatedActionWithUser` / `validatedAction`
-- [ ] `requireOrgContext(orgSlug)` —— 组织从 URL 来，不从 body 来
-- [ ] 权限判断用权限字符串（`checkOrgPermission`），不直接比角色
-- [ ] 事务边界在 Action 层，service 里不自己开事务
-- [ ] 写后失效缓存（`revalidatePath` / `revalidateTag`）
+- [ ] Action 使用内部 UUID（`orgId`/`projectId`），不使用 `orgSlug` 作为授权依据
+- [ ] 事务服务内部 `withOrg` + 事务内复核权限
+- [ ] 写后 `revalidatePath`（目标是最窄路径；当前若只有整树 helper，登记到 implementation-status）
 - [ ] 失败返回 `actionError(code, message)`，**不 throw**
+- [ ] 成功返回 `ActionState`
 
 ### ⑧ 写页面
 
@@ -188,21 +193,18 @@ export default async function Page({ params }: Props) {
 
 ### ⑩ 更新状态
 
-- `docs/status/implementation-status.md`：改对应模块行（这是**唯一**的状态来源）
-- `docs/README.md`：如果新增了表 / Action / Route Handler，更新「当前仓库速览」
+- `docs/implementation-status.md`：改对应模块行（这是**唯一**的状态来源）
 
 ---
 
-## 2. 读路径：一个请求一个事务
+## 2. 读路径：一个渲染单元一个事务
 
-**这是最容易做错、也最容易被忽略的一条。**
+**布局与页面由 Next 独立渲染，不共享事务。** 不要用 AsyncLocalStorage 把事务跨渲染周期传递，否则事务会长时间占着连接。
 
-`withOrg()` 每调用一次开一个事务，至少 4 个往返（BEGIN / `SET LOCAL ROLE` / `set_config` / 查询 / COMMIT）。如果一个页面调 4 个查询函数、每个函数各自 `withOrg`，就是 4 个事务、约 20 个往返——在 Neon 上单这一项就能吃掉几百毫秒。
-
-正确写法是**页面层开一个事务，把 `tx` 往下传**：
+`withOrg()` 每调用一次开一个事务，至少 5 个往返（BEGIN / SET LOCAL ROLE / `set_config` / 查询 / COMMIT）。同一页面内的多个查询提供 `*Tx` 变体，在页面层合并到一个事务；不同布局/页面各自开事务是可以接受的。
 
 ```ts
-// 好：一个事务，一个快照
+// 好：同一渲染单元内一个事务，一个快照
 const { lineage, nodes, folders } = await withOrg(user.id, async (tx) => ({
   lineage: await getLineageByIdTx(tx, orgId, lineageId),
   nodes: await getNodesTx(tx, orgId, lineageId),
@@ -210,9 +212,9 @@ const { lineage, nodes, folders } = await withOrg(user.id, async (tx) => ({
 }));
 ```
 
-顺带解决另一个问题：**跨事务读会落在不同快照上**。`lineage.node_count` 是冗余计数，如果计数查询和节点列表查询分属两个事务，并发写入时会出现「标题写 128 人、列表 127 人」——偶发且极难复现。
+跨事务读会落在不同快照上：`lineage.node_count` 是冗余计数，如果计数查询和节点列表查询分属两个事务，并发写入时会出现「标题写 128 人、列表 127 人」。
 
-**约定**：`lib/db/queries/*` 里的函数接受 `userId` 自开事务（供单点调用）；同时提供接受 `tx` 的 `*Tx` 变体（供页面组合）。新代码优先用 `*Tx` 变体组合。
+**约定**：`lib/db/queries/*` 提供接受 `userId` 自开事务的函数（供单点调用）与接受 `tx` 的 `*Tx` 变体（供页面组合）。新代码优先用 `*Tx` 变体组合。
 
 ---
 
@@ -255,8 +257,8 @@ pnpm check && pnpm typecheck && pnpm test:coverage
 
 - [ ] 新表有 RLS 三策略 + 部分唯一索引 + 无 `DELETE` 授权
 - [ ] 读函数都带 `organization_id` 与 `deleted_at` 条件
-- [ ] 页面只有一个事务（或明确说明为什么不止一个）
+- [ ] 同一渲染单元合并事务（布局与页面不共享事务）
 - [ ] 三条集成测试（正常 / 跨组织 / 只读角色）
 - [ ] `implementation-status.md` 已更新
 
-> **注意**：`api.md` 描述的目标形态是 `ActionResult<T> = { ok: true | false }` 判别联合，而当前代码用的是 `ActionState = { error, fieldErrors, success, code }`（`lib/auth/types.ts`）+ `actionError()`。本文按**当前实现**写。两者是否统一是待决策项，见 [08-evolution §15](../architecture/08-evolution.md#15-待决策项)。
+> **Action 契约**：统一为 `ActionState`；见 [api.md §4.2](../api.md#42-出口一server-action--actionstate)。
