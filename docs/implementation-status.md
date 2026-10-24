@@ -145,7 +145,7 @@
 | `FR-ORG-5` 修改成员角色 | 🟡 | 支持 owner/admin 修改成员角色；没有转让所有权（`org.transfer` 权限已定义，无 Action/UI） |
 | `FR-ORG-6` 移除成员 | ✅ | owner/admin 可移除成员；事务内锁定成员并拒绝移除最后一个 owner，也不能移除自己 |
 | `FR-ORG-7` 组织设置 | ✅ | 改名仅 owner（服务端校验）；slug 不可修改；归档有二次确认 |
-| `FR-ORG-8` 组织停用 | ✅ | 归档写 `status='closed'` + `deleted_at`，同时作废待处理邀请 |
+| `FR-ORG-8` 组织停用 | 🟡 | 归档写入 `status='closed'` + `deleted_at`（`auth.archive_organization`），同时作废待处理邀请；schema 支持 `suspended`，但没有独立的停用入口 |
 
 ### 3.3 云谱空间
 
@@ -198,6 +198,9 @@
 9. **E2E 只覆盖两条关键路径**：Playwright 覆盖注册→建项目→谱系→录入→检查器→侧栏，以及邀请→登出→登录→接受邀请；没有全量 CRUD 矩阵与视觉回归。控件文案变化会直接破坏测试，选择器因此优先使用 role/aria-label。
 10. **云端部署验证未执行**：`verify:deploy` 与 external E2E 已就绪，但本机无 Vercel/Neon 凭据；本地生产模式已验证，真实 Vercel/Neon 行为（尤其 `pg` + `attachDatabasePool`、`auth_service` 连接与 pooled/direct 连接分离）仍待 staging 验证。
 11. **谱系画布一次加载全部节点**：详情页仍读取整棵谱系，画布只按世代窗口渲染；超过 500 人时首屏 5 世、每次追加 5 世，但没有服务端分页或虚拟滚动。极大人丁量下传输与索引仍有成本，后续需补按代查询。
+12. **活动日志语义不一致**：谱系写入在业务事务内（日志失败会回滚业务），组织写入在提交后（失败只告警）。目标语义是“日志尽力而为、不回滚业务”；差异见 2026-10-24 评审 P1-10。
+13. **根布局读取会话与组织**：`app/layout.tsx` 对每个请求查会话与组织，营销页因此动态渲染；这是营销页无法静态化的直接原因，见评审 P1-9。
+14. **缓存失效范围过宽**：谱系 Action 仍调用 `revalidateProject()`，影响整个 dashboard 路由树；精确到项目/谱系的失效需要 Action 拿到 `projectRef`，见评审 P1-8。
 
 > `getSessionUser()` 只返回 `SessionUser`（`{ id, name, email }`），不再返回完整用户行；新增对外出口必须显式挑字段，不能直接序列化任何认证记录。
 
@@ -213,12 +216,12 @@
 | D5 | 先落权限字符串矩阵，再扩到 4 个角色 | ✅ 已实现 |
 | D6 | 移除改邮箱入口；邮箱只读 | ✅ 已实现：`user.changeEmail.enabled = false`，无改邮箱表单 |
 | D7 | 保留 `activity_logs` 作为产品活动流并修复多组织归属；不把它当审计表 | ✅ 已实现：账号级事件 `org_id` 为空 |
-| D8 | M1 过渡期保留 3 个内部只读 API，补 401 与契约文档 | ✅ 已实现；API 收敛未开始 |
+| D8 | 保留 4 个只读 Route Handler（health + 3 个刷新），写只走 Server Action | ✅ 已实现；见 [ADR 0008](./decisions/0008-read-only-route-handlers.md) |
 | D9 | 认证切换到自托管 Better Auth，邀请使用 organization 插件（邀请 ID + 7 天过期），禁止邀请 owner | ✅ 已实现；见 [ADR 0007](./decisions/0007-self-hosted-better-auth.md) |
 
 ## 7. 更新规则
 
 - 合并涉及家谱目标功能的 PR 时，更新本文件对应模块与 FR 行。
-- 新增/删除表、Action、Route Handler 时，同步更新 [README](./README.md) 的“当前仓库速览”和本文件 §1。
+- 新增/删除表、Action、Route Handler 时，同步更新本文件 §1 与对应 FR 行；README 不再维护当前值快照。
 - 只有代码、迁移、测试都落地后，状态才能从 🟡/⬜ 改为 ✅。
 - 本文件不记录“计划做什么”；计划写在 PRD、架构文档或 issue 里。

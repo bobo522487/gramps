@@ -42,13 +42,15 @@ docs/
 │   └── 08-evolution.md          演进路线、风险登记簿、待决策项
 │
 ├── decisions/                   为什么不是别的方案
-│   ├── README.md                决策索引（21 条）+ 可逆性标注
+│   ├── README.md                决策索引（21 条）+ 8 篇正式 ADR
 │   ├── 0001-foundation-reset.md 基础层重置
 │   ├── 0002-no-edit-lock.md     不做编辑锁
 │   ├── 0003-tree-storage-ltree.md  树存储与严格父系
 │   ├── 0004-soft-delete-forever.md 软删永存
 │   ├── 0005-zero-background-jobs.md 零后台任务
-│   └── 0006-rls-isolation.md    RLS 三层隔离
+│   ├── 0006-rls-isolation.md    RLS 三层隔离
+│   ├── 0007-self-hosted-better-auth.md 自托管 Better Auth
+│   └── 0008-read-only-route-handlers.md 保留只读 Route Handler
 │
 ├── guides/                      怎么用
 │   ├── add-a-feature.md         ★ 新增一个实体的 10 步清单
@@ -62,8 +64,7 @@ docs/
 ├── implementation-status.md     ★ 唯一状态来源
 │
 ├── architect.md                 跳转页（内容已拆到 architecture/）
-├── reviews/                     评审记录（历史，不作为规范）
-└── adr/                         历史 ADR 目录（新 ADR 请放 decisions/）
+└── reviews/                     评审记录（历史，不作为规范）
 ```
 
 ---
@@ -81,35 +82,11 @@ docs/
 
 ---
 
-## 4. 当前仓库速览
+## 4. 当前状态
 
-| 项 | 当前值 |
-|---|---|
-| 框架 | Next.js 16.4 App Router + React 19.1 |
-| 语言 | TypeScript（`strict: true`） |
-| 数据库 | PostgreSQL + Drizzle ORM；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` |
-| 认证 | 自托管 Better Auth 1.7.12；邮箱 + 密码（scrypt）；数据库会话 Cookie `better-auth.session_token`，7 天有效 |
-| 会话撤销 | `auth.api.getSession` 查库校验；改密撤销其他会话、删号/删会话即时生效 |
-| 主键 / 公开 ID | UUIDv7 主键；`organization.slug` / `project.ref` 为 20 位 `[0-9a-z]` 公开 ID |
-| 组织角色 | `owner` / `admin` / `editor` / `viewer` + 权限字符串 |
-| 界面语言 | 简体中文（品牌“云谱”），不引入 i18n 框架 |
-| 客户端数据 | TanStack Query 5；RSC 首屏用 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 刷新 `/api/*` |
-| 谱系画布 | `@xyflow/react` 12 + 自定义 `book_ltr` 欧式书本布局；zustand 仅存谱系工作区 UI 状态 |
-| 控制台路由 | `/dashboard/org/[orgSlug]`（项目 / 团队 / 组织设置）与 `/dashboard/project/[projectRef]`（概览 / 谱系 / 谱文 / 谱书 / 项目设置） |
-| 数据隔离 | 应用层 `orgId` 过滤 + `withOrg` 内 RLS（`app_rw`）+ 复合外键；认证与租户写走 `auth_service` |
-| 数据表 | 11 张组织级业务表 + 4 张 `auth.*` 表；含家谱表 `folder`/`lineage`/`node`/`article`/`book`/`book_catalog` |
-| 数据库约束 | UUIDv7；成员唯一、单组织单 owner；角色 `CHECK`；业务表软删；`organization_member`/`invite` 硬删除 |
-| 邀请 | Better Auth invitation：邀请 ID、7 天过期、一次性、禁止邀请 `owner`；不发邮件 |
-| Route Handler | 4 个只读路由：`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`；**无 `/api/auth/*`** |
-| 请求上下文 | `getSessionUser`/scope 按请求缓存；日志自动带 `request_id`；API 记录 `duration_ms` |
-| 环境校验 | `lib/config.ts` 用 Zod 校验；`instrumentation.ts` 在服务启动时失败即退出 |
-| 代码检查 | Biome |
-| 测试 | Vitest 单测 13 个文件 73 个用例 + 真实 PostgreSQL 集成测试 12 个文件 134 个用例（另有 1 个 stub）；Playwright E2E 1 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 |
-| CI | Node 22 + pnpm 9：`pnpm check` → `typecheck` → `test:coverage`（`postgres:18`，上传 `coverage/`）→ 迁移漂移检查 → `build` → `test:e2e`（production server）→ `verify:deploy` |
+本文件不再维护“当前值”快照。框架版本、表数、Route Handler、测试数量与已实现功能，一律以 [implementation-status](./implementation-status.md) 为准。
 
-家谱业务功能中，**谱系与人丁**已具备左侧谱系管理、`book_ltr` 欧式书本画布、按代渲染窗口、世系表、搜索定位、字辈提示、四种录入模式、拖拽录入、右侧检查器、编辑/移动/删除和打印视图；谱文、谱书、谱文/谱书分类尚未实现。分享、回收站、编辑锁也未实现。
-
-目标设计不包含支付相关能力；当前实现也已移除 Stripe、套餐、计费与订阅，`/pricing` 不再存在。
+需要产品背景读 [PRD](./prd.md)；需要架构目标读 [architecture/](./architecture/00-overview.md)；需要本地命令读 [setup](./setup.md)。
 
 ---
 
@@ -124,7 +101,7 @@ docs/
 | 表结构、约束、索引、RLS 策略 | `data-model.md` |
 | Action 契约、错误码 | `api.md` |
 | 环境变量、部署、回滚 | `ops-target.md` |
-| 实现状态（哪个 FR 做完了） | `implementation-status.md` |
+| 实现状态、表/Route Handler 数量、测试统计 | `implementation-status.md` |
 | 决策与放弃的方案 | `decisions/` |
 | 当前命令 | `setup.md` |
 
@@ -151,14 +128,15 @@ docs/
 
 | 变化 | 要更新 |
 |---|---|
-| 新增 / 删除表、Action、Route Handler | `implementation-status.md` §1 + 本文件 §4 速览 |
+| 新增 / 删除表、Action、Route Handler | `implementation-status.md` §1 + 对应 FR 行 |
 | 某个 FR 从 ⬜ 变 ✅ | `implementation-status.md` 对应行 |
 | 做出一个「不可逆」的决策 | 新增 `decisions/NNNN-*.md`，并在 `decisions/README.md` 索引加一行 |
 | 发现新的架构风险 | `architecture/08-evolution.md` §14 风险登记簿 |
-| 解决一个待决策项 | 从 `08-evolution §15` 与 `decisions/README` 待决策表移除，转为 ADR |
+| 解决一个待决策项 | 从 `decisions/README` 待决策表移除，转为 ADR 或更新目标文档 |
 
 ### 5.5 提交前检查
 
+- `pnpm docs:check`（链接、锚点、过期路径、矛盾措辞、文档头）。
 - 相对链接目标存在，锚点与标题一致。
 - 命令在 `package.json` 中存在。
 - 环境变量在代码或 `.env.example` 中真实出现。
