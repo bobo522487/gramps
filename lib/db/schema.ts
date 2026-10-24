@@ -17,6 +17,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import type { ProjectStatus } from '../project/constants';
 
 /** PostgreSQL ltree (extension installed by the baseline migration). */
 const ltree = customType<{ data: string; driverData: string }>({
@@ -222,10 +223,19 @@ export const projects = pgTable(
     /** 20-char public id used as the second URL segment. */
     ref: text('ref').notNull().default(sql`public.generate_public_id()`),
     name: text('name').notNull(),
+    /** Immutable after creation; new field, not the legacy primary_* columns. */
+    themeName: text('theme_name'),
+    surname: text('surname'),
     primaryName: text('primary_name').notNull(),
     primarySurname: text('primary_surname').notNull(),
     countriesRegions: text('countries_regions'),
     hallCode: text('hall_code'),
+    status: text('status')
+      .$type<ProjectStatus>()
+      .notNull()
+      .default('in_progress'),
+    importance: smallint('importance').notNull().default(1),
+    notes: text('notes'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
     updatedAt: timestamptz('updated_at'),
@@ -237,6 +247,11 @@ export const projects = pgTable(
     index('idx_project_organization')
       .on(t.orgId)
       .where(sql`${t.deletedAt} is null`),
+    check(
+      'ck_project_status',
+      sql`${t.status} in ('planning', 'in_progress', 'completed')`
+    ),
+    check('ck_project_importance', sql`${t.importance} between 1 and 5`),
   ]
 );
 
