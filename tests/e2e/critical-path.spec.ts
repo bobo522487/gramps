@@ -31,11 +31,37 @@ test('critical path: sign up, create project, record founder, add child, edit in
   await page.getByRole('button', { name: '新建空间' }).click();
   const projectDialog = page.getByRole('dialog', { name: '创建云谱项目' });
   await expect(projectDialog).toBeVisible();
+
+  const submitProject = projectDialog.getByRole('button', { name: '确定' });
+  await expect(submitProject).toBeDisabled();
+
+  await projectDialog.getByRole('button', { name: '取消' }).click();
+  await expect(projectDialog).toBeHidden();
+  await page.getByRole('button', { name: '新建空间' }).click();
+  await expect(projectDialog).toBeVisible();
+
   await page.locator('#project-name').fill('E2E 云谱');
   await page.locator('#project-surname').fill('陈');
   await page.locator('#project-regions').fill('中国福建');
   await page.locator('#project-theme-name').fill('E2E 陈氏宗谱');
-  await projectDialog.getByRole('button', { name: '确定' }).click();
+
+  await expect(page.locator('#project-status')).toContainText('进行中');
+  await expect(
+    projectDialog.getByRole('button', { name: '1 星' })
+  ).toHaveAttribute('aria-pressed', 'true');
+  await projectDialog.getByRole('button', { name: '3 星' }).click();
+  for (const star of ['1 星', '2 星', '3 星']) {
+    await expect(
+      projectDialog.getByRole('button', { name: star })
+    ).toHaveAttribute('aria-pressed', 'true');
+  }
+  await expect(
+    projectDialog.getByRole('button', { name: '4 星' })
+  ).toHaveAttribute('aria-pressed', 'false');
+
+  await page.locator('#project-notes').fill('E2E 备注');
+  await expect(submitProject).toBeEnabled();
+  await submitProject.click();
   await expect(page).toHaveURL(/\/dashboard\/project\/[^/]+$/);
 
   const projectRef =
