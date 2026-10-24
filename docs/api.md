@@ -2,8 +2,8 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.6 |
-| 最后更新 | 2026-10-22 |
+| 文档版本 | 1.7 |
+| 最后更新 | 2026-10-23 |
 | 接口风格 | Server Action（内部写）+ RSC（内部首屏读）+ TanStack Query（客户端缓存）+ Route Handler（健康检查） |
 | 序列化 | JSON；错误按 RFC 9457 |
 | 相关文档 | [架构](./architecture/00-overview.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
@@ -23,7 +23,7 @@
 | 内部写 | Server Action | 免手写路由与 fetch、内置 CSRF、渐进增强 |
 | 探活 | Route Handler | 需要标准 HTTP 语义 |
 
-M1 **只有 1 个 Route Handler**：`/api/health`。
+M1 的 Route Handler 全部是只读 GET：`/api/health`、`/api/user`、`/api/orgs`、`/api/orgs/[orgId]/projects`。**没有 `/api/auth/*`**：认证与租户写只从 Server Action 调 `auth.api.*`。
 
 TanStack Query 只做客户端缓存层：`mutationFn` 调用 Server Action；`queryFn` 当前调用 4 个只读 Route Handler，目标收敛为 Server Action，组件内不手写 `fetch`。
 
@@ -57,14 +57,15 @@ M1 没有公开接口——没有分享页，没有第三方消费者。引入 R
 
 | 项 | 约定 |
 |---|---|
-| 载体 | HttpOnly + Secure + SameSite=Lax Cookie，名称 `session` |
-| 令牌 | 自建 JWT（jose，HS256），用 `AUTH_SECRET` 签名；claims 含 `sub`、`tv`、`iat`、`exp` |
-| 校验 | 服务端一律 `getUser()`：验签后调用 `auth.get_session_user(sub)`，比对 `token_version` 与 `deleted_at`；不信任未验签的 Cookie |
-| 刷新 | `proxy.ts` 在剩余有效期 < 6 小时时重签滑动续期；只验签、不查库，只做粗粒度门禁 |
-| 有效期 | 1 天；**不做刷新令牌轮换** |
-| 登出 | 清除当前 `session` Cookie；其他设备不受影响 |
+| 载体 | Better Auth 数据库会话，Cookie `better-auth.session_token`（HttpOnly、Secure、SameSite=Lax） |
+| 令牌 | 会话 ID 由 Better Auth 生成；库内只存 token 哈希；`BETTER_AUTH_SECRET` 用于签发与校验 |
+| 校验 | 服务端一律 `getSessionUser()`：调用 `auth.api.getSession` 按请求缓存查库，未命中返回 `null`；不信任 Cookie 是否存在 |
+| 刷新 | Better Auth 滑动续期：会话 7 天过期、`updateAge` 1 天；`proxy.ts` 只检查 Cookie 是否存在，做粗粒度门禁 |
+| 有效期 | 7 天（滑动）；**不做刷新令牌轮换** |
+| 登出 | `auth.api.signOut` 删除当前数据库会话并清 Cookie；其他设备不受影响 |
 | 登录方式 | **仅邮箱 + 密码**（M1）。手机验证码与 OAuth 在 M4 |
-| 密码 | bcrypt 哈希；应用只保存哈希，不保存明文 |
+| 密码 | Better Auth 以 scrypt 哈希存入 `auth.account`；应用不接触哈希，不保存明文 |
+| 邮箱验证 / 找回密码 / 改邮箱 | 均关闭；邮箱创建后只读 |
 
 ### 2.2 组织上下文
 
@@ -97,20 +98,22 @@ interface OrgContext {
 
 ### 2.3 注册与默认组织
 
-注册由自建 `signUp` Action 完成，组织由数据库触发器创建（见 [data-model §4.4](./data-model.md#44-注册触发器默认组织)）。
+注册由 `signUp` Server Action 调 `auth.api.signUpEmail` 完成，默认组织由数据库触发器创建（见 [data-model §4.4](./data-model.md#44-注册触发器默认组织)）。
 
 ```
 用户提交邮箱密码
-  → Zod 校验 + bcrypt 哈希
-  → auth.sign_up() 插入 auth.users
-  → 触发器 handle_new_user() 建 organization + organization_member(owner)
-  → 立即签 JWT、写 session Cookie
-  → 直接进入 /{默认组织 slug}
+  → Zod 校验
+  → auth.api.signUpEmail({ email, password, name })
+      → Better Auth 以 scrypt 哈希写入 auth.account
+      → 插入 auth.users
+      → 触发器 trg_auth_user_created / handle_new_user() 建 organization + organization_member(owner)
+  → Better Auth 写入数据库会话并 set-cookie（better-auth.session_token）
+  → 直接登录并进入 /dashboard
 ```
 
-应用层**不需要**调用任何「创建默认组织」的 Action。这条链路是数据库保证的，不是应用保证的。
+应用层**不需要**调用任何「创建默认组织」的 Action。这条链路是数据库保证的，不是应用保证的。Better Auth 与触发器都以 `auth_service` 身份写租户表；业务运行时角色 `app_rw` 没有这些表的写权限。
 
-M1 **不发送验证邮件**：`auth.users` 插入后即可登录，不存在「等待验证」的中间状态。
+M1 **不发送验证邮件**：`auth.users` 插入后即可登录，不存在「等待验证」的中间状态；`emailVerification` 关闭。
 
 ### 2.4 CSRF
 
@@ -298,24 +301,26 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `signUp` | `{ email, password, name? }` | `{ user, organization }` | 公开（未登录） |
-| `signIn` | `{ email, password }` | `{ user }` | 公开（未登录） |
+| `signUp` | `{ email, password, name?, invite? }` | `{ user, organization }` | 公开（未登录） |
+| `signIn` | `{ email, password, redirect? }` | `{ user }` | 公开（未登录） |
 | `signOut` | `{}` | `void` | 登录即可 |
-| `changePassword` | `{ currentPassword, newPassword }` | `void` | 登录即可 |
+| `changePassword` | `{ currentPassword, newPassword, confirmPassword }` | `void` | 登录即可 |
+| `updateAccount` | `{ name }` | `void` | 登录即可 |
+| `deleteAccount` | `{ password }` | `void` | 登录即可（非唯一 owner） |
 
-`signUp` 成功即写 `session` Cookie，无需等待验证邮件。`changePassword` 成功后 `token_version + 1`，当前设备重签、其他设备立即失效。注册与登录使用进程内滑窗限流，超限返回 `AUTH_RATE_LIMITED`（429）；不持久化失败计数，也不做账号级锁定。
+`signUp` 调 `auth.api.signUpEmail`，成功后 Better Auth 立即写数据库会话与 Cookie，无需等待验证邮件。`changePassword` 走 `auth.api.changePassword({ revokeOtherSessions: true })`：当前会话保留，其他设备立即失效，不再有 `token_version`。注册与登录使用进程内滑窗限流，超限返回 `AUTH_RATE_LIMITED`（429）；不持久化失败计数，也不做账号级锁定。
 
 #### identity
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `acceptInvite` | `{ token }` | `Organization` | 登录即可 |
-| `inviteMember` | `{ orgSlug, role, email? }` | `{ invite, token, url }` | `member.invite` |
-| `updateMemberRole` | `{ orgSlug, memberId, role }` | `OrganizationMember` | `member.manage` |
-| `removeMember` | `{ orgSlug, memberId }` | `void` | `member.manage` |
-| `transferOwnership` | `{ orgSlug, memberId }` | `void` | `owner` |
+| `acceptInvite` | `{ invitationId }` | `Organization` | 登录即可 |
+| `inviteMember` | `{ orgId, role, email }` | `{ inviteUrl }` | `member.invite` |
+| `updateMemberRole` | `{ orgId, memberId, role }` | `OrganizationMember` | `member.manage` |
+| `removeMember` | `{ orgId, memberId }` | `void` | `member.manage` |
+| `transferOwnership` | `{ orgId, memberId }` | `void` | `owner` |
 
-`inviteMember` 生成一次性 token（库内只存 SHA-256），`token` 与 `url` 只在创建时返回一次，由邀请人手动复制；不发邮件。`email` 只是备注，不绑定接受者。邀请无效、过期、已使用或已撤销时返回 `INVITE_INVALID`。
+`inviteMember` 调 `auth.api.createInvitation`，链接为 `${BETTER_AUTH_URL}/sign-up?invite=<invitation.id>`，只在创建时返回一次；不发邮件。邀请 7 天过期、一次性；同一组织重新邀请会取消旧的 pending 邀请；禁止邀请 `owner`。接受走 `/dashboard/join?invite=<id>`，失败时保留账号、可重试。邀请无效、过期、已使用或已撤销时返回 `INVITE_INVALID`。
 
 **没有 `bootstrapOrganization` 之类的 Action**：默认组织由数据库触发器创建（§2.3）。
 

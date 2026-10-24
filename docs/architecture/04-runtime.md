@@ -58,7 +58,7 @@ URL 是组织的唯一来源。
 
 ```typescript
 export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
-  // 验签 JWT → auth.get_session_user(sub)：校验 token_version 与 deleted_at
+  // auth.api.getSession 查库 → 返回 SessionUser；未登录 redirect
   const user = await requireUser();
 
   const membership = await withOrg({ userId: user.id }, (tx) =>
@@ -86,26 +86,27 @@ export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
 
 ### 5.4 注册与默认组织
 
-注册由应用层发起、数据落在自建 `auth.users`，组织创建必须放在**数据库触发器**里，这是唯一能保证「有账号必有组织」的位置。
+注册由应用层 Server Action 调 `auth.api.signUpEmail`，数据落在自托管 Better Auth，组织创建必须放在**数据库触发器**里，这是唯一能保证「有账号必有组织」的位置。
 
 ```
 用户提交邮箱密码
   │
-  ├─ Zod 校验 + bcrypt 哈希
-  ├─ auth.sign_up()                     SECURITY DEFINER 函数
-  │    └─ INSERT INTO auth.users
-  ├─ 触发器 handle_new_user()          ← 同一事务
+  ├─ Zod 校验
+  ├─ auth.api.signUpEmail()
+  │    ├─ scrypt 哈希 → INSERT auth.account
+  │    └─ INSERT auth.users
+  ├─ 触发器 trg_auth_user_created / handle_new_user()  ← 同一事务
   │    ├─ INSERT organization（slug 由 public.generate_public_id() 默认生成）
   │    └─ INSERT organization_member（role = owner）
-  ├─ 立即签发 JWT、写 session Cookie
-  └─ 直接进入 /{默认组织 slug}
+  ├─ Better Auth 写 auth.session 并 set-cookie
+  └─ 直接进入 /dashboard
 ```
 
 | 关注点 | 处理 |
 |---|---|
 | 原子性 | 触发器与 `auth.users` 插入在同一事务。组织建失败 → 注册失败，不产生半残账号 |
-| 绕过 RLS | 触发器函数是 `SECURITY DEFINER`，属主为迁移/超级用户，可写受 RLS 保护的表 |
-| `search_path` | 函数上强制 `SET search_path = public`，防注入 |
+| 绕过 RLS | 触发器函数是 `SECURITY DEFINER`，owner 为 `auth_service`，可写受 RLS 保护的表 |
+| `search_path` | 函数上强制 `SET search_path = public, auth, pg_temp`，防注入 |
 | 幂等 | 一个 `auth.users` 行只触发一次 |
 | 可改 | 组织名可由 owner 修改；`slug` 是随机公开 ID，不可修改（FR-ORG-7） |
 | 无验证邮件 | 注册成功即登录；不存在「等待验证」状态 |

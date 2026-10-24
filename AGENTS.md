@@ -3,7 +3,7 @@
 > **文档状态：当前实现说明** · 最后更新：2026-10-22
 > 本文件位于仓库根目录，文件名必须保持 `AGENTS.md`，Agent 会自动将其作为项目指令读取。
 > 本文件面向**在当前仓库写代码的人与 AI Agent**。它以现有代码、`package.json` 和 CI 为准。
-> 家谱业务层已实现谱系/人丁第一版（画布、世系表、检查器与写流程），谱文/谱书等仍未实现；基础层（UUIDv7、RLS、4 角色、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地。以 [实现状态](docs/implementation-status.md) 为准。
+> 家谱业务层已实现谱系/人丁第一版（画布、世系表、检查器与写流程），谱文/谱书等仍未实现；基础层（UUIDv7、RLS、4 角色、软删）已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地，认证与租户写入已切换到自托管 Better Auth（[ADR 0007](docs/decisions/0007-self-hosted-better-auth.md)）。以 [实现状态](docs/implementation-status.md) 为准。
 
 ---
 
@@ -15,7 +15,7 @@
 - 组织与项目使用 20 位公开 ID（`organization.slug`、`project.ref`）作为 URL；UUIDv7 主键仅内部使用。
 - 用户登录、组织成员管理（4 角色）、邀请链接、活动日志。
 - 注册、创建组织、接受邀请、成员变更、删除账号等多步写操作在单个数据库事务内完成；失败不会留下半成品数据。
-- 数据库已按目标基础层重置：`auth.users`、RLS、`app_rw`、软删、复合外键、邀请 token。
+- 数据库已按目标基础层重置，并完成 Better Auth 认证切换：`auth.users/session/account/verification`、RLS、`app_rw` + `auth_service` 双角色边界、业务表软删、复合外键；组织/成员/邀请由 Better Auth organization 插件管理。
 - 谱系与人丁已有第一版业务能力：左侧谱系管理（文件夹/谱系树、内联重命名）、分类树、欧式书本布局画布（React Flow）、世系表、搜索定位、字辈提示、始祖/子女/兄弟/配偶、拖拽录入、右侧检查器、编辑/移动/删除、打印视图、按代渲染窗口。
 - 界面全部为简体中文，品牌“云谱”，不引入 i18n 框架。
 - 营销首页、登录/注册、控制台界面。
@@ -27,7 +27,7 @@
 - 谱文/谱书分类页面；人丁自定义字段 UI。
 - 回收站、编辑锁、分享。
 
-基础层（UUIDv7、`auth` schema、RLS、软删）已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地；谱系/人丁已实现画布、世系表、检查器与写流程，谱文、谱书、分享、回收站、编辑锁尚未实现。如果任务要求实现这些目标业务能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做实现计划；不要把目标文档里的 `src/modules` 目录当成现状。
+基础层（UUIDv7、`auth` schema、RLS、软删）已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地；谱系/人丁已实现画布、世系表、检查器与写流程，谱文、谱书、分享、回收站、编辑锁尚未实现。如果任务要求实现这些目标业务能力，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，并先做实现计划；不要把目标文档里的 `src/modules` 目录当成现状。
 
 技术形态：
 
@@ -35,13 +35,13 @@
 |---|---|
 | 框架 | Next.js 16.4 App Router + React 19.1 |
 | 语言 | TypeScript（`strict: true`） |
-| 数据库 | PostgreSQL + Drizzle ORM（本地/CI `postgres.js`；Vercel 环境 `pg` + `attachDatabasePool`） |
-| 认证 | bcrypt + JWT HS256 Cookie |
+| 数据库 | PostgreSQL + Drizzle ORM（业务 `app_rw`、认证 `auth_service`；本地/CI `postgres.js`，Vercel `pg` + `attachDatabasePool`） |
+| 认证 | 自托管 Better Auth 1.7.12（数据库会话 + organization 插件） |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 客户端数据 | TanStack Query 5；RSC 首屏通过 `dehydrate` / `HydrationBoundary` 注入 |
 | 客户端 UI 状态 | Zustand 5（仅谱系工作区 UI，不存实体数据） |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 13 文件/73 用例；真实 PostgreSQL 集成测试 12 文件/134 用例；Playwright E2E 1 条关键路径 |
+| 测试 | Vitest：单测 17 文件/119 用例；真实 PostgreSQL 集成测试 11 文件/113 用例；Playwright E2E 2 条关键路径 |
 
 ---
 
@@ -121,18 +121,20 @@ components/
 │   ├── lineage-tree.ts       # 文件夹/谱系树构建与搜索过滤
 │   ├── lineage-shell.tsx     # 可调宽侧栏 + 移动端抽屉外壳
 │   └── lineage-sidebar.tsx   # 参考风格文件夹/谱系管理侧栏
-├── org/                      # 组织成员/设置
+├── org/                      # 组织成员/设置、邀请详情查询
 ├── project/                  # 项目设置/工作区
 ├── marketing/                # 营销页组件
 ├── query-provider.tsx        # TanStack Query Provider + HydrationBoundary
 └── ui/                       # shadcn/ui 基础组件
 lib/
-├── auth/                     # session、context（请求级会话/scope）、permissions、rate-limit、schema、actions
+├── auth/                     # Better Auth 实例、会话 context、access-control、错误映射、限流、schema、actions
 ├── db/
-│   ├── queries/              # 按领域拆分的查询：users、organizations、invitations、projects、activity、folders、lineages、nodes
-│   ├── services.ts           # 多步事务流程（账号/组织/成员）
-│   ├── schema.ts             # Drizzle schema
-│   ├── drizzle.ts            # 连接单例（本地 postgres.js / Vercel pg）
+│   ├── queries/              # 按领域拆分的查询：organizations、invitations、projects、activity、folders、lineages、nodes
+│   ├── services.ts           # 项目多步事务流程
+│   ├── schema.ts             # Drizzle schema（auth 表 + 业务表）
+│   ├── auth-schema.ts        # Better Auth Drizzle adapter 的表映射
+│   ├── auth-db.ts            # 认证连接单例（固定 role=auth_service）
+│   ├── drizzle.ts            # 业务连接单例（本地 postgres.js / Vercel pg）
 │   ├── errors.ts             # PG 错误码识别
 │   └── migrations/           # drizzle-kit 迁移
 ├── folder/                   # 分类树 Server Action 与事务服务
@@ -163,7 +165,7 @@ proxy.ts                      # Next 16 路由门禁
 | 函数 / 变量 | `camelCase` | `getOrgRoleInTx` |
 | 类型 | `PascalCase`，不加 `I` 前缀 | `ActionState` |
 | 常量 | `SCREAMING_SNAKE` | `ORG_ROLES` |
-| 数据库列 | `snake_case` | `org_id`、`password_hash` |
+| 数据库列 | `snake_case` | `org_id`、`organization_id` |
 
 不要为了“以后可能用到”提前拆 `service/repo/module` 目录；当前代码以页面、Action、查询函数为主。
 
@@ -218,19 +220,23 @@ export const renameOrgAction = validatedActionWithUser(
 ### 5.3 认证与会话
 
 ```
-proxy.ts（路由门禁，验证 JWT 签名/过期）
+proxy.ts（乐观门禁：getSessionCookie 只检查 better-auth.session_token 是否存在）
    ↓
-getSessionUser()（权威校验：查库比对 token_version + deleted_at，按请求缓存）
+getSessionUser()（权威校验：auth.api.getSession 查数据库会话，按请求缓存）
    ↓
 页面 / Action / API Route 内的组织成员校验
 ```
 
-- `proxy.ts` 不是授权边界；不要只靠它保护资源。
-- `getSessionUser()` 返回完整 `users` 行；**不要直接 `Response.json(user)`**。对外出口（API、TanStack Query hydration、客户端组件 props）只传 `SessionUser`，即 `{ id, name, email }`。
-- 修改密码、删除账号会递增 `token_version`，旧 Cookie 自动失效；改密成功后会用新版本重签当前设备。
-- 修改邮箱必须验证当前密码，邮箱归一化为小写后写入；重复邮箱转换为中文冲突提示。
+- 认证由自托管 Better Auth 负责：`lib/auth/better-auth.ts` 创建单例，核心表在 `auth` schema；密码由 Better Auth 以 scrypt 存储，应用不接触哈希。
+- `getSessionUser()` 只返回 `SessionUser`（`{ id, name, email }`）或 `null`；**不要直接 `Response.json(session.user)`**。对外出口（API、TanStack Query hydration、客户端组件 props）只传 `SessionUser`。
+- 会话是数据库会话：7 天过期、1 天滑动续期、关闭 cookie cache；撤销即时生效，不需要自建会话版本字段。
+- 不创建 `app/api/auth/[...all]/route.ts`，也不引入浏览器 auth client；所有认证/租户写操作只从 Server Action 调 `auth.api.*`。
+- 邮箱验证关闭、无找回密码；改邮箱入口已移除（`user.changeEmail.enabled = false`）。邮箱只读，不要新增改邮箱表单。
+- 修改密码走 `auth.api.changePassword({ revokeOtherSessions: true })`：当前会话保留，其他设备立即失效。
+- 删除账号走 `auth.api.deleteUser`；删除前在应用层检查该用户是否是任何组织的唯一 owner，若是则要求先转让或归档。
 - 账号区布局 `app/(dashboard)/dashboard/(account)/layout.tsx` 统一 `requireUser()`（内部 `redirect('/sign-in')`）；账号页不要各自猜认证状态。
-- 不要使用 `getSession()` 之类的“只读 Cookie”方案做鉴权。
+- **两个连接不能混用**：业务查询用 `APP_POSTGRES_URL`（登录角色 `app` → `withOrg` 内 `SET LOCAL ROLE app_rw`）；认证用 `AUTH_POSTGRES_URL`（登录角色 `auth_runtime` → 连接初始化固定 `role=auth_service`）。
+- `proxy.ts` 只是乐观门禁，**不是授权边界**；不要只靠它保护资源。
 - Cookie 使用 `Secure`；本地开发请使用 `http://localhost:3000`，不要用 IP/非 localhost 域名。
 
 ### 5.4 组织隔离
@@ -247,6 +253,7 @@ getProjectById(projectId);
 ```
 
 - `withOrg` 在事务内执行 `SET LOCAL ROLE app_rw` 并设置 `request.jwt.claims`；不要用会话级 `SET`（会污染连接池），也不要在 `app_rw` 之外直接跑组织级 SQL。
+- `organization`/`organization_member`/`invite` 的写权限属于 Better Auth 的 `auth_service`；业务代码不要用 `withOrg` 写这三张表，也不要直接操作 `auth` schema。
 - URL 里的 `[orgSlug]` / `[projectRef]` 是 20 位公开 ID；`requireOrgContext` / `requireProjectContext` 先用 `isPublicId()` 校验格式，再用 `getOrgWithRoleBySlug` / `getProjectScopeByRef` 同时按当前用户过滤。非成员、不存在的 ID 一律 404。
 - 公开 ID 不是授权凭证：能猜到 slug/ref 不等于能访问，解析查询必须带 `userId`。
 - Server Action 的 `orgId` / `projectId` 是 UUID 字符串，来自服务端 scope，不要新增按公开 ID 写入的入口。
@@ -254,14 +261,14 @@ getProjectById(projectId);
 
 ### 5.5 数据访问
 
-- 查询集中在 `lib/db/queries/<domain>.ts`（users、organizations、invitations、projects、activity、folders、lineages、nodes）；不要在页面里拼 SQL。
-- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。当前迁移是重置后的 `0000_baseline` + `0001_auth_rls` + `0002_app_role_grant`；`drizzle.config.ts` 优先使用 `POSTGRES_URL_DIRECT`。
+- 查询集中在 `lib/db/queries/<domain>.ts`（organizations、invitations、projects、activity、folders、lineages、nodes）；不要在页面里拼 SQL。
+- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。当前迁移是重置后的 `0000_baseline` + `0001_auth_rls` + `0002_app_role_grant` + `0003_better_auth`；`drizzle.config.ts` 优先使用 `POSTGRES_URL_DIRECT`。
 - 主键是 PostgreSQL 18 `uuidv7()` 生成的 UUID；20 位公开 `slug`/`ref` 只用于 URL，不进入外键。
 - 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 `ref` 冲突时每次重试重新生成，最多尝试 3 次。
-- 数据库约束：成员 `(organization_id, user_id)` 活动行唯一、单组织仅一个 `owner`（部分唯一索引）、角色 `CHECK`、待处理邀请 `(organization_id, lower(email))` 部分唯一、`auth.users` 活动邮箱唯一、业务表软删。捕获 `23505`/`23514`/`23503` 时转换为中文提示，不要吞掉或重试成重复数据。
-- 组织、成员、邀请、项目、谱系/谱文/谱书、活动日志都有 `deleted_at` 软删列；不要假设删除可恢复或可回收。
-- `invite` 只存 token 的 SHA-256 哈希，7 天过期、一次性、禁止邀请 `owner`；接受邀请走 `auth.accept_invite()` 的 `SECURITY DEFINER` 路径。
-- 不要直接访问 `auth.users`：运行时角色 `app_rw` 没有表权限，认证读写走 `auth` schema 下的 `SECURITY DEFINER` 函数。
+- 数据库约束：成员 `(organization_id, user_id)` 唯一、单组织仅一个 `owner`（部分唯一索引）、角色 `CHECK`、待处理邀请 `(organization_id, lower(email))` 部分唯一、`auth.users` 活动邮箱唯一。捕获 `23505`/`23514`/`23503` 时转换为中文提示，不要吞掉或重试成重复数据。
+- 业务表（project、folder、lineage、node、article、book、book_catalog、activity_logs 等）有 `deleted_at` 软删列；`organization` 的 `deleted_at` 表示归档。`organization_member` 与 `invite` 是**硬删除**，不要假设成员移除或邀请接受可恢复。
+- `invite` 由 Better Auth 管理：链接是邀请 ID（7 天过期、一次性、禁止邀请 `owner`），重新邀请会取消旧的 pending 邀请；不要恢复自研的 token 哈希字段或 `auth.accept_invite()`。
+- 不要从业务查询访问 `auth.*`：运行时角色 `app_rw` 没有表权限；认证读写只通过 Better Auth（`auth_service` 连接）完成，业务代码不要 import `lib/db/auth-db.ts`。
 
 ### 5.6 API Route
 
@@ -275,6 +282,8 @@ getProjectById(projectId);
 | `GET /api/user` | 当前用户，DTO 为 `{ id, name, email }` |
 
 三个业务路由未登录时都返回 `401 { error: 'Unauthorized' }`；`lib/fetcher.ts` 对非 2xx 抛错，错误对象带 `status`。所有路由用 `withApiLogging()` 包装：生成/透传 `x-request-id`、记录 `duration_ms`、异常返回 JSON 500。TanStack Query 以这些只读路由作为客户端刷新通道；客户端退出登录时要同时清空 `queryKeys.user` 与 `queryKeys.orgs` 缓存。
+
+认证相关 Route Handler 数量为 0：**不要新增 `app/api/auth/*`**，认证与租户写只走 Server Action 内的 `auth.api.*`。
 
 新增 API Route 时：
 
@@ -335,8 +344,8 @@ logger.error('failed to update project', error);
 
 ### 6.6 安全
 
-- 密码只存 bcrypt 哈希。
-- 不把 `password_hash`、`AUTH_SECRET` 传给客户端。
+- 密码由 Better Auth 以 scrypt 哈希存储；不要读取、回显或复制 `auth.account.password`。
+- 不把密码哈希、`BETTER_AUTH_SECRET` 传给客户端。
 - 重定向只允许同源绝对路径（现有登录逻辑已做）。
 - 公开 API 需要限流时用 `checkRateLimit`，并注意它是进程内实现。
 
@@ -351,16 +360,16 @@ logger.error('failed to update project', error);
 | 3 | 角色是 `owner` / `admin` / `editor` / `viewer`；业务代码检查权限字符串，不要直接比较角色名 |
 | 4 | 主键是 UUIDv7；20 位公开 ID 只用于 URL |
 | 5 | RLS 是兜底，不是替代品；应用层仍必须按成员关系过滤 |
-| 6 | 业务表都有 `deleted_at` 软删；查询默认 `isNull(deletedAt)`，没有回收站 UI |
+| 6 | 业务表都有 `deleted_at` 软删；查询默认 `isNull(deletedAt)`，没有回收站 UI。`organization_member` 与 `invite` 是硬删除 |
 | 7 | 表结构变更走 Drizzle 迁移，不手改数据库；RLS/角色/函数写在 custom migration |
 | 8 | 迁移生成后必须人工 review；迁移与业务代码分开提交 |
 | 9 | 不要在迁移里夹带数据修复逻辑；迁移必须能在空库一次执行 |
 | 10 | 新表如果属于组织范围，必须带 `organization_id` 并在所有查询中过滤 |
 | 11 | 公开 ID（slug/ref）查询必须同时按 `userId` 过滤，不能先查后判 |
 | 12 | 多步写必须使用单个事务；失败时不能留下半成品数据 |
-| 13 | 修改邮箱必须验证当前密码，并在写入前归一化邮箱 |
+| 13 | 邮箱只读：不要新增改邮箱入口；账号资料更新只改 `name` |
 | 14 | 不要绕过唯一约束/`CHECK` 直接写库；冲突转换为中文 `ActionState` |
-| 15 | 不要直接读写 `auth.users`；认证路径只走 `auth` schema 的 `SECURITY DEFINER` 函数 |
+| 15 | 不要直接读写 `auth.*`；认证路径只走 Better Auth（`auth_service` 连接），业务查询只走 `withOrg`（`app_rw`） |
 
 ### 7.1 加一张表的顺序
 
@@ -382,7 +391,7 @@ logger.error('failed to update project', error);
 |---|---|---|
 | 1 | 未经计划直接实现尚未完成的家谱业务功能（谱文/谱书/分享/回收站等） | 目标规则尚未落地，避免半成品；先读目标文档并写实现计划 |
 | 2 | 信任客户端传来的 `orgId` / `projectId` / 公开 ID / 角色 | 越权 |
-| 3 | 返回完整用户行或 `password_hash` | 信息泄露 |
+| 3 | 返回完整用户行或密码哈希 | 信息泄露 |
 | 4 | 存储明文密码 | 泄露即灾难 |
 | 5 | 只靠 `proxy.ts` 做授权 | 它只是门禁 |
 | 6 | 在客户端组件读取服务端密钥 | 进入 bundle |
@@ -441,12 +450,14 @@ logger.error('failed to update project', error);
 ### 9.4 改认证
 
 ```text
-1. 先读 lib/auth/session.ts 与 lib/auth/context.ts 的 getSessionUser()
-2. 注意 tokenVersion 撤销语义
-3. 修改密码/删除账号必须递增 tokenVersion；改密后重签当前设备
-4. 删除账号要清理该用户的全部组织成员关系，并阻止删除唯一 owner 的组织归属
-5. 更新/新增 tests/session.test.ts、security-regressions.test.ts 或 tests/integration
-6. 不要在 proxy.ts 里做需要数据库的校验
+1. 先读 lib/auth/better-auth.ts、lib/auth/context.ts、lib/db/auth-db.ts 与 ADR 0007
+2. 认证/租户写只从 Server Action 调 auth.api.*；不要新增 /api/auth/* 或浏览器 auth client
+3. 会话是数据库会话：撤销走 Better Auth（changePassword revokeOtherSessions、deleteUser、removeMember），不要自建会话版本字段
+4. 修改密码保留当前会话、撤销其他会话；删除账号前检查该用户是否为唯一 owner
+5. 邀请是两段式：/sign-up?invite=<id> → /dashboard/join?invite=<id>；接受失败不删除账号
+6. 认证连接必须固定 role=auth_service；业务查询必须走 withOrg/app_rw
+7. 更新 tests/integration/better-auth.test.ts 与 tests/e2e/critical-path.spec.ts；涉及真实 SQL/RLS 的改动补集成测试
+8. 不要在 proxy.ts 里做需要数据库的校验
 ```
 
 ---
@@ -477,7 +488,7 @@ docs(setup): 对齐当前环境变量
 - [ ] CI 的 `pnpm test:coverage`、`pnpm test:e2e`、`pnpm verify:deploy` 与迁移漂移检查能通过
 - [ ] 新增的组织级查询/写入都带 `orgId` 且做了成员校验
 - [ ] 公开 ID 查询带 `userId` 过滤，非成员返回 404
-- [ ] 没有返回 `password_hash`
+- [ ] 没有返回密码哈希
 - [ ] 新增/修改表有迁移，迁移已人工 review
 - [ ] 没有把家谱业务页面/写流程做成半成品；新组织级表已启用 RLS
 - [ ] 安全相关路径有测试（越权、密码回显、限流）
@@ -487,7 +498,7 @@ docs(setup): 对齐当前环境变量
 
 1. **越权**：能否通过猜 ID 访问别的组织。
 2. **信息泄露**：是否返回了整行用户/密钥/内部错误。
-3. **认证语义**：`getSessionUser()` 是否是权威校验；tokenVersion 是否正确。
+3. **认证语义**：`getSessionUser()` 是否通过 `auth.api.getSession` 做权威校验；数据库会话撤销是否正确。
 4. **错误处理**：401/403/404 是否合理。
 5. **迁移**：是否可重复、可回滚、是否影响现有数据。
 6. 命名与风格。
@@ -500,33 +511,34 @@ docs(setup): 对齐当前环境变量
 |---|---|---|---|
 | 1 | 只靠 `proxy.ts` 保护 | 绕过路由直接调 Action/API | 每个入口都 `getSessionUser()` + 成员校验 |
 | 2 | 按子资源 ID 直接查 | 跨组织读取 | 查询同时带 `orgId` |
-| 3 | 返回整行 `user` | `password_hash` 泄露 | 显式 DTO |
-| 4 | 只读 Cookie 做鉴权 | 伪造/过期 token 通过 | `getSessionUser()` 查库 |
-| 5 | 忘记 `tokenVersion` | 改密后旧会话仍有效 | 改密/删号递增版本 |
+| 3 | 返回整行 `session.user` | 身份字段/内部数据泄露 | 显式 `SessionUser` DTO |
+| 4 | 只信 Cookie 存在 | 伪造/过期会话通过 | `getSessionUser()` 调 `auth.api.getSession` 查库 |
+| 5 | 绕过 Better Auth 直接写 `auth.*` | 会话/密码/成员状态不一致 | 只用 `auth.api.*` 写认证与租户数据 |
 | 6 | 在客户端判断角色 | 改前端即可越权 | 服务端 `hasPermission` |
 | 7 | 依赖内存限流做安全边界 | 重启清零、多实例失效 | 视为辅助；生产换共享存储 |
-| 8 | 把 `.env` 改成 `.env.local` | 变量读不到 | 当前 dotenv 读取 `.env` |
+| 8 | 把 `.env` 改成 `.env.local` | 变量读不到 | 当前 dotenv 读取 `.env`；Next 会额外加载 `.env.local` |
 | 9 | 在页面写裸色值 | 设计系统测试失败 | 用 token/组件 |
 | 10 | 在 Server Action 回显密码 | 安全回归测试失败 | 不在 `ActionState` 放密码 |
-| 11 | 删除组织/成员无备份 | 业务表是软删，但直接清库不可恢复 | 操作前确认；生产走工单/备份 |
+| 11 | 删除组织/成员无备份 | 成员/邀请是硬删除，直接清库不可恢复 | 操作前确认；生产走工单/备份 |
 | 12 | 以为 RLS 可以替代应用层过滤 | 只靠策略时用户会看到自己所有组织的数据 | 查询仍带 `orgId` 并通过 `withOrg` |
 | 13 | 只按公开 ID 查组织/项目 | 猜到 slug/ref 即可跨组织读取 | 查询同时带 `userId`，失败一律 404 |
-| 14 | 注册/建组织/成员变更拆成多个独立写操作 | 中途失败留下半成品 | 放进 `lib/db/services.ts` 的单个事务 |
-| 15 | 修改邮箱不归一化、不验当前密码 | 大写邮箱无法登录、账号可被接管 | 复用 `normalizedEmail` 并要求当前密码 |
-| 16 | 只靠应用层判断最后一个 owner | 绕过服务层直接软删成员仍可产生无主组织 | 事务内锁定校验；数据库只有一个 owner 的上限，没有下限 |
+| 14 | 混用业务连接与认证连接 | 以 `app_rw` 写 `auth.*` 失败，或绕过 RLS 读业务表 | 业务 `APP_POSTGRES_URL`、认证 `AUTH_POSTGRES_URL`，不要互换 |
+| 15 | 新增 `/api/auth/*` 或浏览器 auth client | 绕过“最后 owner / 管理员边界 / 活动日志” | 认证入口只保留 Server Action |
+| 16 | 只靠应用层判断最后一个 owner | 直接删成员仍可产生无主组织 | 触发器兜底 + 应用层预检 |
 
 ---
 
 ## 12. 目标架构现状
 
-基础层已按 [ADR 0001](docs/adr/0001-foundation-reset.md) 落地，**不要再次重置**：
+基础层已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地，认证已按 [ADR 0007](docs/decisions/0007-self-hosted-better-auth.md) 切换到自托管 Better Auth，**不要再次重置**：
 
-- 已实现：UUIDv7、`auth.users` + `SECURITY DEFINER` 函数、11 张组织级业务表、软删、复合外键、RLS + `app_rw`、`withOrg`、4 角色 + 权限字符串、邀请 token。
+- 已实现：UUIDv7、`auth.users/session/account/verification`、Better Auth 组织插件、11 张组织级业务表、业务表软删、复合外键、RLS + `app_rw`/`auth_service`、`withOrg`、4 角色 + 权限字符串、邀请链接（邀请 ID、7 天过期）。
 - 已实现（业务）：谱系/人丁、分类树 UI 与对应 Action、欧式书本画布与按代渲染窗口。
 - 目标业务功能尚未实现：谱文、谱书、谱文/谱书分类接入、人丁自定义字段 UI、分享、回收站、编辑锁。
+- 已明确不做：邮箱验证、找回密码、改邮箱、邮件发送、`/api/auth/*`。
 - 目录与分层仍是当前的 `app/` + `components/` + `lib/`；没有 `src/modules`、`*.service.ts`/`*.repo.ts`，也没有 Biome `noRestrictedImports`。
 - 目标接口以 RSC + Server Action 为主；当前 4 个只读 Route Handler 是过渡，见 §5.6。
-- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`）；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`。**本地生产模式已用 `pnpm verify:deploy` 全项验证**；真实 Vercel/Neon 部署仍未执行（无凭据），云端验证入口为 `verify:deploy` 与 external E2E（[部署蓝图](docs/ops-target.md)）。
+- 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`）；生产必须提供 `APP_POSTGRES_URL`（`app`）与 `AUTH_POSTGRES_URL`（`auth_runtime`）；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`。**本地生产模式已用 `pnpm verify:deploy` 全项验证**；真实 Vercel/Neon 部署仍未执行（无凭据），云端验证入口为 `verify:deploy` 与 external E2E（[部署蓝图](docs/ops-target.md)）。
 
 实现家谱业务功能时：
 

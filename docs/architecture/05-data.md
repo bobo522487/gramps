@@ -13,9 +13,9 @@
 
 | 数据 | 位置 | 说明 |
 |---|---|---|
-| 结构化数据 | PostgreSQL 18+ | 10 张业务表 + `auth.users` |
+| 结构化数据 | PostgreSQL 18+ | 10 张业务表 + 4 张 `auth.*` 表 |
 | 富文本 | PostgreSQL `jsonb` | ProseMirror 文档 |
-| 会话 | `session` Cookie（jose JWT HS256） | 应用签发与校验；`token_version` 撤销 |
+| 会话 | `auth.session` 表 + `better-auth.session_token` Cookie | Better Auth 签发与撤销；数据库会话 7 天 |
 | 图片字节 | 无对象存储 | M1 不上传媒体，M2 再定 |
 
 ### 8.2 隔离

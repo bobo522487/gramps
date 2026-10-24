@@ -29,7 +29,7 @@
 | ADR-14 | 主键 | UUIDv7，PostgreSQL 18 原生 `uuidv7()` | 单向门 | — |
 | ADR-15 | 后台任务 | 零个 | 双向门 | [0005](./0005-zero-background-jobs.md) |
 | ADR-16 | 渲染管线 | M1 不做，M3 独立进程 | 双向门 | — |
-| ADR-17 | 认证 | 自建 bcrypt + jose HS256 + `token_version` | 双向门 | — |
+| ADR-17 | 认证 | 自托管 Better Auth（数据库会话 + organization 插件）；原「自建 bcrypt + jose HS256 + `token_version`」被 [0007](./0007-self-hosted-better-auth.md) 取代 | 双向门 | [0007](./0007-self-hosted-better-auth.md) |
 | ADR-18 | 部署 | Vercel + Neon；本地 Docker 只跑 PostgreSQL | 双向门 | — |
 | ADR-19 | 数据库驱动 | 本地 `postgres.js`；生产 `pg` + `attachDatabasePool` | 双向门 | — |
 | ADR-20 | 公开 ID | `slug` / `ref` 为 20 位随机 ID，服务端生成、不可修改 | 单向门 | — |
@@ -41,7 +41,7 @@
 
 ## 2. 正式 ADR
 
-只有「有争议、有代价、可能被推翻」的决策才写正式 ADR。其余 16 条留在上表即可。
+只有「有争议、有代价、可能被推翻」的决策才写正式 ADR。其余 14 条留在上表即可。
 
 | ADR | 主题 | 为什么值得单独写 |
 |---|---|---|
@@ -50,7 +50,8 @@
 | [0003](./0003-tree-storage-ltree.md) | 树存储用邻接表 + `ltree`，且严格父系 | 决定了过继 / 兼祧 / 入赘不可表达；M3 排版会固化它 |
 | [0004](./0004-soft-delete-forever.md) | 软删永存，无回收站 | 与数据删除权存在张力，需要写清边界 |
 | [0005](./0005-zero-background-jobs.md) | 零后台任务 | 会被第一个清理需求打破，需要写清破例条件 |
-| [0006](./0006-rls-isolation.md) | RLS 三层隔离，组织不入 JWT | 全系统最重要的安全假设，含「迁移角色必须 BYPASSRLS」这一隐含前提 |
+| [0006](./0006-rls-isolation.md) | RLS 三层隔离，组织不入 JWT | 全系统最重要的安全假设，含「迁移角色必须 BYPASSRLS」这一隐含前提（租户写权限已由 [0007](./0007-self-hosted-better-auth.md) 改为 `auth_service`） |
+| [0007](./0007-self-hosted-better-auth.md) | 自托管 Better Auth + Neon PostgreSQL | 替换自建认证与邀请；引入 `auth_service` 角色边界与数据库会话 |
 
 ### ADR 模板
 

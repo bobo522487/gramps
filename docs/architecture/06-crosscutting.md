@@ -19,8 +19,10 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']),
   POSTGRES_URL: z.string().url(),
   POSTGRES_URL_DIRECT: z.string().url().optional(),
-  AUTH_SECRET: z.string().min(32),
-  BASE_URL: z.string().url(),
+  APP_POSTGRES_URL: z.string().url(),
+  AUTH_POSTGRES_URL: z.string().url(),
+  BETTER_AUTH_SECRET: z.string().min(32),
+  BETTER_AUTH_URL: z.string().url(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 export const config = schema.parse(process.env);   // 失败即崩，不带病运行
@@ -30,7 +32,7 @@ export const config = schema.parse(process.env);   // 失败即崩，不带病�
 
 代码中**禁止出现 `process.env`**，只能 `import { config }`。
 
-> **现状**：`lib/config.ts` 用 `getServerConfig()` 惰性校验，由 `instrumentation.ts` 在启动时触发；`POSTGRES_URL_DIRECT` 只在 `drizzle.config.ts` 中读取（迁移专用），不在运行时 schema 内。`LOG_LEVEL` 与 `BASE_URL` 为可选。
+> **现状**：`lib/config.ts` 用 `getServerConfig()` 惰性校验，由 `instrumentation.ts` 在启动时触发；`POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` 只在迁移脚本中读取，不在运行时 schema 内。本地与 CI 可省略 `APP_POSTGRES_URL` / `AUTH_POSTGRES_URL`（回退到 `POSTGRES_URL`），Vercel 生产环境必须提供两者。`LOG_LEVEL` 为可选。
 
 ### 9.2 错误
 
@@ -62,21 +64,22 @@ Server Action 不 throw：throw 会被框架转成 500 错误页，UI 无法区�
 
 | 项 | 措施 |
 |---|---|
-| 认证 | 自建：bcrypt 校验密码，jose 签发/验签 HS256 JWT |
-| 会话 | `session` Cookie：HttpOnly + Secure + SameSite=Lax；`proxy.ts` 滑动续期；`getUser()` 校验 `token_version` 与 `deleted_at` |
-| 密码变更 | 验证旧密码 → `token_version + 1` → 当前会话重签，其他设备立即失效 |
-| CSRF | Server Action 自带 Origin 校验；唯一 Route Handler 是 GET |
+| 认证 | 自托管 Better Auth：邮箱 + 密码，scrypt 哈希由 Better Auth 管理；不暴露 `/api/auth/*` |
+| 会话 | 数据库会话，Cookie `better-auth.session_token`（HttpOnly + Secure + SameSite=Lax）；7 天过期、`updateAge` 1 天；`getSessionUser()` 调 `auth.api.getSession` 查库；`proxy.ts` 只做 Cookie 存在性门禁 |
+| 密码变更 | 验证旧密码 → `auth.api.changePassword({ revokeOtherSessions: true })` → 当前会话保留，其他设备立即失效 |
+| 租户隔离 | 业务查询走 `APP_POSTGRES_URL`（`app` → `withOrg` 内 `SET LOCAL ROLE app_rw`）；认证与组织/成员/邀请写走 `AUTH_POSTGRES_URL`（`auth_runtime` → `auth_service`） |
+| CSRF | Server Action 自带 Origin 校验；Route Handler 全部是只读 GET |
 | 输入校验 | 所有 Action 入口 Zod，不信任客户端 |
-| 越权 | RLS + `assertPermission` + 复合外键 |
+| 越权 | RLS + `hasPermission` + 复合外键 |
 | 登录防护 | 进程内滑窗限流（同一来源 + 账号），统一错误文案防账号枚举；不做持久化账号锁定 |
-| 密钥 | `AUTH_SECRET`（≥ 32 字节）只在服务端环境变量，永不进客户端 |
+| 密钥 | `BETTER_AUTH_SECRET`（≥ 32 字节）只在服务端环境变量，永不进客户端 |
 | 软删数据 | 界面不可见，但库内保留；运维恢复需工单 |
 
 M2 引入分享页时，必须补「在世人口脱敏在服务端完成」这一条。
 
 > **三处需要补充的安全设计**（详见 [08-evolution](./08-evolution.md) 风险登记簿）：
 > 1. **限流的 key 可信性**：`x-forwarded-for` 可伪造。应只信任平台注入的头，并对账号维度独立计数。
-> 2. **密钥轮换**：单密钥 HS256 无 `kid`，轮换等于全量登出——于是没人敢轮换。建议支持双密钥（当前 + 上一把）。
+> 2. **密钥轮换**：`BETTER_AUTH_SECRET` 是全局对称密钥，轮换会使现有会话 Cookie 失效（等价全量登出）。Better Auth 不提供双密钥过渡，只能轮换后按需批量删除 `auth.session`；见 [R20](./08-evolution.md) 与 [RB-4](../guides/runbooks.md)。
 > 3. **慢查询护栏**：无 `statement_timeout`。一条退化查询即可占满 1–5 个连接，导致整个实例不可用。建议在数据库角色上设置 `statement_timeout` / `idle_in_transaction_session_timeout` / `lock_timeout`。
 
 ### 9.5 可观测性

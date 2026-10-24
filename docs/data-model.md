@@ -2,13 +2,13 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.5 |
-| 最后更新 | 2026-10-22 |
+| 文档版本 | 1.6 |
+| 最后更新 | 2026-10-23 |
 | 数据库 | Neon PostgreSQL 18+（生产）/ Docker PostgreSQL 18+（本地） |
 | 驱动 | 本地 `postgres.js`；生产 `pg` + `attachDatabasePool` |
 | 部署 | Vercel + 自定义域名 + Neon；本地 Docker 只跑 PostgreSQL + `next dev` |
 | 字符集 / 时区 | UTF-8 / 所有时间列 `timestamptz` |
-| 表数量 | 10 张业务表 + `auth.users`（独立 `auth` schema，不计入 10 张） |
+| 表数量 | 10 张业务表 + 4 张 `auth.*` 表（独立 `auth` schema，不计入 10 张） |
 | 相关文档 | [架构](./architecture/00-overview.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
 
 ---
@@ -40,7 +40,7 @@ id uuid PRIMARY KEY DEFAULT uuidv7()
 
 `uuidv7()` 是 PostgreSQL 18 内置函数，不再依赖应用层生成或随机 UUID。部署前置为 PostgreSQL 18+；迁移前先执行 `SELECT uuidv7();` 自检。
 
-10 张业务表与 `auth.users` 的主键都使用上面的默认值。
+10 张业务表与 4 张 `auth.*` 表的主键都使用上面的默认值。
 
 ### 1.3 公共列
 
@@ -54,7 +54,7 @@ id uuid PRIMARY KEY DEFAULT uuidv7()
 | `updated_at` | `timestamptz` | 首次写入为 `NULL` |
 | `deleted_at` | `timestamptz` | 软删除标记，见 §11 |
 
-`auth.users` 位于独立 schema，不使用上述公共列，只保留认证所需的字段（§4.1）。
+`auth.*` 位于独立 schema，不使用上述公共列，只保留 Better Auth 所需字段（§4.1）。`organization_member` 与 `invite` 也不使用软删列。
 
 M1 **没有乐观锁列**。并发写入是 last-write-wins，见 PRD §5.5 与 §6.3 缺口 3。
 
@@ -75,7 +75,7 @@ M1 **没有乐观锁列**。并发写入是 last-write-wins，见 PRD §5.5 与 
 ```mermaid
 erDiagram
     auth.users ||--o{ organization_member : "加入"
-    auth.users ||--o{ invite : "接受"
+    auth.users ||--o{ invite : "邀请/接受"
     organization ||--o{ organization_member : "有成员"
     organization ||--o{ invite : "发邀请"
     organization ||--o{ project : "含"
@@ -93,7 +93,7 @@ erDiagram
 ### 2.1 层级与隔离
 
 ```
-auth.users                        ← 自建认证表，独立 auth schema，不参与组织隔离
+auth.*                            ← Better Auth 表，独立 auth schema，不参与组织隔离
 organization                      ← 隔离边界（RLS 生效范围）
 ├── organization_member           ← 成员关系，RLS 的根
 ├── invite
@@ -123,7 +123,7 @@ organization                      ← 隔离边界（RLS 生效范围）
 
 每张表有且只有一个 owner 模块。跨模块读取必须经过 owner 模块导出的 query，禁止直接 join 别人的表。
 
-上表是 **10 张业务表**。另有 `auth.users`，位于独立的 `auth` schema，是自建认证表，不属于业务表计数，也不参与组织的三层隔离。
+上表是 **10 张业务表**。另有 4 张 `auth.*` 表，位于独立的 `auth` schema，由 Better Auth 管理，不属于业务表计数，也不参与组织的三层隔离。
 
 **M2 会增加的表**：`share_link`（分享）、`delete_batch`（回收站批次）、`resource_lock`（编辑锁）、`media`（媒体）。**M3** 增加 `edition`（排版版本）。M1 不建，避免空表。
 
@@ -166,36 +166,36 @@ CREATE UNIQUE INDEX uk_organization_slug ON organization (slug)
 
 ## 4. 身份域
 
-### 4.1 auth.users（独立 schema）
+### 4.1 auth.users / auth.session / auth.account / auth.verification
 
-自建认证表，不属于 10 张业务表。它不参与组织隔离，业务查询不能直接读取；`app_rw` 没有表权限，只能通过 `auth.*` 的 `SECURITY DEFINER` 函数访问。
+自托管 Better Auth 的表，位于独立 `auth` schema，不属于 10 张业务表。它们不参与组织隔离；业务运行时角色 `app_rw` 没有表权限，认证连接固定 `role=auth_service`。
 
 ```sql
 CREATE TABLE auth.users (
   id             uuid PRIMARY KEY DEFAULT uuidv7(),
   email          text NOT NULL,
-  name           text,
-  password_hash  text NOT NULL,
-  token_version  int  NOT NULL DEFAULT 0,
+  name           text NOT NULL,
+  email_verified boolean NOT NULL DEFAULT false,
+  image          text,
   created_at     timestamptz NOT NULL DEFAULT now(),
-  updated_at     timestamptz,
-  deleted_at     timestamptz
+  updated_at     timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX uk_auth_users_email ON auth.users (lower(email))
-  WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_auth_users_email ON auth.users (lower(email));
 ```
 
-| 列 | 说明 |
+| 表 | 说明 |
 |---|---|
-| `email` | 登录标识。唯一索引基于 `lower(email)`，只约束未删除行 |
-| `password_hash` | bcrypt 哈希，从不返回客户端 |
-| `token_version` | 改密或强制下线时 +1；JWT 中的 `tv` 与它不一致即失效 |
-| `deleted_at` | 软删；`getUser()` 必须拒绝已删除用户 |
+| `auth.users` | 账号、邮箱、显示名；邮箱唯一且只读（无验证、无改邮箱） |
+| `auth.session` | 数据库会话；`expires_at` 7 天、`updateAge` 1 天；`active_organization_id` 记录当前组织 |
+| `auth.account` | 登录凭据；邮箱密码账号的 `provider_id = 'credential'`，`password` 为 Better Auth 的 scrypt 哈希 |
+| `auth.verification` | Better Auth 通用验证记录；M1 未启用邮箱验证与找回密码 |
 
-**为什么叫 `users` 而不是 `user`**：`user` 是 PostgreSQL 保留字，未加引号无法作为表名。这里的 `auth.users` 是自建认证表，不是第三方托管认证服务的表。
+**为什么叫 `users` 而不是 `user`**：`user` 是 PostgreSQL 保留字，未加引号无法作为表名。
 
-### 4.2 organization_member
+**注意**：`auth.users` 没有 `deleted_at` 与 `token_version`。删除账号会真实删除用户并级联删除会话；撤销其他设备会话由 Better Auth 的 `revokeOtherSessions` 或删除 `auth.session` 完成。
+
+### 4.2 organization_member（硬删除）
 
 ```sql
 CREATE TABLE organization_member (
@@ -203,56 +203,53 @@ CREATE TABLE organization_member (
   organization_id uuid NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   role            text NOT NULL CHECK (role IN ('owner','admin','editor','viewer')),
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  created_by      uuid,
-  deleted_at      timestamptz
+  created_at      timestamptz NOT NULL DEFAULT now()
 );
 
--- 同一组织同一用户只能有一条有效成员行；软删后可重新邀请
-CREATE UNIQUE INDEX uk_org_member_active ON organization_member (organization_id, user_id)
-  WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_org_member_organization_user
+  ON organization_member (organization_id, user_id);
 
--- 一个组织只能有一个 owner
-CREATE UNIQUE INDEX uk_org_member_single_owner ON organization_member (organization_id)
-  WHERE role = 'owner' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_org_member_single_owner
+  ON organization_member (organization_id)
+  WHERE role = 'owner';
 
-CREATE INDEX idx_org_member_user ON organization_member (user_id)
-  WHERE deleted_at IS NULL;
+CREATE INDEX idx_org_member_user ON organization_member (user_id);
 ```
 
-成员唯一性用**部分唯一索引**而不是表级 `UNIQUE`，否则移除成员（软删）后无法重新邀请同一用户——见 §11.2。`idx_org_member_user` 是**全库最热的索引**：每次请求的组织解析都要用它。`organization_member` 同时也是 RLS 策略的根，见 §12.4。
+成员由 Better Auth organization 插件管理，使用**硬删除**：移除成员或离开组织会直接删行，不保留 `deleted_at`。重新邀请同一用户是新的成员行。`idx_org_member_user` 是**全库最热的索引**：每次请求的组织解析都要用它。`organization_member` 同时也是 RLS 策略的根，见 §12.4。
 
-### 4.3 invite
+`trg_org_member_last_owner_delete` / `trg_org_member_last_owner_update` 在数据库层阻止删除或降级最后一个 owner。
+
+### 4.3 invite（Better Auth invitation，硬删除）
 
 ```sql
 CREATE TABLE invite (
   id              uuid PRIMARY KEY DEFAULT uuidv7(),
   organization_id uuid NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-  email           text,
+  email           text NOT NULL,
   role            text NOT NULL CHECK (role IN ('admin','editor','viewer')),
-  token_hash      text NOT NULL,
+  status          text NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','accepted','rejected','canceled')),
   expires_at      timestamptz NOT NULL,
-  accepted_at     timestamptz,
-  accepted_by     uuid REFERENCES auth.users(id),
   created_at      timestamptz NOT NULL DEFAULT now(),
-  created_by      uuid NOT NULL,
-  deleted_at      timestamptz
+  inviter_id      uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
--- 只约束未撤销的邀请；明文 token 只在创建时返回一次
-CREATE UNIQUE INDEX uk_invite_token ON invite (token_hash)
-  WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_invite_pending_email
+  ON invite (organization_id, lower(email))
+  WHERE status = 'pending';
 
-CREATE INDEX idx_invite_expiry ON invite (expires_at)
-  WHERE accepted_at IS NULL AND deleted_at IS NULL;
+CREATE INDEX idx_invite_expiry ON invite (expires_at) WHERE status = 'pending';
 ```
 
 | 列 | 说明 |
 |---|---|
-| `token_hash` | 只存 SHA-256；明文 token 只在创建时返回一次，由邀请人手动复制，不发邮件 |
-| `email` | 备注字段，不作为安全校验（M1 没有邮箱验证，无法证明邮箱归属） |
-| `accepted_at` | `NULL` = 待接受。**不设 `status` 列**，"过期"由 `expires_at > now()` 判断 |
-| `deleted_at` | 非空 = 已撤销；撤销后链接立即失效 |
+| `id` | 邀请 ID，直接出现在链接 `/sign-up?invite=<id>` 中；7 天过期、一次性 |
+| `email` | 被邀请邮箱；同一组织同一邮箱在 pending 状态下唯一 |
+| `status` | `pending` / `accepted` / `rejected` / `canceled`；重新邀请会取消旧的 pending |
+| `inviter_id` | 邀请人；禁止邀请 `owner` |
+
+邀请由 Better Auth organization 插件创建与接受；链接只在创建时返回一次，不发邮件。过期判断由 Better Auth 与查询共同完成。
 
 ### 4.4 注册触发器：默认组织
 
@@ -263,36 +260,36 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
-  org_id     uuid;
-  local_part text;
+  v_org_id     uuid;
+  v_local_part text;
 BEGIN
-  local_part := nullif(split_part(coalesce(new.email, ''), '@', 1), '');
+  v_local_part := nullif(split_part(coalesce(new.email, ''), '@', 1), '');
 
   INSERT INTO organization (name)
-  VALUES (coalesce(local_part, '我的家族'))
-  RETURNING id INTO org_id;
+  VALUES (coalesce(nullif(new.name, ''), v_local_part, '我的家族'))
+  RETURNING id INTO v_org_id;
 
   INSERT INTO organization_member (organization_id, user_id, role)
-  VALUES (org_id, new.id, 'owner');
+  VALUES (v_org_id, new.id, 'owner');
 
   RETURN new;
 END;
 $$;
 
-CREATE TRIGGER on_auth_user_created
+CREATE TRIGGER trg_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 ```
 
 | 设计点 | 说明 |
 |---|---|
-| `SECURITY DEFINER` | 触发器需要写入 `organization` / `organization_member`，这两张表开了 `FORCE RLS`。函数属主是迁移角色（Neon 项目所有者或本地超级用户），可绕过 RLS |
-| `SET search_path = public` | 防止 `search_path` 注入，SECURITY DEFINER 函数的强制要求 |
+| `SECURITY DEFINER` | 触发器需要写入 `organization` / `organization_member`，这两张表开了 `FORCE RLS`。函数 owner 是 `auth_service`，可绕过 RLS |
+| `SET search_path = public, auth, pg_temp` | 防止 `search_path` 注入，SECURITY DEFINER 函数的强制要求 |
 | `slug` 用 20 位随机公开 ID | 由列默认值 `public.generate_public_id()` 生成；约 80 bit 随机，唯一索引兜底碰撞；不可读但稳定 |
-| `name` 取邮箱前缀 | 用户看到的是 `chen` 而不是随机 slug，降低困惑 |
+| `name` 取用户显示名或邮箱前缀 | 用户看到的是可读名称而不是随机 slug，降低困惑 |
 | 主键默认值 | 组织的 `id` 与成员行的 `id` 都由 `DEFAULT uuidv7()` 生成，触发器不手写 ID |
 | 同一事务 | 触发器在 `auth.users` 插入的同一事务内执行。组织建失败 → 注册失败，不会出现「有账号没组织」的半残状态 |
 | 用户可改 | `name` 可由 owner 修改；`slug` 是 URL 标识，不可修改（FR-ORG-7） |
@@ -623,11 +620,12 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 
 | 表 | 索引 | 类型 | 服务的查询 |
 |---|---|---|---|
-| `auth.users` | `uk_auth_users_email` | 唯一部分（`lower(email)`） | 登录邮箱解析 |
+| `auth.users` | `uk_auth_users_email` | 唯一（`lower(email)`） | 登录邮箱解析 |
+| `auth.session` | `uk_auth_session_token` / `idx_auth_session_user` | 唯一 / B-tree | 会话查找与撤销 |
 | `organization` | `uk_organization_slug` | 唯一部分 | URL 解析 |
-| `invite` | `uk_invite_token` | 唯一部分 | 邀请链接校验 |
+| `invite` | `uk_invite_pending_email` | 唯一部分（pending） | 同一组织同一邮箱仅一个待处理邀请 |
 | `organization_member` | `idx_org_member_user` | B-tree | **每次请求**的组织解析 |
-| `organization_member` | `uk_org_member_active` | 唯一部分 | 同一用户在同一组织只有一条有效成员行（软删后可重邀） |
+| `organization_member` | `uk_org_member_organization_user` | 唯一 | 同一用户在同一组织只有一条成员行 |
 | `organization_member` | `uk_org_member_single_owner` | 唯一部分 | 保证单 owner |
 | `project` | `uk_project_ref` | 唯一部分 | URL 解析 |
 | `lineage` | `uk_lineage_name` | 唯一部分 | 同名检查 |
@@ -655,15 +653,16 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 
 ### 11.1 机制
 
-10 张业务实体表都带 `deleted_at`，非空即已删除。**不做物理删除。**
+业务实体表带 `deleted_at`，非空即已删除；`organization_member` 与 `invite` 由 Better Auth 管理，是硬删除。**业务实体不做物理删除。**
 
 | 表类别 | 表 | 软删 |
 |---|---|---|
-| 业务实体表 | `organization`、`organization_member`、`invite`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` | ✅ 全部有 `deleted_at` |
+| 业务实体表 | `organization`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` | ✅ 有 `deleted_at` |
+| 关系/邀请表 | `organization_member`、`invite` | ❌ **硬删除**（由 Better Auth 管理） |
 
-`auth.users` 也有 `deleted_at`，但它是独立 schema 的认证表，不属于 10 张业务表（§4.1）。
+`auth.*` 是独立 schema 的认证表，不属于 10 张业务表（§4.1），没有软删。
 
-`app_rw` 不授予 `DELETE` 权限，物理删除在数据库层就被挡住；软删统一走 `UPDATE ... SET deleted_at = now()`。
+`app_rw` 不授予 `DELETE` 权限；软删统一走 `UPDATE ... SET deleted_at = now()`。`organization_member` 与 `invite` 的删除由 `auth_service` 执行，是真实删除。
 
 M1 **没有回收站界面**（PRD §6.2），但软删保留，原因是：软删是零成本的保险，硬删是不可逆的灾难。
 
@@ -686,14 +685,16 @@ CREATE UNIQUE INDEX uk_book_name ON book (organization_id, project_id, name)
 
 每张有软删的表都要检查这一条。漏一个就会在「删了再建同名」时报 23505。
 
-认证与邀请同样适用：
+认证与邀请的当前唯一约束：
 
 ```sql
-CREATE UNIQUE INDEX uk_auth_users_email ON auth.users (lower(email))
-  WHERE deleted_at IS NULL;
+-- 邮箱全局唯一（账号删除是硬删除，无需部分索引）
+CREATE UNIQUE INDEX uk_auth_users_email ON auth.users (lower(email));
 
-CREATE UNIQUE INDEX uk_invite_token ON invite (token_hash)
-  WHERE deleted_at IS NULL;
+-- 同一组织同一邮箱同时只能有一个 pending 邀请
+CREATE UNIQUE INDEX uk_invite_pending_email
+  ON invite (organization_id, lower(email))
+  WHERE status = 'pending';
 ```
 
 ### 11.3 整组恢复（运维手册）
@@ -774,28 +775,24 @@ $$;
 
 `auth` schema 的访问边界：
 
-- `app_rw` 只有 `USAGE ON SCHEMA auth` 和认证函数/`auth.uid()` 的 `EXECUTE`；
-- **没有** `auth.users` 的表权限，不能直接读密码哈希；
-- 注册、登录查询、会话校验、改密、邀请接受都走 `SECURITY DEFINER` 函数；函数属主是迁移角色，且固定 `search_path`。
+- `app_rw` 没有 `auth.*` 的表权限，不能直接读密码哈希；
+- Better Auth 只通过 `AUTH_POSTGRES_URL`（登录角色 `auth_runtime`，连接固定 `role=auth_service`）读写 `auth.*` 与组织/成员/邀请；
+- 业务查询只通过 `APP_POSTGRES_URL`（`app` → `withOrg` 内 `SET LOCAL ROLE app_rw`）访问业务表；`auth.has_org_role()` 是 RLS 的成员判断入口。
 
-### 12.3 策略：基于成员关系，不是 JWT claim
+### 12.3 策略：基于成员关系，不是 token claim
 
 ```sql
-CREATE POLICY organization_isolation ON node
-  AS PERMISSIVE FOR ALL TO app_rw
+CREATE POLICY node_select ON node
+  AS PERMISSIVE FOR SELECT TO app_rw
   USING (
-    organization_id IN (
-      SELECT m.organization_id FROM organization_member m WHERE m.user_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    organization_id IN (
-      SELECT m.organization_id FROM organization_member m WHERE m.user_id = auth.uid()
+    auth.has_org_role(
+      organization_id,
+      ARRAY['owner', 'admin', 'editor', 'viewer']
     )
   );
 ```
 
-组织**不写进 JWT**。理由是组织解析走 URL（`/{orgSlug}/...`），若组织存在 token 里，切换组织就要重签 token，前端还得处理 token 竞态。查 `organization_member` 的代价是一次哈希半连接（每用户 1–5 行），换来「切组织零成本」和「改权限立即生效」。
+`auth.has_org_role()` 是 `SECURITY DEFINER` 函数，从 `organization_member` 按 `auth.uid()` 判断成员关系。组织**不写进会话 Cookie**。理由是组织解析走 URL（`/{orgSlug}/...`），切换组织不需要重签会话；查 `organization_member` 的代价是一次哈希半连接（每用户 1–5 行），换来「切组织零成本」和「改权限立即生效」。
 
 ### 12.4 `organization_member` 的策略是 RLS 的根
 
@@ -860,11 +857,11 @@ END $$;
 
 | 表 | 策略 |
 |---|---|
-| `organization` | `id IN (SELECT organization_id FROM organization_member WHERE user_id = auth.uid())`（列名是 `id`） |
-| `organization_member` | `user_id = auth.uid()` |
-| `invite` | `organization_id IN (…)` 且 `accepted_at IS NULL OR created_by = auth.uid()` |
+| `organization` | `deleted_at IS NULL AND auth.has_org_role(id, ARRAY['owner','admin','editor','viewer'])` |
+| `organization_member` | `app_rw` 仅 SELECT：`auth.has_org_role(organization_id, …)`；写权限只属于 `auth_service` |
+| `invite` | `app_rw` 无策略、无表权限；读写只属于 `auth_service` |
 
-**`public` schema 的 10 张业务表全部开启并强制 RLS。** `auth.users` 不在 `public` schema，不参与组织隔离；`app_rw` 没有它的表权限，读写走 `SECURITY DEFINER` 函数。
+**`public` schema 的 10 张业务表全部开启并强制 RLS。** `auth.*` 不在 `public` schema，不参与组织隔离；`app_rw` 没有它的表权限，读写只经 Better Auth 的 `auth_service` 连接。
 
 ### 12.6 防漏机制
 
@@ -921,11 +918,12 @@ UUIDv7 由 PostgreSQL 18 的 `uuidv7()` 内置函数提供，不需要额外扩�
 
 | 字段 | 取值 | 含义 |
 |---|---|---|
-| `auth.users.token_version` | int，默认 0 | 会话版本；改密或强制下线时 +1，旧 JWT 立即失效 |
-| `auth.users.deleted_at` | `timestamptz` | 软删；已删除用户不能建立会话 |
+| `auth.session.expires_at` | `timestamptz` | 数据库会话过期时间；7 天，`updateAge` 1 天滑动 |
+| `auth.account.password` | scrypt 哈希 | Better Auth 管理的密码凭据；应用不读取、不回显 |
 | `organization.status` | `active` / `suspended` / `closed` | 组织状态 |
 | `organization_member.role` | `owner` / `admin` / `editor` / `viewer` | 组织角色 |
 | `invite.role` | `admin` / `editor` / `viewer` | 邀请角色（不能邀 owner） |
+| `invite.status` | `pending` / `accepted` / `rejected` / `canceled` | 邀请状态；pending 7 天过期 |
 | `folder.kind` | `0` / `1` / `2` | 谱系 / 谱文 / 谱书 |
 | `node.role` | `blood` / `spouse` | 血亲 / 配偶 |
 | `node.sex` | `0` / `1` | 男 / 女 |

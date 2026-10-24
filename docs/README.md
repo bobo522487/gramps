@@ -88,19 +88,19 @@ docs/
 | 框架 | Next.js 16.4 App Router + React 19.1 |
 | 语言 | TypeScript（`strict: true`） |
 | 数据库 | PostgreSQL + Drizzle ORM；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` |
-| 认证 | 邮箱 + 密码；bcrypt；JWT HS256 存 `session` Cookie，1 天有效 |
-| 会话撤销 | `auth.users.token_version` 比对；改密/删号时递增 |
+| 认证 | 自托管 Better Auth 1.7.12；邮箱 + 密码（scrypt）；数据库会话 Cookie `better-auth.session_token`，7 天有效 |
+| 会话撤销 | `auth.api.getSession` 查库校验；改密撤销其他会话、删号/删会话即时生效 |
 | 主键 / 公开 ID | UUIDv7 主键；`organization.slug` / `project.ref` 为 20 位 `[0-9a-z]` 公开 ID |
 | 组织角色 | `owner` / `admin` / `editor` / `viewer` + 权限字符串 |
 | 界面语言 | 简体中文（品牌“云谱”），不引入 i18n 框架 |
 | 客户端数据 | TanStack Query 5；RSC 首屏用 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 刷新 `/api/*` |
 | 谱系画布 | `@xyflow/react` 12 + 自定义 `book_ltr` 欧式书本布局；zustand 仅存谱系工作区 UI 状态 |
 | 控制台路由 | `/dashboard/org/[orgSlug]`（项目 / 团队 / 组织设置）与 `/dashboard/project/[projectRef]`（概览 / 谱系 / 谱文 / 谱书 / 项目设置） |
-| 数据隔离 | 应用层 `orgId` 过滤 + `withOrg` 内 RLS（`app_rw`）+ 复合外键 |
-| 数据表 | 11 张组织级业务表 + `auth.users`；含家谱表 `folder`/`lineage`/`node`/`article`/`book`/`book_catalog` |
-| 数据库约束 | UUIDv7；成员活动行唯一、单组织单 owner；角色 `CHECK`；待处理邀请部分唯一；业务表软删；账号级活动日志允许 `organization_id` 为空 |
-| 邀请 | 一次性 token（存 SHA-256）、7 天过期、禁止邀请 `owner`；接受走 `SECURITY DEFINER` |
-| Route Handler | 4 个：`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`；业务路由未登录统一 401 |
+| 数据隔离 | 应用层 `orgId` 过滤 + `withOrg` 内 RLS（`app_rw`）+ 复合外键；认证与租户写走 `auth_service` |
+| 数据表 | 11 张组织级业务表 + 4 张 `auth.*` 表；含家谱表 `folder`/`lineage`/`node`/`article`/`book`/`book_catalog` |
+| 数据库约束 | UUIDv7；成员唯一、单组织单 owner；角色 `CHECK`；业务表软删；`organization_member`/`invite` 硬删除 |
+| 邀请 | Better Auth invitation：邀请 ID、7 天过期、一次性、禁止邀请 `owner`；不发邮件 |
+| Route Handler | 4 个只读路由：`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`；**无 `/api/auth/*`** |
 | 请求上下文 | `getSessionUser`/scope 按请求缓存；日志自动带 `request_id`；API 记录 `duration_ms` |
 | 环境校验 | `lib/config.ts` 用 Zod 校验；`instrumentation.ts` 在服务启动时失败即退出 |
 | 代码检查 | Biome |

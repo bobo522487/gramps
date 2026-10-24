@@ -49,17 +49,17 @@ flowchart TB
 
   subgraph Vercel["Vercel Functions（无状态，多实例）"]
     direction TB
-    PX["proxy.ts<br/>会话验签 + 滑动续期"]
+    PX["proxy.ts<br/>Cookie 存在性门禁"]
     ACT["Server Action<br/>全部写操作"]
     RH["Route Handler<br/>只读刷新 + /api/health"]
     MOD["业务模块 ×6<br/>identity · organization · project<br/>lineage · content · publishing"]
-    AUTHC["bcrypt 校验 + jose 签发"]
+    AUTHC["Better Auth 1.7<br/>auth_service 连接"]
   end
 
   subgraph Neon["Neon PostgreSQL 18"]
     direction TB
     PUB[("public schema<br/>10 张业务表<br/>FORCE ROW LEVEL SECURITY")]
-    AUTHS[("auth schema<br/>auth.users<br/>仅 SECURITY DEFINER 可达")]
+    AUTHS[("auth schema<br/>users · session · account · verification<br/>仅 auth_service 可达")]
   end
 
   RSC --> PX
@@ -105,7 +105,7 @@ M1 只有两步：**业务 → 失效缓存**。M2 引入编辑锁后，前面�
 | 5 | UUIDv7 主键（库内生成）；`organization.slug` / `project.ref` 为 20 位公开 ID，只用于 URL | [05-data](./05-data.md) |
 | 6 | 软删 + **部分**唯一索引；`app_rw` 无 `DELETE` 权限，物理删除在数据库层被挡住 | [05-data](./05-data.md) |
 | 7 | 世系用邻接表 + `ltree` 物化路径；**配偶不入路径**，靠 `spouse_of_id` 挂在血亲上 | [05-data](./05-data.md) |
-| 8 | 自建认证：bcrypt + jose HS256 + `token_version` 撤销；不依赖外部 IdP | [06-crosscutting](./06-crosscutting.md) |
+| 8 | 自托管 Better Auth：数据库会话 + scrypt 密码；`app_rw` / `auth_service` 双角色边界；不依赖外部 IdP | [06-crosscutting](./06-crosscutting.md) |
 | 9 | 目标 10 张业务表；当前实现 11 张（含 `activity_logs`，它不是审计表） | [实现状态](../implementation-status.md) |
 | 10 | 托管：Vercel（应用）+ Neon（数据库）；本地 Docker 只跑 PostgreSQL | [02-context](./02-context.md) |
 

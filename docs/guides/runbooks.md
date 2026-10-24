@@ -127,30 +127,40 @@ COMMIT;
 
 1. **验证身份**（线下确认：家族联系人、邀请人、组织 owner 之一）。没有验证就不重置。
 
-2. 生成 bcrypt 哈希（cost ≥ 10，与应用一致）：
+2. 生成 Better Auth 兼容的 scrypt 哈希（与应用一致，复用 `better-auth/crypto`）：
 
 ```bash
-node -e "const b=require('bcryptjs');b.hash(process.argv[1],10).then(console.log)" '临时密码'
+node --input-type=module -e "import { hashPassword } from 'better-auth/crypto'; console.log(await hashPassword(process.argv[1]))" '临时密码'
 ```
 
-3. 更新哈希并递增 `token_version`（让该用户所有设备的旧会话立即失效）：
+3. 更新 `auth.account.password` 并删除该用户的全部数据库会话：
 
 ```sql
-UPDATE auth.users
-   SET password_hash = '$2a$10$...',
-       token_version = token_version + 1,
+BEGIN;
+
+UPDATE auth.account a
+   SET password = '<scrypt-hash>',
        updated_at = now()
- WHERE lower(email) = lower('user@example.com')
-   AND deleted_at IS NULL
-RETURNING id, email, token_version;
+  FROM auth.users u
+ WHERE a.user_id = u.id
+   AND a.provider_id = 'credential'
+   AND lower(u.email) = lower('user@example.com');
+
+DELETE FROM auth.session s
+ USING auth.users u
+ WHERE s.user_id = u.id
+   AND lower(u.email) = lower('user@example.com');
+
+COMMIT;
 ```
 
 4. 通过可信渠道把临时密码告知用户，并要求其登录后立即改密。
 
 ### 注意
 
-- `app_rw` **没有** `auth.users` 的表权限，此操作必须用 `POSTGRES_URL_DIRECT`。
-- 只想「踢掉某用户所有会话」时，只做 `token_version = token_version + 1`，不动密码。
+- 运行时业务角色 `app_rw` **没有** `auth.*` 的表权限，此操作必须用 `POSTGRES_URL_DIRECT` 或 `auth_service` 连接。
+- Better Auth 的密码记录在 `auth.account`（`provider_id = 'credential'`），不在 `auth.users`。
+- 只想「踢掉某用户所有会话」时，只执行上面的 `DELETE FROM auth.session`，不动密码。
 
 ---
 
@@ -170,11 +180,10 @@ WHERE o.deleted_at IS NULL
     SELECT 1 FROM organization_member m
      WHERE m.organization_id = o.id
        AND m.role = 'owner'
-       AND m.deleted_at IS NULL
   );
 ```
 
-数据库有「单组织仅一个 owner」的部分唯一索引，但**没有「至少一个 owner」的约束**，所以绕过服务层直接软删成员可以造出这种状态（已知风险）。
+数据库有「单组织仅一个 owner」的部分唯一索引，但没有「至少一个 owner」的数据库约束；`trg_org_member_last_owner_delete` / `trg_org_member_last_owner_update` 会阻止通过 Better Auth 删除或降级最后一个 owner，但直接绕过服务层写库仍可造出这种状态（已知风险）。`organization_member` 是硬删除，没有 `deleted_at`。
 
 ### 修复
 
@@ -186,8 +195,7 @@ UPDATE organization_member
    SET role = 'owner'
  WHERE organization_id = $1
    AND user_id = $2
-   AND role = 'admin'
-   AND deleted_at IS NULL;
+   AND role = 'admin';
 COMMIT;
 ```
 
@@ -195,13 +203,13 @@ COMMIT;
 
 ---
 
-## RB-4 轮换 `AUTH_SECRET`
+## RB-4 轮换 `BETTER_AUTH_SECRET`
 
 ### 现状（重要）
 
-当前是**单密钥 HS256**，没有 `kid`。因此：
+Better Auth 用 `BETTER_AUTH_SECRET` 签名 Cookie，但会话记录保存在 `auth.session` 表。轮换密钥会让现有 Cookie 无法通过校验：
 
-> **轮换 `AUTH_SECRET` = 全量用户立即登出。**
+> **轮换 `BETTER_AUTH_SECRET` 会让全量用户在下次请求时失去会话。**
 
 这是已知限制（见 [08-evolution R6 / R20](../architecture/08-evolution.md)）。
 
@@ -219,8 +227,9 @@ COMMIT;
 openssl rand -base64 48
 ```
 
-3. 在 Vercel 更新 `AUTH_SECRET` 环境变量，重新部署。
+3. 在 Vercel 更新 `BETTER_AUTH_SECRET` 环境变量，重新部署。
 4. 观察登录成功率；若大面积失败，回滚环境变量（旧密钥仍有效，直到被覆盖）。
+5. 轮换后如需立即清理旧会话，可删除 `auth.session` 中的记录；会话删除后用户必须重新登录。
 
 ### 改进方向
 
@@ -324,6 +333,6 @@ SELECT 'node' t, count(*) FILTER (WHERE deleted_at IS NOT NULL) AS deleted, coun
 SELECT o.id, o.name FROM organization o
 WHERE o.deleted_at IS NULL AND NOT EXISTS (
   SELECT 1 FROM organization_member m
-   WHERE m.organization_id = o.id AND m.role = 'owner' AND m.deleted_at IS NULL
+   WHERE m.organization_id = o.id AND m.role = 'owner'
 );
 ```
