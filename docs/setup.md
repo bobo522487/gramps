@@ -255,6 +255,7 @@ pnpm db:seed
 | `pnpm db:migrate` | 执行迁移 |
 | `pnpm db:studio` | 打开 Drizzle Studio |
 | `pnpm check` | Biome 检查（格式 + lint + import 组织），CI 使用 |
+| `pnpm docs:check` | 文档一致性检查：相对链接、锚点、过期路径、矛盾措辞、文档头 |
 | `pnpm lint` | 仅 Biome lint |
 | `pnpm format` | Biome 格式化 |
 | `pnpm fix` | Biome 检查并自动修复 |

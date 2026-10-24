@@ -256,9 +256,7 @@ issues.sort(
 );
 
 for (const issue of issues) {
-  console.log(
-    `${issue.file}:${issue.line}: [${issue.rule}] ${issue.message}`
-  );
+  console.log(`${issue.file}:${issue.line}: [${issue.rule}] ${issue.message}`);
 }
 console.log(`${issues.length} issue(s)`);
 

@@ -157,6 +157,7 @@ E2E_EXTERNAL_SERVER=1 E2E_ALLOW_EXTERNAL=1 pnpm test:e2e   # 外部服务
 
 ```bash
 pnpm check && pnpm typecheck && pnpm test:coverage
+pnpm docs:check   # 文档改动必跑；CI 也跑
 ```
 
-CI 还会额外跑：迁移漂移检查（`pnpm db:generate` 后迁移目录必须无变化）、`build`、`test:e2e`（production server）、`verify:deploy`。
+CI 还会额外跑：文档一致性（`pnpm docs:check --strict`）、迁移漂移检查（`pnpm db:generate` 后迁移目录必须无变化）、`build`、`test:e2e`（production server）、`verify:deploy`。
