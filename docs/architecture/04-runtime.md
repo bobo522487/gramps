@@ -12,25 +12,25 @@
 ### 5.1 读请求（RSC）
 
 ```
-GET /{orgSlug}/{projectRef}/lineages/{lineageId}
-  │
-  ├─ proxy.ts           验签会话 Cookie，剩余 < 6h 时滑动续期
-  ├─ [orgSlug]/layout  解析组织 → 查 organization_member → 注入 OrgContext
-  ├─ [projectRef]/layout  解析项目（组织内）
-  ├─ page.tsx          lineageQuery.getGraph(ctx, lineageId)
-  │     └─ withOrg()   SET LOCAL ROLE app_rw + 注入 claims
-  │           └─ repo  SELECT ... WHERE organization_id = $1（RLS 兜底）
-  └─ RSC 直出 HTML（首屏数据作为 TanStack Query 的 initialData）
+GET /dashboard/project/[projectRef]/lineages/[lineageId]
+  ├─ proxy.ts            只检查 session cookie 是否存在（乐观门禁）
+  ├─ project layout      requireProjectContext(projectRef) → 内部 projectId/orgId
+  ├─ lineages layout     getNavFolders / getNavLineages（React cache）
+  ├─ page.tsx            getLineageById + getNodes
+  │    └─ withOrg(userId) SET LOCAL ROLE app_rw + set_config(claims)
+  └─ RSC 直出；首屏数据注入 TanStack Query
 ```
 
-**首屏不发起客户端数据请求**。页面数据由 RSC 在服务端读取完成，并以 `initialData` 或 `dehydrate` + `HydrationBoundary` 注入 TanStack Query 缓存；交互工作区需要刷新或失效时，由 TanStack Query 的 `queryFn` 调用服务端读函数，不新增 REST 读接口。
+**首屏不发起客户端数据请求**。页面数据由 RSC 在服务端读取完成，并以 `initialData` 或 `dehydrate` + `HydrationBoundary` 注入 TanStack Query 缓存；交互工作区需要刷新时，`queryFn` 调用 4 个只读 Route Handler（[ADR 0008](../decisions/0008-read-only-route-handlers.md)）。
+
+`proxy.ts` 不验签、不滑动续期；权威校验与 7 天/1 天 `updateAge` 由 `getSessionUser()` 调 `auth.api.getSession` 完成。
 
 **读路径的两条性能约束**（设计意图，非现状）：
 
 | 约束 | 为什么 |
 |---|---|
-| 一次页面渲染只开**一个事务** | `withOrg` 每开一次事务至少 4 个往返（BEGIN / SET LOCAL ROLE / `set_config` / 查询 / COMMIT）。多个查询各开事务会让 TTFB 随查询数线性膨胀，且跨快照读会让 `node_count` 与节点列表不一致 |
-| 上下文解析合并为**一次查询** | 会话校验、成员关系、项目 scope 本质是同一个 join。分三次查是三个往返换零收益 |
+| **同一渲染单元**的查询合并为一个事务 | `withOrg` 每开一次事务至少 5 个往返（BEGIN / SET LOCAL ROLE / `set_config` / 查询 / COMMIT）。布局与页面由 Next 独立渲染，不共享事务；不要用 AsyncLocalStorage 把事务横跨整个渲染周期 |
+| 上下文解析一次，页面复用 | `getSessionUser`、`requireOrgContext`、`requireProjectContext` 已用 React `cache()` 做请求级记忆化 |
 
 具体做法见 [guides/add-a-feature](../guides/add-a-feature.md) 的「读路径」一节。
 
@@ -39,14 +39,15 @@ GET /{orgSlug}/{projectRef}/lineages/{lineageId}
 ```
 用户提交表单
   │
-  ├─ action.ts        Zod 校验 → 得到 input
-  ├─ requireOrgContext(orgSlug)   未登录 401 / 非成员 404
-  ├─ assertPermission(ctx, 'xxx.write')
-  ├─ withOrg(ctx, tx => ...)
-  │    └─ xxxService.xxx(tx, ctx, input)      业务
-  ├─ revalidateTag(`lineage:${id}`)
-  └─ return { ok: true, data }       失败返回 { ok: false, error }
+  ├─ action.ts        Zod 校验（validatedActionWithUser）
+  ├─ withOrg(user.id, tx => ...)
+  │    └─ 事务内 getOrgRoleInTx + hasPermission 复核
+  ├─ 业务写入
+  ├─ revalidatePath(具体路径)
+  └─ ActionState（error / success / fieldErrors / code）
 ```
+
+Action 的 `orgId` / `projectId` 是服务端解析出的内部 UUID；公开 ID 只用于 URL 与页面解析，不能作为 Action 的授权依据。
 
 M1 只有两步：**业务 → 失效缓存**。M2 引入编辑锁后，前面会插入「锁校验」一步。
 
@@ -54,15 +55,14 @@ M1 **不写审计表**：关键业务动作写结构化日志，作为运维追�
 
 ### 5.3 组织解析
 
-URL 是组织的唯一来源。
+URL 是组织/项目定位的唯一来源；两套控制台使用两套 scope：
 
 ```typescript
 export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
-  // auth.api.getSession 查库 → 返回 SessionUser；未登录 redirect
   const user = await requireUser();
 
-  const membership = await withOrg({ userId: user.id }, (tx) =>
-    orgMemberQuery.findByOrgSlug(tx, user.id, orgSlug),
+  const membership = await withOrg(user.id, (tx) =>
+    getOrgWithRoleBySlug(tx, user.id, orgSlug),
   );
   if (!membership) throw new NotFoundError('organization', orgSlug);
 
@@ -82,7 +82,7 @@ export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
 | 切换成本 | 切换组织 = 点一个 `<Link>`，无 Action、无 `revalidate` |
 | 失败语义 | 非成员返回 **404** 而不是 403，避免泄露组织是否存在 |
 
-项目上下文由 `requireProjectContext(orgSlug, projectRef)` 解析：先得到 `OrgContext`，再在 `withOrg` 内按 `project.ref = projectRef` 查询；非成员或项目不存在都返回 404。返回值携带内部 `projectId`；`ref` 只用于路由，Action 一律使用 `projectId`。
+路由是 `/dashboard/org/[orgSlug]` 与 `/dashboard/project/[projectRef]` 两套独立 scope；项目页不嵌套在组织路由下。`requireProjectContext(projectRef)` 用 `getProjectScopeByRef(userId, ref)` 同时按当前用户过滤，返回内部 `projectId`/`orgId`；非成员或项目不存在都返回 404。`ref` 只用于路由，Action 一律使用内部 UUID。
 
 ### 5.4 注册与默认组织
 
@@ -144,7 +144,7 @@ T3  结果：B 的修改丢失
 | 内部页面 | RSC 动态渲染 | 数据强一致，无 loading 闪烁 |
 | 谱系画布 | 客户端组件 + TanStack Query 缓存 | 需要交互与视口计算；首屏数据由 RSC 注入 |
 
-M1 **没有公开页面**（没有落地页、定价页、分享页），所以不需要 SSG/CDN 与「公开页 + 缓存头」这一层设计。这些页面最早在 M2 引入分享时再补。
+公开页面：营销首页 `/`、登录 `/sign-in`、注册 `/sign-up`。M1 没有匿名业务数据页、分享页或公开 API；内部页面需要会话。
 
 ### 6.2 状态管理
 
@@ -158,11 +158,11 @@ M1 **没有公开页面**（没有落地页、定价页、分享页），所以�
 | 全局 UI 状态 | 谱系工作区使用 Zustand：仅客户端、仅 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），不存数据库实体、不做持久化；其余场景不引入 Redux/Jotai |
 | 数据边界 | TanStack Query 只缓存服务端数据，Zustand 只存本地 UI 状态；同一实体不得同时维护两份可写副本 |
 
-TanStack Query 是客户端缓存层，不改变「RSC 首屏直读 + Server Action 写入」的边界，也不为它新增 REST 读接口。Zustand 不保存谱系/人丁实体，实体数据始终以 TanStack Query 缓存和 Server Action 结果为准。`queryKey` 统一由 `lib/query-keys.ts` 的 `queryKeys` 工厂生成（如 `queryKeys.projects(orgId)`），禁止在组件内拼字符串。
+TanStack Query 是客户端缓存层，不改变「RSC 首屏直读 + Server Action 写入」的边界；客户端刷新调用 4 个只读 Route Handler（[ADR 0008](../decisions/0008-read-only-route-handlers.md)）。Zustand 不保存谱系/人丁实体，实体数据始终以 TanStack Query 缓存和 Server Action 结果为准。`queryKey` 统一由 `lib/query-keys.ts` 的 `queryKeys` 工厂生成（如 `queryKeys.projects(orgId)`），禁止在组件内拼字符串。
 
-两套缓存各司其职：RSC 侧继续用 `revalidateTag` / `revalidatePath` 失效服务端渲染缓存，客户端用 `invalidateQueries` 失效 TanStack Query 缓存；同一次写操作后按需同时触发。
+两套缓存各司其职：RSC 侧用 `revalidatePath` 失效服务端渲染缓存，客户端用 `invalidateQueries` 失效 TanStack Query 缓存；同一次写操作后按需触发，最多两者，不要三套一起上。
 
-> **三次失效机制的代价**：`revalidateTag` + `invalidateQueries` + 组件内局部状态更新，一个写操作最多要维护三处。建议在 `lib/query-keys.ts` 旁增加一份 **tag ↔ queryKey 对照表**，让「写 X 之后要失效哪些」成为一处可查的映射，而不是散落在 30 个 Action 里。
+> **失效机制**：`revalidatePath` + `invalidateQueries` + 组件内局部状态更新，一个写操作最多维护两处。建议在 `lib/query-keys.ts` 旁维护一份 **path ↔ queryKey 对照表**，让「写 X 之后要失效哪些」成为一处可查的映射，而不是散落在 30 个 Action 里。
 
 ### 6.3 谱系画布
 
@@ -184,9 +184,11 @@ TanStack Query 是客户端缓存层，不改变「RSC 首屏直读 + Server Act
 ```
 components/
 ├── ui/            基础组件（Button / Input / Dialog），来自 shadcn/ui
-├── form/          表单域组件，绑定 RHF
-├── layout/        页面骨架、侧栏、面包屑
-└── domain/        领域组件（LineageCanvas、NodeCard、CatalogTree）
+├── console/       控制台框架、导航、选择器、scope context
+├── lineage/       谱系工作区、画布、世系表、检查器
+├── org/           组织成员/设置
+├── project/       项目设置/工作区
+└── marketing/     营销页组件
 ```
 
 `components/ui` 之外不允许直接写 Tailwind 原子类拼组件——先看 `ui/` 里有没有。
