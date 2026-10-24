@@ -33,10 +33,10 @@
 |---|---|---|
 | 编纂者 | 浏览器，登录后使用 | 修谱工作室成员或家族内部人员 |
 | Vercel | HTTPS + 托管 Next.js | 应用运行、TLS、自定义域名、CDN |
-| Neon | `pg` 连接池 + `attachDatabasePool` | 托管 PostgreSQL 18+；10 张业务表 + 4 张 `auth.*` 表 |
+| Neon | `pg` 连接池 + `attachDatabasePool` | 托管 PostgreSQL 18+；11 张组织级业务表 + 4 张 `auth.*` 表 |
 | 运维 | Vercel / Neon 日志、`GET /api/health` | 无外部监控服务；故障排查靠结构化日志与探针 |
 
-**M1 没有匿名访问者。** 所有页面都需要登录——没有分享页，没有公开 API。M2 引入分享后才出现「族内读者」这个角色。
+公开页面只有营销首页、登录/注册；没有匿名业务数据页、分享页或公开 API。M2 引入分享后才出现“族内读者”角色。
 
 ---
 
@@ -54,16 +54,16 @@
 │  Next.js 16 App Router                                        │
 │   ├─ RSC            读操作，服务端直出                          │
 │   ├─ Server Action  写操作                                      │
-│   └─ Route Handler  1 个：/api/health                           │
+│   └─ Route Handler  4 个：/api/health + 3 个只读刷新                │
 │                                                               │
 │  业务模块（6 个）                                               │
 │  认证：自托管 Better Auth（数据库会话 + scrypt，进程内）          │
-│  仓储层（Drizzle；业务 app_rw / 认证 auth_service）              │
+│  查询层（Drizzle；业务 app_rw / 认证 auth_service）              │
 └───────────────────────────┬───────────────────────────────────┘
                             │ pg.Pool + attachDatabasePool（业务 pooled / 认证 direct）
 ┌───────────────────────────▼───────────────────────────────────┐
 │ Neon PostgreSQL 18+                                           │
-│  ├─ public schema：10 张业务表（全部强制 RLS）                   │
+│  ├─ public schema：11 张组织级业务表（全部强制 RLS）               │
 │  └─ auth schema：users/session/account/verification（auth_service）│
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -89,9 +89,7 @@
 | 数据库驱动 | 本地 `postgres.js`；生产 `pg` + `@vercel/functions` 的 `attachDatabasePool` | 本地轻量、API 简洁；生产按 Vercel 官方方式管理连接生命周期 |
 | 迁移/备份 | 使用 Neon direct 连接 `POSTGRES_URL_DIRECT` | 长事务与 `pg_dump` 不占应用连接池 |
 | 认证 | **应用运行时内（自托管 Better Auth）** | 数据库会话 + scrypt；认证连接固定 `auth_service`，不依赖外部 IdP |
-| 对外接口 | **1 个 Route Handler** | 只有健康检查需要标准 HTTP 语义 |
-
-> **关于「1 个 Route Handler」**：这是**目标**口径。当前实现有 4 个（`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`），用于交互工作区的只读刷新。是否把只读端点保留为正式设计、还是按原计划「收敛为 Server Action」，是一个待决策项，见 [待决策 D-2](../decisions/README.md#待决策)。在决策前，以 [实现状态](../implementation-status.md) §1.3 为准。
+| 对外接口 | **4 个只读 Route Handler** | 1 个健康检查 + 3 个工作区刷新；写只走 Server Action（[ADR 0008](../decisions/0008-read-only-route-handlers.md)） |
 
 ---
 
