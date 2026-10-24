@@ -762,7 +762,7 @@ M1 没有分享，这条暂不适用。M2 引入 `share_link` 后需重新设计
 | 层 | 机制 | 防什么 |
 |---|---|---|
 | 1 | 应用层 `WHERE organization_id = $1` | 查错组织 |
-| 2 | RLS `organization_isolation` | 参数注入跨组织 |
+| 2 | RLS 按表 SELECT/INSERT/UPDATE 策略（`auth.has_org_role`） | 参数注入跨组织 |
 | 3 | 复合外键 `(organization_id, project_id)` | 跨组织引用 |
 
 三层都要有。只靠第 1 层，一个被篡改的 `organizationId` 就能跨组织；只靠第 2 层，用户会同时看到自己所有组织的数据。

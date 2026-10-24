@@ -168,6 +168,8 @@ const forbiddenPhrases = [
   'JWT 自带 exp',
   '全部 10 张业务表都带',
   '/{orgSlug}/{projectRef}',
+  'organization_isolation',
+  '6 个业务模块',
 ];
 
 const forbiddenPatterns = [

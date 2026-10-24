@@ -26,7 +26,7 @@
 | 层 | 机制 |
 |---|---|
 | 应用层 | 所有查询 `WHERE organization_id = $1` |
-| 数据库层 | RLS `organization_isolation`，`FORCE ROW LEVEL SECURITY` |
+| 数据库层 | RLS 按表 SELECT/INSERT/UPDATE 策略（`auth.has_org_role`）+ `FORCE ROW LEVEL SECURITY` |
 | Schema 层 | 复合外键 `(organization_id, project_id)` 阻止跨组织引用 |
 
 RLS 统一通过 `auth.has_org_role(organization_id, roles[])` 判断成员与角色；SELECT 含 `viewer`，INSERT/UPDATE 只含 `owner`/`admin`/`editor`；`organization`/`organization_member`/`invite` 的写权限属于 `auth_service`。详见 [data-model §12](../data-model.md#12-隔离与-rls) 与 [ADR-0006](../decisions/0006-rls-isolation.md)。

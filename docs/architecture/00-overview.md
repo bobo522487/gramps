@@ -11,7 +11,7 @@
 
 ### 1.1 系统形态
 
-**模块化单体（Modular Monolith）**：一个 Next.js 16 应用承载全部业务，6 个业务模块共享一个 PostgreSQL 18 数据库。没有微服务、没有消息队列、没有后台任务、没有独立缓存层。
+**模块化单体（Modular Monolith）**：一个 Next.js 16 应用承载全部业务，所有业务域共享一个 PostgreSQL 18 数据库。没有微服务、没有消息队列、没有后台任务、没有独立缓存层。
 
 ```
                     ┌──────────────────────────┐
@@ -85,8 +85,8 @@ flowchart TB
 
 | # | 要点 | 详见 |
 |---|---|---|
-| 1 | 模块化单体，单一 Next.js 应用，6 个业务模块，每张表只有一个 owner | [03-components](./03-components.md) |
-| 2 | 隔离三层：应用层 `WHERE` + RLS `organization_isolation` + 复合外键 | [05-data](./05-data.md) · [data-model §12](../data-model.md) |
+| 1 | 模块化单体，单一 Next.js 应用，按业务域垂直切片，每张表只有一个 owner | [03-components](./03-components.md) |
+| 2 | 隔离三层：应用层 `WHERE` + RLS 按表策略（`auth.has_org_role`）+ 复合外键 | [05-data](./05-data.md) · [data-model §12](../data-model.md) |
 | 3 | 首屏由 RSC 服务端直读，写操作走 Server Action，客户端 TanStack Query 只做缓存 | [04-runtime](./04-runtime.md) |
 | 4 | 零后台任务、零消息队列、零缓存层——没有消费者就不建基础设施 | [08-evolution](./08-evolution.md) |
 | 5 | UUIDv7 主键（库内生成）；`organization.slug` / `project.ref` 为 20 位公开 ID，只用于 URL | [05-data](./05-data.md) |

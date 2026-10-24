@@ -24,7 +24,7 @@
 | 层 | 机制 | 防什么 |
 |---|---|---|
 | 应用层 | 所有查询 `WHERE organization_id = $1` | 查错组织 |
-| 数据库层 | RLS `organization_isolation` + `FORCE ROW LEVEL SECURITY`，运行期 `SET LOCAL ROLE app_rw` | 参数注入跨组织 |
+| 数据库层 | RLS 按表 SELECT/INSERT/UPDATE 策略（`auth.has_org_role`）+ `FORCE ROW LEVEL SECURITY`，运行期 `SET LOCAL ROLE app_rw` | 参数注入跨组织 |
 | Schema 层 | 复合外键 `(organization_id, project_id)` / `(organization_id, lineage_id)` | 跨组织引用 |
 
 配套的四条关键设计：

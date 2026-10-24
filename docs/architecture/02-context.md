@@ -56,7 +56,7 @@
 │   ├─ Server Action  写操作                                      │
 │   └─ Route Handler  4 个：/api/health + 3 个只读刷新                │
 │                                                               │
-│  业务模块（6 个）                                               │
+│  业务域（见 03-components）                                      │
 │  认证：自托管 Better Auth（数据库会话 + scrypt，进程内）          │
 │  查询层（Drizzle；业务 app_rw / 认证 auth_service）              │
 └───────────────────────────┬───────────────────────────────────┘

@@ -61,14 +61,12 @@ URL 是组织/项目定位的唯一来源；两套控制台使用两套 scope：
 export async function requireOrgContext(orgSlug: string): Promise<OrgContext> {
   const user = await requireUser();
 
-  const membership = await withOrg(user.id, (tx) =>
-    getOrgWithRoleBySlug(tx, user.id, orgSlug),
-  );
+  const membership = await getOrgWithRoleBySlug(user.id, orgSlug);
   if (!membership) throw new NotFoundError('organization', orgSlug);
 
   return {
     userId: user.id,
-    organizationId: membership.organizationId,
+    organizationId: membership.organization.id,
     organizationSlug: orgSlug,
     role: membership.role,
   };

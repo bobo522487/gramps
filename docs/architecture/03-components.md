@@ -75,7 +75,7 @@ app/actions.ts / route.ts  →  lib/<domain>  →  lib/db/queries  →  lib/db/d
 |---|---|
 | 客户端组件不得 import `@/lib/db/*` | `server-only` + 评审；Biome `noRestrictedImports` 待接入（评审 P1-12） |
 | `lib/db/queries/**` 不得 import Actions | 评审；Biome 规则待接入 |
-| 只有 `lib/db/drizzle.ts` 建立连接 | 评审 + import 约定 |
+| 业务连接只由 `lib/db/drizzle.ts`、认证连接只由 `lib/db/auth-db.ts` 建立 | 评审 + import 约定 |
 | 认证读写只走 `lib/auth/better-auth.ts` / `lib/db/auth-db.ts` | 运行时角色边界 + 评审 |
 
 > **约束状态**：`server-only` 已在用；`noRestrictedImports` 尚未配置。在 lint 接入前，表中规则靠评审执行。

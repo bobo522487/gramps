@@ -201,7 +201,7 @@ export default async function Page({ params }: Props) {
 
 **布局与页面由 Next 独立渲染，不共享事务。** 不要用 AsyncLocalStorage 把事务跨渲染周期传递，否则事务会长时间占着连接。
 
-`withOrg()` 每调用一次开一个事务，至少 5 个往返（BEGIN / SET LOCAL ROLE / `set_config` / 查询 / COMMIT）。同一页面内的多个查询提供 `*Tx` 变体，在页面层合并到一个事务；不同布局/页面各自开事务是可以接受的。
+`withOrg()` 每调用一次开一个事务，至少 5 个往返（BEGIN / SET LOCAL ROLE / `set_config` / 查询 / COMMIT）。目标做法：同一页面内的多个查询提供 `*Tx` 变体，在页面层合并到一个事务；不同布局/页面各自开事务是可以接受的。当前代码只有 `logActivityInTx` 等少数 `*Tx` 变体，存量页面仍可能各自开事务（见 2026-10-24 评审 P0-2）。
 
 ```ts
 // 好：同一渲染单元内一个事务，一个快照
@@ -214,7 +214,7 @@ const { lineage, nodes, folders } = await withOrg(user.id, async (tx) => ({
 
 跨事务读会落在不同快照上：`lineage.node_count` 是冗余计数，如果计数查询和节点列表查询分属两个事务，并发写入时会出现「标题写 128 人、列表 127 人」。
 
-**约定**：`lib/db/queries/*` 提供接受 `userId` 自开事务的函数（供单点调用）与接受 `tx` 的 `*Tx` 变体（供页面组合）。新代码优先用 `*Tx` 变体组合。
+**约定**：`lib/db/queries/*` 提供接受 `userId` 自开事务的函数（供单点调用）与接受 `tx` 的 `*Tx` 变体（供页面组合）。新代码优先用 `*Tx` 变体组合；`*Tx` 变体只接收已有事务，不再开新事务。
 
 ---
 
