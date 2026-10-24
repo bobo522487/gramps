@@ -249,15 +249,22 @@ describe('database constraints', () => {
     expect(log.userId).toBe(user.id);
   });
 
-  it('requires project primary fields', async () => {
+  it('enforces the project status and importance ranges', async () => {
     const owner = await createUser();
     const organization = await createOrganization();
 
     await expect(
       getTestSql()`
-        insert into project (organization_id, name, created_by)
-        values (${organization.id}::uuid, '缺少主姓名', ${owner.id}::uuid)
+        insert into project (organization_id, name, created_by, status)
+        values (${organization.id}::uuid, '非法状态', ${owner.id}::uuid, 'archived')
       `
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23502');
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
+
+    await expect(
+      getTestSql()`
+        insert into project (organization_id, name, created_by, importance)
+        values (${organization.id}::uuid, '非法等级', ${owner.id}::uuid, 9)
+      `
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
   });
 });

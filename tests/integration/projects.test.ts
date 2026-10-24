@@ -6,7 +6,7 @@ import {
   type ProjectUpdates,
   updateProjectInTransaction,
 } from '@/lib/db/services';
-import { getTestDb } from '../helpers/db';
+import { getTestDb, getTestSql } from '../helpers/db';
 import {
   createProject,
   createUser,
@@ -122,6 +122,31 @@ describe('createProjectInTransaction public refs', () => {
       .from(projects)
       .where(eq(projects.orgId, organization.id));
     expect(row?.value).toBe(1);
+  });
+});
+
+describe('project schema contract', () => {
+  it('stores identity fields in theme_name/surname and drops legacy columns', async () => {
+    const { user, organization } = await setup();
+    const created = await createProjectInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      input: projectInput,
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.project.themeName).toBe('颍川陈氏宗谱');
+    expect(created.project.surname).toBe('陈');
+
+    const rows = await getTestSql()<{ column_name: string }[]>`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'project'
+    `;
+    const names = rows.map((row) => row.column_name);
+    expect(names).not.toContain('primary_name');
+    expect(names).not.toContain('primary_surname');
+    expect(names).toEqual(expect.arrayContaining(['theme_name', 'surname']));
   });
 });
 

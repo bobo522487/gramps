@@ -223,11 +223,9 @@ export const projects = pgTable(
     /** 20-char public id used as the second URL segment. */
     ref: text('ref').notNull().default(sql`public.generate_public_id()`),
     name: text('name').notNull(),
-    /** Immutable after creation; new field, not the legacy primary_* columns. */
+    /** Immutable after creation. */
     themeName: text('theme_name'),
     surname: text('surname'),
-    primaryName: text('primary_name').notNull(),
-    primarySurname: text('primary_surname').notNull(),
     countriesRegions: text('countries_regions'),
     hallCode: text('hall_code'),
     status: text('status')

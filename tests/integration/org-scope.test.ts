@@ -331,8 +331,8 @@ describe('row level security', () => {
         tx.insert(projects).values({
           orgId: bobOrg?.organization.id as string,
           name: '越权项目',
-          primaryName: '陈实',
-          primarySurname: '陈',
+          themeName: '陈实',
+          surname: '陈',
           createdBy: alice.id,
         })
       )
@@ -349,8 +349,8 @@ describe('row level security', () => {
         tx.insert(projects).values({
           orgId: organization.id,
           name: '只读越权',
-          primaryName: '陈实',
-          primarySurname: '陈',
+          themeName: '陈实',
+          surname: '陈',
           createdBy: viewer.id,
         })
       )

@@ -68,9 +68,6 @@ export async function createProjectInTransaction(params: {
           status: input.status,
           importance: input.importance,
           notes: input.notes,
-          // 旧列在 Task 5 删除前仍是 NOT NULL，暂时镜像新字段。
-          primaryName: input.themeName,
-          primarySurname: input.surname,
           orgId,
           ref: generatePublicId(),
           createdBy: userId,

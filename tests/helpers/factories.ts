@@ -101,9 +101,6 @@ export async function createProject(params: {
       name,
       themeName,
       surname,
-      // 旧列在 Task 5 删除前仍是 NOT NULL，暂时镜像新字段。
-      primaryName: themeName,
-      primarySurname: surname,
       hallCode: params.hallCode ?? null,
       countriesRegions: params.countriesRegions ?? null,
       ref: params.ref ?? generatePublicId(),
