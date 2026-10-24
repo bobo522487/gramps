@@ -8,7 +8,7 @@
 | 驱动 | 本地 `postgres.js`；生产 `pg` + `attachDatabasePool` |
 | 部署 | Vercel + 自定义域名 + Neon；本地 Docker 只跑 PostgreSQL + `next dev` |
 | 字符集 / 时区 | UTF-8 / 所有时间列 `timestamptz` |
-| 表数量 | 10 张业务表 + 4 张 `auth.*` 表（独立 `auth` schema，不计入 10 张） |
+| 表数量 | 11 张组织级业务表（10 张业务表 + `activity_logs`）+ 4 张 `auth.*` 表 |
 | 相关文档 | [架构](./architecture/00-overview.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
 
 ---
@@ -40,11 +40,11 @@ id uuid PRIMARY KEY DEFAULT uuidv7()
 
 `uuidv7()` 是 PostgreSQL 18 内置函数，不再依赖应用层生成或随机 UUID。部署前置为 PostgreSQL 18+；迁移前先执行 `SELECT uuidv7();` 自检。
 
-10 张业务表与 4 张 `auth.*` 表的主键都使用上面的默认值。
+10 张业务表、`activity_logs` 与 4 张 `auth.*` 表的主键都使用上面的默认值。
 
 ### 1.3 公共列
 
-**业务实体表**（§2.2 中的 10 张）统一包含：
+**8 张软删业务实体表**（organization/project/folder/lineage/node/article/book/book_catalog）统一包含：
 
 | 列 | 类型 | 说明 |
 |---|---|---|
@@ -54,7 +54,7 @@ id uuid PRIMARY KEY DEFAULT uuidv7()
 | `updated_at` | `timestamptz` | 首次写入为 `NULL` |
 | `deleted_at` | `timestamptz` | 软删除标记，见 §11 |
 
-`auth.*` 位于独立 schema，不使用上述公共列，只保留 Better Auth 所需字段（§4.1）。`organization_member` 与 `invite` 也不使用软删列。
+`auth.*` 位于独立 schema，不使用上述公共列，只保留 Better Auth 所需字段（§4.1）。`organization_member` 与 `invite` 是硬删除，不含软删列；`activity_logs` 是产品活动流，不含 `deleted_at`，账号级事件 `organization_id` 为空。
 
 M1 **没有乐观锁列**。并发写入是 last-write-wins，见 PRD §5.5 与 §6.3 缺口 3。
 
@@ -97,6 +97,7 @@ auth.*                            ← Better Auth 表，独立 auth schema，不
 organization                      ← 隔离边界（RLS 生效范围）
 ├── organization_member           ← 成员关系，RLS 的根
 ├── invite
+├── activity_logs                 ← 产品活动流；账号级事件 org 为空
 └── project                       ← 云谱空间（组织内分组，不独立隔离）
     ├── folder
     ├── lineage ── node
@@ -111,8 +112,8 @@ organization                      ← 隔离边界（RLS 生效范围）
 | # | 表 | 中文 | 所属模块 |
 |---|---|---|---|
 | 1 | `organization` | 组织 | `organization` |
-| 2 | `organization_member` | 组织成员 | `identity` |
-| 3 | `invite` | 邀请 | `identity` |
+| 2 | `organization_member` | 组织成员 | `organization` |
+| 3 | `invite` | 邀请 | `organization` |
 | 4 | `project` | 云谱空间 | `project` |
 | 5 | `folder` | 分类 | `project` |
 | 6 | `lineage` | 谱系 | `lineage` |
@@ -120,10 +121,11 @@ organization                      ← 隔离边界（RLS 生效范围）
 | 8 | `article` | 谱文 | `content` |
 | 9 | `book` | 谱书 | `publishing` |
 | 10 | `book_catalog` | 编目 | `publishing` |
+| 11 | `activity_logs` | 产品活动流 | `organization` |
 
-每张表有且只有一个 owner 模块。跨模块读取必须经过 owner 模块导出的 query，禁止直接 join 别人的表。
+每张表有且只有一个 owner 域。跨域读取调用 owner 域导出的查询函数，不直接 join 别人的表。
 
-上表是 **10 张业务表**。另有 4 张 `auth.*` 表，位于独立的 `auth` schema，由 Better Auth 管理，不属于业务表计数，也不参与组织的三层隔离。
+上表是 **10 张业务表**；加上 `activity_logs` 共 **11 张组织级业务表**。另有 4 张 `auth.*` 表，位于独立的 `auth` schema，由 Better Auth 管理，不属于业务表计数，也不参与组织的三层隔离。
 
 **M2 会增加的表**：`share_link`（分享）、`delete_batch`（回收站批次）、`resource_lock`（编辑锁）、`media`（媒体）。**M3** 增加 `edition`（排版版本）。M1 不建，避免空表。
 
@@ -342,7 +344,7 @@ CREATE INDEX idx_project_organization ON project (organization_id)
 
 | 列 | 说明 |
 |---|---|
-| `ref` | URL 第二段（`/{orgSlug}/{projectRef}`）。20 位 `[0-9a-z]` 随机公开 ID，全局唯一、不可修改。展示用 `name`；目标模型不保存可读项目 slug |
+| `ref` | URL 第二段（`/dashboard/project/[projectRef]`）。20 位 `[0-9a-z]` 随机公开 ID，全局唯一、不可修改。展示用 `name`；目标模型不保存可读项目 slug |
 | `name` | 项目名，创建时 ≤24 字符 |
 | `surname` | 姓氏「陈」，创建后不可修改；历史行可空 |
 | `theme_name` | 主题名「陈氏族谱」，创建后不可修改；历史行可空 |
@@ -379,7 +381,7 @@ CREATE INDEX idx_folder_project ON folder (organization_id, project_id, kind)
 
 `kind`：`0`=谱系、`1`=谱文、`2`=谱书。一个 project 下三种分类树互相独立。
 
-`parent_id` **不设外键**：分类树深度不超过 3 层，删除时由 service 层统一处理，加自引用外键会让删除顺序约束变复杂。
+`parent_id` **不设外键**：分类树深度不超过 3 层，删除时由事务服务统一处理，加自引用外键会让删除顺序约束变复杂。这是已登记缺口（评审 P0-1）：跨 project 的父节点在 DB 层合法，不要声称 schema 层已完全阻断跨组织引用。
 
 **删除分类不删内容**：子分类一并软删，直属内容置 `folder_id = NULL` 变成「未分类」。
 
@@ -493,6 +495,8 @@ CREATE INDEX idx_node_alive         ON node (organization_id, lineage_id)
 `sex`：`0`=男、`1`=女。`attributes` 存自定义字段（`{"字":"子美"}`），不建 EAV 表。
 
 **M1 没有 `avatar_media_id`**。媒体上传不在范围内。
+
+**边约束的已知缺口**：`parent_id` / `mother_id` / `spouse_of_id` 目前只引用 `node(id)`，没有带 `(organization_id, lineage_id)` 的复合外键。复合外键覆盖的是 node→lineage 这一层，不是 node→node 的边。评审 P0-1 已给出补丁；在迁移落地前，不要把“三层防护”表述成“每条边都被 schema 完全约束”。
 
 ---
 
@@ -631,7 +635,9 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 
 ---
 
-## 10. 索引清单
+## 10. 关键索引（非穷举）
+
+完整索引以 0000/0001 迁移为准。
 
 | 表 | 索引 | 类型 | 服务的查询 |
 |---|---|---|---|
@@ -643,11 +649,15 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 | `organization_member` | `uk_org_member_organization_user` | 唯一 | 同一用户在同一组织只有一条成员行 |
 | `organization_member` | `uk_org_member_single_owner` | 唯一部分 | 保证单 owner |
 | `project` | `uk_project_ref` | 唯一部分 | URL 解析 |
+| `folder` | `idx_folder_project` | B-tree（部分） | 分类树加载 |
 | `lineage` | `uk_lineage_name` | 唯一部分 | 同名检查 |
 | `node` | `idx_node_lineage_path` | **GiST** | 祖先 / 后代 / 子树 |
 | `node` | `idx_node_lineage_depth` | B-tree | 按代加载（视口分段） |
+| `node` | `idx_node_parent` | B-tree | 父节点查找 |
+| `node` | `idx_node_alive` | B-tree（部分） | 未删除节点列表 |
 | `node` | `idx_node_search` | **GIN trgm** | 姓名模糊搜索 |
 | `article` | `idx_article_search` | **GIN trgm** | 全文检索 |
+| `book` | `uk_book_name` | 唯一部分 | 同项目书名检查 |
 | `book_catalog` | `idx_catalog_book` | B-tree | 编目树加载 |
 
 ### 10.1 检索
@@ -672,10 +682,11 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 
 | 表类别 | 表 | 软删 |
 |---|---|---|
-| 业务实体表 | `organization`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` | ✅ 有 `deleted_at` |
+| 8 张业务实体表 | `organization`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` | ✅ 有 `deleted_at` |
 | 关系/邀请表 | `organization_member`、`invite` | ❌ **硬删除**（由 Better Auth 管理） |
+| 活动流 | `activity_logs` | ❌ 无 `deleted_at`；账号级事件 org 为空 |
 
-`auth.*` 是独立 schema 的认证表，不属于 10 张业务表（§4.1），没有软删。
+`auth.*` 是独立 schema 的认证表，不属于 11 张组织级业务表（§4.1），没有软删。
 
 `app_rw` 不授予 `DELETE` 权限；软删统一走 `UPDATE ... SET deleted_at = now()`。`organization_member` 与 `invite` 的删除由 `auth_service` 执行，是真实删除。
 
@@ -756,22 +767,24 @@ M1 没有分享，这条暂不适用。M2 引入 `share_link` 后需重新设计
 
 三层都要有。只靠第 1 层，一个被篡改的 `organizationId` 就能跨组织；只靠第 2 层，用户会同时看到自己所有组织的数据。
 
-### 12.2 前提：迁移角色绕过 RLS
+### 12.2 运行期必须降权
 
-迁移/管理连接使用 Neon 项目所有者角色（默认 `neondb_owner`）或本地超级用户，`FORCE ROW LEVEL SECURITY` 也拦不住。因此所有业务查询必须在事务内切到受限角色：
+迁移/管理连接用所有者角色执行 DDL；运行期必须降权到 `app_rw`（业务）或 `auth_service`（认证/租户）。所有业务查询必须在事务内切到受限角色：
 
 ```typescript
-export async function withOrg<T>(ctx: OrgContext, fn: (tx: Transaction) => Promise<T>) {
+export async function withOrg<T>(userId: string, fn: (tx: DbTransaction) => Promise<T>) {
   return db.transaction(async (tx) => {
     await tx.execute(sql`SET LOCAL ROLE app_rw`);
     await tx.execute(sql`
       SELECT set_config('request.jwt.claims',
-        ${JSON.stringify({ sub: ctx.userId, role: 'authenticated' })}, true)
+        ${JSON.stringify({ sub: userId, role: 'authenticated' })}, true)
     `);
     return fn(tx);
   });
 }
 ```
+
+> **运行前提不是 BYPASSRLS。** `auth_service` 通过显式 `FOR ALL USING (true)` 策略写 `auth.*` 与组织/成员/邀请；`app_rw` 仍受 RLS 约束。迁移角色只用于 DDL。详见 [ADR 0006](./decisions/0006-rls-isolation.md) 的 2026-10-24 修订。
 
 `app_rw` 建库时创建：`CREATE ROLE app_rw NOLOGIN NOSUPERUSER NOBYPASSRLS`。
 
@@ -807,76 +820,30 @@ CREATE POLICY node_select ON node
   );
 ```
 
-`auth.has_org_role()` 是 `SECURITY DEFINER` 函数，从 `organization_member` 按 `auth.uid()` 判断成员关系。组织**不写进会话 Cookie**。理由是组织解析走 URL（`/{orgSlug}/...`），切换组织不需要重签会话；查 `organization_member` 的代价是一次哈希半连接（每用户 1–5 行），换来「切组织零成本」和「改权限立即生效」。
+`auth.has_org_role()` 是 `SECURITY DEFINER` 函数，从 `organization_member` 按 `auth.uid()` 判断成员关系。组织**不写进会话**；当前组织由 `/dashboard/org/[orgSlug]` 或项目 scope 决定。切换组织不需要重签会话；查 `organization_member` 的代价是一次哈希半连接（每用户 1–5 行），换来「切组织零成本」和「改权限立即生效」。
 
 ### 12.4 `organization_member` 的策略是 RLS 的根
 
-```sql
--- ❌ 无限递归：策略作用在 organization_member 上，却又查 organization_member
-CREATE POLICY org_isolation ON organization_member
-  USING (organization_id IN (
-    SELECT organization_id FROM organization_member WHERE user_id = auth.uid()
-  ));
--- ERROR: infinite recursion detected in policy for relation "organization_member"
+`organization_member` 的策略如果直接子查询自身会递归（`infinite recursion detected in policy`）；实际用 `auth.has_org_role` 打破递归。`organization_member` 对 `app_rw` 只开 SELECT；写由 `auth_service` 的 `FOR ALL` 策略执行。`organization` 的 SELECT 额外带 `deleted_at IS NULL`。
 
--- ✅ 只判当前行自己的列
-CREATE POLICY own_membership ON organization_member
-  AS PERMISSIVE FOR ALL TO app_rw
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
-```
-
-其他表的策略会子查询 `organization_member`，该子查询自动被 `own_membership` 过滤，条件与业务意图一致，且不再引用自身，所以不递归。
-
-> **实现更新（ADR 0001）**：`own_membership` 的缺口已按以下方式修复：
->
-> - 新增 `auth.has_org_role(org_id, roles text[])`（`SECURITY DEFINER`、固定 `search_path`），供策略判断调用者角色，避免 `organization_member` 策略自引用递归。
-> - `organization_member`：组织内成员可 SELECT；`owner`/`admin` 可 INSERT/UPDATE/DELETE。服务层继续禁止移除/降级最后一个 owner，并禁止 admin 操作 owner。
-> - `organization`：成员可 SELECT；已登录用户可 INSERT（新建组织）；`owner` 可 UPDATE。
-> - `invite`：`owner`/`admin` 可读写；接受邀请走 `auth.accept_invite` 的 `SECURITY DEFINER` 路径，自行校验 token、过期、单次使用与撤销状态。
->
 > 集成测试覆盖：非成员 0 行、viewer 写入被拒、admin 可管理成员、跨组织引用被复合外键拒绝、`app_rw` 无法读取 `auth.users`。详见 [ADR 0001 §3](./decisions/0001-foundation-reset.md)。
 
 **这条策略一旦写错，所有表都会递归报错。** 改动前必须在真库跑一遍 §12.6 的隔离测试。
 
 ### 12.5 策略清单
 
-**套模板的 7 张表**（均有 `organization_id`）：
+**策略的权威定义在迁移，不在本文。** `project` 是特例（INSERT/UPDATE 只 owner/admin）；`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` 用同一 DO 块（SELECT 四角色，INSERT/UPDATE 三写角色）；`activity_logs` 另有 `user_id = auth.uid() AND (organization_id IS NULL OR has_org_role(...))` 的 SELECT/INSERT 策略。新增表复制 `lib/db/migrations/0001_auth_rls.sql` 的三段式策略，不要手写 `FOR ALL` 裸子查询。
 
-```
-project, folder, lineage, node, article, book, book_catalog
-```
-
-```sql
-DO $$
-DECLARE t text;
-BEGIN
-  FOREACH t IN ARRAY ARRAY['project','folder','lineage','node','article','book',
-                           'book_catalog']
-  LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
-    EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
-    EXECUTE format($f$
-      CREATE POLICY organization_isolation ON %I
-        AS PERMISSIVE FOR ALL TO app_rw
-        USING (organization_id IN (
-          SELECT organization_id FROM organization_member WHERE user_id = auth.uid()))
-        WITH CHECK (organization_id IN (
-          SELECT organization_id FROM organization_member WHERE user_id = auth.uid()))
-    $f$, t);
-  END LOOP;
-END $$;
-```
-
-**单独写的 3 张表**：
+**单独写的表**：
 
 | 表 | 策略 |
 |---|---|
 | `organization` | `deleted_at IS NULL AND auth.has_org_role(id, ARRAY['owner','admin','editor','viewer'])` |
 | `organization_member` | `app_rw` 仅 SELECT：`auth.has_org_role(organization_id, …)`；写权限只属于 `auth_service` |
 | `invite` | `app_rw` 无策略、无表权限；读写只属于 `auth_service` |
+| `activity_logs` | `app_rw` 只 SELECT/INSERT：`user_id = auth.uid()` 且（`organization_id IS NULL` 或 `has_org_role(...)`） |
 
-**`public` schema 的 10 张业务表全部开启并强制 RLS。** `auth.*` 不在 `public` schema，不参与组织隔离；`app_rw` 没有它的表权限，读写只经 Better Auth 的 `auth_service` 连接。
+**`public` schema 的 11 张组织级业务表全部开启并强制 RLS。** `auth.*` 不在 `public` schema，不参与组织隔离；`app_rw` 没有它的表权限，读写只经 Better Auth 的 `auth_service` 连接。
 
 ### 12.6 防漏机制
 
@@ -884,7 +851,7 @@ END $$;
 |---|---|---|
 | 1 | CI 断言每张业务表都开了 RLS | 查 `public` schema 的 `pg_class.relrowsecurity`；白名单只有 `_drizzle_migrations` |
 | 2 | 隔离测试 | 用 `app_rw` 且不设 claims 执行查询，必须返回 0 行 |
-| 3 | 仓储层唯一入口 | Biome `noRestrictedImports` + 评审，禁止 `src/server/db` 被 `repo.ts` 之外的文件导入 |
+| 3 | 查询层唯一入口 | 当前评审；Biome `noRestrictedImports` 待接入（评审 P1-12），禁止 `lib/db/drizzle` 被查询层之外的文件导入 |
 | 4 | 复合外键 | 跨组织引用在 schema 层不成立 |
 | 5 | 注册触发器测试 | 注册后必须有且仅有 1 条 `role = 'owner'` 的成员关系 |
 

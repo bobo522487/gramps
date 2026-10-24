@@ -3,6 +3,7 @@
 > **回答什么问题**：数据存在哪？怎么隔离？怎么保持一致？规模上限是多少？
 > **读者**：开发 · 运维　**长度上限**：4 页
 > **来源**：原 `architect.md` §8（编号保持不变），另加 §8.5（新增）
+> **目标 vs 现状**：本文描述目标架构。差异见 [实现状态](../implementation-status.md)。
 > **表结构、索引、RLS 策略的完整定义**在 [data-model.md](../data-model.md)；本文只写**架构层面**的取舍。
 
 ---
@@ -13,7 +14,7 @@
 
 | 数据 | 位置 | 说明 |
 |---|---|---|
-| 结构化数据 | PostgreSQL 18+ | 10 张业务表 + 4 张 `auth.*` 表 |
+| 结构化数据 | PostgreSQL 18+ | 11 张组织级业务表（10 张业务表 + `activity_logs`）+ 4 张 `auth.*` 表 |
 | 富文本 | PostgreSQL `jsonb` | ProseMirror 文档 |
 | 会话 | `auth.session` 表 + `better-auth.session_token` Cookie | Better Auth 签发与撤销；数据库会话 7 天 |
 | 图片字节 | 无对象存储 | M1 不上传媒体，M2 再定 |
@@ -28,9 +29,9 @@
 | 数据库层 | RLS `organization_isolation`，`FORCE ROW LEVEL SECURITY` |
 | Schema 层 | 复合外键 `(organization_id, project_id)` 阻止跨组织引用 |
 
-RLS 策略基于 `organization_member` 子查询，**组织不写进 JWT**。详见 [data-model §12](../data-model.md#12-隔离与-rls) 与 [ADR-0006](../decisions/0006-rls-isolation.md)。
+RLS 统一通过 `auth.has_org_role(organization_id, roles[])` 判断成员与角色；SELECT 含 `viewer`，INSERT/UPDATE 只含 `owner`/`admin`/`editor`；`organization`/`organization_member`/`invite` 的写权限属于 `auth_service`。详见 [data-model §12](../data-model.md#12-隔离与-rls) 与 [ADR-0006](../decisions/0006-rls-isolation.md)。
 
-> **一个必须显式记录的前提**：RLS 策略与 `SECURITY DEFINER` 函数（含注册触发器）成立的前提是**迁移角色拥有 `BYPASSRLS`**。若运维为「最小权限」把迁移角色降成普通角色，注册与所有策略会同时失效，且报错信息（`infinite recursion detected in policy`）指不到根因。该前提应作为部署校验项断言，见 [07-quality](./07-quality.md)。
+> **运行前提不是 BYPASSRLS。** 迁移/管理连接用所有者角色执行 DDL；运行期必须降权到 `app_rw`（业务）或 `auth_service`（认证/租户）。`auth_service` 通过显式 `FOR ALL USING (true)` 策略写 `auth.*` 与组织/成员/邀请；`app_rw` 仍受 RLS 约束。详见 [ADR 0006](../decisions/0006-rls-isolation.md) 的 2026-10-24 修订。
 
 ### 8.3 连接
 
@@ -51,7 +52,7 @@ RLS 策略基于 `organization_member` 子查询，**组织不写进 JWT**。详
 | 数据 | 策略 |
 |---|---|
 | 人丁数展示 | 读 `lineage.node_count`（冗余计数），写入时同事务维护 |
-| 编目引用 | 真外键 + `ON DELETE RESTRICT` |
+| 编目引用 | 对 article/lineage 的引用是 RESTRICT；book/book_catalog 的父引用是 CASCADE，但 app_rw 无 DELETE，级联在应用路径不触发 |
 | 树路径 | 写入时重算受影响子树（移动节点时批量 `UPDATE ... SET path = ...`） |
 | 软删分组 | 同一事务的所有软删行共享 `deleted_at`（`now()` 取事务开始时间），供运维整组恢复 |
 
@@ -75,4 +76,4 @@ RLS 策略基于 `organization_member` 子查询，**组织不写进 JWT**。详
 - 家谱包含**在世人口**的姓名、性别、生卒、葬地、行传，属于个人信息；
 - 数据主体是族人，而账号所有者是组织/修谱人——**用户与数据主体不是同一人**。
 
-因此需要一个明确的数据分级与保留期策略，以及一条物理删除路径。这是当前架构**已知的空白**，不影响 M1 录入功能，但在对客户承诺数据处置能力之前必须补齐。见 [08-evolution](./08-evolution.md) 风险 R18。
+因此需要一个明确的数据分级与保留期策略，以及一条物理删除路径。这是当前架构**已知的空白**，不影响 M1 录入功能，但在对客户承诺数据处置能力之前必须补齐。见 [08-evolution](./08-evolution.md) 风险 R18。这是产品/合规决策，不是 M1 录入功能的前置。
