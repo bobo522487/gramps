@@ -32,7 +32,7 @@ export const config = schema.parse(process.env);   // 失败即崩，不带病�
 
 代码中**禁止出现 `process.env`**，只能 `import { config }`。
 
-> **现状**：`lib/config.ts` 用 `getServerConfig()` 惰性校验，由 `instrumentation.ts` 在启动时触发；`POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` 只在迁移脚本中读取，不在运行时 schema 内。本地与 CI 可省略 `APP_POSTGRES_URL` / `AUTH_POSTGRES_URL`（回退到 `POSTGRES_URL`），Vercel 生产环境必须提供两者。`LOG_LEVEL` 为可选。
+> **现状**：`lib/config.ts` 用 `getServerConfig()` 惰性校验，由 `instrumentation.ts` 在启动时触发；`POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` 只在迁移脚本中读取，不在运行时 schema 内。本地与 CI 可省略 `APP_POSTGRES_URL` / `AUTH_POSTGRES_URL`（回退到 `POSTGRES_URL`），Vercel 生产环境必须提供两者。认证连接必须使用 direct endpoint：配置校验会拒绝主机名含 `-pooler.` 的 `AUTH_POSTGRES_URL`（或回退的 `POSTGRES_URL`）。`LOG_LEVEL` 为可选。
 
 ### 9.2 错误
 
@@ -67,7 +67,7 @@ Server Action 不 throw：throw 会被框架转成 500 错误页，UI 无法区�
 | 认证 | 自托管 Better Auth：邮箱 + 密码，scrypt 哈希由 Better Auth 管理；不暴露 `/api/auth/*` |
 | 会话 | 数据库会话，Cookie `better-auth.session_token`（HttpOnly + Secure + SameSite=Lax）；7 天过期、`updateAge` 1 天；`getSessionUser()` 调 `auth.api.getSession` 查库；`proxy.ts` 只做 Cookie 存在性门禁 |
 | 密码变更 | 验证旧密码 → `auth.api.changePassword({ revokeOtherSessions: true })` → 当前会话保留，其他设备立即失效 |
-| 租户隔离 | 业务查询走 `APP_POSTGRES_URL`（`app` → `withOrg` 内 `SET LOCAL ROLE app_rw`）；认证与组织/成员/邀请写走 `AUTH_POSTGRES_URL`（`auth_runtime` → `auth_service`） |
+| 租户隔离 | 业务查询走 `APP_POSTGRES_URL`（`app` → `withOrg` 内 `SET LOCAL ROLE app_rw`，可 pooled）；认证与组织/成员/邀请写走 `AUTH_POSTGRES_URL`（`auth_runtime` → direct 连接固定 `auth_service`） |
 | CSRF | Server Action 自带 Origin 校验；Route Handler 全部是只读 GET |
 | 输入校验 | 所有 Action 入口 Zod，不信任客户端 |
 | 越权 | RLS + `hasPermission` + 复合外键 |

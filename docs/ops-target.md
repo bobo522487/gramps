@@ -126,7 +126,7 @@ BETTER_AUTH_URL=http://localhost:3000
 LOG_LEVEL=debug
 ```
 
-生产环境额外提供 `APP_POSTGRES_URL`（`app` 登录角色）与 `AUTH_POSTGRES_URL`（`auth_runtime` 登录角色）；本地可省略，两个连接都回退到 `POSTGRES_URL`。当前仓库使用 `.env` + `dotenv`；不要改名为 `.env.local` 而不改代码。
+生产环境额外提供 `APP_POSTGRES_URL`（`app` 登录角色）与 `AUTH_POSTGRES_URL`（`auth_runtime` 登录角色）；本地可省略，两个连接都回退到 `POSTGRES_URL`。`AUTH_POSTGRES_URL` 必须使用 **direct（unpooled）** endpoint：认证连接通过启动参数固定 `role=auth_service`，Neon pooler 会以 `08P01 unsupported startup parameter in options: role` 拒绝；业务连接可以继续使用 pooled endpoint。当前仓库使用 `.env` + `dotenv`；不要改名为 `.env.local` 而不改代码。
 
 ### 2.4 重置本地数据库
 
@@ -147,7 +147,7 @@ pnpm db:migrate
 | `NODE_ENV` | ✅ | `development` | 由 Vercel 注入 | 不要在生产手动改成其他值 |
 | `POSTGRES_URL` | ✅ | 本地 `localhost:54322` | Neon **pooled** endpoint | 业务运行期连接串；本地用 postgres.js 直连，生产用 pg Pool 并以 `app` 登录角色连接 |
 | `APP_POSTGRES_URL` | 生产必填 | 可省略，回退 `POSTGRES_URL` | Neon pooled endpoint（`app` 角色） | 业务查询连接；经 `withOrg` 在事务内 `SET LOCAL ROLE app_rw` |
-| `AUTH_POSTGRES_URL` | 生产必填 | 可省略，回退 `POSTGRES_URL` | Neon pooled endpoint（`auth_runtime` 角色） | Better Auth 连接；连接初始化固定 `role=auth_service` |
+| `AUTH_POSTGRES_URL` | 生产必填 | 可省略，回退 `POSTGRES_URL` | Neon **direct（unpooled）** endpoint（`auth_runtime` 角色） | Better Auth 连接；连接初始化固定 `role=auth_service`，pooler 不支持该启动参数 |
 | `POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` | — | 可省略，回落到 `POSTGRES_URL` | **只放 CI / 运维环境，不进 Vercel** | 迁移、备份、DDL；Neon direct endpoint |
 | `BETTER_AUTH_SECRET` | ✅ | 本地随机值 | 随机生成，**≥ 32 字符** | Better Auth Cookie 签名密钥 |
 | `BETTER_AUTH_URL` | ✅ | `http://localhost:3000` | 自定义域名，如 `https://family.example.com` | Better Auth 基地址；生成邀请链接与回调 URL |
@@ -175,12 +175,12 @@ export const config = schema.parse(process.env);
 | 环境 | 推荐驱动 | 连接 | 说明 |
 |---|---|---|---|
 | 本地 Docker PostgreSQL 18 | `postgres.js` + `drizzle-orm/postgres-js` | `localhost:54322` 直连 | 轻量、API 简洁，长连接没问题；可用默认 prepared statements |
-| Vercel + Neon 生产 | `pg` 的 `Pool` + `drizzle-orm/node-postgres` + `attachDatabasePool` | `APP_POSTGRES_URL` / `AUTH_POSTGRES_URL`（Neon pooled endpoint） | Vercel 官方推荐；函数实例回收时自动释放空闲连接 |
+| Vercel + Neon 生产 | `pg` 的 `Pool` + `drizzle-orm/node-postgres` + `attachDatabasePool` | `APP_POSTGRES_URL`（Neon pooled）+ `AUTH_POSTGRES_URL`（Neon direct） | Vercel 官方推荐；函数实例回收时自动释放空闲连接 |
 
 | 用途 | 变量 | 取值 |
 |---|---|---|
 | 业务运行期查询 | `APP_POSTGRES_URL`（回退 `POSTGRES_URL`） | 本地直连 / Neon 控制台的 **Pooled connection**（主机名含 `-pooler`） |
-| 认证与租户写 | `AUTH_POSTGRES_URL`（回退 `POSTGRES_URL`） | 同上；登录角色 `auth_runtime` |
+| 认证与租户写 | `AUTH_POSTGRES_URL`（回退 `POSTGRES_URL`） | Neon 控制台的 **Direct connection**（不带 `-pooler`）；登录角色 `auth_runtime` |
 | 迁移 / 备份 / DDL | `POSTGRES_URL_DIRECT`（回退 `POSTGRES_URL_NON_POOLING`） | Neon 控制台的 **Direct connection**（不带 pooler） |
 
 | 规则 | 说明 |
@@ -587,7 +587,7 @@ pg_restore -d "$POSTGRES_URL_DIRECT" --no-owner --clean --if-exists backup-2026-
 |---|---|
 | `BETTER_AUTH_SECRET` | 每个环境独立；轮换后该环境全员重新登录，按应急操作处理 |
 | `APP_POSTGRES_URL` | 只使用运行期角色 `app`（`NOBYPASSRLS`）+ Neon pooled endpoint |
-| `AUTH_POSTGRES_URL` | 只使用运行期角色 `auth_runtime` + Neon pooled endpoint；连接固定 `role=auth_service` |
+| `AUTH_POSTGRES_URL` | 只使用运行期角色 `auth_runtime` + Neon **direct** endpoint；连接固定 `role=auth_service` |
 | `POSTGRES_URL_DIRECT` | 只在 CI / 运维环境；不配置到 Vercel 运行期 |
 | 运行期角色 | 不用 Neon 控制台创建（会加入 `neon_superuser`）；用 SQL 创建普通登录角色 |
 | 日志脱敏 | 邀请 ID、Cookie、密码、完整邮箱一律不落日志 |

@@ -60,7 +60,7 @@
 │  认证：自托管 Better Auth（数据库会话 + scrypt，进程内）          │
 │  仓储层（Drizzle；业务 app_rw / 认证 auth_service）              │
 └───────────────────────────┬───────────────────────────────────┘
-                            │ pg.Pool + attachDatabasePool（pooled endpoint ×2）
+                            │ pg.Pool + attachDatabasePool（业务 pooled / 认证 direct）
 ┌───────────────────────────▼───────────────────────────────────┐
 │ Neon PostgreSQL 18+                                           │
 │  ├─ public schema：10 张业务表（全部强制 RLS）                   │
@@ -85,7 +85,7 @@
 | 后台任务 | **0 个** | 邀请过期由查询时判断；软删无清理任务；无异步需求 |
 | 消息队列 | **无** | 没有消费者 |
 | 缓存层 | **无**（M1） | Next.js 自带 RSC 缓存足够；触发条件见 [08-evolution §12.1](./08-evolution.md) |
-| 数据库连接 | **Neon pooled endpoint；生产 `pg.Pool` 每实例 max = 1–5** | serverless 多实例下避免连接数爆炸 |
+| 数据库连接 | **业务走 Neon pooled endpoint；认证走 direct endpoint；生产 `pg.Pool` 每实例 max = 1–5** | serverless 多实例下避免连接数爆炸；认证连接用启动参数固定 `auth_service`，pooler 不支持该参数 |
 | 数据库驱动 | 本地 `postgres.js`；生产 `pg` + `@vercel/functions` 的 `attachDatabasePool` | 本地轻量、API 简洁；生产按 Vercel 官方方式管理连接生命周期 |
 | 迁移/备份 | 使用 Neon direct 连接 `POSTGRES_URL_DIRECT` | 长事务与 `pg_dump` 不占应用连接池 |
 | 认证 | **应用运行时内（自托管 Better Auth）** | 数据库会话 + scrypt；认证连接固定 `auth_service`，不依赖外部 IdP |
@@ -102,7 +102,7 @@
   用户 ────▶│  Vercel                  │  自定义域名、TLS、CDN
             │  Next.js + /api/health   │  多实例无状态
             └────────────┬─────────────┘
-                         │ pg.Pool + attachDatabasePool（pooled）
+                         │ pg.Pool + attachDatabasePool（业务 pooled / 认证 direct）
                          ▼
             ┌──────────────────────────┐
             │  Neon PostgreSQL 18+     │  托管，与函数同区域

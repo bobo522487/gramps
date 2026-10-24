@@ -11,6 +11,14 @@ const postgresUrl = z
     'must be a postgres:// or postgresql:// URL'
   );
 
+function isPooledEndpoint(value: string) {
+  try {
+    return new URL(value).hostname.includes('-pooler.');
+  } catch {
+    return false;
+  }
+}
+
 const serverConfigSchema = z
   .object({
     POSTGRES_URL: postgresUrl,
@@ -23,6 +31,21 @@ const serverConfigSchema = z
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   })
   .superRefine((config, ctx) => {
+    // The auth connection pins `role=auth_service` through a startup
+    // parameter, which PgBouncer (Neon's pooled endpoint) rejects. Builds
+    // must not require a runtime database, so enforce this at start-up only.
+    if (
+      process.env.NEXT_PHASE !== 'phase-production-build' &&
+      isPooledEndpoint(config.AUTH_POSTGRES_URL ?? config.POSTGRES_URL)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AUTH_POSTGRES_URL'],
+        message:
+          'must use the unpooled (direct) endpoint because the auth connection pins role=auth_service with a startup parameter',
+      });
+    }
+
     if (!process.env.VERCEL) {
       return;
     }

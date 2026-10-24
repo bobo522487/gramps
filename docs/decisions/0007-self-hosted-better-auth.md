@@ -51,6 +51,7 @@
 
 - **认证库成为核心依赖**。Better Auth 的 schema、adapter 行为与升级节奏会影响登录；`organization.metadata` 必须是 `text`（adapter 会先 `JSON.stringify`），升级时需重新核对映射。
 - **两个连接、四个角色**。部署必须创建 `app`/`auth_runtime` 登录角色并正确授权，否则运行期 RLS 或认证写入会失败；本地/CI 已由脚本与验证器覆盖，但真实 Neon/Vercel 仍需人工核对。
+- **认证连接不能用 Neon pooler**。连接通过启动参数固定 `role=auth_service`，PgBouncer 会以 `08P01 unsupported startup parameter in options: role` 拒绝；`AUTH_POSTGRES_URL` 必须指向 direct（unpooled）endpoint，业务连接仍可 pooled。`lib/config.ts` 在启动时拒绝 `-pooler.` 主机名，避免上线后首次登录才暴露。
 - **没有邮件能力**。邮箱不验证、密码不能自助找回、邮箱不能修改；忘记密码只能人工处理，这是明确接受的产品缺口。
 - **硬删除不可恢复**。成员移除、邀请取消、账号删除都是物理删除；`organization` 仅归档。回收站不覆盖这些表。
 - **不能直接使用 Better Auth 的 HTTP 端点**。组织插件的 HTTP API 被有意关闭，未来若要接浏览器客户端或第三方集成，需要重新评估绕过应用规则的风险。
