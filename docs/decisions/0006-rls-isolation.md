@@ -29,10 +29,10 @@
 
 配套的四条关键设计：
 
-1. **组织不写进 JWT**。策略基于 `organization_member` 子查询，URL 决定当前组织。换组织不重签 token，改权限立即生效。
+1. **组织不写进 JWT**。策略最终基于 `organization_member` 的成员关系（通过 `auth.has_org_role`），URL 决定当前组织。换组织不重签 token，改权限立即生效。
 2. **用 `SECURITY DEFINER` 的 `auth.has_org_role(org_id, roles[])` 判角色**，解开 `organization_member` 策略自引用导致的 `infinite recursion detected in policy`。
 3. **读/写策略拆开**：SELECT 含 `viewer`，INSERT/UPDATE 不含。
-4. **`app_rw` 没有 `auth.users` 表权限**，注册、登录查询、会话校验、改密、邀请接受全部走 `SECURITY DEFINER` 函数。
+4. **`app_rw` 没有 `auth.users` 表权限**，认证/租户写走 Better Auth 的 `auth_service` 连接；`SECURITY DEFINER` 函数只用于触发器与受控归档/成员判断。
 
 ## 后果
 
@@ -45,11 +45,13 @@
 
 ### 负面
 
+> **2026-10-24 修订（ADR 0007 之后）**：运行期不再依赖迁移角色的 `BYPASSRLS`。`auth_service` 通过显式 `FOR ALL USING (true)` 策略写 `auth.*` 与 `organization`/`organization_member`/`invite`；`app_rw` 仍受 RLS 约束；迁移角色只用于 DDL。下文“必须拥有 BYPASSRLS”与“作为部署校验项断言”两句已失效，保留作历史记录。
+
 - **隐含一个未断言的前提：迁移角色必须拥有 `BYPASSRLS`**。理由：
   - 注册触发器 `handle_new_user()` 是 `SECURITY DEFINER`、属主是迁移角色，它要往开了 `FORCE RLS` 的 `organization` 写数据；
   - `auth.has_org_role()` 同样是 `SECURITY DEFINER`，它要读 `organization_member`，而该表的策略又调用它——**若函数属主受 RLS 约束，这里就是无限递归**。
 
-  今天能跑，是因为迁移角色（本地超级用户 / Neon `neondb_owner`）恰好有 `BYPASSRLS`。若运维为「最小权限」把它降级，**注册与所有策略会同时失效，且报错指向不到根因**。这一条必须作为部署校验项断言，见 [07-quality §11.2](../architecture/07-quality.md) F3 扩展。
+  今天能跑，是因为迁移角色（本地超级用户 / Neon `neondb_owner`）恰好有 `BYPASSRLS`。若运维为「最小权限」把它降级，**注册与所有策略会同时失效，且报错指向不到根因**。部署校验项改为：`app_rw` 无 `auth.*` 表权限、`auth_service` 连接固定 `role=auth_service`、各表策略存在。
 - 每个请求多一次 `organization_member` 查询（组织解析）。这是「切组织零成本」的对价，且它是全库最热的索引。
 - 策略写错会导致**全表**递归报错，影响面是整个应用而不是某张表。改动策略前必须在真库跑隔离测试。
 - RLS 只隔离**组织**，不区分**角色**。角色粒度靠策略里的 `ARRAY[...]`，写错就是把 `viewer` 放进来写。
@@ -70,7 +72,7 @@
 
 ## 重估触发条件
 
-1. **运维调整迁移角色权限** → 立即验证注册与策略仍可用（这是本 ADR 最脆弱的点）。
+1. **运维调整 `app_rw` / `auth_service` 角色或策略** → 立即验证注册与策略仍可用（这是本 ADR 最脆弱的点）。
 2. 需要**字段级权限**（例如「族内读者只能看已故人口」）→ RLS 表达不了，需要视图或列级授权。
 3. 出现**跨组织协作**需求（联宗、多个工作室共修）→ 隔离边界从 `organization` 变成「组织集合」，模型要改。
 

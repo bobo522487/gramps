@@ -4,6 +4,7 @@
 - **日期**：2026-10-21（原始决策）· 2026-10-22（补记为 ADR）
 - **可逆性**：**单向门**（数据形态；改为硬删需要先确认已存数据中哪些可销毁）
 - **相关**：[data-model §11](../data-model.md) · [05-data §8.6](../architecture/05-data.md) · [08-evolution R4 / R10 / R18](../architecture/08-evolution.md) · [runbooks](../guides/runbooks.md)
+- **修订**：2026-10-24，表计数与硬删除例外按 ADR 0007 落地后的 schema 校正。
 
 ## 背景
 
@@ -13,8 +14,11 @@
 
 ## 决策
 
-- 全部 10 张业务表都带 `deleted_at`，非空即已删除。
+- 8 张软删实体表（organization/project/folder/lineage/node/article/book/book_catalog）带 `deleted_at`，非空即已删除。
+- `organization_member` 与 `invite` 由 Better Auth 硬删除，不保留软删列。
+- `activity_logs` 是产品活动流，不带 `deleted_at`。
 - **不做物理删除**。`app_rw` 不授予 `DELETE` 权限，物理删除在数据库层被挡住。
+- `organization_member`/`invite` 的物理删除由 `auth_service` 执行，这是受控例外。
 - 唯一约束一律用**部分索引**（`WHERE deleted_at IS NULL`），保证「删了还能建同名」。
 - 同一次删除操作的所有行共享**完全相同的 `deleted_at`**（`now()` 取事务开始时间），供运维整组恢复。
 - M1 **不提供恢复界面**，恢复由运维按 [runbook](../guides/runbooks.md) 在数据库层面执行。
