@@ -624,7 +624,7 @@ Expected: 无输出（只允许散文里解释“不要依赖 BYPASSRLS”）。
 Run: `rg -n "activity_logs" docs/data-model.md`
 Expected: 至少在表清单、§2、§11、§12.5 出现。
 
-Run: `rg -n "withOrg\\(userId: string" docs/data-model.md`
+Run: `rg -n "withOrg<T>\\(userId: string" docs/data-model.md`
 Expected: 命中实际签名。
 
 - [ ] **Step 4: Commit**
