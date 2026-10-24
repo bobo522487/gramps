@@ -35,10 +35,13 @@ test('critical path: sign up, create project, record founder, add child, edit in
   const submitProject = projectDialog.getByRole('button', { name: '确定' });
   await expect(submitProject).toBeDisabled();
 
+  await page.locator('#project-name').fill('取消后不应保留');
   await projectDialog.getByRole('button', { name: '取消' }).click();
   await expect(projectDialog).toBeHidden();
   await page.getByRole('button', { name: '新建空间' }).click();
   await expect(projectDialog).toBeVisible();
+  await expect(page.locator('#project-name')).toHaveValue('');
+  await expect(submitProject).toBeDisabled();
 
   await page.locator('#project-name').fill('E2E 云谱');
   await page.locator('#project-surname').fill('陈');
