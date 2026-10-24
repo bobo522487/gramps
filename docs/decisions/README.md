@@ -13,9 +13,9 @@
 
 | # | 决策 | 结论 | 可逆性 | 正式 ADR |
 |---|---|---|:--:|---|
-| ADR-01 | 架构风格 | 模块化单体，单一 Next.js 应用 | 单向门 | — |
+| ADR-01 | 架构风格 | 模块化单体 + `lib/<domain>` 垂直切片；不采用 `src/modules` 三层 | 单向门 | — |
 | ADR-02 | 前后端边界 | RSC 直读 + Server Action，不做 REST | 双向门 | — |
-| ADR-03 | 对外接口 | 仅 `/api/health` | 双向门 | [待决策 D-2](../architecture/08-evolution.md#15-待决策项) |
+| ADR-03 | 对外接口 | `/api/health` + 3 个只读刷新端点（共 4 个，保留） | 双向门 | [0008](./0008-read-only-route-handlers.md) |
 | ADR-04 | 组织模型 | org + project 两级，URL 驱动解析；URL 标识符为 20 位随机公开 ID | 单向门 | — |
 | ADR-05 | 默认组织 | 数据库触发器在 `auth.users` 插入时创建 | 双向门 | — |
 | ADR-06 | 隔离机制 | RLS + 应用层 WHERE + 复合外键 | 单向门 | [0006](./0006-rls-isolation.md) |
@@ -41,7 +41,7 @@
 
 ## 2. 正式 ADR
 
-只有「有争议、有代价、可能被推翻」的决策才写正式 ADR。其余 14 条留在上表即可。
+只有「有争议、有代价、可能被推翻」的决策才写正式 ADR。其余 13 条留在上表即可。
 
 | ADR | 主题 | 为什么值得单独写 |
 |---|---|---|
@@ -50,8 +50,9 @@
 | [0003](./0003-tree-storage-ltree.md) | 树存储用邻接表 + `ltree`，且严格父系 | 决定了过继 / 兼祧 / 入赘不可表达；M3 排版会固化它 |
 | [0004](./0004-soft-delete-forever.md) | 软删永存，无回收站 | 与数据删除权存在张力，需要写清边界 |
 | [0005](./0005-zero-background-jobs.md) | 零后台任务 | 会被第一个清理需求打破，需要写清破例条件 |
-| [0006](./0006-rls-isolation.md) | RLS 三层隔离，组织不入 JWT | 全系统最重要的安全假设，含「迁移角色必须 BYPASSRLS」这一隐含前提（租户写权限已由 [0007](./0007-self-hosted-better-auth.md) 改为 `auth_service`） |
+| [0006](./0006-rls-isolation.md) | RLS 三层隔离，组织不入 JWT | 全系统最重要的安全假设；租户写权限由 `auth_service` 承担，运行期不依赖迁移角色 `BYPASSRLS` |
 | [0007](./0007-self-hosted-better-auth.md) | 自托管 Better Auth + Neon PostgreSQL | 替换自建认证与邀请；引入 `auth_service` 角色边界与数据库会话 |
+| [0008](./0008-read-only-route-handlers.md) | 保留只读 Route Handler | 读缓存、预取与路由级可观测；写仍只走 Server Action |
 
 ### ADR 模板
 
@@ -86,14 +87,16 @@
 
 ## 待决策
 
-以下问题在文档内部存在两种说法或明确空白，尚未形成决策。决策后转为 ADR，并从 [08-evolution §15](../architecture/08-evolution.md#15-待决策项) 与本表同时移除。
+以下问题在文档内部存在两种说法或明确空白，尚未形成决策。决策后转为 ADR，并从本表移除；`08-evolution` 只链接本表。
+
+已解决：
+
+- D-1 / D-3 → ADR-01（`lib/<domain>` 垂直切片）
+- D-2 → [ADR 0008](./0008-read-only-route-handlers.md)
+- D-5 → `01-drivers` G3 改为“≤5 个源文件 + 1 个迁移 + 1 处状态更新”
+- D-7 → `api.md` 采用 `ActionState`（定义在 `lib/auth/types.ts`）
 
 | # | 问题 | 两种说法 |
 |---|---|---|
-| D-1 | 模块目录 | 目标 `src/modules/` · 实现 `lib/<domain>/` |
-| D-2 | 读通道 | 目标「收敛为 Server Action」· 实现保留 4 个只读 Route Handler |
-| D-3 | 模块内分层 | 目标固定三层 · 代码已漂向垂直切片 |
 | D-4 | 关系模型 | 单 `parent_id` 无法表达过继 / 兼祧 / 入赘 |
-| D-5 | G3 判据 | 「≤3 文件 + 1 迁移」实践上不可达 |
 | D-6 | 数据生命周期 | 软删永存 vs 删除权与保留期 |
-| D-7 | Action 返回形态 | 目标 `ActionResult<T>` 判别联合 · 实现 `ActionState` |
