@@ -318,15 +318,20 @@ CREATE TABLE project (
   organization_id   uuid NOT NULL REFERENCES organization(id) ON DELETE RESTRICT,
   ref               text NOT NULL DEFAULT public.generate_public_id(),
   name              text NOT NULL,
-  primary_name      text NOT NULL,
-  primary_surname   text NOT NULL,
+  surname           text,
+  theme_name        text,
   countries_regions text,
   hall_code         text,
+  status            text NOT NULL DEFAULT 'in_progress',
+  importance        smallint NOT NULL DEFAULT 1,
+  notes             text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   created_by        uuid NOT NULL,
   updated_at        timestamptz,
   deleted_at        timestamptz,
-  UNIQUE (organization_id, id)
+  UNIQUE (organization_id, id),
+  CHECK (status in ('planning', 'in_progress', 'completed')),
+  CHECK (importance between 1 and 5)
 );
 
 CREATE UNIQUE INDEX uk_project_ref ON project (ref)
@@ -338,9 +343,13 @@ CREATE INDEX idx_project_organization ON project (organization_id)
 | 列 | 说明 |
 |---|---|
 | `ref` | URL 第二段（`/{orgSlug}/{projectRef}`）。20 位 `[0-9a-z]` 随机公开 ID，全局唯一、不可修改。展示用 `name`；目标模型不保存可读项目 slug |
-| `primary_name` | 主题名「陈氏族谱」，创建谱书时作为默认值 |
-| `primary_surname` | 姓氏「陈」 |
-| `hall_code` | 郡望堂号「颍川堂」 |
+| `name` | 项目名，创建时 ≤24 字符 |
+| `surname` | 姓氏「陈」，创建后不可修改；历史行可空 |
+| `theme_name` | 主题名「陈氏族谱」，创建后不可修改；历史行可空 |
+| `status` | 项目状态：`planning`（筹备中）/ `in_progress`（进行中）/ `completed`（已完成） |
+| `importance` | 重要等级 1–5，默认 1 |
+| `notes` | 备注，可空 |
+| `hall_code` | 郡望堂号「颍川堂」，仅在设置页维护 |
 
 **M1 没有 `settings`**。版式配置（FR-PROJ-4）不在范围内，没有渲染就没有消费者。M2 加 `settings jsonb`，纯加法。
 

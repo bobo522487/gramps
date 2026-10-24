@@ -33,12 +33,12 @@
 | Route Handler | 4 个 | 见 §1.3 |
 | 配置与日志 | Zod 启动校验；结构化日志自动带 `request_id`/`user_id`；API 记录 `duration_ms` | `lib/config.ts`、`instrumentation.ts`、`lib/server/request-context.ts`、`lib/api.ts` |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest 单测 17 个文件 125 个用例 + 真实 PostgreSQL 集成测试 11 个文件 115 个用例（另有 1 个 stub）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/` |
+| 测试 | Vitest 单测 18 个文件 133 个用例 + 真实 PostgreSQL 集成测试 11 个文件 117 个用例（另有 1 个 stub）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/` |
 | CI | `pnpm check` → `typecheck` → `test:coverage`（`postgres:18`，上传 `coverage/`）→ 迁移漂移检查 → `build` → `test:e2e`（production server）→ `verify:deploy` | `.github/workflows/ci.yml` |
 
 ### 1.1 当前数据表
 
-迁移是重置后的四个文件：`0000_baseline.sql`（Drizzle 生成）、`0001_auth_rls.sql`、`0002_app_role_grant.sql` 与 `0003_better_auth.sql`（custom migration）。
+迁移是重置后的六个文件：`0000_baseline.sql`（Drizzle 生成）、`0001_auth_rls.sql`、`0002_app_role_grant.sql`、`0003_better_auth.sql`（custom migration）、`0004_steep_lizard.sql`（项目身份与元数据列）与 `0005_round_grim_reaper.sql`（删除旧项目列）。
 
 | 表 | 说明 |
 |---|---|
@@ -46,7 +46,7 @@
 | `organization` | 组织；`slug` 为 20 位公开 ID；`status` 为 `active/suspended/closed` |
 | `organization_member` | 成员与角色；`(organization_id, user_id)` 唯一；单组织仅一个 `owner`；**硬删除** |
 | `invite` | Better Auth organization 插件的邀请；7 天过期、一次性、禁止邀请 `owner`；**硬删除** |
-| `project` | 云谱空间；`ref` 为 20 位公开 ID；字段为 `primary_name`/`primary_surname`/`hall_code`/`countries_regions` |
+| `project` | 云谱空间；`ref` 为 20 位公开 ID；字段为 `name`/`surname`/`theme_name`/`hall_code`/`countries_regions`/`status`/`importance`/`notes` |
 | `folder` | 分类树（`kind` 0/1/2）；谱系分类已有 UI/Action，谱文/谱书分类待接入 |
 | `lineage` / `node` | 谱系与人丁；欧式书本画布、世系表、左侧谱系管理、搜索定位、字辈提示、增删改移、检查器、按代渲染窗口已实现 |
 | `article` | 谱文（表已存在，无业务 UI） |
@@ -86,8 +86,8 @@
 
 ### 1.4 测试与 CI
 
-- `pnpm test:unit`（`pnpm test`）：17 个 Vitest 文件 125 个用例，不连接数据库。
-- `pnpm test:integration`：11 个文件 115 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
+- `pnpm test:unit`（`pnpm test`）：18 个 Vitest 文件 133 个用例，不连接数据库。
+- `pnpm test:integration`：11 个文件 117 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
 - `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
 - `pnpm test:e2e`：Playwright + Chromium 两条串行关键路径（注册 → 建项目 → 文件夹/谱系 → 始祖 → 子女 → 检查器持久化 → 侧栏搜索/折叠；邀请 → 登出 → 登录 → 接受邀请）；本地模式会重置 `_test` 库，外部模式需 `E2E_EXTERNAL_SERVER=1` + `E2E_ALLOW_EXTERNAL=1`。
 - `pnpm verify:deploy`：HTTP 健康/安全头/鉴权与数据库结构/RLS/角色检查；本地生产模式全项 PASS。
@@ -151,7 +151,7 @@
 
 | FR | 状态 | 当前行为 / 差异 |
 |---|---|---|
-| `FR-PROJ-1` 创建云谱空间 | ✅ | 字段为 `name`、`primary_name`、`primary_surname`、`hall_code`、`countries_regions`；20 位 `ref` 由服务端生成且用于 URL |
+| `FR-PROJ-1` 创建云谱空间 | ✅ | 弹窗采集项目名、姓氏、地区、主题名、状态、重要等级与备注；姓氏与主题名创建后不可修改；项目名 ≤24 字符；20 位 `ref` 由服务端生成且用于 URL |
 | `FR-PROJ-2` 多个云谱空间 | ✅ | 一个组织可建多个 project |
 | `FR-PROJ-3` 分类管理 | 🟡 | 谱系分类已有三级树、重命名、删除并解绑内容；谱文/谱书分类页仍为占位 |
 

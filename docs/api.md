@@ -337,8 +337,8 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
-| `createProject` | `{ orgSlug, name, primaryName, primarySurname, hallCode?, countriesRegions? }` | `Project` | `project.write` |
-| `updateProject` | `{ orgSlug, projectId, ...同上可选 }` | `Project` | `project.write` |
+| `createProject` | `{ orgSlug, name, surname, themeName, countriesRegions, status?, importance?, notes? }` | `Project` | `project.write` |
+| `updateProject` | `{ orgSlug, projectId, name?, countriesRegions?, hallCode?, status?, importance?, notes? }`（`surname` / `themeName` 不可修改） | `Project` | `project.write` |
 | `deleteProject` | `{ orgSlug, projectId }` | `void` | `project.write` |
 | `createFolder` | `{ orgSlug, projectId, kind, parentId?, name }` | `Folder` | `project.write` |
 | `renameFolder` | `{ orgSlug, folderId, name }` | `Folder` | `project.write` |
