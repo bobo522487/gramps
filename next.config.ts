@@ -18,6 +18,9 @@ const cspDirectives = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  experimental: {
+    agentUpgrade: 'security',
+  },
   // Playwright drives the dev server on 127.0.0.1; Next 16 otherwise blocks
   // its dev resources as cross-origin and the page never hydrates.
   allowedDevOrigins: ['127.0.0.1'],
