@@ -19,7 +19,7 @@
 |---|---|---|
 | 框架 | Next.js 16.4.0、React 19.1.0 | `package.json` |
 | 语言 | TypeScript `strict: true` | `tsconfig.json` |
-| 数据库 | PostgreSQL 18 + Drizzle 0.43；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
+| 数据库 | PostgreSQL 18 + Drizzle 0.45；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
 | 主键 | UUIDv7（`uuidv7()`）；20 位公开 `slug`/`ref` 仅用于 URL | `lib/db/schema.ts`、`lib/ids.ts` |
 | 认证 | 自托管 Better Auth 1.7.12：邮箱 + 密码，scrypt；BETTER_AUTH_SECRET；不暴露 `/api/auth/*` | `lib/auth/better-auth.ts`、`lib/db/migrations/0003_better_auth.sql` |
 | 会话 | 数据库会话，Cookie `better-auth.session_token`，7 天有效、`updateAge` 1 天 | `lib/auth/better-auth.ts`、`proxy.ts` |
@@ -33,7 +33,7 @@
 | Route Handler | 4 个 | 见 §1.3 |
 | 配置与日志 | Zod 启动校验；结构化日志自动带 `request_id`/`user_id`；API 记录 `duration_ms` | `lib/config.ts`、`instrumentation.ts`、`lib/server/request-context.ts`、`lib/api.ts` |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest 单测 17 个文件 122 个用例 + 真实 PostgreSQL 集成测试 11 个文件 113 个用例（另有 1 个 stub）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/` |
+| 测试 | Vitest 单测 17 个文件 125 个用例 + 真实 PostgreSQL 集成测试 11 个文件 115 个用例（另有 1 个 stub）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/` |
 | CI | `pnpm check` → `typecheck` → `test:coverage`（`postgres:18`，上传 `coverage/`）→ 迁移漂移检查 → `build` → `test:e2e`（production server）→ `verify:deploy` | `.github/workflows/ci.yml` |
 
 ### 1.1 当前数据表
@@ -86,8 +86,8 @@
 
 ### 1.4 测试与 CI
 
-- `pnpm test:unit`（`pnpm test`）：17 个 Vitest 文件 122 个用例，不连接数据库。
-- `pnpm test:integration`：11 个文件 113 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
+- `pnpm test:unit`（`pnpm test`）：17 个 Vitest 文件 125 个用例，不连接数据库。
+- `pnpm test:integration`：11 个文件 115 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
 - `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
 - `pnpm test:e2e`：Playwright + Chromium 两条串行关键路径（注册 → 建项目 → 文件夹/谱系 → 始祖 → 子女 → 检查器持久化 → 侧栏搜索/折叠；邀请 → 登出 → 登录 → 接受邀请）；本地模式会重置 `_test` 库，外部模式需 `E2E_EXTERNAL_SERVER=1` + `E2E_ALLOW_EXTERNAL=1`。
 - `pnpm verify:deploy`：HTTP 健康/安全头/鉴权与数据库结构/RLS/角色检查；本地生产模式全项 PASS。

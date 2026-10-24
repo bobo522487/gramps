@@ -68,4 +68,32 @@ describe('auth documentation', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  test('data model lists the Better Auth organization columns', () => {
+    const model = read('docs/data-model.md');
+    const start = model.indexOf('CREATE TABLE organization');
+    const table = model.slice(start, model.indexOf(');', start));
+
+    expect(table).toMatch(/\blogo\b/);
+    expect(table).toMatch(/\bmetadata\b/);
+    expect(table).toMatch(/\bupdated_at\b/);
+  });
+
+  test('documented Drizzle version matches package.json', () => {
+    const status = read('docs/implementation-status.md');
+    const dependency = JSON.parse(read('package.json')).dependencies[
+      'drizzle-orm'
+    ] as string;
+    const minor = dependency
+      .replace(/^\D*/, '')
+      .split('.')
+      .slice(0, 2)
+      .join('.');
+
+    expect(status).toContain(`Drizzle ${minor}`);
+  });
+
+  test('public ids are documented as text, not varchar', () => {
+    expect(read('docs/setup.md')).not.toMatch(/varchar\(20\)/);
+  });
 });

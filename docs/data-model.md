@@ -144,9 +144,12 @@ CREATE TABLE organization (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
   slug       text NOT NULL DEFAULT public.generate_public_id(),
   name       text NOT NULL,
+  logo       text,
+  metadata   text,
   status     text NOT NULL DEFAULT 'active'
              CHECK (status IN ('active','suspended','closed')),
   created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz
 );
 
@@ -158,6 +161,9 @@ CREATE UNIQUE INDEX uk_organization_slug ON organization (slug)
 |---|---|
 | `slug` | URL 第一段。20 位 `[0-9a-z]` 随机公开 ID（列默认值 `public.generate_public_id()`），全局唯一（部分索引，排除软删），**不可修改**。不是授权凭证；解析时必须同时按当前用户成员关系过滤 |
 | `name` | 显示名。注册时默认取邮箱前缀 |
+| `logo` | 组织图标 URL，Better Auth organization 插件字段；当前 UI 未使用 |
+| `metadata` | Better Auth 组织元数据。适配器写入前 `JSON.stringify()`，只有字符串才解析回来，因此列类型是 `text` 而非 `jsonb` |
+| `updated_at` | 由 Better Auth 组织更新写入；应用层不直接写该表 |
 | `status` | `suspended` 时全部写操作拒绝（`ORG_SUSPENDED`），只读放行 |
 
 `organization.slug` 与 `project.ref` 共用 `public.generate_public_id()`。函数返回 20 位 hex（`[0-9a-z]` 的子集），碰撞概率可忽略，由唯一索引兜底；客户端永远不传入公开 ID。`app_rw` 需要该函数的 `EXECUTE` 权限；默认 PUBLIC 权限即可，收紧权限时必须显式授予。

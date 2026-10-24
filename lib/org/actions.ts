@@ -193,6 +193,11 @@ export const inviteOrgMember = validatedActionWithUser(
       return { error: denied };
     }
 
+    const actorRole = await getOrgRole(user.id, data.orgId);
+    if (actorRole === 'admin' && data.role === 'admin') {
+      return { error: '管理员不能管理其他管理员' };
+    }
+
     try {
       const pending = await getAuth().api.listInvitations({
         query: { organizationId: data.orgId },
@@ -260,6 +265,11 @@ export const acceptInviteAction = validatedActionWithUser(
 export const removeOrgMember = validatedActionWithUser(
   removeOrgMemberSchema,
   async (data, _, user) => {
+    const org = await getOrgById(user.id, data.orgId);
+    if (!org) {
+      return { error: '组织不存在或已归档' };
+    }
+
     const role = await getOrgRole(user.id, data.orgId);
     if (!role || !hasPermission(role, 'member.manage')) {
       return { error: '只有所有者或管理员可以移除成员' };
@@ -297,6 +307,11 @@ export const removeOrgMember = validatedActionWithUser(
 export const updateOrgMemberRole = validatedActionWithUser(
   updateOrgMemberRoleSchema,
   async (data, _, user) => {
+    const org = await getOrgById(user.id, data.orgId);
+    if (!org) {
+      return { error: '组织不存在或已归档' };
+    }
+
     const role = await getOrgRole(user.id, data.orgId);
     if (!role || !hasPermission(role, 'member.manage')) {
       return { error: '你没有调整该成员角色的权限' };
@@ -309,7 +324,10 @@ export const updateOrgMemberRole = validatedActionWithUser(
     if (member.role === 'owner') {
       return { error: '不能修改所有者的角色' };
     }
-    if (role === 'admin' && member.role === 'admin') {
+    if (
+      role === 'admin' &&
+      (member.role === 'admin' || data.role === 'admin')
+    ) {
       return { error: '管理员不能管理其他管理员' };
     }
     if (member.role === data.role) {
