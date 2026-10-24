@@ -1,4 +1,15 @@
 import { z } from 'zod';
+import {
+  DEFAULT_PROJECT_IMPORTANCE,
+  DEFAULT_PROJECT_STATUS,
+  MAX_PROJECT_NAME_LENGTH,
+  MAX_PROJECT_NOTES_LENGTH,
+  MAX_PROJECT_REGIONS_LENGTH,
+  MAX_PROJECT_SURNAME_LENGTH,
+  MAX_PROJECT_THEME_NAME_LENGTH,
+  PROJECT_IMPORTANCE_MAX,
+  PROJECT_STATUS_VALUES,
+} from '@/lib/project/constants';
 
 const orgId = z.string().uuid('组织 ID 无效');
 const projectId = z.string().uuid('项目 ID 无效');
@@ -142,25 +153,60 @@ export const deleteOrgSchema = z.object({
   orgId,
 });
 
+const projectStatus = z.enum(PROJECT_STATUS_VALUES, {
+  required_error: '请选择项目状态',
+  invalid_type_error: '请选择项目状态',
+});
+
+const projectImportance = z.coerce
+  .number({
+    required_error: '请选择重要等级',
+    invalid_type_error: '请选择重要等级',
+  })
+  .int('重要等级必须是整数')
+  .min(1, '重要等级最低为 1 星')
+  .max(PROJECT_IMPORTANCE_MAX, `重要等级最高为 ${PROJECT_IMPORTANCE_MAX} 星`);
+
 export const createProjectSchema = z.object({
   orgId,
   name: z
-    .string({ required_error: '请输入云谱空间名称' })
+    .string({ required_error: '请输入项目名' })
     .trim()
-    .min(1, '请输入云谱空间名称')
-    .max(100, '云谱空间名称不能超过 100 个字符'),
-  primaryName: z
-    .string({ required_error: '请输入主姓名' })
+    .min(1, '请输入项目名')
+    .max(
+      MAX_PROJECT_NAME_LENGTH,
+      `项目名不能超过 ${MAX_PROJECT_NAME_LENGTH} 个字符`
+    ),
+  surname: z
+    .string({ required_error: '请输入姓氏' })
     .trim()
-    .min(1, '请输入主姓名')
-    .max(60, '主姓名不能超过 60 个字符'),
-  primarySurname: z
-    .string({ required_error: '请输入主姓氏' })
+    .min(1, '请输入姓氏')
+    .max(
+      MAX_PROJECT_SURNAME_LENGTH,
+      `姓氏不能超过 ${MAX_PROJECT_SURNAME_LENGTH} 个字符`
+    ),
+  themeName: z
+    .string({ required_error: '请输入主题名' })
     .trim()
-    .min(1, '请输入主姓氏')
-    .max(30, '主姓氏不能超过 30 个字符'),
-  hallCode: optionalText(60, '郡望/堂号不能超过 60 个字符'),
-  countriesRegions: optionalText(100, '国家/地区不能超过 100 个字符'),
+    .min(1, '请输入主题名')
+    .max(
+      MAX_PROJECT_THEME_NAME_LENGTH,
+      `主题名不能超过 ${MAX_PROJECT_THEME_NAME_LENGTH} 个字符`
+    ),
+  countriesRegions: z
+    .string({ required_error: '请输入地区' })
+    .trim()
+    .min(1, '请输入地区')
+    .max(
+      MAX_PROJECT_REGIONS_LENGTH,
+      `地区不能超过 ${MAX_PROJECT_REGIONS_LENGTH} 个字符`
+    ),
+  status: projectStatus.default(DEFAULT_PROJECT_STATUS),
+  importance: projectImportance.default(DEFAULT_PROJECT_IMPORTANCE),
+  notes: optionalText(
+    MAX_PROJECT_NOTES_LENGTH,
+    `备注不能超过 ${MAX_PROJECT_NOTES_LENGTH} 个字符`
+  ),
 });
 
 export const updateProjectSchema = z.object({
@@ -169,23 +215,23 @@ export const updateProjectSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(1, '请输入云谱空间名称')
-    .max(100, '云谱空间名称不能超过 100 个字符')
+    .min(1, '请输入项目名')
+    .max(
+      MAX_PROJECT_NAME_LENGTH,
+      `项目名不能超过 ${MAX_PROJECT_NAME_LENGTH} 个字符`
+    )
     .optional(),
-  primaryName: z
-    .string()
-    .trim()
-    .min(1, '请输入主姓名')
-    .max(60, '主姓名不能超过 60 个字符')
-    .optional(),
-  primarySurname: z
-    .string()
-    .trim()
-    .min(1, '请输入主姓氏')
-    .max(30, '主姓氏不能超过 30 个字符')
-    .optional(),
+  countriesRegions: clearableText(
+    MAX_PROJECT_REGIONS_LENGTH,
+    `地区不能超过 ${MAX_PROJECT_REGIONS_LENGTH} 个字符`
+  ),
   hallCode: clearableText(60, '郡望/堂号不能超过 60 个字符'),
-  countriesRegions: clearableText(100, '国家/地区不能超过 100 个字符'),
+  status: projectStatus.optional(),
+  importance: projectImportance.optional(),
+  notes: clearableText(
+    MAX_PROJECT_NOTES_LENGTH,
+    `备注不能超过 ${MAX_PROJECT_NOTES_LENGTH} 个字符`
+  ),
 });
 
 export const deleteProjectSchema = z.object({

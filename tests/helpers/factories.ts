@@ -84,21 +84,26 @@ export async function createProject(params: {
   orgId: string;
   createdBy: string;
   name?: string;
-  primaryName?: string;
-  primarySurname?: string;
+  themeName?: string;
+  surname?: string;
   hallCode?: string | null;
   countriesRegions?: string | null;
   ref?: string;
 }) {
   const name = params.name ?? '测试云谱';
+  const themeName = params.themeName ?? `${name}主题`;
+  const surname = params.surname ?? '陈';
   const [project] = await getTestDb()
     .insert(projects)
     .values({
       orgId: params.orgId,
       createdBy: params.createdBy,
       name,
-      primaryName: params.primaryName ?? name,
-      primarySurname: params.primarySurname ?? '陈',
+      themeName,
+      surname,
+      // 旧列在 Task 5 删除前仍是 NOT NULL，暂时镜像新字段。
+      primaryName: themeName,
+      primarySurname: surname,
       hallCode: params.hallCode ?? null,
       countriesRegions: params.countriesRegions ?? null,
       ref: params.ref ?? generatePublicId(),

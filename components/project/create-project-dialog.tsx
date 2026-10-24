@@ -50,20 +50,20 @@ export function CreateProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>新建云谱空间</DialogTitle>
+          <DialogTitle>创建云谱项目</DialogTitle>
           <DialogDescription>
-            空间隶属于当前组织，用于承载谱系、谱文与谱书。
+            项目隶属于当前组织；姓氏与主题名创建后不可修改。
           </DialogDescription>
         </DialogHeader>
         <form action={action} noValidate className="space-y-4">
           <input type="hidden" name="orgId" value={orgId} />
           <div>
-            <Label htmlFor="project-name">空间名称</Label>
+            <Label htmlFor="project-name">项目名</Label>
             <Input
               id="project-name"
               name="name"
               placeholder="例如：颍川陈氏云谱"
-              maxLength={100}
+              maxLength={24}
             />
             {state.fieldErrors?.name ? (
               <p className="mt-1 text-xs text-destructive">
@@ -73,53 +73,53 @@ export function CreateProjectDialog({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label htmlFor="project-primary-surname">主姓氏</Label>
+              <Label htmlFor="project-surname">姓氏</Label>
               <Input
-                id="project-primary-surname"
-                name="primarySurname"
+                id="project-surname"
+                name="surname"
                 placeholder="陈"
                 maxLength={30}
               />
-              {state.fieldErrors?.primarySurname ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                创建后不可修改
+              </p>
+              {state.fieldErrors?.surname ? (
                 <p className="mt-1 text-xs text-destructive">
-                  {state.fieldErrors.primarySurname}
+                  {state.fieldErrors.surname}
                 </p>
               ) : null}
             </div>
             <div>
-              <Label htmlFor="project-primary-name">主姓名</Label>
+              <Label htmlFor="project-theme-name">主题名</Label>
               <Input
-                id="project-primary-name"
-                name="primaryName"
-                placeholder="陈寔"
+                id="project-theme-name"
+                name="themeName"
+                placeholder="义门陈氏宗谱"
                 maxLength={60}
               />
-              {state.fieldErrors?.primaryName ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                创建后不可修改
+              </p>
+              {state.fieldErrors?.themeName ? (
                 <p className="mt-1 text-xs text-destructive">
-                  {state.fieldErrors.primaryName}
+                  {state.fieldErrors.themeName}
                 </p>
               ) : null}
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="project-hall">郡望 / 堂号</Label>
-              <Input
-                id="project-hall"
-                name="hallCode"
-                placeholder="颍川堂"
-                maxLength={60}
-              />
-            </div>
-            <div>
-              <Label htmlFor="project-regions">国家 / 地区</Label>
-              <Input
-                id="project-regions"
-                name="countriesRegions"
-                placeholder="中国福建"
-                maxLength={100}
-              />
-            </div>
+          <div>
+            <Label htmlFor="project-regions">地区</Label>
+            <Input
+              id="project-regions"
+              name="countriesRegions"
+              placeholder="中国福建"
+              maxLength={100}
+            />
+            {state.fieldErrors?.countriesRegions ? (
+              <p className="mt-1 text-xs text-destructive">
+                {state.fieldErrors.countriesRegions}
+              </p>
+            ) : null}
           </div>
           {state.error && (
             <p className="text-sm text-destructive">{state.error}</p>
@@ -131,7 +131,7 @@ export function CreateProjectDialog({
               </Button>
             </DialogClose>
             <Button type="submit" variant="brand" disabled={isPending}>
-              {isPending ? '创建中…' : '创建空间'}
+              {isPending ? '创建中…' : '确定'}
             </Button>
           </DialogFooter>
         </form>

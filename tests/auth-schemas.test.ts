@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   acceptInviteSchema,
+  createProjectSchema,
   signInSchema,
   signUpSchema,
   updateAccountSchema,
+  updateProjectSchema,
 } from '@/lib/auth/schemas';
 
 describe('credential schema normalization', () => {
@@ -95,5 +97,126 @@ describe('account update schema', () => {
 
   it('still requires a name', () => {
     expect(updateAccountSchema.safeParse({ name: '  ' }).success).toBe(false);
+  });
+});
+
+const PROJECT_ORG_ID = '0190a5b0-0000-7000-8000-000000000001';
+const PROJECT_ID = '0190a5b0-0000-7000-8000-000000000002';
+const validProject = {
+  orgId: PROJECT_ORG_ID,
+  name: '义门陈氏云谱',
+  surname: '陈',
+  themeName: '义门陈氏宗谱',
+  countriesRegions: '中国江西',
+};
+
+describe('project create schema', () => {
+  it('applies defaults and coerces rating/notes', () => {
+    expect(createProjectSchema.parse(validProject)).toMatchObject({
+      status: 'in_progress',
+      importance: 1,
+    });
+    expect(
+      createProjectSchema.parse({
+        ...validProject,
+        status: 'planning',
+        importance: '3',
+        notes: '  始修于光绪年间  ',
+      })
+    ).toMatchObject({
+      status: 'planning',
+      importance: 3,
+      notes: '始修于光绪年间',
+    });
+  });
+
+  it('enforces the 24-character name boundary', () => {
+    expect(
+      createProjectSchema.safeParse({ ...validProject, name: '谱'.repeat(24) })
+        .success
+    ).toBe(true);
+    expect(
+      createProjectSchema.safeParse({ ...validProject, name: '谱'.repeat(25) })
+        .error?.issues[0].message
+    ).toBe('项目名不能超过 24 个字符');
+  });
+
+  it('rejects whitespace-only required fields', () => {
+    const cases = [
+      ['name', '请输入项目名'],
+      ['surname', '请输入姓氏'],
+      ['countriesRegions', '请输入地区'],
+      ['themeName', '请输入主题名'],
+    ] as const;
+    for (const [field, message] of cases) {
+      expect(
+        createProjectSchema.safeParse({ ...validProject, [field]: '   ' }).error
+          ?.issues[0].message
+      ).toBe(message);
+    }
+  });
+
+  it('rejects invalid rating, unknown status and overlong notes', () => {
+    expect(
+      createProjectSchema.safeParse({ ...validProject, importance: '0' }).error
+        ?.issues[0].message
+    ).toBe('重要等级最低为 1 星');
+    expect(
+      createProjectSchema.safeParse({ ...validProject, importance: '6' }).error
+        ?.issues[0].message
+    ).toBe('重要等级最高为 5 星');
+    expect(
+      createProjectSchema.safeParse({ ...validProject, importance: 'abc' })
+        .success
+    ).toBe(false);
+    expect(
+      createProjectSchema.safeParse({ ...validProject, status: 'archived' })
+        .success
+    ).toBe(false);
+    expect(
+      createProjectSchema.safeParse({
+        ...validProject,
+        notes: '注'.repeat(501),
+      }).success
+    ).toBe(false);
+  });
+});
+
+describe('project update schema', () => {
+  it('drops immutable fields and accepts mutable metadata', () => {
+    const result = updateProjectSchema.parse({
+      orgId: PROJECT_ORG_ID,
+      projectId: PROJECT_ID,
+      name: '新项目名',
+      themeName: '李氏宗谱',
+      surname: '李',
+      status: 'completed',
+      importance: '5',
+    });
+
+    expect(result).not.toHaveProperty('themeName');
+    expect(result).not.toHaveProperty('surname');
+    expect(result).toMatchObject({
+      name: '新项目名',
+      status: 'completed',
+      importance: 5,
+    });
+  });
+
+  it('enforces the name boundary and turns empty notes into null', () => {
+    expect(
+      updateProjectSchema.safeParse({
+        orgId: PROJECT_ORG_ID,
+        projectId: PROJECT_ID,
+        name: '谱'.repeat(25),
+      }).error?.issues[0].message
+    ).toBe('项目名不能超过 24 个字符');
+    expect(
+      updateProjectSchema.parse({
+        orgId: PROJECT_ORG_ID,
+        projectId: PROJECT_ID,
+        notes: '',
+      }).notes
+    ).toBeNull();
   });
 });

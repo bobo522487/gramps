@@ -30,10 +30,12 @@ export const createProjectAction = validatedActionWithUser(
       orgId: data.orgId,
       input: {
         name: data.name,
-        primaryName: data.primaryName,
-        primarySurname: data.primarySurname,
-        hallCode: data.hallCode,
+        surname: data.surname,
+        themeName: data.themeName,
         countriesRegions: data.countriesRegions,
+        status: data.status,
+        importance: data.importance,
+        notes: data.notes,
       },
     });
 
@@ -57,17 +59,20 @@ export const updateProjectAction = validatedActionWithUser(
     if (data.name !== undefined) {
       updates.name = data.name;
     }
-    if (data.primaryName !== undefined) {
-      updates.primaryName = data.primaryName;
-    }
-    if (data.primarySurname !== undefined) {
-      updates.primarySurname = data.primarySurname;
-    }
     if (data.hallCode !== undefined) {
       updates.hallCode = data.hallCode;
     }
     if (data.countriesRegions !== undefined) {
       updates.countriesRegions = data.countriesRegions;
+    }
+    if (data.status !== undefined) {
+      updates.status = data.status;
+    }
+    if (data.importance !== undefined) {
+      updates.importance = data.importance;
+    }
+    if (data.notes !== undefined) {
+      updates.notes = data.notes;
     }
 
     const result = await updateProjectInTransaction({

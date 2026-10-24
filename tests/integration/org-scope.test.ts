@@ -27,8 +27,11 @@ import {
 
 const projectInput = {
   name: '颍川陈氏云谱',
-  primaryName: '陈实',
-  primarySurname: '陈',
+  surname: '陈',
+  themeName: '陈实',
+  countriesRegions: '中国福建',
+  status: 'in_progress' as const,
+  importance: 1,
 };
 
 describe('organization and project scope', () => {

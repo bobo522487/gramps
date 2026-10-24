@@ -3,19 +3,31 @@ import 'server-only';
 import { and, eq, isNull } from 'drizzle-orm';
 import { getOrgRoleInTx, hasPermission } from '@/lib/auth/permissions';
 import { generatePublicId } from '@/lib/ids';
+import type { ProjectStatus } from '@/lib/project/constants';
 import { withOrg } from './drizzle';
 import { logActivityInTx } from './queries/activity';
 import { ActivityType, organizations, type Project, projects } from './schema';
 
-export type ProjectInput = {
+export type ProjectCreateInput = {
   name: string;
-  primaryName: string;
-  primarySurname: string;
-  hallCode?: string | null;
-  countriesRegions?: string | null;
+  surname: string;
+  themeName: string;
+  countriesRegions: string;
+  status: ProjectStatus;
+  importance: number;
+  notes?: string | null;
 };
 
-export type ProjectUpdates = Partial<ProjectInput>;
+export type ProjectMutableInput = {
+  name: string;
+  countriesRegions: string | null;
+  hallCode?: string | null;
+  status: ProjectStatus;
+  importance: number;
+  notes?: string | null;
+};
+
+export type ProjectUpdates = Partial<ProjectMutableInput>;
 
 export type ProjectMutationResult =
   | { ok: true; project: Project }
@@ -24,7 +36,7 @@ export type ProjectMutationResult =
 export async function createProjectInTransaction(params: {
   userId: string;
   orgId: string;
-  input: ProjectInput;
+  input: ProjectCreateInput;
   ipAddress?: string;
 }): Promise<ProjectMutationResult> {
   const { userId, orgId, input, ipAddress } = params;
@@ -49,7 +61,16 @@ export async function createProjectInTransaction(params: {
       const [project] = await tx
         .insert(projects)
         .values({
-          ...input,
+          name: input.name,
+          surname: input.surname,
+          themeName: input.themeName,
+          countriesRegions: input.countriesRegions,
+          status: input.status,
+          importance: input.importance,
+          notes: input.notes,
+          // 旧列在 Task 5 删除前仍是 NOT NULL，暂时镜像新字段。
+          primaryName: input.themeName,
+          primarySurname: input.surname,
           orgId,
           ref: generatePublicId(),
           createdBy: userId,
@@ -88,9 +109,21 @@ export async function updateProjectInTransaction(params: {
       return { ok: false, reason: 'forbidden' as const };
     }
 
+    const mutable: ProjectUpdates = {};
+    if (updates.name !== undefined) mutable.name = updates.name;
+    if (updates.countriesRegions !== undefined) {
+      mutable.countriesRegions = updates.countriesRegions;
+    }
+    if (updates.hallCode !== undefined) mutable.hallCode = updates.hallCode;
+    if (updates.status !== undefined) mutable.status = updates.status;
+    if (updates.importance !== undefined) {
+      mutable.importance = updates.importance;
+    }
+    if (updates.notes !== undefined) mutable.notes = updates.notes;
+
     const [project] = await tx
       .update(projects)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...mutable, updatedAt: new Date() })
       .where(
         and(
           eq(projects.id, projectId),

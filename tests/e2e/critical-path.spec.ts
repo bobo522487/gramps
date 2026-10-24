@@ -29,12 +29,13 @@ test('critical path: sign up, create project, record founder, add child, edit in
   await expect(page).toHaveURL(/\/dashboard\/org\/[^/]+$/);
 
   await page.getByRole('button', { name: '新建空间' }).click();
-  const projectDialog = page.getByRole('dialog', { name: '新建云谱空间' });
+  const projectDialog = page.getByRole('dialog', { name: '创建云谱项目' });
   await expect(projectDialog).toBeVisible();
   await page.locator('#project-name').fill('E2E 云谱');
-  await page.locator('#project-primary-surname').fill('陈');
-  await page.locator('#project-primary-name').fill('太公');
-  await projectDialog.getByRole('button', { name: '创建空间' }).click();
+  await page.locator('#project-surname').fill('陈');
+  await page.locator('#project-regions').fill('中国福建');
+  await page.locator('#project-theme-name').fill('E2E 陈氏宗谱');
+  await projectDialog.getByRole('button', { name: '确定' }).click();
   await expect(page).toHaveURL(/\/dashboard\/project\/[^/]+$/);
 
   const projectRef =
