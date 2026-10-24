@@ -25,7 +25,7 @@
         │ (浏览器)   │     │ Next.js +   │    │ (日志/探针)  │
         └───────────┘     │ 自定义域名   │    └─────────────┘
                           └──────┬──────┘
-                                 │ pg.Pool + attachDatabasePool（Neon pooled）
+                                 │ pg.Pool + attachDatabasePool（业务 pooled / 认证 direct）
                           ┌──────▼──────┐
                           │    Neon     │
                           │ PostgreSQL  │

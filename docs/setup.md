@@ -73,8 +73,8 @@ pnpm dev
 | `POSTGRES_URL` | ✅ | `postgres://postgres:postgres@localhost:54322/postgres` | 数据库连接串，必须是 `postgres://` 或 `postgresql://`；本地/CI 同时作为业务与认证连接的兜底 |
 | `BETTER_AUTH_SECRET` | ✅ | `openssl rand -hex 32` 生成 | Better Auth 签名/加密密钥，至少 32 字符；轮换会使所有会话失效 |
 | `BETTER_AUTH_URL` | ✅ | `http://localhost:3000` | 应用对外绝对 URL；决定 Cookie 与邀请链接的基址 |
-| `APP_POSTGRES_URL` | Vercel 必填 | `postgresql://app:...@host/db` | 业务查询连接，登录角色 `app`（仅 `GRANT app_rw`）。未设置时回退 `POSTGRES_URL` |
-| `AUTH_POSTGRES_URL` | Vercel 必填 | `postgresql://auth_runtime:...@host/db` | 认证连接，登录角色 `auth_runtime`（仅 `GRANT auth_service`）。未设置时回退 `POSTGRES_URL` |
+| `APP_POSTGRES_URL` | Vercel 必填 | `postgresql://app:...@host/db` | 业务查询连接，登录角色 `app`（仅 `GRANT app_rw`）。未设置时回退 `POSTGRES_URL`；可使用 Neon pooled endpoint |
+| `AUTH_POSTGRES_URL` | Vercel 必填 | `postgresql://auth_runtime:...@host/db` | 认证连接，登录角色 `auth_runtime`（仅 `GRANT auth_service`）。未设置时回退 `POSTGRES_URL`；必须使用 Neon **direct（unpooled）** endpoint |
 | `TEST_POSTGRES_URL` | — | `postgres://postgres:postgres@localhost:54322/gramps_test` | 集成测试、覆盖率与 E2E 专用库；名称必须以 `_test` 结尾。未设置时回退到 `POSTGRES_URL`，同样要求库名以 `_test` 结尾 |
 | `POSTGRES_URL_DIRECT` | — | Neon Direct connection | 迁移/运维直连地址；`drizzle.config.ts` 优先使用它，未设置时回退到 `POSTGRES_URL` |
 | `LOG_LEVEL` | — | `debug` / `info` / `warn` / `error` | 默认开发 `debug`、生产 `info` |
@@ -106,7 +106,7 @@ cp .env.example .env
 代码里有**两个连接池**，用途和角色不同：
 
 - `lib/db/drizzle.ts`：业务查询，读取 `APP_POSTGRES_URL ?? POSTGRES_URL`。本地/CI 用 `postgres.js`；Vercel 用 `pg` Pool + `attachDatabasePool`。
-- `lib/db/auth-db.ts`：Better Auth 与认证读写，读取 `AUTH_POSTGRES_URL ?? POSTGRES_URL`。连接建立时通过启动参数 `options: '-c role=auth_service'` 固定以 `auth_service` 身份执行。
+- `lib/db/auth-db.ts`：Better Auth 与认证读写，读取 `AUTH_POSTGRES_URL ?? POSTGRES_URL`。连接建立时通过启动参数 `options: '-c role=auth_service'` 固定以 `auth_service` 身份执行。**该连接必须使用 direct（unpooled）endpoint**：Neon pooler 会以 `08P01 unsupported startup parameter in options: role` 拒绝启动参数；`lib/config.ts` 在启动时校验主机名，含 `-pooler.` 直接报配置错误。
 - 两条路径共用同一套 Drizzle schema 与查询代码；Vercel 分支尚未在真实部署中验证。
 - 业务代码**不要**导入 `lib/db/auth-db.ts`，也不要直接查询 `auth.*` 表。
 
@@ -185,7 +185,7 @@ pnpm db:studio     # 打开 Drizzle Studio
 #### 4.2.1 生产角色分离
 
 - 业务连接（`APP_POSTGRES_URL`）必须使用仅 `GRANT app_rw` 的登录角色 `app`，**不能是表属主或超级用户**；否则 RLS 的兜底会被绕过。
-- 认证连接（`AUTH_POSTGRES_URL`）必须使用仅 `GRANT auth_service` 的登录角色 `auth_runtime`；`lib/db/auth-db.ts` 会在连接启动参数里再固定 `role=auth_service`。
+- 认证连接（`AUTH_POSTGRES_URL`）必须使用仅 `GRANT auth_service` 的登录角色 `auth_runtime`，并使用 Neon **direct（unpooled）** endpoint；`lib/db/auth-db.ts` 会在连接启动参数里再固定 `role=auth_service`，pooler 不支持该参数。
 - 两个登录角色都不能 `BYPASSRLS`。`app_rw` 与 `auth_service` 由 `0001`/`0003` 创建；登录角色由本地/运维创建，迁移不保存密码。
 - `drizzle.config.ts` 优先读取 `POSTGRES_URL_DIRECT`（未设置时回退 `POSTGRES_URL`），生产迁移在独立的受保护 job 中执行，并把该变量指向直连/迁移角色地址。
 - 密码只放 Neon/Vercel 环境变量，不写进迁移。
@@ -375,7 +375,7 @@ CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，测试
 
 ### 7.3 测试覆盖
 
-单测 17 个文件 119 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
+单测 17 个文件 122 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
 
 | 文件 | 关注点 |
 |---|---|
@@ -506,6 +506,8 @@ E2E_ALLOW_EXTERNAL=1 E2E_EXTERNAL_SERVER=1 E2E_BASE_URL=https://<staging> pnpm t
 | 启动报 `Invalid environment configuration: BETTER_AUTH_SECRET ...` | 缺少密钥或长度不足 32 | 用 `openssl rand -hex 32` 生成并写入 `.env` |
 | 启动报 `Invalid environment configuration: BETTER_AUTH_URL ...` | 缺少 URL 或不是合法绝对地址 | 设置 `BETTER_AUTH_URL=http://localhost:3000`（生产为正式域名） |
 | Vercel 启动报缺少 `APP_POSTGRES_URL` / `AUTH_POSTGRES_URL` | 生产强制两个运行时连接分离 | 创建 `app` / `auth_runtime` 登录角色并配置对应变量 |
+| 启动报 `AUTH_POSTGRES_URL ... unpooled` | 认证连接指向 Neon pooled endpoint | 把 `AUTH_POSTGRES_URL` 换成 Neon **Direct connection**（主机名不含 `-pooler`）；业务连接仍可用 pooled |
+| 注册/登录报 `08P01 unsupported startup parameter in options: role` | 同上，运行期绕过了启动校验 | 检查 `AUTH_POSTGRES_URL` 与回退的 `POSTGRES_URL` 是否含 `-pooler` |
 | `pnpm db:setup` 卡在 Docker | Docker 未启动 | 启动 Docker Desktop/daemon |
 | `pnpm db:migrate` 连接失败 | 本地 Postgres 未启动、端口不对 | 检查 `docker compose ps` 与 `POSTGRES_URL` 的端口 54322 |
 | 迁移报 `0003_better_auth requires an empty auth/tenant dataset` | 库里有旧认证或组织数据 | 按 §4.4 重建本地库；Neon 上新建分支/库 |

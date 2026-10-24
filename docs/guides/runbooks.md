@@ -13,6 +13,7 @@
 | 用途 | 连接串 | 角色 |
 |---|---|---|
 | 应用运行 | `POSTGRES_URL`（Neon pooled） | `app`（继承 `app_rw`，受 RLS 约束） |
+| 认证运行 | `AUTH_POSTGRES_URL`（Neon direct） | `auth_runtime` → 启动参数固定 `auth_service`；pooler 不支持该参数 |
 | 迁移 / 运维 / 备份 | `POSTGRES_URL_DIRECT`（Neon direct） | 迁移角色（拥有 `BYPASSRLS`） |
 
 **所有运维操作都用 `POSTGRES_URL_DIRECT`。** 用 `POSTGRES_URL` 会因为 RLS 与权限限制而失败或只看到部分数据。

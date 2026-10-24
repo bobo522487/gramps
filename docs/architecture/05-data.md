@@ -38,7 +38,7 @@ RLS 策略基于 `organization_member` 子查询，**组织不写进 JWT**。详
 |---|---|
 | 驱动（本地） | `postgres.js` + `drizzle-orm/postgres-js`；直连 `localhost:5432`，无 pooler，可用默认 prepared statements |
 | 驱动（生产） | `pg` 的 `Pool` + `drizzle-orm/node-postgres`；模块级单例，并调用 `@vercel/functions` 的 `attachDatabasePool` |
-| 连接方式 | `POSTGRES_URL` 指向 Neon pooled endpoint |
+| 连接方式 | 业务连接 `APP_POSTGRES_URL` 指向 Neon pooled endpoint；认证连接 `AUTH_POSTGRES_URL` 必须指向 Neon direct endpoint（启动参数固定 `role=auth_service`，pooler 不支持） |
 | 连接数 | 生产每个 Vercel 函数实例 pool = 1–5 |
 | 直连 | 迁移、备份与运维使用 `POSTGRES_URL_DIRECT`（Neon direct） |
 | 迁移 | CI 里用直连 URL，与应用运行期分离 |

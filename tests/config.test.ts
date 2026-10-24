@@ -7,6 +7,7 @@ const MANAGED_KEYS = [
   'BETTER_AUTH_SECRET',
   'BETTER_AUTH_URL',
   'VERCEL',
+  'NEXT_PHASE',
 ] as const;
 
 const originalEnv = Object.fromEntries(
@@ -103,6 +104,37 @@ describe('server environment validation', () => {
     const { getServerConfig } = await loadConfig();
 
     expect(() => getServerConfig()).toThrow(/AUTH_POSTGRES_URL/);
+  });
+
+  it('rejects a pooled AUTH_POSTGRES_URL', async () => {
+    setValidEnv();
+    process.env.AUTH_POSTGRES_URL =
+      'postgresql://auth_runtime:pass@ep-x-pooler.c-13.us-east-1.aws.neon.tech/db';
+
+    const { getServerConfig } = await loadConfig();
+
+    expect(() => getServerConfig()).toThrow(/AUTH_POSTGRES_URL.*unpooled/);
+  });
+
+  it('rejects a pooled POSTGRES_URL used as the auth fallback', async () => {
+    setValidEnv();
+    process.env.POSTGRES_URL =
+      'postgresql://user:pass@ep-x-pooler.c-13.us-east-1.aws.neon.tech/db';
+
+    const { getServerConfig } = await loadConfig();
+
+    expect(() => getServerConfig()).toThrow(/AUTH_POSTGRES_URL.*unpooled/);
+  });
+
+  it('skips the pooled auth check during the production build', async () => {
+    setValidEnv();
+    process.env.NEXT_PHASE = 'phase-production-build';
+    process.env.AUTH_POSTGRES_URL =
+      'postgresql://auth_runtime:pass@ep-x-pooler.c-13.us-east-1.aws.neon.tech/db';
+
+    const { getServerConfig } = await loadConfig();
+
+    expect(() => getServerConfig()).not.toThrow();
   });
 
   it('accepts dedicated connections in production', async () => {
