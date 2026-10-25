@@ -249,7 +249,7 @@ Run:
 ```bash
 pnpm typecheck
 ```
-Expected: 若出现 `TS5101 Option 'baseUrl' is deprecated` 或其它 TS 7 诊断，进入下一步；若直接 PASS，也继续下一步以移除废弃配置。
+Expected: 若出现 `TS5102 Option 'baseUrl' has been removed` 或其它 TS 7 诊断，进入下一步；若直接 PASS，也继续下一步以移除已删除的配置。
 
 - [ ] **Step 3: 移除 `baseUrl`**
 
