@@ -7,7 +7,13 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/globals.css", "!**/.qoder", "!**/lib/db/migrations"]
+    "includes": [
+      "**",
+      "!**/globals.css",
+      "!**/.qoder",
+      "!**/.agents",
+      "!**/lib/db/migrations"
+    ]
   },
   "formatter": {
     "enabled": true,
