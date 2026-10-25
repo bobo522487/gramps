@@ -103,14 +103,29 @@ test('critical path: sign up, create project, record founder, add child, edit in
 
   await folderRow.hover();
   await page.getByRole('button', { name: '在此文件夹下新建谱系' }).click();
-  const lineageDialog = page.getByRole('dialog', { name: '新建谱系' });
+  const lineageDialog = page.getByRole('dialog', { name: '创建谱系' });
   await expect(lineageDialog).toBeVisible();
+
+  // 姓氏继承项目，弹窗里不再有可编辑输入框。
+  await expect(page.locator('input#lineage-surname')).toHaveCount(0);
+  await expect(page.locator('#lineage-surname')).toHaveText('陈');
+
+  const submitLineage = lineageDialog.getByRole('button', { name: '确定' });
+  await expect(submitLineage).toBeDisabled();
+
   await page.locator('#lineage-name').fill('E2E 谱系');
-  await page.locator('#lineage-surname').fill('陈');
-  await lineageDialog.getByRole('button', { name: '创建谱系' }).click();
+  await expect(submitLineage).toBeEnabled();
+
+  // 地区预填项目地区，清空后不可提交。
+  await page.locator('#lineage-region').fill('');
+  await expect(submitLineage).toBeDisabled();
+  await page.locator('#lineage-region').fill('中国/福建');
+  await expect(submitLineage).toBeEnabled();
+
+  await submitLineage.click();
   await expect(page).toHaveURL(/\/lineages\/[^/]+$/);
 
-  await page.getByRole('button', { name: '录入始祖' }).click();
+  // 新建的空谱系会自动弹出「录入始祖」。
   const rootDialog = page.getByRole('dialog', { name: '录入始祖' });
   await expect(rootDialog).toBeVisible();
   await page.locator('#create-node-name').fill('太公');
