@@ -42,7 +42,7 @@
 | 客户端数据 | TanStack Query 5；RSC 首屏通过 `dehydrate` / `HydrationBoundary` 注入 |
 | 客户端 UI 状态 | Zustand 5（仅谱系工作区 UI，不存实体数据） |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 21 文件/154 用例；真实 PostgreSQL 集成测试 11 文件/122 用例；Playwright E2E 2 条关键路径 |
+| 测试 | Vitest：单测 22 文件/160 用例；真实 PostgreSQL 集成测试 11 文件/122 用例；Playwright E2E 2 条关键路径 |
 
 ---
 
