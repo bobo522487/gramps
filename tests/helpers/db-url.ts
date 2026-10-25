@@ -1,6 +1,7 @@
-import dotenv from 'dotenv';
+import { config } from 'dotenv';
 
-dotenv.config();
+// Keep startup output quiet; dotenv >= 17 logs an injection summary by default.
+config({ quiet: true });
 
 export type DatabaseEnv = Record<string, string | undefined>;
 

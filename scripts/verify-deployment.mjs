@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import dotenv from 'dotenv';
+import { config } from 'dotenv';
 import postgres from 'postgres';
 
-dotenv.config();
+// Keep startup output quiet; dotenv >= 17 logs an injection summary by default.
+config({ quiet: true });
 
 const args = process.argv.slice(2);
 const skipHttp = args.includes('--skip-http');

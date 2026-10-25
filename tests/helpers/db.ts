@@ -1,10 +1,11 @@
-import dotenv from 'dotenv';
+import { config } from 'dotenv';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@/lib/db/schema';
 import { resolveTestDatabaseUrl } from './db-url';
 
-dotenv.config();
+// Keep startup output quiet; dotenv >= 17 logs an injection summary by default.
+config({ quiet: true });
 
 export function getTestDatabaseUrl(): string {
   return resolveTestDatabaseUrl(process.env);

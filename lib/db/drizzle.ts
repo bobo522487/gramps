@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { attachDatabasePool } from '@vercel/functions';
-import dotenv from 'dotenv';
+import { config } from 'dotenv';
 import { type SQL, sql } from 'drizzle-orm';
 import { drizzle as drizzleNodePg } from 'drizzle-orm/node-postgres';
 import {
@@ -13,7 +13,8 @@ import postgres from 'postgres';
 import { getServerConfig } from '@/lib/config';
 import * as schema from './schema';
 
-dotenv.config();
+// Keep startup output quiet; dotenv >= 17 logs an injection summary by default.
+config({ quiet: true });
 
 type Db = PostgresJsDatabase<typeof schema> & {
   $client: ReturnType<typeof postgres>;
