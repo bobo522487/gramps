@@ -87,6 +87,21 @@ describe('migrations', () => {
     );
   });
 
+  it('adds nullable region and notes columns to lineage', async () => {
+    const rows = await getTestSql()<
+      { column_name: string; is_nullable: string }[]
+    >`SELECT column_name, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'lineage'
+        AND column_name IN ('region', 'notes')
+      ORDER BY column_name`;
+
+    expect(rows).toEqual([
+      { column_name: 'notes', is_nullable: 'YES' },
+      { column_name: 'region', is_nullable: 'YES' },
+    ]);
+  });
+
   it('enables and forces row level security on every exposed table', async () => {
     const rows = await getTestSql()<
       {

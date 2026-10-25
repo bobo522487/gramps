@@ -50,6 +50,13 @@
       "when": 1792834434070,
       "tag": "0006_statement_timeouts",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792917481751,
+      "tag": "0007_magical_speedball",
+      "breakpoints": true
     }
   ]
 }

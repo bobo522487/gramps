@@ -291,6 +291,8 @@ export const lineages = pgTable(
     surname: text('surname').notNull(),
     hallCode: text('hall_code'),
     generationWords: jsonb('generation_words').$type<string[]>(),
+    region: text('region'),
+    notes: text('notes'),
     hangRule: jsonb('hang_rule').$type<Record<string, unknown>>(),
     nodeCount: integer('node_count').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
