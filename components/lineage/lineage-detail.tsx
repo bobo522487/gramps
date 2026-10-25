@@ -550,7 +550,8 @@ export function LineageDetail({
             </h1>
             <p className="truncate text-[11px] text-muted-foreground">
               {lineage.surname}氏
-              {lineage.hallCode ? ` · ${lineage.hallCode}` : ''} · 共{' '}
+              {lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
+              {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
               {lineage.nodeCount} 位族人
             </p>
           </div>
@@ -612,8 +613,9 @@ export function LineageDetail({
       <div className="hidden shrink-0 px-4 py-3 print:block">
         <h1 className="text-lg font-bold text-foreground">{lineage.name}</h1>
         <p className="text-xs text-muted-foreground">
-          {lineage.surname}氏{lineage.hallCode ? ` · ${lineage.hallCode}` : ''}{' '}
-          · 共 {lineage.nodeCount} 位族人
+          {lineage.surname}氏{lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
+          {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
+          {lineage.nodeCount} 位族人
         </p>
       </div>
 

@@ -30,6 +30,11 @@ import {
   MAX_LINEAGE_NOTES_LENGTH,
   MAX_LINEAGE_REGION_LENGTH,
 } from '@/lib/lineage/constants';
+import {
+  canSubmitLineage,
+  hasInheritedSurname,
+  resolveSelectedFolderId,
+} from '@/lib/lineage/create-form';
 
 type FolderOption = {
   id: string;
@@ -101,13 +106,16 @@ export function CreateLineageDialog({
   const options = useMemo(() => folderOptions(folders), [folders]);
 
   const hasFolders = options.length > 0;
-  const initialFolderId = defaultFolderId ?? options[0]?.id ?? '';
-  const [folderId, setFolderId] = useState(initialFolderId);
+  const fallbackFolderId = defaultFolderId ?? options[0]?.id ?? '';
+  const [folderId, setFolderId] = useState(fallbackFolderId);
   const [name, setName] = useState('');
   const [region, setRegion] = useState(projectRegion);
   const [hallCode, setHallCode] = useState('');
   const [notes, setNotes] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // 分类可能在弹窗打开期间被删掉，提交值必须对着当前列表校验。
+  const effectiveFolderId = resolveSelectedFolderId(options, folderId);
 
   // 预填的地区不算「用户改过」，否则一打开弹窗就必然触发放弃确认。
   const isDirty =
@@ -115,12 +123,16 @@ export function CreateLineageDialog({
     region !== projectRegion ||
     hallCode.trim().length > 0 ||
     notes.trim().length > 0 ||
-    folderId !== initialFolderId;
+    effectiveFolderId !== resolveSelectedFolderId(options, fallbackFolderId);
 
+  const surnameMissing = !hasInheritedSurname(projectSurname);
   const canSubmit =
-    name.trim().length > 0 &&
-    region.trim().length > 0 &&
-    (!hasFolders || folderId.length > 0);
+    !surnameMissing &&
+    canSubmitLineage({
+      name,
+      region,
+      folderId: hasFolders ? effectiveFolderId : 'default',
+    });
 
   useEffect(() => {
     if (state.lineageId) {
@@ -163,7 +175,7 @@ export function CreateLineageDialog({
           <input
             type="hidden"
             name="folderId"
-            value={hasFolders ? folderId : ''}
+            value={hasFolders ? effectiveFolderId : ''}
           />
 
           <div>
@@ -178,11 +190,16 @@ export function CreateLineageDialog({
               onChange={(event) => setName(event.target.value)}
               placeholder="请输入谱系名称，限长24个字"
               maxLength={MAX_LINEAGE_NAME_LENGTH}
-              aria-describedby="lineage-name-count"
+              aria-invalid={Boolean(state.fieldErrors?.name)}
+              aria-describedby={
+                state.fieldErrors?.name
+                  ? 'lineage-name-error lineage-name-count'
+                  : 'lineage-name-count'
+              }
             />
             <div className="mt-1 flex items-start justify-between gap-2">
               {state.fieldErrors?.name ? (
-                <p className="text-xs text-destructive">
+                <p id="lineage-name-error" className="text-xs text-destructive">
                   {state.fieldErrors.name}
                 </p>
               ) : (
@@ -198,10 +215,14 @@ export function CreateLineageDialog({
           </div>
 
           <div>
-            <Label htmlFor="lineage-folder">
-              所属分类
-              <RequiredMark />
-            </Label>
+            {hasFolders ? (
+              <Label htmlFor="lineage-folder">
+                所属分类
+                <RequiredMark />
+              </Label>
+            ) : (
+              <p className="text-sm leading-none font-medium">所属分类</p>
+            )}
             {hasFolders ? (
               <Select value={folderId} onValueChange={setFolderId}>
                 <SelectTrigger id="lineage-folder" size="default">
@@ -245,6 +266,15 @@ export function CreateLineageDialog({
             disabledReason="只有所有者或管理员可以修改项目基本信息"
           />
 
+          {surnameMissing ? (
+            <p
+              role="alert"
+              className="rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive"
+            >
+              该项目未填写姓氏，无法创建谱系。请所有者或管理员先完善项目基本信息。
+            </p>
+          ) : null}
+
           <div>
             <Label htmlFor="lineage-region">
               地区
@@ -257,9 +287,16 @@ export function CreateLineageDialog({
               onChange={(event) => setRegion(event.target.value)}
               placeholder="例如：中国/北京/东城"
               maxLength={MAX_LINEAGE_REGION_LENGTH}
+              aria-invalid={Boolean(state.fieldErrors?.region)}
+              aria-describedby={
+                state.fieldErrors?.region ? 'lineage-region-error' : undefined
+              }
             />
             {state.fieldErrors?.region ? (
-              <p className="mt-1 text-xs text-destructive">
+              <p
+                id="lineage-region-error"
+                className="mt-1 text-xs text-destructive"
+              >
                 {state.fieldErrors.region}
               </p>
             ) : null}
@@ -292,16 +329,26 @@ export function CreateLineageDialog({
               placeholder="请输入谱系备注"
               maxLength={MAX_LINEAGE_NOTES_LENGTH}
               className="min-h-16"
+              aria-invalid={Boolean(state.fieldErrors?.notes)}
+              aria-describedby={
+                state.fieldErrors?.notes ? 'lineage-notes-error' : undefined
+              }
             />
             {state.fieldErrors?.notes ? (
-              <p className="mt-1 text-xs text-destructive">
+              <p
+                id="lineage-notes-error"
+                className="mt-1 text-xs text-destructive"
+              >
                 {state.fieldErrors.notes}
               </p>
             ) : null}
           </div>
 
           {state.error ? (
-            <p className="rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+            <p
+              role="alert"
+              className="rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive"
+            >
               {state.error}
             </p>
           ) : null}

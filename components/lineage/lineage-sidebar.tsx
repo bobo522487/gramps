@@ -304,11 +304,26 @@ export function LineageSidebar({
           }
         }}
         size="sm"
-        maxLength={editing?.kind === 'lineage' ? MAX_LINEAGE_NAME_LENGTH : 100}
+        maxLength={
+          current.kind === 'lineage'
+            ? Math.max(MAX_LINEAGE_NAME_LENGTH, current.original.length)
+            : 100
+        }
         aria-label="重命名"
+        aria-invalid={
+          current.kind === 'lineage' &&
+          current.value.trim().length > MAX_LINEAGE_NAME_LENGTH
+        }
         autoFocus
         className="h-5 rounded border-primary px-1 text-xs"
       />
+    );
+  }
+
+  function renameTooLong(current: EditingState) {
+    return (
+      current.kind === 'lineage' &&
+      current.value.trim().length > MAX_LINEAGE_NAME_LENGTH
     );
   }
 
@@ -316,6 +331,7 @@ export function LineageSidebar({
     const active = lineage.id === activeLineageId;
     const isEditing = editing?.kind === 'lineage' && editing.id === lineage.id;
     const indent = 10 + depth * 14;
+    const tooLong = isEditing && editing ? renameTooLong(editing) : false;
 
     return (
       <div key={`lineage-${lineage.id}`}>
@@ -393,6 +409,11 @@ export function LineageSidebar({
             </DropdownMenu>
           ) : null}
         </div>
+        {tooLong ? (
+          <p role="status" className="px-4 pb-1 text-[11px] text-destructive">
+            名称超过 {MAX_LINEAGE_NAME_LENGTH} 字，保存前需要缩短
+          </p>
+        ) : null}
         {rowError?.id === lineage.id ? (
           <p className="px-4 pb-1 text-[11px] text-destructive">
             {rowError.message}
