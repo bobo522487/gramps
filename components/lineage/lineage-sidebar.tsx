@@ -50,7 +50,10 @@ export type LineageSidebarProps = {
   orgId: string;
   projectId: string;
   projectRef: string;
-  defaultSurname: string;
+  projectThemeName: string;
+  projectSurname: string;
+  projectRegion: string;
+  canProjectWrite: boolean;
   folders: TreeFolderInput[];
   lineages: TreeLineageInput[];
   canWrite: boolean;
@@ -72,7 +75,10 @@ export function LineageSidebar({
   orgId,
   projectId,
   projectRef,
-  defaultSurname,
+  projectThemeName,
+  projectSurname,
+  projectRegion,
+  canProjectWrite,
   folders,
   lineages,
   canWrite,
@@ -692,7 +698,10 @@ export function LineageSidebar({
           orgId={orgId}
           projectId={projectId}
           projectRef={projectRef}
-          defaultSurname={defaultSurname}
+          projectThemeName={projectThemeName}
+          projectSurname={projectSurname}
+          projectRegion={projectRegion}
+          canProjectWrite={canProjectWrite}
           folders={folders}
           defaultFolderId={createLineage.folderId}
           onClose={() => setCreateLineage(null)}
