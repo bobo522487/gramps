@@ -45,3 +45,4 @@ postgres_data/
 # Qoder CLI
 .qoder/
 .env*
+.worktrees/
