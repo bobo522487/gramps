@@ -16,6 +16,8 @@ export type LineageView = {
   name: string;
   surname: string;
   hallCode: string | null;
+  region: string | null;
+  notes: string | null;
   generationWords: string[] | null;
   nodeCount: number;
   folderId: string | null;
@@ -104,7 +106,13 @@ export function LineageWorkspace({
                 <p className="text-sm text-muted-foreground">
                   {lineage.surname}氏
                   {lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
+                  {lineage.region ? ` · ${lineage.region}` : ''}
                 </p>
+                {lineage.notes ? (
+                  <p className="line-clamp-2 text-xs text-muted-foreground">
+                    {lineage.notes}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <Badge variant="outline">{lineage.nodeCount} 位人丁</Badge>
                   {lineage.generationWords &&

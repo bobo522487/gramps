@@ -21,8 +21,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import type { ActionState } from '@/lib/auth/types';
 import { updateLineageAction } from '@/lib/lineage/actions';
+import {
+  MAX_LINEAGE_HALL_CODE_LENGTH,
+  MAX_LINEAGE_NAME_LENGTH,
+  MAX_LINEAGE_NOTES_LENGTH,
+  MAX_LINEAGE_REGION_LENGTH,
+} from '@/lib/lineage/constants';
 
 type FolderOption = {
   id: string;
@@ -67,6 +74,8 @@ export function LineageEditDialog({
     name: string;
     surname: string;
     hallCode: string | null;
+    region: string | null;
+    notes: string | null;
     generationWords: string[] | null;
     folderId: string | null;
   };
@@ -113,7 +122,10 @@ export function LineageEditDialog({
                 id="edit-lineage-name"
                 name="name"
                 defaultValue={lineage.name}
-                maxLength={100}
+                maxLength={Math.max(
+                  MAX_LINEAGE_NAME_LENGTH,
+                  lineage.name.length
+                )}
               />
               {state.fieldErrors?.name ? (
                 <p className="mt-1 text-xs text-destructive">
@@ -122,13 +134,16 @@ export function LineageEditDialog({
               ) : null}
             </div>
             <div>
-              <Label htmlFor="edit-lineage-surname">姓氏</Label>
-              <Input
+              <p className="text-sm font-medium">姓氏</p>
+              <p
                 id="edit-lineage-surname"
-                name="surname"
-                defaultValue={lineage.surname}
-                maxLength={30}
-              />
+                className="mt-1 text-sm text-muted-foreground"
+              >
+                {lineage.surname}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                继承自云谱空间，不可修改
+              </p>
             </div>
           </div>
 
@@ -139,7 +154,7 @@ export function LineageEditDialog({
                 id="edit-lineage-hall"
                 name="hallCode"
                 defaultValue={lineage.hallCode ?? ''}
-                maxLength={60}
+                maxLength={MAX_LINEAGE_HALL_CODE_LENGTH}
               />
             </div>
             <div>
@@ -157,6 +172,40 @@ export function LineageEditDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="edit-lineage-region">地区</Label>
+              <Input
+                id="edit-lineage-region"
+                name="region"
+                defaultValue={lineage.region ?? ''}
+                placeholder="例如：中国/北京/东城"
+                maxLength={MAX_LINEAGE_REGION_LENGTH}
+              />
+              {state.fieldErrors?.region ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {state.fieldErrors.region}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <Label htmlFor="edit-lineage-notes">备注</Label>
+              <Textarea
+                id="edit-lineage-notes"
+                name="notes"
+                defaultValue={lineage.notes ?? ''}
+                placeholder="请输入谱系备注"
+                maxLength={MAX_LINEAGE_NOTES_LENGTH}
+                className="min-h-9"
+              />
+              {state.fieldErrors?.notes ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {state.fieldErrors.notes}
+                </p>
+              ) : null}
             </div>
           </div>
 

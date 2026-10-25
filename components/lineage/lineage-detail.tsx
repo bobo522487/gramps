@@ -20,6 +20,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from 'react';
@@ -64,6 +65,7 @@ import {
 } from '@/components/ui/table';
 import { useResizable } from '@/hooks/use-resizable';
 import { deleteNodeAction, moveNodeAction } from '@/lib/lineage/actions';
+import { shouldAutoOpenRoot } from '@/lib/lineage/auto-root';
 import { cn } from '@/lib/utils';
 
 type FolderOption = {
@@ -77,6 +79,8 @@ type LineageInfo = {
   name: string;
   surname: string;
   hallCode: string | null;
+  region: string | null;
+  notes: string | null;
   generationWords: string[] | null;
   nodeCount: number;
   folderId: string | null;
@@ -359,6 +363,7 @@ export function LineageDetail({
   const [moveNode, setMoveNode] = useState<NodeView | null>(null);
   const [editLineage, setEditLineage] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const autoRootOpened = useRef(false);
 
   useEffect(() => {
     initializeForLineage(lineage.id);
@@ -368,6 +373,20 @@ export function LineageDetail({
   const bloodNodes = index.blood;
   const spousesByBlood = index.spousesByBlood;
   const hasRoot = bloodNodes.length > 0;
+
+  // 新建谱系后直接引导录入始祖：每次进入空谱系弹一次，不写进 URL。
+  useEffect(() => {
+    if (
+      shouldAutoOpenRoot({
+        nodeCount: bloodNodes.length,
+        alreadyOpened: autoRootOpened.current,
+        canWrite,
+      })
+    ) {
+      autoRootOpened.current = true;
+      setCreateDialog({ mode: 'root' });
+    }
+  }, [bloodNodes.length, canWrite]);
 
   const selectedNode = useMemo(
     () => (selectedNodeId ? (index.byId.get(selectedNodeId) ?? null) : null),

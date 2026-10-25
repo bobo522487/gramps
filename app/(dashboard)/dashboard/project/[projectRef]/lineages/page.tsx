@@ -40,6 +40,8 @@ export default async function ProjectLineagesPage({
         name: lineage.name,
         surname: lineage.surname,
         hallCode: lineage.hallCode,
+        region: lineage.region,
+        notes: lineage.notes,
         generationWords: lineage.generationWords,
         nodeCount: lineage.nodeCount,
         folderId: lineage.folderId,
