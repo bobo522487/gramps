@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-25-create-lineage-design.md`
 
+## Rulings Carried Into This Plan
+
+- **R1 无分类死结（人类伙伴 2026-10-25 确认）**：`createLineageInTransaction` 支持 `folderId: null` —— 当项目内没有分类时，在同一事务内隐式创建（或复用）`kind=0`、名为「默认分类」的顶层分类，并让新谱系归属它。不改变分类管理的 `project.write` 权限，不改 RLS。这推翻了 spec 初稿「`folderId` 必填」的做法：**Zod 层 `folderId` 仍必填**，但弹窗在无分类时提交空串并由服务层兜底。
+- **R2 姓氏注入点**：姓氏永远由服务端从 `project.surname` 读取；`project_surname_missing` 只对历史/种子数据可达（`createProjectSchema` 创建时必填）。
+- **R3 标题与按钮**：标题「创建谱系」，底部「取消」/「确定」。
+- **R4 已删除的旧计划**：`docs/superpowers/plans/2026-10-24-create-project-dialog.md` 是已实施的旧计划，与本计划无冲突范围。
+
 ## Global Constraints
 
 - 弹窗标题「创建谱系」；底部按钮「取消」/「确定」；字段顺序固定为：谱系名称、所属分类、主题名、姓氏、地区、郡望堂号、备注。
@@ -173,8 +180,10 @@ describe('createLineageSchema', () => {
     }
   });
 
-  it('requires a folder and a non-blank region', () => {
-    expect(createLineageSchema.safeParse({ ...base, folderId: '' }).success).toBe(false);
+  it('accepts an empty folder id (server creates the default category) and rejects a blank region', () => {
+    const parsed = createLineageSchema.safeParse({ ...base, folderId: '' });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.folderId).toBeUndefined();
     expect(createLineageSchema.safeParse({ ...base, region: '   ' }).success).toBe(false);
     expect(createLineageSchema.safeParse({ ...base, region: '地'.repeat(101) }).success).toBe(false);
   });
@@ -239,13 +248,18 @@ const requiredText = (label: string, max: number) =>
 const optionalText = (max: number, message: string) => /* 保持现有实现不变 */;
 ```
 
-- 把 `createLineageSchema` 改为：
+- 把 `createLineageSchema` 改为（**R1**：`folderId` 允许空串，表示「项目还没有分类，由服务端建默认分类」）：
 
 ```ts
+const optionalFolderId = z.preprocess(
+  (value) => (value === '' || value === null ? undefined : value),
+  z.uuid('分类无效').optional()
+);
+
 export const createLineageSchema = z.object({
   orgId,
   projectId,
-  folderId,
+  folderId: optionalFolderId,
   name: requiredText('谱系名称', MAX_LINEAGE_NAME_LENGTH),
   hallCode: optionalText(MAX_LINEAGE_HALL_CODE_LENGTH, '郡望/堂号不能超过 60 个字符'),
   region: requiredText('地区', MAX_LINEAGE_REGION_LENGTH),
@@ -294,7 +308,7 @@ git commit -m "feat(lineage): tighten create schema and drop editable surname"
 - Consumes: Task 1 的 `lineages.region/notes`；Task 2 的 schema。
 - Produces:
   - `LineageFailure` 增加 `'project_surname_missing'`
-  - `createLineageInTransaction(params: { userId; orgId; projectId; folderId: string; name: string; region: string; hallCode?: string; notes?: string; ipAddress?: string }): Promise<LineageMutationResult>`（**无 `surname`**）
+  - `createLineageInTransaction(params: { userId; orgId; projectId; folderId?: string; name: string; region: string; hallCode?: string; notes?: string; ipAddress?: string }): Promise<LineageMutationResult>`（**无 `surname`**；`folderId` 省略时自动创建/复用「默认分类」）
   - `LineageUpdates` 增加 `region?: string | null`、`notes?: string | null`，删除 `surname`
   - `LINEAGE_ERRORS.project_surname_missing = '项目未填写姓氏，请先完善项目基本信息'`
 
@@ -385,14 +399,48 @@ it('cannot change the surname through an update', async () => {
 });
 ```
 
+- [ ] **Step 1b: 写「无分类时建默认分类」的失败测试**
+
+```ts
+it('creates and reuses a default category when the project has none', async () => {
+  const { user, organization, project } = await setup();
+
+  const first = await createLineageInTransaction({
+    userId: user.id,
+    orgId: organization.id,
+    projectId: project.id,
+    name: '第一本',
+    region: '中国/福建',
+  });
+  const second = await createLineageInTransaction({
+    userId: user.id,
+    orgId: organization.id,
+    projectId: project.id,
+    name: '第二本',
+    region: '中国/福建',
+  });
+
+  expect(first.ok && second.ok).toBe(true);
+  if (!first.ok || !second.ok) return;
+  expect(first.lineage.folderId).not.toBeNull();
+  expect(second.lineage.folderId).toBe(first.lineage.folderId);
+
+  const foldersInProject = await getFolders(user.id, organization.id, project.id, 0);
+  expect(foldersInProject.map((f) => f.name)).toEqual(['默认分类']);
+});
+```
+
+`getFolders` 从 `@/lib/db/queries/folders` 引入；若测试文件尚未引入则补 import。
+
 - [ ] **Step 2: 运行测试确认失败**
 
 Run: `pnpm test:integration -- tests/integration/folders-lineages.test.ts`
-Expected: FAIL —— `region` 为 `undefined`、`project_surname_missing` 不存在、且现有其它调用点因缺 `folderId`/多 `surname` 报类型错。
+Expected: FAIL —— `region` 为 `undefined`、`project_surname_missing` 不存在、默认分类未创建，且现有其它调用点因多 `surname` 报类型错。
 
 - [ ] **Step 3: 改事务服务 `createLineageInTransaction`**
 
-- 参数删 `surname`，加 `region: string`、`notes?: string`。
+- 参数删 `surname`，加 `region: string`、`notes?: string`；`folderId` 改可选。
+- **R1 默认分类**：项目校验通过后，若 `folderId` 为空，则在当前事务内查找 `kind=0 AND name='默认分类' AND deleted_at IS NULL` 的分类：找到就复用，否则插入一条（`kind: 0`、`parentId: null`、`sort` 取现有最大值 +1、`createdBy: userId`）。把结果 id 作为本次谱系的 `folderId`。这段逻辑抽成同文件的 `resolveFolderInTx(tx, { orgId, projectId, userId, folderId })`，签名 `Promise<string>`，便于单测与复用。
 - 在项目存在性查询处把 select 扩为 `{ id: projects.id, surname: projects.surname }`。
 - 项目校验通过后插入前加：
 
@@ -499,14 +547,17 @@ git commit -m "feat(lineage): add readonly inherited project field"
 1. 用 `components/ui/dialog.tsx` 的 `Dialog` + `DialogContent`（`showCloseButton` 用默认 `true` 即可提供右上角 X），不再用 `createPortal`。
 2. `<form action={action} noValidate>` 内依次渲染七个字段，顺序与 Global Constraints 一致；`<input type="hidden" name="orgId|projectId">`。**不渲染 `surname` 输入项**。
 3. 名称：`Input id="lineage-name" maxLength={MAX_LINEAGE_NAME_LENGTH}`，占位「请输入谱系名称，限长24个字」，受控 state 并在标签旁显示 `${name.length}/24`。
-4. 所属分类：`Select` 受控，选项来自 `folders`（三级缩进复用文件内现有 `folderOptions()` 函数）；无分类时选项只有 `__new__`（「+ 新建分类」）；选中 `__new__` 时就地显示分类名输入框，提交前先调用 `createFolderAction({}, formData)`（`kind: '0'`，默认名「新建文件夹」），成功后把返回 `folderId` 写入 hidden 字段再提交创建。
+4. 所属分类：`Select` 受控，选项来自 `folders`（三级缩进复用文件内现有 `folderOptions()` 函数）。
+   - 项目**有分类**：默认选第一个；hidden `folderId` 写其 id。
+   - 项目**没有分类**：下拉禁用并显示提示「项目还没有分类，创建后将自动归入「默认分类」」；hidden `folderId` 提交空串，由服务层建默认分类（**R1**）。**不要**在这里调用 `createFolderAction` —— editor 调它会 403。
+   - `canProjectWrite` 为真时，下拉上方额外提供一个「新建分类…」链接按钮，点击后进入侧栏已有的新建文件夹流程（`onClose()` 后由侧栏处理）；无权限则不渲染。
 5. 主题名 / 姓氏：用 `ReadonlyProjectField`，`href` 为 `/dashboard/project/${projectRef}/settings`，`canEdit={canProjectWrite}`，`disabledReason="只有所有者或管理员可以修改项目基本信息"`。
 6. 地区：`Input id="lineage-region" name="region" defaultValue={projectRegion} maxLength={100}`，占位「例如：中国/北京/东城」。
 7. 郡望堂号 `name="hallCode"`（占位「请输入郡望堂号」）、备注 `Textarea name="notes"`（占位「请输入谱系备注」，`maxLength={500}`）。
 8. **不渲染字辈字段**。
 9. 「确定」在名称/分类/地区任一为空时 `disabled`；提交中显示「创建中…」。
 10. 成功（`state.lineageId`）后 `router.refresh()`、`router.push(/dashboard/project/${projectRef}/lineages/${id})`、`onClose()`。
-11. 关闭且表单有内容时弹二次确认（自绘 `Dialog` 嵌套或组件内确认层），文案「放弃已填内容？」「继续编辑」「放弃」。
+11. 关闭时的二次确认：**只有用户真正改过字段才提示**。用「当前值 ≠ 初始值」判定脏状态，名称、郡望堂号、备注与非默认分类都计入；**地区因为是预填默认值、且默认值本身等于项目地区，不算脏**（`region !== projectRegion` 才算脏）。标题「放弃已填内容？」，按钮「继续编辑」/「放弃」。
 12. 字段错误显示在对应字段下方（`state.fieldErrors?.x`），`state.error` 显示在表单底部。
 
 - [ ] **Step 2: 更新两个调用点**
@@ -557,15 +608,19 @@ import { shouldAutoOpenRoot } from '@/lib/lineage/auto-root';
 
 describe('shouldAutoOpenRoot', () => {
   it('opens once for an empty lineage', () => {
-    expect(shouldAutoOpenRoot({ nodeCount: 0, alreadyOpened: false })).toBe(true);
+    expect(shouldAutoOpenRoot({ nodeCount: 0, alreadyOpened: false, canWrite: true })).toBe(true);
   });
 
   it('never opens again in the same visit', () => {
-    expect(shouldAutoOpenRoot({ nodeCount: 0, alreadyOpened: true })).toBe(false);
+    expect(shouldAutoOpenRoot({ nodeCount: 0, alreadyOpened: true, canWrite: true })).toBe(false);
   });
 
   it('never opens for a lineage that already has people', () => {
-    expect(shouldAutoOpenRoot({ nodeCount: 2, alreadyOpened: false })).toBe(false);
+    expect(shouldAutoOpenRoot({ nodeCount: 2, alreadyOpened: false, canWrite: true })).toBe(false);
+  });
+
+  it('never opens for users who cannot write', () => {
+    expect(shouldAutoOpenRoot({ nodeCount: 0, alreadyOpened: false, canWrite: false })).toBe(false);
   });
 });
 ```
@@ -586,7 +641,7 @@ Expected: FAIL —— 模块不存在。
 
 - [ ] **Step 5: 空谱系自动打开「录入始祖」**
 
-在 `lineage-detail.tsx` 中：用 `useRef(false)` 记录已自动打开；`useEffect` 在挂载后调用 `shouldAutoOpenRoot({ nodeCount: nodes.length, alreadyOpened: ref.current })`，为真时 `ref.current = true` 并 `setCreateDialog({ mode: 'root' })`。仅在 `hasRoot === false` 时进入该逻辑。
+在 `lineage-detail.tsx` 中：用 `useRef(false)` 记录已自动打开；`useEffect` 在挂载后调用 `shouldAutoOpenRoot({ nodeCount: nodes.length, alreadyOpened: ref.current, canWrite })`，为真时 `ref.current = true` 并 `setCreateDialog({ mode: 'root' })`。仅在 `hasRoot === false` 时进入该逻辑。
 
 - [ ] **Step 6: 透传新字段到各处**
 
@@ -652,16 +707,20 @@ Expected: FAIL —— 按地区搜不到。
 
 `TreeLineageInput` 加 `region: string | null;`；`lineageMatches` 增加 `(lineage.region ?? '').toLowerCase().includes(needle)`。同步更新 `layout.tsx`、`lineage-workspace.tsx` 中构造 `TreeLineageInput` 的映射，补 `region`。
 
-- [ ] **Step 4: 运行测试**
+- [ ] **Step 4: 处理历史上超长名称**
+
+存量谱系可能是 25–100 字的名称。规则：**可读、只能改短**。编辑弹窗的 `maxLength` 取 `Math.max(MAX_LINEAGE_NAME_LENGTH, 现有名称长度)`，并在名称超过 24 字时显示提示「名称超过 24 字，保存前需要缩短」；侧栏内联重命名框同样改用 24。服务端照常按 24 拒绝，错误显示在字段下方。
+
+- [ ] **Step 5: 运行测试**
 
 Run: `pnpm typecheck && pnpm test`
 Expected: 全绿。
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 6: 提交**
 
 ```bash
-git add components/lineage/lineage-tree.ts tests/lineage-tree.test.ts
-git commit -m "feat(lineage): search lineages by region"
+git add components/lineage/lineage-tree.ts components/lineage/lineage-sidebar.tsx tests/lineage-tree.test.ts
+git commit -m "feat(lineage): search by region and cap rename length"
 ```
 
 ---
