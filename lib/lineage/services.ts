@@ -14,13 +14,15 @@ import {
   nodes,
   projects,
 } from '@/lib/db/schema';
+import { DEFAULT_LINEAGE_FOLDER_NAME } from '@/lib/lineage/constants';
 
 type LineageFailure =
   | 'forbidden'
   | 'not_found'
   | 'invalid_folder'
   | 'conflict'
-  | 'referenced';
+  | 'referenced'
+  | 'project_surname_missing';
 
 export type LineageMutationResult =
   | { ok: true; lineage: Lineage }
@@ -57,15 +59,69 @@ async function validProjectFolder(
   return Boolean(folder);
 }
 
+/**
+ * 创建谱系时确定归属分类。项目还没有分类时，在同一事务内创建或复用
+ * 「默认分类」，让只有 lineage.write 的编辑者也不会卡死。
+ */
+async function resolveFolderInTx(
+  tx: DbTransaction,
+  params: {
+    orgId: string;
+    projectId: string;
+    userId: string;
+    folderId?: string;
+  }
+): Promise<string> {
+  const { orgId, projectId, userId, folderId } = params;
+  if (folderId) {
+    return folderId;
+  }
+
+  const [existing] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(
+      and(
+        eq(folders.orgId, orgId),
+        eq(folders.projectId, projectId),
+        eq(folders.kind, 0),
+        isNull(folders.parentId),
+        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME),
+        isNull(folders.deletedAt)
+      )
+    )
+    .limit(1);
+  if (existing) {
+    return existing.id;
+  }
+
+  const [created] = await tx
+    .insert(folders)
+    .values({
+      orgId,
+      projectId,
+      kind: 0,
+      parentId: null,
+      name: DEFAULT_LINEAGE_FOLDER_NAME,
+      createdBy: userId,
+    })
+    .returning({ id: folders.id });
+
+  if (!created) {
+    throw new Error('failed to create the default lineage folder');
+  }
+  return created.id;
+}
+
 export async function createLineageInTransaction(params: {
   userId: string;
   orgId: string;
   projectId: string;
   folderId?: string;
   name: string;
-  surname: string;
+  region: string;
   hallCode?: string;
-  generationWords?: string[];
+  notes?: string;
   ipAddress?: string;
 }): Promise<LineageMutationResult> {
   const {
@@ -74,9 +130,9 @@ export async function createLineageInTransaction(params: {
     projectId,
     folderId,
     name,
-    surname,
+    region,
     hallCode,
-    generationWords,
+    notes,
     ipAddress,
   } = params;
 
@@ -87,7 +143,7 @@ export async function createLineageInTransaction(params: {
       }
 
       const [project] = await tx
-        .select({ id: projects.id })
+        .select({ id: projects.id, surname: projects.surname })
         .from(projects)
         .where(
           and(
@@ -107,16 +163,29 @@ export async function createLineageInTransaction(params: {
         return { ok: false, reason: 'invalid_folder' as const };
       }
 
+      const projectSurname = project.surname?.trim();
+      if (!projectSurname) {
+        return { ok: false, reason: 'project_surname_missing' as const };
+      }
+
+      const resolvedFolderId = await resolveFolderInTx(tx, {
+        orgId,
+        projectId,
+        userId,
+        folderId,
+      });
+
       const [lineage] = await tx
         .insert(lineages)
         .values({
           orgId,
           projectId,
-          folderId: folderId ?? null,
+          folderId: resolvedFolderId,
           name,
-          surname,
+          surname: projectSurname,
+          region,
+          notes: notes ?? null,
           hallCode: hallCode ?? null,
-          generationWords: generationWords ?? null,
           createdBy: userId,
         })
         .returning();
@@ -141,8 +210,9 @@ export async function createLineageInTransaction(params: {
 export type LineageUpdates = {
   folderId?: string | null;
   name?: string;
-  surname?: string;
   hallCode?: string | null;
+  region?: string | null;
+  notes?: string | null;
   generationWords?: string[];
 };
 
@@ -188,9 +258,20 @@ export async function updateLineageInTransaction(params: {
         return { ok: false, reason: 'invalid_folder' as const };
       }
 
+      // 白名单写入：姓氏只能继承项目，任何调用方都无法通过更新改它。
+      const mutable: LineageUpdates = {};
+      if (updates.folderId !== undefined) mutable.folderId = updates.folderId;
+      if (updates.name !== undefined) mutable.name = updates.name;
+      if (updates.hallCode !== undefined) mutable.hallCode = updates.hallCode;
+      if (updates.region !== undefined) mutable.region = updates.region;
+      if (updates.notes !== undefined) mutable.notes = updates.notes;
+      if (updates.generationWords !== undefined) {
+        mutable.generationWords = updates.generationWords;
+      }
+
       const [lineage] = await tx
         .update(lineages)
-        .set({ ...updates, updatedAt: new Date() })
+        .set({ ...mutable, updatedAt: new Date() })
         .where(eq(lineages.id, lineageId))
         .returning();
 

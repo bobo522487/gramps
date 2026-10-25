@@ -232,11 +232,12 @@ describe('createLineageSchema', () => {
       expect(parsed.data.folderId).toBeUndefined();
     }
 
-    expect(createLineageSchema.safeParse({ ...base, region: '   ' }).success).toBe(
-      false
-    );
     expect(
-      createLineageSchema.safeParse({ ...base, region: '地'.repeat(101) }).success
+      createLineageSchema.safeParse({ ...base, region: '   ' }).success
+    ).toBe(false);
+    expect(
+      createLineageSchema.safeParse({ ...base, region: '地'.repeat(101) })
+        .success
     ).toBe(false);
   });
 
@@ -246,9 +247,14 @@ describe('createLineageSchema', () => {
   });
 
   it('keeps notes optional and generation words out of creation', () => {
-    const parsed = createLineageSchema.parse({ ...base, notes: '光绪年间分谱' });
+    const parsed = createLineageSchema.parse({
+      ...base,
+      notes: '光绪年间分谱',
+    });
     expect(parsed.notes).toBe('光绪年间分谱');
-    expect(createLineageSchema.parse(base)).not.toHaveProperty('generationWords');
+    expect(createLineageSchema.parse(base)).not.toHaveProperty(
+      'generationWords'
+    );
   });
 });
 

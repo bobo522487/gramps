@@ -84,37 +84,6 @@ const booleanField = z.preprocess(
   z.boolean()
 );
 
-const generationWords = z.preprocess(
-  (value) => (value === '' || value === null ? undefined : value),
-  z
-    .string()
-    .trim()
-    .max(240, '字辈不能超过 240 个字符')
-    .optional()
-    .transform((value, ctx) => {
-      if (!value) {
-        return undefined;
-      }
-      const words = value.split(/[\s,，、]+/).filter(Boolean);
-      if (words.length > 40) {
-        ctx.addIssue({
-          code: 'custom',
-          message: '字辈最多 40 个字',
-        });
-        return z.NEVER;
-      }
-      const tooLong = words.find((word) => word.length > 8);
-      if (tooLong) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `字辈「${tooLong}」过长`,
-        });
-        return z.NEVER;
-      }
-      return words;
-    })
-);
-
 export const createFolderSchema = z.object({
   orgId,
   projectId,

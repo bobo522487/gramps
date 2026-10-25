@@ -37,7 +37,7 @@ async function setup() {
     orgId: personal.organization.id,
     projectId: project.id,
     name: '测试谱系',
-    surname: '陈',
+    region: '中国/福建',
   });
   if (!lineage.ok) {
     throw new Error('failed to create lineage');
@@ -61,7 +61,6 @@ async function root(
     orgId,
     lineageId,
     name,
-    surname: '陈',
     sex: 0,
   });
   if (!result.ok) {
@@ -83,7 +82,6 @@ async function child(
     lineageId,
     parentId,
     name,
-    surname: '陈',
     sex: 0,
   });
   if (!result.ok) {
