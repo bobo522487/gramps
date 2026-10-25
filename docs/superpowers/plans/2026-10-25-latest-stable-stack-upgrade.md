@@ -14,6 +14,7 @@
 
 - Node.js 使用 **24.x LTS**（`24.22.1`）。Node 26 是 Current，不作为生产基线。
 - pnpm 使用 **12.15.0**；在 `package.json` 写入 `packageManager` 与 `engines`，并新增 `.nvmrc`。
+- pnpm 11 起删除了 `onlyBuiltDependencies`；pnpm 12 使用 `allowBuilds` 映射（布尔值）控制安装脚本，见 Context7 / pnpm 官方迁移说明。
 - 精确目标版本：
   - 运行时/框架：`next@16.4.3`、`react@19.3.1`、`react-dom@19.3.1`、`typescript@7.0.2`。
   - 类型：`@types/node@24.19.2`、`@types/react@19.3.0`、`@types/react-dom@19.3.0`、`@types/pg@8.23.1`。
@@ -36,7 +37,7 @@
 1. **TypeScript 7 + Next 16.4.3 编译器路径**：`tsconfig.json` 的 `baseUrl` 在 TS 7 中已废弃；Next 16.4.3 默认用项目本地 `tsc` CLI 做生产构建类型检查。验证命令是 `pnpm typecheck` 与 `pnpm build`，两者都必须通过。
 2. **Zod 4 文案与行为等价**：`required_error`/`invalid_type_error` 移除后，必填与类型错误的文案必须分别保持；邮箱的 trim/lowercase、邀请 UUID 的 trim、custom issue 的路径都不能变化。`z.uuid()` 在 Zod 4 中更严格，要求 RFC 9562/4122 variant bits；仓库内 UUIDv7/v4 均满足。对应测试写在 `tests/auth-schemas.test.ts` 与 `tests/lineage-schemas.test.ts`。
 3. **Vitest 5 配置继承**：Vitest 5 的内联 project 默认继承根配置，且 glob 覆盖率门槛不再继承顶层 `perFile`。必须保持集成测试串行（`fileParallelism: false`）与现有覆盖率门槛。验证命令是 `pnpm test`、`pnpm test:integration`、`pnpm test:coverage`。
-4. **pnpm 12 构建脚本白名单**：`package.json` 的 `pnpm` 字段不再读取；`onlyBuiltDependencies` 必须迁移到 `pnpm-workspace.yaml`，否则 `@tailwindcss/oxide`、`esbuild` 不会执行安装脚本。验证命令是 `pnpm install --frozen-lockfile` 与 `pnpm build`。
+4. **pnpm 12 构建脚本白名单**：`package.json` 的 `pnpm` 字段不再读取；`onlyBuiltDependencies` 已在 pnpm 11 删除，必须在 `pnpm-workspace.yaml` 使用 `allowBuilds` 映射，否则 `@tailwindcss/oxide`、`esbuild` 不会执行安装脚本。验证命令是 `pnpm install --frozen-lockfile` 与 `pnpm build`。
 5. **UI 依赖大版本**：`lucide-react` 从 0.x 升到 1.x、`radix-ui` 1.4→1.8、Tailwind 4.1→4.3、React 19.1→19.3。构建与 E2E 能覆盖导入/渲染，但不能替代视觉检查；`pnpm dev` 手工走首页、登录、控制台、谱系画布、弹窗与下拉。
 
 ---
@@ -52,7 +53,7 @@
 
 **Interfaces:**
 - Consumes: 当前 `package.json` 的 `pnpm.onlyBuiltDependencies` 与 CI 的 Node 22 / pnpm 9。
-- Produces: `packageManager: "pnpm@12.15.0"`、`engines.node: ">=24.0.0 <25"`、`engines.pnpm: ">=12.0.0 <13"`、`pnpm-workspace.yaml` 的 `onlyBuiltDependencies`；后续任务统一使用 pnpm 12。Node/pnpm 的文档同步在 Task 7 完成。
+- Produces: `packageManager: "pnpm@12.15.0"`、`engines.node: ">=24.0.0 <25"`、`engines.pnpm: ">=12.0.0 <13"`、`pnpm-workspace.yaml` 的 `allowBuilds`；后续任务统一使用 pnpm 12。Node/pnpm 的文档同步在 Task 7 完成。
 
 - [ ] **Step 1: 准备 pnpm 12**
 
@@ -91,9 +92,9 @@ Expected: `12.15.0`。
 - [ ] **Step 4: 新建 `pnpm-workspace.yaml`**
 
 ```yaml
-onlyBuiltDependencies:
-  - '@tailwindcss/oxide'
-  - esbuild
+allowBuilds:
+  '@tailwindcss/oxide': true
+  esbuild: true
 ```
 
 - [ ] **Step 5: 更新 CI 运行时**
@@ -742,6 +743,7 @@ Expected: FAIL，`docs/implementation-status.md` 仍是 `Next.js 16.4.0` / `Reac
 - 前置条件表改为 Node.js `24.x LTS`、pnpm `12.x`。
 - Corepack 命令改为 `pnpm@12.15.0`。
 - “没有 `packageManager` 和 `engines`”改为“通过 `packageManager` / `engines` 固定”；补充 `.nvmrc` 记录 `24.22.1`。
+- 补充一句：pnpm 12 从 `pnpm-workspace.yaml` 读取 `allowBuilds`；`onlyBuiltDependencies` 已在 pnpm 11 删除，不要恢复。
 - CI 段落改为 Node 24、pnpm 12。
 - 保留 PostgreSQL 18、`postgres:18-alpine` 不变。
 
