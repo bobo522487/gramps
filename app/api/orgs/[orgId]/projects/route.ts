@@ -4,7 +4,7 @@ import { getSessionUser } from '@/lib/auth/context';
 import { getOrgRole } from '@/lib/auth/permissions';
 import { getProjects } from '@/lib/db/queries/projects';
 
-const orgIdSchema = z.string().uuid();
+const orgIdSchema = z.uuid();
 
 export const GET = withApiLogging(
   'org-projects',

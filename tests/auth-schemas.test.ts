@@ -32,6 +32,17 @@ describe('credential schema normalization', () => {
     expect(result.error?.issues[0].message).toBe('邮箱格式不正确');
   });
 
+  it('keeps required and invalid-type email messages distinct', () => {
+    expect(
+      signInSchema.safeParse({ password: 'password123' }).error?.issues[0]
+        .message
+    ).toBe('请输入邮箱');
+    expect(
+      signInSchema.safeParse({ email: 123, password: 'password123' }).error
+        ?.issues[0].message
+    ).toBe('邮箱格式不正确');
+  });
+
   it('enforces the same password bounds on both flows', () => {
     for (const schema of [signInSchema, signUpSchema]) {
       expect(
@@ -81,6 +92,13 @@ describe('invitation acceptance schema', () => {
     expect(
       acceptInviteSchema.safeParse({ token: 'x'.repeat(32) }).success
     ).toBe(false);
+  });
+
+  it('trims an invitation id before uuid validation', () => {
+    const result = acceptInviteSchema.safeParse({
+      invitationId: '  0190a5b0-0000-7000-8000-000000000001  ',
+    });
+    expect(result.success).toBe(true);
   });
 });
 

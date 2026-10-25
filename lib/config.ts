@@ -27,7 +27,7 @@ const serverConfigSchema = z
     BETTER_AUTH_SECRET: z
       .string()
       .min(32, 'BETTER_AUTH_SECRET must be at least 32 characters long'),
-    BETTER_AUTH_URL: z.string().url('BETTER_AUTH_URL must be a valid URL'),
+    BETTER_AUTH_URL: z.url('BETTER_AUTH_URL must be a valid URL'),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   })
   .superRefine((config, ctx) => {
@@ -39,7 +39,7 @@ const serverConfigSchema = z
       isPooledEndpoint(config.AUTH_POSTGRES_URL ?? config.POSTGRES_URL)
     ) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         path: ['AUTH_POSTGRES_URL'],
         message:
           'must use the unpooled (direct) endpoint because the auth connection pins role=auth_service with a startup parameter',
@@ -53,7 +53,7 @@ const serverConfigSchema = z
     for (const key of ['APP_POSTGRES_URL', 'AUTH_POSTGRES_URL'] as const) {
       if (!config[key]) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           path: [key],
           message: `${key} is required in production`,
         });

@@ -4,12 +4,14 @@ import {
   addPersonSchema,
   addSiblingSchema,
   addSpouseSchema,
+  createFolderSchema,
   createRootNodeSchema,
 } from '@/lib/genealogy/schemas';
 
 const orgId = '00000000-0000-4000-8000-000000000001';
 const lineageId = '00000000-0000-4000-8000-000000000002';
 const parentId = '00000000-0000-4000-8000-000000000003';
+const projectId = '00000000-0000-4000-8000-000000000004';
 
 describe('node creation schemas', () => {
   it('parses creation details and co-recorded spouse fields', () => {
@@ -171,5 +173,26 @@ describe('node creation schemas', () => {
       birthYear: '0',
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe('field-level validation messages', () => {
+  it('keeps schema-specific messages for folder kind and sex', () => {
+    expect(
+      createFolderSchema.safeParse({
+        orgId,
+        projectId,
+        kind: '9',
+        name: '谱系',
+      }).error?.issues[0].message
+    ).toBe('分类类型无效');
+    expect(
+      createRootNodeSchema.safeParse({
+        orgId,
+        lineageId,
+        name: '元英',
+        sex: '2',
+      }).error?.issues[0].message
+    ).toBe('请选择性别');
   });
 });

@@ -7,7 +7,7 @@ export type { ActionState } from './types';
 
 import type { ActionState } from './types';
 
-type ValidatedActionFunction<S extends z.ZodTypeAny, T> = (
+type ValidatedActionFunction<S extends z.ZodType, T> = (
   data: z.infer<S>,
   formData: FormData
 ) => Promise<T>;
@@ -23,13 +23,13 @@ function validationState(error: z.ZodError, formData: FormData): ActionState {
   // Echo the email so React's automatic form reset keeps it on screen
   const email = formData.get('email');
   return {
-    error: error.errors[0].message,
+    error: error.issues[0].message,
     fieldErrors,
     ...(typeof email === 'string' ? { email } : {}),
   };
 }
 
-export function validatedAction<S extends z.ZodTypeAny, T>(
+export function validatedAction<S extends z.ZodType, T>(
   schema: S,
   action: ValidatedActionFunction<S, T>
 ) {
@@ -43,13 +43,13 @@ export function validatedAction<S extends z.ZodTypeAny, T>(
   };
 }
 
-type ValidatedActionWithUserFunction<S extends z.ZodTypeAny, T> = (
+type ValidatedActionWithUserFunction<S extends z.ZodType, T> = (
   data: z.infer<S>,
   formData: FormData,
   user: SessionUser
 ) => Promise<T>;
 
-export function validatedActionWithUser<S extends z.ZodTypeAny, T>(
+export function validatedActionWithUser<S extends z.ZodType, T>(
   schema: S,
   action: ValidatedActionWithUserFunction<S, T>
 ) {

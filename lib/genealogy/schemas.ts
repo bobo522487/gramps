@@ -3,27 +3,27 @@ import { z } from 'zod';
 export const FOLDER_KINDS = [0, 1, 2] as const;
 export type FolderKind = (typeof FOLDER_KINDS)[number];
 
-const orgId = z.string().uuid('组织 ID 无效');
-const projectId = z.string().uuid('云谱空间 ID 无效');
-const folderId = z.string().uuid('分类 ID 无效');
-const lineageId = z.string().uuid('谱系 ID 无效');
-const nodeId = z.string().uuid('人丁 ID 无效');
+const orgId = z.uuid('组织 ID 无效');
+const projectId = z.uuid('云谱空间 ID 无效');
+const folderId = z.uuid('分类 ID 无效');
+const lineageId = z.uuid('谱系 ID 无效');
+const nodeId = z.uuid('人丁 ID 无效');
 
 const optionalUuid = (message: string) =>
   z.preprocess(
     (value) => (value === '' || value === null ? undefined : value),
-    z.string().uuid(message).optional()
+    z.uuid(message).optional()
   );
 
 const clearableUuid = (message: string) =>
   z.preprocess(
     (value) => (value === '' ? null : value),
-    z.union([z.string().uuid(message), z.null()]).optional()
+    z.union([z.uuid(message), z.null()]).optional()
   );
 
 const text = (label: string, max: number) =>
   z
-    .string({ required_error: `请输入${label}` })
+    .string({ error: `请输入${label}` })
     .trim()
     .min(1, `请输入${label}`)
     .max(max, `${label}不能超过 ${max} 个字符`);
@@ -48,7 +48,7 @@ const clearableText = (max: number, message: string) =>
 const sex = z.preprocess(
   (value) => (value === '' || value === null ? undefined : Number(value)),
   z
-    .number({ required_error: '请选择性别', invalid_type_error: '请选择性别' })
+    .number({ error: '请选择性别' })
     .int()
     .refine((value) => value === 0 || value === 1, '请选择性别')
 );
@@ -92,7 +92,7 @@ const generationWords = z.preprocess(
       const words = value.split(/[\s,，、]+/).filter(Boolean);
       if (words.length > 40) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           message: '字辈最多 40 个字',
         });
         return z.NEVER;
@@ -100,7 +100,7 @@ const generationWords = z.preprocess(
       const tooLong = words.find((word) => word.length > 8);
       if (tooLong) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: 'custom',
           message: `字辈「${tooLong}」过长`,
         });
         return z.NEVER;
@@ -113,7 +113,7 @@ export const createFolderSchema = z.object({
   orgId,
   projectId,
   kind: z.coerce
-    .number({ invalid_type_error: '分类类型无效' })
+    .number({ error: '分类类型无效' })
     .int()
     .refine(
       (value) => FOLDER_KINDS.includes(value as FolderKind),
@@ -168,7 +168,7 @@ export const updateLineageSchema = z.object({
         const words = value.split(/[\s,，、]+/).filter(Boolean);
         if (words.length > 40) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: 'custom',
             message: '字辈最多 40 个字',
           });
           return z.NEVER;
@@ -216,7 +216,7 @@ function requireSpousePair(
     return;
   }
   ctx.addIssue({
-    code: z.ZodIssueCode.custom,
+    code: 'custom',
     path: hasName ? ['spouseSurname'] : ['spouseName'],
     message: '请同时填写配偶的姓氏与名讳',
   });
@@ -310,26 +310,24 @@ export const reorderSiblingsSchema = z.object({
   orgId,
   lineageId,
   parentId: optionalUuid('父节点无效'),
-  orderedIds: z
-    .string({ required_error: '排序数据无效' })
-    .transform((value, ctx) => {
-      try {
-        const parsed: unknown = JSON.parse(value);
-        if (
-          !Array.isArray(parsed) ||
-          parsed.some((id) => typeof id !== 'string')
-        ) {
-          throw new Error('invalid');
-        }
-        return parsed as string[];
-      } catch {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: '排序数据无效',
-        });
-        return z.NEVER;
+  orderedIds: z.string({ error: '排序数据无效' }).transform((value, ctx) => {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (
+        !Array.isArray(parsed) ||
+        parsed.some((id) => typeof id !== 'string')
+      ) {
+        throw new Error('invalid');
       }
-    }),
+      return parsed as string[];
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        message: '排序数据无效',
+      });
+      return z.NEVER;
+    }
+  }),
 });
 
 export type CreateFolderInput = z.infer<typeof createFolderSchema>;

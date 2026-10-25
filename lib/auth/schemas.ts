@@ -11,26 +11,26 @@ import {
   PROJECT_STATUS_VALUES,
 } from '@/lib/project/constants';
 
-const orgId = z.string().uuid('组织 ID 无效');
-const projectId = z.string().uuid('项目 ID 无效');
-const memberId = z.string().uuid('成员 ID 无效');
+const orgId = z.uuid('组织 ID 无效');
+const projectId = z.uuid('项目 ID 无效');
+const memberId = z.uuid('成员 ID 无效');
 
 // Trim + lowercase so storage, lookup and comparison all use one form.
 // Zod applies string checks in chain order, so the transforms run first.
 const normalizedEmail = z
   .string({
-    required_error: '请输入邮箱',
-    invalid_type_error: '邮箱格式不正确',
+    error: (issue) =>
+      issue.input === undefined ? '请输入邮箱' : '邮箱格式不正确',
   })
   .trim()
   .toLowerCase()
-  .email('邮箱格式不正确')
-  .max(255, '邮箱不能超过 255 个字符');
+  .max(255, '邮箱不能超过 255 个字符')
+  .pipe(z.email('邮箱格式不正确'));
 
 const password = z
   .string({
-    required_error: '请输入密码',
-    invalid_type_error: '密码格式不正确',
+    error: (issue) =>
+      issue.input === undefined ? '请输入密码' : '密码格式不正确',
   })
   .min(8, '密码至少需要 8 个字符')
   .max(100, '密码不能超过 100 个字符');
@@ -74,36 +74,36 @@ export const signUpSchema = z.object({
 
 export const acceptInviteSchema = z.object({
   invitationId: z
-    .string({ required_error: '邀请链接无效' })
+    .string({ error: '邀请链接无效' })
     .trim()
-    .uuid('邀请链接无效'),
+    .pipe(z.uuid('邀请链接无效')),
 });
 
 export const updatePasswordSchema = z.object({
   currentPassword: z
-    .string({ required_error: '请输入当前密码' })
+    .string({ error: '请输入当前密码' })
     .min(8, '密码至少需要 8 个字符')
     .max(100, '密码不能超过 100 个字符'),
   newPassword: z
-    .string({ required_error: '请输入新密码' })
+    .string({ error: '请输入新密码' })
     .min(8, '密码至少需要 8 个字符')
     .max(100, '密码不能超过 100 个字符'),
   confirmPassword: z
-    .string({ required_error: '请确认新密码' })
+    .string({ error: '请确认新密码' })
     .min(8, '密码至少需要 8 个字符')
     .max(100, '密码不能超过 100 个字符'),
 });
 
 export const deleteAccountSchema = z.object({
   password: z
-    .string({ required_error: '请输入密码' })
+    .string({ error: '请输入密码' })
     .min(8, '密码至少需要 8 个字符')
     .max(100, '密码不能超过 100 个字符'),
 });
 
 export const updateAccountSchema = z.object({
   name: z
-    .string({ required_error: '请输入姓名' })
+    .string({ error: '请输入姓名' })
     .trim()
     .min(1, '请输入姓名')
     .max(100, '姓名不能超过 100 个字符'),
@@ -118,8 +118,7 @@ export const updateOrgMemberRoleSchema = z.object({
   orgId,
   memberId,
   role: z.enum(['admin', 'editor', 'viewer'], {
-    required_error: '请选择角色',
-    invalid_type_error: '请选择角色',
+    error: '请选择角色',
   }),
 });
 
@@ -127,14 +126,13 @@ export const inviteOrgMemberSchema = z.object({
   orgId,
   email: normalizedEmail,
   role: z.enum(['admin', 'editor', 'viewer'], {
-    required_error: '请选择角色',
-    invalid_type_error: '请选择角色',
+    error: '请选择角色',
   }),
 });
 
 export const createOrgSchema = z.object({
   name: z
-    .string({ required_error: '请输入组织名称' })
+    .string({ error: '请输入组织名称' })
     .trim()
     .min(1, '请输入组织名称')
     .max(100, '组织名称不能超过 100 个字符'),
@@ -143,7 +141,7 @@ export const createOrgSchema = z.object({
 export const renameOrgSchema = z.object({
   orgId,
   name: z
-    .string({ required_error: '请输入组织名称' })
+    .string({ error: '请输入组织名称' })
     .trim()
     .min(1, '请输入组织名称')
     .max(100, '组织名称不能超过 100 个字符'),
@@ -154,14 +152,12 @@ export const deleteOrgSchema = z.object({
 });
 
 const projectStatus = z.enum(PROJECT_STATUS_VALUES, {
-  required_error: '请选择项目状态',
-  invalid_type_error: '请选择项目状态',
+  error: '请选择项目状态',
 });
 
 const projectImportance = z.coerce
   .number({
-    required_error: '请选择重要等级',
-    invalid_type_error: '请选择重要等级',
+    error: '请选择重要等级',
   })
   .int('重要等级必须是整数')
   .min(1, '重要等级最低为 1 星')
@@ -170,7 +166,7 @@ const projectImportance = z.coerce
 export const createProjectSchema = z.object({
   orgId,
   name: z
-    .string({ required_error: '请输入项目名' })
+    .string({ error: '请输入项目名' })
     .trim()
     .min(1, '请输入项目名')
     .max(
@@ -178,7 +174,7 @@ export const createProjectSchema = z.object({
       `项目名不能超过 ${MAX_PROJECT_NAME_LENGTH} 个字符`
     ),
   surname: z
-    .string({ required_error: '请输入姓氏' })
+    .string({ error: '请输入姓氏' })
     .trim()
     .min(1, '请输入姓氏')
     .max(
@@ -186,7 +182,7 @@ export const createProjectSchema = z.object({
       `姓氏不能超过 ${MAX_PROJECT_SURNAME_LENGTH} 个字符`
     ),
   themeName: z
-    .string({ required_error: '请输入主题名' })
+    .string({ error: '请输入主题名' })
     .trim()
     .min(1, '请输入主题名')
     .max(
@@ -194,7 +190,7 @@ export const createProjectSchema = z.object({
       `主题名不能超过 ${MAX_PROJECT_THEME_NAME_LENGTH} 个字符`
     ),
   countriesRegions: z
-    .string({ required_error: '请输入地区' })
+    .string({ error: '请输入地区' })
     .trim()
     .min(1, '请输入地区')
     .max(

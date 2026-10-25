@@ -236,8 +236,8 @@ importers:
         specifier: 1.4.0
         version: 1.4.0
       zod:
-        specifier: ^3.24.4
-        version: 3.24.4
+        specifier: 4.6.7
+        version: 4.6.7
       zustand:
         specifier: 5.0.16
         version: 5.0.16(@types/react@19.3.0)(react@19.3.1)(use-sync-external-store@1.5.0(react@19.3.1))
@@ -3472,9 +3472,6 @@ packages:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
 
-  zod@3.24.4:
-    resolution: {integrity: sha512-OdqJE9UDRPwWsrHjLN2F8bPxvwJBK22EHLWtanu0LSYr5YqzsaaW3RMgmjwr8Rypg5k+meEJdSPXJZXE/yqOMg==}
-
   zod@4.1.11:
     resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
 
@@ -6280,8 +6277,6 @@ snapshots:
       os-paths: 4.4.0
 
   xtend@4.0.2: {}
-
-  zod@3.24.4: {}
 
   zod@4.1.11: {}
 
