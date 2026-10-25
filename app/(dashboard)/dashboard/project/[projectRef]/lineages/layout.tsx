@@ -38,6 +38,7 @@ export default async function LineagesLayout({
         name: lineage.name,
         surname: lineage.surname,
         hallCode: lineage.hallCode,
+        region: lineage.region,
         nodeCount: lineage.nodeCount,
         folderId: lineage.folderId,
       }))}

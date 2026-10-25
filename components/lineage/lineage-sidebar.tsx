@@ -44,6 +44,7 @@ import {
   deleteLineageAction,
   updateLineageAction,
 } from '@/lib/lineage/actions';
+import { MAX_LINEAGE_NAME_LENGTH } from '@/lib/lineage/constants';
 import { cn } from '@/lib/utils';
 
 export type LineageSidebarProps = {
@@ -303,7 +304,7 @@ export function LineageSidebar({
           }
         }}
         size="sm"
-        maxLength={100}
+        maxLength={editing?.kind === 'lineage' ? MAX_LINEAGE_NAME_LENGTH : 100}
         aria-label="重命名"
         autoFocus
         className="h-5 rounded border-primary px-1 text-xs"
