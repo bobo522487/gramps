@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  MAX_LINEAGE_HALL_CODE_LENGTH,
+  MAX_LINEAGE_NAME_LENGTH,
+  MAX_LINEAGE_NOTES_LENGTH,
+  MAX_LINEAGE_REGION_LENGTH,
+} from '@/lib/lineage/constants';
 
 export const FOLDER_KINDS = [0, 1, 2] as const;
 export type FolderKind = (typeof FOLDER_KINDS)[number];
@@ -137,20 +143,25 @@ export const deleteFolderSchema = z.object({
 export const createLineageSchema = z.object({
   orgId,
   projectId,
+  // 空值表示项目还没有分类，由服务端在同一事务内创建「默认分类」。
   folderId: optionalUuid('分类无效'),
-  name: text('谱系名称', 100),
-  surname: text('姓氏', 30),
-  hallCode: optionalText(60, '郡望/堂号不能超过 60 个字符'),
-  generationWords,
+  name: text('谱系名称', MAX_LINEAGE_NAME_LENGTH),
+  hallCode: optionalText(
+    MAX_LINEAGE_HALL_CODE_LENGTH,
+    '郡望/堂号不能超过 60 个字符'
+  ),
+  region: text('地区', MAX_LINEAGE_REGION_LENGTH),
+  notes: optionalText(MAX_LINEAGE_NOTES_LENGTH, '备注不能超过 500 个字符'),
 });
 
 export const updateLineageSchema = z.object({
   orgId,
   lineageId,
   folderId: clearableUuid('分类无效'),
-  name: text('谱系名称', 100).optional(),
-  surname: text('姓氏', 30).optional(),
+  name: text('谱系名称', MAX_LINEAGE_NAME_LENGTH).optional(),
   hallCode: clearableText(60, '郡望/堂号不能超过 60 个字符'),
+  region: clearableText(MAX_LINEAGE_REGION_LENGTH, '地区不能超过 100 个字符'),
+  notes: clearableText(MAX_LINEAGE_NOTES_LENGTH, '备注不能超过 500 个字符'),
   generationWords: z.preprocess(
     (value) => (value === null ? undefined : value),
     z
