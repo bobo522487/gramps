@@ -26,7 +26,10 @@ type LineageShellProps = {
   orgId: string;
   projectId: string;
   projectRef: string;
-  defaultSurname: string;
+  projectThemeName: string;
+  projectSurname: string;
+  projectRegion: string;
+  canProjectWrite: boolean;
   folders: TreeFolderInput[];
   lineages: TreeLineageInput[];
   canWrite: boolean;
@@ -38,7 +41,10 @@ export function LineageShell({
   orgId,
   projectId,
   projectRef,
-  defaultSurname,
+  projectThemeName,
+  projectSurname,
+  projectRegion,
+  canProjectWrite,
   folders,
   lineages,
   canWrite,
@@ -63,7 +69,10 @@ export function LineageShell({
     orgId,
     projectId,
     projectRef,
-    defaultSurname,
+    projectThemeName,
+    projectSurname,
+    projectRegion,
+    canProjectWrite,
     folders,
     lineages,
     canWrite,

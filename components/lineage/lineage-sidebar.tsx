@@ -44,13 +44,17 @@ import {
   deleteLineageAction,
   updateLineageAction,
 } from '@/lib/lineage/actions';
+import { MAX_LINEAGE_NAME_LENGTH } from '@/lib/lineage/constants';
 import { cn } from '@/lib/utils';
 
 export type LineageSidebarProps = {
   orgId: string;
   projectId: string;
   projectRef: string;
-  defaultSurname: string;
+  projectThemeName: string;
+  projectSurname: string;
+  projectRegion: string;
+  canProjectWrite: boolean;
   folders: TreeFolderInput[];
   lineages: TreeLineageInput[];
   canWrite: boolean;
@@ -72,7 +76,10 @@ export function LineageSidebar({
   orgId,
   projectId,
   projectRef,
-  defaultSurname,
+  projectThemeName,
+  projectSurname,
+  projectRegion,
+  canProjectWrite,
   folders,
   lineages,
   canWrite,
@@ -297,11 +304,26 @@ export function LineageSidebar({
           }
         }}
         size="sm"
-        maxLength={100}
+        maxLength={
+          current.kind === 'lineage'
+            ? Math.max(MAX_LINEAGE_NAME_LENGTH, current.original.length)
+            : 100
+        }
         aria-label="重命名"
+        aria-invalid={
+          current.kind === 'lineage' &&
+          current.value.trim().length > MAX_LINEAGE_NAME_LENGTH
+        }
         autoFocus
         className="h-5 rounded border-primary px-1 text-xs"
       />
+    );
+  }
+
+  function renameTooLong(current: EditingState) {
+    return (
+      current.kind === 'lineage' &&
+      current.value.trim().length > MAX_LINEAGE_NAME_LENGTH
     );
   }
 
@@ -309,6 +331,7 @@ export function LineageSidebar({
     const active = lineage.id === activeLineageId;
     const isEditing = editing?.kind === 'lineage' && editing.id === lineage.id;
     const indent = 10 + depth * 14;
+    const tooLong = isEditing && editing ? renameTooLong(editing) : false;
 
     return (
       <div key={`lineage-${lineage.id}`}>
@@ -386,6 +409,11 @@ export function LineageSidebar({
             </DropdownMenu>
           ) : null}
         </div>
+        {tooLong ? (
+          <p role="status" className="px-4 pb-1 text-[11px] text-destructive">
+            名称超过 {MAX_LINEAGE_NAME_LENGTH} 字，保存前需要缩短
+          </p>
+        ) : null}
         {rowError?.id === lineage.id ? (
           <p className="px-4 pb-1 text-[11px] text-destructive">
             {rowError.message}
@@ -692,7 +720,10 @@ export function LineageSidebar({
           orgId={orgId}
           projectId={projectId}
           projectRef={projectRef}
-          defaultSurname={defaultSurname}
+          projectThemeName={projectThemeName}
+          projectSurname={projectSurname}
+          projectRegion={projectRegion}
+          canProjectWrite={canProjectWrite}
           folders={folders}
           defaultFolderId={createLineage.folderId}
           onClose={() => setCreateLineage(null)}

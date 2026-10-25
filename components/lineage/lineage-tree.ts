@@ -9,6 +9,7 @@ export type TreeLineageInput = {
   name: string;
   surname: string;
   hallCode: string | null;
+  region: string | null;
   nodeCount: number;
   folderId: string | null;
 };
@@ -109,7 +110,8 @@ function lineageMatches(lineage: TreeLineageInput, needle: string) {
   return (
     lineage.name.toLowerCase().includes(needle) ||
     lineage.surname.toLowerCase().includes(needle) ||
-    (lineage.hallCode ?? '').toLowerCase().includes(needle)
+    (lineage.hallCode ?? '').toLowerCase().includes(needle) ||
+    (lineage.region ?? '').toLowerCase().includes(needle)
   );
 }
 

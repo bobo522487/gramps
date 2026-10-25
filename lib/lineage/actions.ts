@@ -51,6 +51,7 @@ const LINEAGE_ERRORS = {
   invalid_parent: '父节点无效',
   cycle: '不能把节点移动到自己的子孙下面',
   invalid_order: '排序数据无效',
+  project_surname_missing: '项目未填写姓氏，请先完善项目基本信息',
 } as const;
 
 function revalidateProject() {
@@ -104,9 +105,9 @@ export const createLineageAction = validatedActionWithUser(
       projectId: data.projectId,
       folderId: data.folderId,
       name: data.name,
-      surname: data.surname,
+      region: data.region,
       hallCode: data.hallCode,
-      generationWords: data.generationWords,
+      notes: data.notes,
     });
 
     if (!result.ok) {
@@ -131,11 +132,14 @@ export const updateLineageAction = validatedActionWithUser(
     if (data.name !== undefined) {
       updates.name = data.name;
     }
-    if (data.surname !== undefined) {
-      updates.surname = data.surname;
-    }
     if (data.hallCode !== undefined) {
       updates.hallCode = data.hallCode;
+    }
+    if (data.region !== undefined) {
+      updates.region = data.region;
+    }
+    if (data.notes !== undefined) {
+      updates.notes = data.notes;
     }
     if (data.generationWords !== undefined) {
       updates.generationWords = data.generationWords;

@@ -26,7 +26,10 @@ export default async function ProjectLineagesPage({
       orgId={organization.id}
       projectId={project.id}
       projectRef={project.ref}
-      defaultSurname={project.surname ?? ''}
+      projectThemeName={project.themeName ?? ''}
+      projectSurname={project.surname ?? ''}
+      projectRegion={project.countriesRegions ?? ''}
+      canProjectWrite={hasPermission(role, 'project.write')}
       folders={folders.map((folder) => ({
         id: folder.id,
         name: folder.name,
@@ -37,6 +40,8 @@ export default async function ProjectLineagesPage({
         name: lineage.name,
         surname: lineage.surname,
         hallCode: lineage.hallCode,
+        region: lineage.region,
+        notes: lineage.notes,
         generationWords: lineage.generationWords,
         nodeCount: lineage.nodeCount,
         folderId: lineage.folderId,

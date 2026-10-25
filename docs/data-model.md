@@ -401,6 +401,8 @@ CREATE TABLE lineage (
   surname          text NOT NULL,
   hall_code        text,
   generation_words jsonb,
+  region           text,
+  notes            text,
   hang_rule        jsonb,
   node_count       int NOT NULL DEFAULT 0,
   created_at       timestamptz NOT NULL DEFAULT now(),
@@ -421,6 +423,8 @@ CREATE INDEX idx_lineage_project ON lineage (organization_id, project_id)
 | 列 | 说明 |
 |---|---|
 | `generation_words` | 字辈，`["元","亨","利","贞"]` |
+| `region` | 谱系地区，自由文本，≤100 字；可空（历史数据） |
+| `notes` | 谱系备注，≤500 字；可空 |
 | `hang_rule` | 世次编号规则 `{start, step, format}` |
 | `node_count` | 人丁数冗余计数，供列表展示；不做任何限制判断 |
 

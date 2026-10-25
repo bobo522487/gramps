@@ -5,7 +5,9 @@ import {
   addSiblingSchema,
   addSpouseSchema,
   createFolderSchema,
+  createLineageSchema,
   createRootNodeSchema,
+  updateLineageSchema,
 } from '@/lib/genealogy/schemas';
 
 const orgId = '00000000-0000-4000-8000-000000000001';
@@ -194,5 +196,79 @@ describe('field-level validation messages', () => {
         sex: '2',
       }).error?.issues[0].message
     ).toBe('请选择性别');
+  });
+});
+
+describe('createLineageSchema', () => {
+  const base = {
+    orgId: '00000000-0000-4000-8000-000000000001',
+    projectId: '00000000-0000-4000-8000-000000000004',
+    folderId: '00000000-0000-4000-8000-000000000009',
+    name: '颍川陈氏世系',
+    region: '中国/福建/漳州',
+  };
+
+  it('accepts 24 characters and rejects 25', () => {
+    expect(
+      createLineageSchema.safeParse({ ...base, name: '名'.repeat(24) }).success
+    ).toBe(true);
+
+    const tooLong = createLineageSchema.safeParse({
+      ...base,
+      name: '名'.repeat(25),
+    });
+    expect(tooLong.success).toBe(false);
+    if (!tooLong.success) {
+      expect(tooLong.error.issues[0]?.message).toBe(
+        '谱系名称不能超过 24 个字符'
+      );
+    }
+  });
+
+  it('accepts an empty folder id (server creates the default category) and rejects a blank region', () => {
+    const parsed = createLineageSchema.safeParse({ ...base, folderId: '' });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.folderId).toBeUndefined();
+    }
+
+    expect(
+      createLineageSchema.safeParse({ ...base, region: '   ' }).success
+    ).toBe(false);
+    expect(
+      createLineageSchema.safeParse({ ...base, region: '地'.repeat(101) })
+        .success
+    ).toBe(false);
+  });
+
+  it('strips a forged surname so it can never reach the database', () => {
+    const parsed = createLineageSchema.parse({ ...base, surname: '王' });
+    expect(parsed).not.toHaveProperty('surname');
+  });
+
+  it('keeps notes optional and generation words out of creation', () => {
+    const parsed = createLineageSchema.parse({
+      ...base,
+      notes: '光绪年间分谱',
+    });
+    expect(parsed.notes).toBe('光绪年间分谱');
+    expect(createLineageSchema.parse(base)).not.toHaveProperty(
+      'generationWords'
+    );
+  });
+});
+
+describe('updateLineageSchema', () => {
+  it('accepts region/notes clearing and still rejects surname', () => {
+    const parsed = updateLineageSchema.parse({
+      orgId,
+      lineageId,
+      region: '',
+      notes: '',
+      surname: '王',
+    });
+    expect(parsed.region).toBeNull();
+    expect(parsed.notes).toBeNull();
+    expect(parsed).not.toHaveProperty('surname');
   });
 });
