@@ -1,6 +1,6 @@
 # 目标环境与部署蓝图
 
-> **文档状态：M1 目标设计（基础层已实现，部署未验证）** · 最后更新：2026-10-22
+> **文档状态：M1 目标设计（基础层已实现，部署未验证）** · 最后更新：2026-10-25
 > 本文件描述家谱目标架构的部署与运维蓝图，**不是当前仓库的操作指南**。
 > 当前仓库请读 [环境与部署（当前实现）](./setup.md)；实现差异见 [实现状态](./implementation-status.md) 与 [ADR 0001](./decisions/0001-foundation-reset.md)。
 
@@ -8,7 +8,7 @@
 |---|---|
 | 文档版本 | 1.5 |
 | 文档状态 | M1 目标设计（基础层已实现，部署未验证） |
-| 最后更新 | 2026-10-22 |
+| 最后更新 | 2026-10-25 |
 | 部署单元 | Vercel（Next.js）+ Neon PostgreSQL 18+；本地 Docker 只跑 PostgreSQL |
 | 本地开发 | `docker compose up -d db` + `pnpm dev`（`next dev`，不用应用容器） |
 | 迁移 | Drizzle Kit，对直连 URL 执行，与应用部署分离 |
@@ -43,16 +43,18 @@
 
 | 依赖 | 版本 | 用途 | 校验 |
 |---|---|---|---|
-| Node.js | 22.x LTS | 本地开发与 CI | `node -v` |
-| pnpm | 9.x | 包管理与脚本 | `pnpm -v` |
+| Node.js | 24.x LTS | 本地开发与 CI | `node -v` |
+| pnpm | 12.x | 包管理与脚本 | `pnpm -v` |
 | Docker | 24+ | **只用于本地 PostgreSQL** | `docker -v` |
 | Neon | PostgreSQL **18+** 项目 | 生产数据库 | `SELECT uuidv7();` |
 | Vercel | 账号 + 目标域名 | 生产应用托管、TLS、CDN | 项目可部署 |
 | Git | 2.40+ | 版本管理 | `git --version` |
 
-`corepack enable && corepack prepare pnpm@9 --activate` 可省去单独安装 pnpm。
+`corepack enable && corepack prepare pnpm@12 --activate` 可省去单独安装 pnpm。
 
-**PostgreSQL 18 是硬前提**：所有表主键使用原生 `uuidv7()`。Neon 项目创建时必须选择 18+；本地镜像固定 `postgres:18-alpine`。低于 18 的实例在建表阶段就会失败，迁移前先执行：
+Node 24 是 LTS，作为生产基线；Node 26 是 Current，不作为生产基线。
+
+**PostgreSQL 18 是硬前提**：所有表主键使用原生 `uuidv7()`。Neon 项目创建时必须选择 18+；本地镜像固定 `postgres:18-alpine`。PostgreSQL 18 是当前可用的最新稳定大版本，19 尚无稳定镜像。低于 18 的实例在建表阶段就会失败，迁移前先执行：
 
 ```sql
 SELECT uuidv7();
@@ -452,7 +454,7 @@ pnpm db:migrate
 |---|---|
 | 导入方式 | Git 仓库连接 Vercel |
 | Framework Preset | Next.js（App Router 自动识别） |
-| Node.js | 22.x |
+| Node.js | 24.x |
 | Install Command | `pnpm install --frozen-lockfile` |
 | Build Command | `pnpm build`（**不包含迁移**） |
 | 区域 | 与 Neon 项目同区域，降低函数到数据库的 RTT |

@@ -97,3 +97,21 @@ describe('auth documentation', () => {
     expect(read('docs/setup.md')).not.toMatch(/varchar\(20\)/);
   });
 });
+
+describe('documented stack versions', () => {
+  test('documented stack versions match package.json', () => {
+    const pkg = JSON.parse(read('package.json')) as {
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
+      packageManager: string;
+      engines: { node: string };
+    };
+    const status = read('docs/implementation-status.md');
+
+    expect(pkg.packageManager).toBe('pnpm@12.15.0');
+    expect(pkg.engines.node).toBe('>=24.0.0 <25');
+    expect(status).toContain(`Next.js ${pkg.dependencies.next}`);
+    expect(status).toContain(`React ${pkg.dependencies.react}`);
+    expect(status).toContain(`TypeScript ${pkg.devDependencies.typescript}`);
+  });
+});

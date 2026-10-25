@@ -1,6 +1,6 @@
 # 实现状态
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-23
+> **文档状态：当前实现说明** · 最后更新：2026-10-25
 > 目标定义来自 [PRD](./prd.md)、[架构](./architecture/00-overview.md)、[数据模型](./data-model.md)、[接口](./api.md)。
 > 本文件只描述**代码里真实存在什么**，不描述计划。
 
@@ -8,7 +8,7 @@
 |---|---|
 | 文档版本 | 2.1 |
 | 文档状态 | 当前实现说明 |
-| 最后更新 | 2026-10-23 |
+| 最后更新 | 2026-10-25 |
 | 部署状态 | 目标为 Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`VERCEL` 环境用 `pg` + `attachDatabasePool`），本地/CI 用 `postgres.js`。**本地生产模式已用 `verify:deploy` 全项验证**；真实 Vercel/Neon 未部署（无凭据），云端入口已就绪 |
 
 ---
@@ -17,9 +17,10 @@
 
 | 项 | 值 | 证据 |
 |---|---|---|
-| 框架 | Next.js 16.4.0、React 19.1.0 | `package.json` |
-| 语言 | TypeScript `strict: true` | `tsconfig.json` |
-| 数据库 | PostgreSQL 18 + Drizzle 0.45；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
+| 框架 | Next.js 16.4.3、React 19.3.1 | `package.json` |
+| 语言 | TypeScript 7.0.2（`strict: true`） | `tsconfig.json` |
+| 运行时 | Node.js 24 LTS、pnpm 12.15.0、TypeScript 7.0.2 | `.nvmrc`、`package.json`（`packageManager` / `engines`）、CI |
+| 数据库 | PostgreSQL 18 + Drizzle 0.45.4；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
 | 主键 | UUIDv7（`uuidv7()`）；20 位公开 `slug`/`ref` 仅用于 URL | `lib/db/schema.ts`、`lib/ids.ts` |
 | 认证 | 自托管 Better Auth 1.7.12：邮箱 + 密码，scrypt；BETTER_AUTH_SECRET；不暴露 `/api/auth/*` | `lib/auth/better-auth.ts`、`lib/db/migrations/0003_better_auth.sql` |
 | 会话 | 数据库会话，Cookie `better-auth.session_token`，7 天有效、`updateAge` 1 天 | `lib/auth/better-auth.ts`、`proxy.ts` |
@@ -28,13 +29,15 @@
 | 数据隔离 | 应用层成员过滤 + `withOrg` 事务内 RLS（`app_rw`）+ 复合外键 | `lib/db/drizzle.ts`、`0001_auth_rls.sql` |
 | 界面 | 简体中文，品牌“云谱”；无 i18n 框架 | `app/layout.tsx`、各页面组件 |
 | 客户端数据 | TanStack Query 5；RSC 首屏 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 调用只读 API，写后 `invalidateQueries` | `components/query-provider.tsx`、`lib/query-keys.ts`、`hooks/use-session-user.ts` |
-| 谱系画布 | `@xyflow/react` 12 + zustand 5（zustand 仅存谱系工作区 UI 状态，不存实体数据） | `components/lineage/canvas/`、`components/lineage/lineage-store.ts` |
+| 谱系画布 | `@xyflow/react` 12 + zustand 5.0.16（zustand 仅存谱系工作区 UI 状态，不存实体数据） | `components/lineage/canvas/`、`components/lineage/lineage-store.ts` |
 | 数据表 | 11 张组织级业务表 + 4 张 `auth.*` 表 | 见 §1.1 |
 | Route Handler | 4 个 | 见 §1.3 |
 | 配置与日志 | Zod 启动校验；结构化日志自动带 `request_id`/`user_id`；API 记录 `duration_ms` | `lib/config.ts`、`instrumentation.ts`、`lib/server/request-context.ts`、`lib/api.ts` |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest 单测 18 个文件 133 个用例 + 真实 PostgreSQL 集成测试 11 个文件 117 个用例（另有 1 个 stub）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/` |
-| CI | `pnpm check` → `typecheck` → `test:coverage`（`postgres:18`，上传 `coverage/`）→ 迁移漂移检查 → `build` → `test:e2e`（production server）→ `verify:deploy` | `.github/workflows/ci.yml` |
+| 测试 | Vitest 单测 18 个文件 137 个用例 + 真实 PostgreSQL 集成测试 11 个文件 117 个用例（另有 1 个 stub）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/` |
+| CI | Node 24 / pnpm 12；`pnpm check` → `typecheck` → `test:coverage`（`postgres:18`，上传 `coverage/`）→ 迁移漂移检查 → `build` → `test:e2e`（production server）→ `verify:deploy` | `.github/workflows/ci.yml` |
+
+**版本选择（2026-10-25）**：Next.js 16.4.3、Drizzle 0.45.4、Better Auth 1.7.12、Playwright 1.64.1 已是当前最新稳定版；Drizzle 1.0 RC、Better Auth 1.8 beta、Playwright 1.65 alpha 不作为基线。运行时使用 Node 24 LTS，而不是 Node 26 Current；PostgreSQL 18 是当前可用的最新稳定大版本（19 尚无稳定镜像）。
 
 ### 1.1 当前数据表
 
@@ -87,7 +90,7 @@
 
 ### 1.4 测试与 CI
 
-- `pnpm test:unit`（`pnpm test`）：18 个 Vitest 文件 133 个用例，不连接数据库。
+- `pnpm test:unit`（`pnpm test`）：18 个 Vitest 文件 137 个用例，不连接数据库。
 - `pnpm test:integration`：11 个文件 117 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
 - `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
 - `pnpm test:e2e`：Playwright + Chromium 两条串行关键路径（注册 → 建项目 → 文件夹/谱系 → 始祖 → 子女 → 检查器持久化 → 侧栏搜索/折叠；邀请 → 登出 → 登录 → 接受邀请）；本地模式会重置 `_test` 库，外部模式需 `E2E_EXTERNAL_SERVER=1` + `E2E_ALLOW_EXTERNAL=1`。

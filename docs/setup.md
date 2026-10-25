@@ -3,8 +3,8 @@
 | 项 | 值 |
 |---|---|
 | 文档状态 | **当前实现说明**，以仓库代码与 `package.json` 为准 |
-| 最后更新 | 2026-10-23 |
-| 运行环境 | Node.js 22（CI）· pnpm 9（CI） |
+| 最后更新 | 2026-10-25 |
+| 运行环境 | Node.js 24 LTS（CI）· pnpm 12（CI） |
 | 依赖服务 | PostgreSQL 18 |
 | 相关文档 | [文档中心](./README.md) · [实现状态](./implementation-status.md) · [工程协作](../AGENTS.md) · [ADR 0001](./decisions/0001-foundation-reset.md) · [ADR 0007](./decisions/0007-self-hosted-better-auth.md) · [目标部署蓝图](./ops-target.md) |
 
@@ -16,14 +16,16 @@
 
 | 依赖 | 版本 | 校验 | 是否必需 |
 |---|---|---|---|
-| Node.js | 22.x | `node -v` | 必需 |
-| pnpm | 9.x | `pnpm -v` | 必需 |
+| Node.js | 24.x LTS | `node -v` | 必需 |
+| pnpm | 12.x | `pnpm -v` | 必需 |
 | Docker | 24+ | `docker -v` | 使用本地 Postgres 时必需 |
 | Git | 2.40+ | `git --version` | 必需 |
 
-可以用 `corepack enable && corepack prepare pnpm@9 --activate` 固定 pnpm 版本。
+可以用 `corepack enable && corepack prepare pnpm@12.15.0 --activate` 固定 pnpm 版本。
 
-当前项目**没有** `packageManager` 和 `engines` 字段；以 CI（Node 22 / pnpm 9）为准。
+项目通过 `package.json` 的 `packageManager`（`pnpm@12.15.0`）与 `engines`（`node >=24.0.0 <25`、`pnpm >=12.0.0 <13`）固定工具链；`.nvmrc` 记录 Node `24.22.1`。以 CI（Node 24 / pnpm 12）为准。
+
+pnpm 12 从 `pnpm-workspace.yaml` 读取 `allowBuilds` 白名单（当前放行 `@tailwindcss/oxide` 与 `esbuild`）；`onlyBuiltDependencies` 已在 pnpm 11 删除，不要恢复。
 
 ---
 
@@ -372,7 +374,7 @@ pnpm verify:deploy -- --base-url http://127.0.0.1:3100
 上传 playwright-report/ 与 test-results/  # 失败时
 ```
 
-CI 使用 Node 22、pnpm 9。`postgres:18-alpine` 作为 service 启动，测试从空库执行全部迁移；随后创建 `app` 与 `auth_runtime` 登录角色，让运行期 RLS 与角色断言真正生效。
+CI 使用 Node 24、pnpm 12。`postgres:18-alpine` 作为 service 启动，测试从空库执行全部迁移；随后创建 `app` 与 `auth_runtime` 登录角色，让运行期 RLS 与角色断言真正生效。
 
 ### 7.3 测试覆盖
 

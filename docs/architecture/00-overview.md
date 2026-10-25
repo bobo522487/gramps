@@ -11,7 +11,7 @@
 
 ### 1.1 系统形态
 
-**模块化单体（Modular Monolith）**：一个 Next.js 16 应用承载全部业务，所有业务域共享一个 PostgreSQL 18 数据库。没有微服务、没有消息队列、没有后台任务、没有独立缓存层。
+**模块化单体（Modular Monolith）**：一个 Next.js 16.4.3 应用承载全部业务，所有业务域共享一个 PostgreSQL 18 数据库。没有微服务、没有消息队列、没有后台任务、没有独立缓存层。
 
 ```
                     ┌──────────────────────────┐
@@ -53,7 +53,7 @@ flowchart TB
     ACT["Server Action<br/>全部写操作"]
     RH["Route Handler<br/>只读刷新 + /api/health"]
     MOD["业务域<br/>auth · org · project · folder<br/>lineage（article/book 目标域）"]
-    AUTHC["Better Auth 1.7<br/>auth_service 连接"]
+    AUTHC["Better Auth 1.7.12<br/>auth_service 连接"]
   end
 
   subgraph Neon["Neon PostgreSQL 18"]

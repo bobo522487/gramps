@@ -1,6 +1,6 @@
 # 工程协作指南（当前实现）
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-22
+> **文档状态：当前实现说明** · 最后更新：2026-10-25
 > 本文件位于仓库根目录，文件名必须保持 `AGENTS.md`，Agent 会自动将其作为项目指令读取。
 > 本文件面向**在当前仓库写代码的人与 AI Agent**。它以现有代码、`package.json` 和 CI 为准。
 > 家谱业务层已实现谱系/人丁第一版（画布、世系表、检查器与写流程），谱文/谱书等仍未实现；基础层（UUIDv7、RLS、4 角色、软删）已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地，认证与租户写入已切换到自托管 Better Auth（[ADR 0007](docs/decisions/0007-self-hosted-better-auth.md)）。以 [实现状态](docs/implementation-status.md) 为准。
@@ -33,15 +33,16 @@
 
 | 项 | 当前值 |
 |---|---|
-| 框架 | Next.js 16.4 App Router + React 19.1 |
-| 语言 | TypeScript（`strict: true`） |
+| 框架 | Next.js 16.4.3 App Router + React 19.3.1 |
+| 语言 | TypeScript 7.0.2（`strict: true`） |
+| 运行时 | Node.js 24 LTS · pnpm 12 |
 | 数据库 | PostgreSQL + Drizzle ORM（业务 `app_rw`、认证 `auth_service`；本地/CI `postgres.js`，Vercel `pg` + `attachDatabasePool`） |
 | 认证 | 自托管 Better Auth 1.7.12（数据库会话 + organization 插件） |
 | 界面 | 简体中文（品牌“云谱”），无 i18n 框架 |
 | 客户端数据 | TanStack Query 5；RSC 首屏通过 `dehydrate` / `HydrationBoundary` 注入 |
 | 客户端 UI 状态 | Zustand 5（仅谱系工作区 UI，不存实体数据） |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 18 文件/133 用例；真实 PostgreSQL 集成测试 11 文件/117 用例；Playwright E2E 2 条关键路径 |
+| 测试 | Vitest：单测 18 文件/137 用例；真实 PostgreSQL 集成测试 11 文件/117 用例；Playwright E2E 2 条关键路径 |
 
 ---
 
