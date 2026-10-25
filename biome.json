@@ -33,6 +33,52 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": [
+        "components/**/*.ts",
+        "components/**/*.tsx",
+        "hooks/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "drizzle-orm": "客户端组件不得直接依赖 ORM；数据访问走 lib/db/queries",
+                  "@/lib/db/drizzle": "客户端组件不得访问数据库",
+                  "@/lib/db/auth-db": "认证连接只属于服务端",
+                  "@/lib/db/schema": "客户端组件不得 import 数据库 schema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["lib/db/queries/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@/lib/*/actions"],
+                    "message": "查询层不得依赖 Action 层"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "enabled": true,
     "actions": {
