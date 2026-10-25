@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // Root-level only in Vitest 3: project-level `fileParallelism` is ignored,
+    // Root-level only in Vitest 5: project-level `fileParallelism` is ignored,
     // and concurrent integration files would truncate each other's data.
     fileParallelism: false,
     projects: [
