@@ -166,4 +166,38 @@ describe('documented stack versions', () => {
     expect(components).not.toContain('noRestrictedImports 待接入');
     expect(components).not.toContain('Biome `noRestrictedImports` 待接入');
   });
+
+  // D-24 recurred three times because the counts are hand-copied. The journal
+  // is the only source of truth for migrations; test counts live in the run.
+  test('docs do not hand-copy test or migration counts', () => {
+    const forbidden = [
+      '18 个 Vitest 文件',
+      '18 个文件 137 个用例',
+      '11 个文件 117 个用例',
+      '12 个文件 134 个用例',
+      '七个文件',
+      '当前仓库实际是四个迁移',
+    ];
+    for (const path of [
+      'docs/implementation-status.md',
+      'docs/setup.md',
+      'docs/ops-target.md',
+      'docs/README.md',
+    ]) {
+      const text = read(path);
+      for (const claim of forbidden) {
+        expect(text, `${path} still claims "${claim}"`).not.toContain(claim);
+      }
+    }
+  });
+
+  test('migration count is derived from the journal, never retyped', () => {
+    const journal = JSON.parse(
+      read('lib/db/migrations/meta/_journal.json')
+    ) as { entries: unknown[] };
+
+    // Floor, not equality: adding a migration must not force editing this test,
+    // which would make the test a second hand-copied fact.
+    expect(journal.entries.length).toBeGreaterThanOrEqual(11);
+  });
 });

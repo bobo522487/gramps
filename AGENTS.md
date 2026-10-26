@@ -54,7 +54,7 @@
 | 客户端数据 | TanStack Query 5；RSC 首屏通过 `dehydrate` / `HydrationBoundary` 注入 |
 | 客户端 UI 状态 | Zustand 5（仅谱系工作区 UI，不存实体数据） |
 | 检查/格式化 | Biome |
-| 测试 | Vitest：单测 22 文件/160 用例；真实 PostgreSQL 集成测试 11 文件/122 用例；Playwright E2E 2 条关键路径 |
+| 测试 | Vitest：单测 + 真实 PostgreSQL 集成测试（数量以 `pnpm test` / `pnpm test:integration` 输出为准）；Playwright E2E 2 条关键路径 |
 
 ---
 
@@ -277,7 +277,7 @@ getProjectById(projectId);
 ### 5.5 数据访问
 
 - 查询集中在 `lib/db/queries/<domain>.ts`（organizations、invitations、projects、activity、folders、lineages、nodes）；不要在页面里拼 SQL。
-- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。当前迁移是重置后的 `0000_baseline` + `0001_auth_rls` + `0002_app_role_grant` + `0003_better_auth`；`drizzle.config.ts` 优先使用 `POSTGRES_URL_DIRECT`。
+- 使用 Drizzle；迁移由 `drizzle-kit generate` 生成。迁移清单以 `lib/db/migrations/meta/_journal.json` 为准，不要在文档里手抄编号；`drizzle.config.ts` 优先使用 `POSTGRES_URL_DIRECT`。
 - 主键是 PostgreSQL 18 `uuidv7()` 生成的 UUID；20 位公开 `slug`/`ref` 只用于 URL，不进入外键。
 - 公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，插入时依赖唯一索引；项目创建遇到 `ref` 冲突时每次重试重新生成，最多尝试 3 次。
 - 数据库约束：成员 `(organization_id, user_id)` 唯一、单组织仅一个 `owner`（部分唯一索引）、角色 `CHECK`、待处理邀请 `(organization_id, lower(email))` 部分唯一、`auth.users` 活动邮箱唯一。捕获 `23505`/`23514`/`23503` 时转换为中文提示，不要吞掉或重试成重复数据。
@@ -551,7 +551,7 @@ docs(setup): 对齐当前环境变量
 - 已实现（业务）：谱系/人丁、分类树 UI 与对应 Action、欧式书本画布与按代渲染窗口。
 - 目标业务功能尚未实现：谱文、谱书、谱文/谱书分类接入、人丁自定义字段 UI、分享、回收站、编辑锁。
 - 已明确不做：邮箱验证、找回密码、改邮箱、邮件发送、`/api/auth/*`。
-- 目录与分层仍是当前的 `app/` + `components/` + `lib/`；没有 `src/modules`、`*.service.ts`/`*.repo.ts`，也没有 Biome `noRestrictedImports`。
+- 目录与分层仍是当前的 `app/` + `components/` + `lib/`；没有 `src/modules`、`*.service.ts`/`*.repo.ts`。依赖方向的 Biome `noRestrictedImports` **已配置**（`pnpm check` 会拦），见 [07-quality §11.2](docs/architecture/07-quality.md)。
 - 目标接口以 RSC + Server Action 为主；当前 4 个只读 Route Handler 是过渡，见 §5.6。
 - 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`）；生产必须提供 `APP_POSTGRES_URL`（`app`）与 `AUTH_POSTGRES_URL`（`auth_runtime`）；本地/CI 用 `postgres.js`；本地 Docker 只跑 PostgreSQL + `next dev`。**本地生产模式已用 `pnpm verify:deploy` 全项验证**；真实 Vercel/Neon 部署仍未执行（无凭据），云端验证入口为 `verify:deploy` 与 external E2E（[部署蓝图](docs/ops-target.md)）。
 

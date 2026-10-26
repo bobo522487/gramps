@@ -34,14 +34,14 @@
 | Route Handler | 4 个 | 见 §1.3 |
 | 配置与日志 | Zod 启动校验；结构化日志自动带 `request_id`/`user_id`；API 记录 `duration_ms` | `lib/config.ts`、`instrumentation.ts`、`lib/server/request-context.ts`、`lib/api.ts` |
 | 代码检查 | Biome | `biome.json`、`package.json` |
-| 测试 | Vitest 单测 18 个文件 137 个用例 + 真实 PostgreSQL 集成测试 11 个文件 117 个用例（另有 1 个 stub）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/` |
+| 测试 | Vitest 单测 + 真实 PostgreSQL 集成测试（文件数/用例数以 `pnpm test`、`pnpm test:integration` 输出为准，不在此手抄）；Playwright E2E 2 条关键路径；`test:coverage` 合并采集 V8 覆盖率并检查门槛 | `tests/`、`package.json` |
 | CI | Node 24 / pnpm 12；`pnpm check` → `typecheck` → `test:coverage`（`postgres:18`，上传 `coverage/`）→ 迁移漂移检查 → `build` → `test:e2e`（production server）→ `verify:deploy` | `.github/workflows/ci.yml` |
 
 **版本选择（2026-10-25）**：Next.js 16.4.3、Drizzle 0.45.4、Better Auth 1.7.12、Playwright 1.64.1 已是当前最新稳定版；Drizzle 1.0 RC、Better Auth 1.8 beta、Playwright 1.65 alpha 不作为基线。运行时使用 Node 24 LTS，而不是 Node 26 Current；PostgreSQL 18 是当前可用的最新稳定大版本（19 尚无稳定镜像）。
 
 ### 1.1 当前数据表
 
-迁移是重置后的七个文件：`0000_baseline.sql`（Drizzle 生成）、`0001_auth_rls.sql`、`0002_app_role_grant.sql`、`0003_better_auth.sql`（custom migration）、`0004_steep_lizard.sql`（项目身份与元数据列）、`0005_round_grim_reaper.sql`（删除旧项目列）与 `0006_statement_timeouts.sql`（运行期角色超时）。
+迁移文件清单以 `lib/db/migrations/meta/_journal.json` 为准，**本文不重复枚举**——手抄的清单曾经三次与实际不符（D-24）。重置基线（Drizzle 生成）之后依次是：RLS 与角色、`app_rw` 授权、Better Auth、项目身份与元数据列、删除旧项目列、运行期超时、节点层级派生、树边复合外键、删除零读写列。
 
 | 表 | 说明 |
 |---|---|
@@ -90,8 +90,8 @@
 
 ### 1.4 测试与 CI
 
-- `pnpm test:unit`（`pnpm test`）：18 个 Vitest 文件 137 个用例，不连接数据库。
-- `pnpm test:integration`：11 个文件 117 个用例，连接名称以 `_test` 结尾的独立 PostgreSQL；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
+- `pnpm test:unit`（`pnpm test`）：不连接数据库；文件数/用例数以命令输出为准。
+- `pnpm test:integration`：连接名称以 `_test` 结尾的独立 PostgreSQL（数量以输出为准）；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
 - `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
 - `pnpm test:e2e`：Playwright + Chromium 两条串行关键路径（注册 → 建项目 → 文件夹/谱系 → 始祖 → 子女 → 检查器持久化 → 侧栏搜索/折叠；邀请 → 登出 → 登录 → 接受邀请）；本地模式会重置 `_test` 库，外部模式需 `E2E_EXTERNAL_SERVER=1` + `E2E_ALLOW_EXTERNAL=1`。
 - `pnpm verify:deploy`：HTTP 健康/安全头/鉴权与数据库结构/RLS/角色检查；本地生产模式全项 PASS。

@@ -267,7 +267,7 @@ Vercel 的环境变量同时用于构建与运行。构建命令中**不得**包
 
 ### 4.2 迁移顺序
 
-当前仓库实际是四个迁移（目标设计曾计划拆成更多文件，已合并为基线 + 安全层 + 角色授权 + Better Auth）：
+迁移文件以 `lib/db/migrations/meta/_journal.json` 为准（本文不重复枚举；目标设计曾计划拆成更多文件）：
 
 ```text
 0000_baseline         Drizzle 生成：11 张组织级业务表 + auth.users + 普通索引

@@ -378,7 +378,7 @@ CI 使用 Node 24、pnpm 12。`postgres:18-alpine` 作为 service 启动，测�
 
 ### 7.3 测试覆盖
 
-单测 18 个文件 137 个用例（另有 `tests/server-only.stub.ts` 作为测试环境 stub），不连接数据库：
+单测不连接数据库（另有 `tests/server-only.stub.ts` 作为测试环境 stub）；文件数/用例数以输出为准：
 
 | 文件 | 关注点 |
 |---|---|
@@ -400,7 +400,7 @@ CI 使用 Node 24、pnpm 12。`postgres:18-alpine` 作为 service 启动，测�
 | `tests/lineage-store.test.ts` | zustand 工作区 UI 状态 |
 | `tests/lineage-canvas-layout.test.ts` | 欧式书本布局与代际索引纯函数 |
 
-集成测试 11 个文件 117 个用例，使用真实 PostgreSQL：
+集成测试使用真实 PostgreSQL（数量以输出为准）：
 
 | 文件 | 关注点 |
 |---|---|
