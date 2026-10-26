@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,6 +12,7 @@ import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
   createInvitation,
+  createFolder,
   createLineage,
   createNode,
   createOrganization,
@@ -347,5 +349,128 @@ describe('node tree invariants enforced by the database', () => {
         spouseOfId: root.id,
       })
     ).resolves.toBeTruthy();
+  });
+});
+
+describe('tree edges belong to exactly one parent scope', () => {
+  async function orgScope() {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal) throw new Error('registration trigger did not create an org');
+    return { user, organization: personal.organization };
+  }
+
+  it('rejects a node whose parent lives in another lineage', async () => {
+    const { user, organization } = await orgScope();
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const a = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      name: '甲谱',
+    });
+    const b = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      name: '乙谱',
+    });
+    const foreignParent = await createNode({
+      orgId: organization.id,
+      lineageId: b.id,
+      createdBy: user.id,
+      generation: 1,
+      path: 'aaaa',
+    });
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: a.id,
+        createdBy: user.id,
+        parentId: foreignParent.id,
+        generation: 2,
+        path: 'bbbb',
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
+  });
+
+  it('still allows a null parent and a same-lineage parent', async () => {
+    const { user, organization } = await orgScope();
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const lineage = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+    const root = await createNode({
+      orgId: organization.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+      path: 'aaaa',
+    });
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        parentId: root.id,
+        generation: 2,
+        path: 'aaaa.cccc',
+      })
+    ).resolves.toBeTruthy();
+  });
+
+  it('rejects a folder whose parent belongs to another project', async () => {
+    const { user, organization } = await orgScope();
+    const projectA = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const projectB = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const folderInA = await createFolder({
+      orgId: organization.id,
+      projectId: projectA.id,
+      createdBy: user.id,
+      kind: 0,
+      name: '甲',
+    });
+    await expect(
+      createFolder({
+        orgId: organization.id,
+        projectId: projectB.id,
+        createdBy: user.id,
+        parentId: folderInA.id,
+        kind: 0,
+        name: '乙',
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
+  });
+
+  it('rejects a dangling folder parent that names no folder at all', async () => {
+    const { user, organization } = await orgScope();
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    await expect(
+      createFolder({
+        orgId: organization.id,
+        projectId: project.id,
+        createdBy: user.id,
+        parentId: randomUUID(),
+        kind: 0,
+        name: '丙',
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
 });

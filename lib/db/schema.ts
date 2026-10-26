@@ -273,6 +273,14 @@ export const folders = pgTable(
       foreignColumns: [projects.orgId, projects.id],
       name: 'fk_folder_project',
     }).onDelete('restrict'),
+    // Target of the self-referencing parent key below: a parent must live in
+    // the same organization AND the same project.
+    unique('uk_folder_org_project_id').on(t.orgId, t.projectId, t.id),
+    foreignKey({
+      columns: [t.parentId, t.orgId, t.projectId],
+      foreignColumns: [t.id, t.orgId, t.projectId],
+      name: 'fk_folder_parent_same_project',
+    }).onDelete('restrict'),
     index('idx_folder_project')
       .on(t.orgId, t.projectId, t.kind)
       .where(sql`${t.deletedAt} is null`),
@@ -322,9 +330,7 @@ export const nodes = pgTable(
     id: uuidPk(),
     orgId: uuid('organization_id').notNull(),
     lineageId: uuid('lineage_id').notNull(),
-    parentId: uuid('parent_id').references((): AnyPgColumn => nodes.id, {
-      onDelete: 'restrict',
-    }),
+    parentId: uuid('parent_id'),
     motherId: uuid('mother_id').references((): AnyPgColumn => nodes.id, {
       onDelete: 'restrict',
     }),
@@ -373,6 +379,14 @@ export const nodes = pgTable(
       name: 'fk_node_lineage',
     }).onDelete('restrict'),
     unique('uk_node_organization_id').on(t.orgId, t.id),
+    // A parent must live in the same organization AND the same lineage; without
+    // this the database happily lets you hang a person under another tree.
+    unique('uk_node_org_lineage_id').on(t.orgId, t.lineageId, t.id),
+    foreignKey({
+      columns: [t.parentId, t.orgId, t.lineageId],
+      foreignColumns: [t.id, t.orgId, t.lineageId],
+      name: 'fk_node_parent_same_lineage',
+    }).onDelete('restrict'),
     check('ck_node_role', sql`${t.role} in ('blood', 'spouse')`),
     check('ck_node_sex', sql`${t.sex} in (0, 1)`),
     check(
@@ -471,9 +485,7 @@ export const bookCatalogs = pgTable(
     bookId: uuid('book_id')
       .notNull()
       .references(() => books.id, { onDelete: 'cascade' }),
-    parentId: uuid('parent_id').references((): AnyPgColumn => bookCatalogs.id, {
-      onDelete: 'cascade',
-    }),
+    parentId: uuid('parent_id'),
     name: text('name').notNull(),
     section: smallint('section').notNull(),
     articleId: uuid('article_id'),
@@ -494,6 +506,14 @@ export const bookCatalogs = pgTable(
       columns: [t.orgId, t.lineageId],
       foreignColumns: [lineages.orgId, lineages.id],
       name: 'fk_catalog_lineage',
+    }).onDelete('restrict'),
+    unique('uk_book_catalog_org_book_id').on(t.orgId, t.bookId, t.id),
+    // Same book AND same organization. ON DELETE cascade was dead weight:
+    // app_rw has no DELETE grant, so the cascade could never fire.
+    foreignKey({
+      columns: [t.parentId, t.orgId, t.bookId],
+      foreignColumns: [t.id, t.orgId, t.bookId],
+      name: 'fk_catalog_parent_same_book',
     }).onDelete('restrict'),
     check('ck_catalog_section', sql`${t.section} in (1, 2, 3)`),
     check(
