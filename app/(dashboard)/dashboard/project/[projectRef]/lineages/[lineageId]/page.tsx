@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { LineageDetail } from '@/components/lineage/lineage-detail';
+import { toFolderOption, toNodeViews } from '@/components/lineage/types';
 import { requireProjectContext } from '@/lib/auth/context';
 import { hasPermission } from '@/lib/auth/permissions';
 import { getLineageById } from '@/lib/db/queries/lineages';
@@ -43,33 +44,8 @@ export default async function LineageDetailPage({
         nodeCount: lineage.nodeCount,
         folderId: lineage.folderId,
       }}
-      nodes={nodes.map((node) => ({
-        id: node.id,
-        parentId: node.parentId,
-        spouseOfId: node.spouseOfId,
-        role: node.role,
-        depth: node.depth,
-        generation: node.generation,
-        sort: node.sort,
-        name: node.name,
-        surname: node.surname,
-        fullName: node.fullName,
-        sex: node.sex,
-        courtesy: node.courtesy,
-        namePrefix: node.namePrefix,
-        isAlive: node.isAlive,
-        birthText: node.birthText,
-        deathText: node.deathText,
-        birthYear: node.birthYear,
-        deathYear: node.deathYear,
-        burialPlace: node.burialPlace,
-        biography: node.biography,
-      }))}
-      folders={folders.map((folder) => ({
-        id: folder.id,
-        name: folder.name,
-        parentId: folder.parentId,
-      }))}
+      nodes={toNodeViews(nodes)}
+      folders={folders.map(toFolderOption)}
       canWrite={hasPermission(role, 'lineage.write')}
     />
   );

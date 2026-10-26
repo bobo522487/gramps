@@ -1,4 +1,5 @@
 import { LineageShell } from '@/components/lineage/lineage-shell';
+import { toFolderOption, toLineageListItem } from '@/components/lineage/types';
 import { requireProjectContext } from '@/lib/auth/context';
 import { hasPermission } from '@/lib/auth/permissions';
 import { getNavFolders, getNavLineages } from '@/lib/lineage/nav';
@@ -28,20 +29,8 @@ export default async function LineagesLayout({
       projectSurname={project.surname ?? ''}
       projectRegion={project.countriesRegions ?? ''}
       canProjectWrite={hasPermission(role, 'project.write')}
-      folders={folders.map((folder) => ({
-        id: folder.id,
-        name: folder.name,
-        parentId: folder.parentId,
-      }))}
-      lineages={lineages.map((lineage) => ({
-        id: lineage.id,
-        name: lineage.name,
-        surname: lineage.surname,
-        hallCode: lineage.hallCode,
-        region: lineage.region,
-        nodeCount: lineage.nodeCount,
-        folderId: lineage.folderId,
-      }))}
+      folders={folders.map(toFolderOption)}
+      lineages={lineages.map(toLineageListItem)}
       canWrite={hasPermission(role, 'lineage.write')}
       canManageFolders={hasPermission(role, 'project.write')}
     >
