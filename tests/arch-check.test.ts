@@ -25,7 +25,9 @@ describe('F6 file size check', () => {
   it('reports an exemption that is no longer needed instead of letting it rot', () => {
     const files = [{ path: 'app/small.ts', lines: 10 }];
 
-    const stale = fileSizeViolations(files, [{ path: 'app/small.ts', lines: 500 }]);
+    const stale = fileSizeViolations(files, [
+      { path: 'app/small.ts', lines: 500 },
+    ]);
 
     expect(stale.map((entry) => entry.path)).toEqual(['app/small.ts']);
     expect(stale[0]?.reason).toBe('stale-exemption');

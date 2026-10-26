@@ -62,7 +62,10 @@ describe('withOrgWrite', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  // Review Focus #4: an early return must not leave role/claims on the pooled connection.
+  // Review Focus #4: the refused transaction must not leak its role/claims to
+  // the next borrower of the pooled connection. A bare "reads one row" assertion
+  // would pass even with a session-level SET; assert the actual settings seen
+  // from the *next* request instead.
   it('leaves no role or claims residue after an early refusal', async () => {
     const { viewer, organization } = await viewerScope();
     await withOrgWrite(
@@ -73,6 +76,7 @@ describe('withOrgWrite', () => {
       },
       async () => 'unreachable'
     );
+
     const { user: owner, organization: ownOrg } = await ownerScope();
     const rows = await withOrg(owner.id, (tx) =>
       tx
@@ -81,5 +85,23 @@ describe('withOrgWrite', () => {
         .where(eq(organizations.id, ownOrg.id))
     );
     expect(rows).toHaveLength(1);
+
+    const settings = await withOrg(owner.id, (tx) =>
+      queryRows<{ role: string; sub: string }>(
+        tx,
+        sql`select current_user as role,
+              (current_setting('request.jwt.claims', true)::jsonb ->> 'sub') as sub`
+      )
+    );
+    expect(settings[0]).toEqual({ role: 'app_rw', sub: owner.id });
+
+    // And the refused caller's own claims never saw another user's sub.
+    const viewerSettings = await withOrg(viewer.id, (tx) =>
+      queryRows<{ sub: string }>(
+        tx,
+        sql`select (current_setting('request.jwt.claims', true)::jsonb ->> 'sub') as sub`
+      )
+    );
+    expect(viewerSettings[0]?.sub).toBe(viewer.id);
   });
 });
