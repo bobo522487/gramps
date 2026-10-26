@@ -15,6 +15,7 @@ import {
   type ProjectUpdates,
   updateProjectInTransaction,
 } from '@/lib/db/services';
+import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 
 const PROJECT_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',
@@ -43,7 +44,7 @@ export const createProjectAction = validatedActionWithUser(
       return { error: PROJECT_ERRORS[result.reason] };
     }
 
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return {
       success: '云谱空间已创建',
       projectId: result.project.id,
@@ -89,7 +90,7 @@ export const updateProjectAction = validatedActionWithUser(
     // Already narrower than the rest: the project subtree is refreshed by path.
     // A full scoping needs orgSlug in updateProjectSchema (tracked in Task 10's
     // ruling); the whole-console call stays until then.
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     revalidatePath(`/dashboard/project/${result.project.ref}`, 'layout');
     return { success: '云谱空间已更新' };
   }
@@ -108,7 +109,7 @@ export const deleteProjectAction = validatedActionWithUser(
       return { error: PROJECT_ERRORS[result.reason] };
     }
 
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '云谱空间已删除' };
   }
 );

@@ -3,7 +3,6 @@
 import 'server-only';
 
 import { and, eq, sql } from 'drizzle-orm';
-import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { getAuth } from '@/lib/auth/better-auth';
 import {
@@ -34,6 +33,7 @@ import { logActivity } from '@/lib/db/queries/activity';
 import { getOrgById } from '@/lib/db/queries/organizations';
 import { ActivityType, orgMembers } from '@/lib/db/schema';
 import { generatePublicId } from '@/lib/ids';
+import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 import { logger } from '@/lib/logger';
 
 const SLUG_ATTEMPTS = 3;
@@ -101,7 +101,7 @@ export const createOrgAction = validatedActionWithUser(
     }
 
     await logOrgActivity(user.id, created.id, ActivityType.CREATE_ORG);
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return {
       success: '组织已创建',
       orgId: created.id,
@@ -137,7 +137,7 @@ export const renameOrgAction = validatedActionWithUser(
     }
 
     await logOrgActivity(user.id, data.orgId, ActivityType.RENAME_ORG);
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '组织已重命名' };
   }
 );
@@ -171,7 +171,7 @@ export const deleteOrgAction = validatedActionWithUser(
     }
 
     await logOrgActivity(user.id, data.orgId, ActivityType.ARCHIVE_ORG);
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '组织已归档' };
   }
 );
@@ -226,7 +226,7 @@ export const inviteOrgMember = validatedActionWithUser(
       });
 
       await logOrgActivity(user.id, data.orgId, ActivityType.INVITE_ORG_MEMBER);
-      revalidatePath('/dashboard', 'layout');
+      revalidateWholeConsole();
       return {
         success: '邀请已创建，请把链接发送给对方。',
         inviteUrl: `${getServerConfig().BETTER_AUTH_URL}/sign-up?invite=${invitation.id}`,
@@ -257,7 +257,7 @@ export const acceptInviteAction = validatedActionWithUser(
       accepted.member.organizationId,
       ActivityType.ACCEPT_INVITATION
     );
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '已加入组织' };
   }
 );
@@ -299,7 +299,7 @@ export const removeOrgMember = validatedActionWithUser(
     }
 
     await logOrgActivity(user.id, data.orgId, ActivityType.REMOVE_ORG_MEMBER);
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '已移除组织成员' };
   }
 );
@@ -348,7 +348,7 @@ export const updateOrgMemberRole = validatedActionWithUser(
     }
 
     await logOrgActivity(user.id, data.orgId, ActivityType.UPDATE_MEMBER_ROLE);
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '成员角色已更新' };
   }
 );

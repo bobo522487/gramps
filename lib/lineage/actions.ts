@@ -2,7 +2,6 @@
 
 import 'server-only';
 
-import { revalidatePath } from 'next/cache';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
 import {
   addChildSchema,
@@ -29,6 +28,7 @@ import {
   type OptionalSpouse,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
+import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 import {
   createLineageInTransaction,
   deleteLineageInTransaction,
@@ -51,10 +51,6 @@ const LINEAGE_ERRORS = {
   invalid_order: '排序数据无效',
   project_surname_missing: '项目未填写姓氏，请先完善项目基本信息',
 } as const;
-
-function revalidateProject() {
-  revalidatePath('/dashboard', 'layout');
-}
 
 function lineageError(reason: keyof typeof LINEAGE_ERRORS) {
   return { error: LINEAGE_ERRORS[reason] };
@@ -112,7 +108,7 @@ export const createLineageAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return {
       success: '谱系已创建',
       lineageId: result.lineage.id,
@@ -154,7 +150,7 @@ export const updateLineageAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return { success: '谱系已更新', lineageId: result.lineage.id };
   }
 );
@@ -172,7 +168,7 @@ export const deleteLineageAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return {
       success:
         result.deletedNodes > 0
@@ -200,7 +196,7 @@ export const createRootNodeAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return {
       success: '始祖已录入',
       nodeId: result.node.id,
@@ -228,7 +224,7 @@ export const addChildAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return {
       success: '子女已添加',
       nodeId: result.node.id,
@@ -256,7 +252,7 @@ export const addSiblingAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return {
       success: '兄弟已添加',
       nodeId: result.node.id,
@@ -286,7 +282,7 @@ export const addPersonAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return {
       success: data.parentId ? '族人已添加' : '始祖已录入',
       nodeId: result.node.id,
@@ -313,7 +309,7 @@ export const addSpouseAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return { success: '配偶已添加', nodeId: result.node.id };
   }
 );
@@ -348,7 +344,7 @@ export const updateNodeAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return { success: '人丁信息已保存', nodeId: result.node.id };
   }
 );
@@ -367,7 +363,7 @@ export const deleteNodeAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return {
       success:
         result.deletedNodes > 1
@@ -392,7 +388,7 @@ export const moveNodeAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return { success: '人丁已移动', nodeId: result.node.id };
   }
 );

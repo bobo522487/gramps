@@ -2,7 +2,6 @@
 
 import 'server-only';
 
-import { revalidatePath } from 'next/cache';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
 import {
   createFolderInTransaction,
@@ -14,6 +13,7 @@ import {
   deleteFolderSchema,
   renameFolderSchema,
 } from '@/lib/genealogy/schemas';
+import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 
 const FOLDER_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',
@@ -38,7 +38,7 @@ export const createFolderAction = validatedActionWithUser(
       return { error: FOLDER_ERRORS[result.reason] };
     }
 
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '分类已创建', folderId: result.folder.id };
   }
 );
@@ -57,7 +57,7 @@ export const renameFolderAction = validatedActionWithUser(
       return { error: FOLDER_ERRORS[result.reason] };
     }
 
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return { success: '分类已重命名', folderId: result.folder.id };
   }
 );
@@ -75,7 +75,7 @@ export const deleteFolderAction = validatedActionWithUser(
       return { error: FOLDER_ERRORS[result.reason] };
     }
 
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
     return {
       success:
         result.unfiledContent > 0

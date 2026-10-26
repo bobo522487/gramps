@@ -2,7 +2,6 @@
 
 import 'server-only';
 
-import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getAuth } from '@/lib/auth/better-auth';
@@ -22,6 +21,7 @@ import type { ActionState } from '@/lib/auth/types';
 import { logActivity } from '@/lib/db/queries/activity';
 import { getSoleOwnerOrgNames } from '@/lib/db/queries/organizations';
 import { ActivityType } from '@/lib/db/schema';
+import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 import { logger } from '@/lib/logger';
 
 export const updatePassword = validatedActionWithUser(
@@ -135,7 +135,7 @@ export const updateAccount = validatedActionWithUser(
         error,
       });
     }
-    revalidatePath('/dashboard', 'layout');
+    revalidateWholeConsole();
 
     return { name: data.name, success: '账号信息已更新。' };
   }
