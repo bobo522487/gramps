@@ -71,14 +71,16 @@ lib/
 app/actions.ts / route.ts  →  lib/<domain>  →  lib/db/queries  →  lib/db/drizzle.ts
 ```
 
-| 规则 | 当前执行方式 |
+| 规则 | 执行方式 |
 |---|---|
-| 客户端组件不得 import `@/lib/db/*` | `server-only` + 评审；Biome `noRestrictedImports` 待接入（评审 P1-12） |
-| `lib/db/queries/**` 不得 import Actions | 评审；Biome 规则待接入 |
+| 客户端组件不得 import `@/lib/db/*` | `biome.json` `noRestrictedImports`（`pnpm check`），另有 `server-only` |
+| `lib/db/**` 不得 import `next/*` | `biome.json` `noRestrictedImports`（`pnpm check`） |
+| `lib/db/queries/**` 不得 import Actions | `biome.json` `noRestrictedImports`（`pnpm check`） |
 | 业务连接只由 `lib/db/drizzle.ts`、认证连接只由 `lib/db/auth-db.ts` 建立 | 评审 + import 约定 |
 | 认证读写只走 `lib/auth/better-auth.ts` / `lib/db/auth-db.ts` | 运行时角色边界 + 评审 |
+| `lib/<domain>` 不得 import `app/` 或 `components/` | 评审（尚无规则） |
 
-> **约束状态**：`server-only` 已在用；`noRestrictedImports` 尚未配置。在 lint 接入前，表中规则靠评审执行。
+> **约束状态**：前三条已由 Biome 在 `pnpm check` 中拦截，可违反即红；后三条仍靠评审。新增规则前请先确认它能在 CI 里变红——见 [07-quality §11.2](./07-quality.md)。
 
 ### 7.2 事务边界
 

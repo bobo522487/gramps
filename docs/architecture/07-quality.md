@@ -17,7 +17,7 @@
 | 性能（页面） | TTFB <400ms | 日志/外部聚合 p95 | 部分：有 duration_ms，无聚合 |
 | 可用性 | 月度 99.5% | 外部探针 5 分钟 | 未验证（R19） |
 | 保存失败率 | <0.1% | 服务端 error.code / 客户端上报 | 未验证（R19） |
-| 可维护性 | 单文件 ≤400 行 | 脚本统计 | 未配置（评审 P1-12） |
+| 可维护性 | 单文件 ≤400 行 | `pnpm arch:check`（F6） | 已配置，存量 8 个文件豁免 |
 | 可测试性 | 关键查询/事务模块覆盖率 ≥70% | `pnpm test:coverage` | 已验证 |
 | 关键路径 | 注册→建项目→建谱系→录入可用 | Playwright | 已验证（2 条） |
 | 部署就绪 | 健康/安全头/鉴权/RLS | `pnpm verify:deploy` | 本地生产模式已验证；云端未验证 |
@@ -52,14 +52,20 @@
 
 ### 11.2 架构约束的自动执行（Fitness Function）
 
-**已执行**
+**只有下表中的条目算约束；没有执行者的条目已删除，不再以“待接入”的名义留在文档里。**
 
 | # | 约束 | 检查方式 |
 |---|---|---|
-| F3 | 每张业务表都启用 RLS | 查 `pg_class.relrowsecurity`（已有） |
-| F8 | 迁移目录与 schema 无漂移 | `pnpm db:generate` 后无变更（已有） |
-| F9 | 文档链接/过期路径/矛盾措辞 | `pnpm docs:check --strict`（本计划新增） |
+| F1′ | `lib/db/**` 不得 import `next/*` | `biome.json` `noRestrictedImports`（`pnpm check`） |
+| F2′ | 客户端组件不得 import `@/lib/db/*` | `biome.json` `noRestrictedImports`（`pnpm check`） |
+| F2″ | `lib/db/queries/**` 不得 import `@/lib/*/actions` | `biome.json` `noRestrictedImports`（`pnpm check`） |
+| F3 | 每张业务表都启用 RLS | `pnpm verify:deploy` 查 `pg_class.relrowsecurity` |
+| F5 | 业务表策略必须走 `auth.has_org_role()`，不得用裸子查询 | `pnpm verify:deploy` 查 `pg_policies` |
+| F6 | 单文件 ≤ 400 行 | `pnpm arch:check`（存量 8 个文件豁免，豁免过期会报错） |
+| F7 | `process.env` 只在 `lib/config.ts` 读取 | `pnpm arch:check`（零豁免） |
+| F8 | 迁移目录与 schema 无漂移 | CI：`pnpm db:generate` 后无变更 |
+| F9 | 文档链接/过期路径/矛盾措辞 | `pnpm docs:check --strict` |
 
-**未执行（代码评审 P1-12）**
+**已删除的两条**（原 F1/F2 与 F4）：原 F1 写「`*.service.ts` 不得 import `next/*`」、原 F2 写「只有 repo 层能 import 那个并不存在的 `src/` 数据目录」——本仓库没有 `*.service.ts`，也没有 `src/` 目录，因此它们**描述的是一个不存在的布局，任何人都无法违反**。同名的真实风险改用 F1′/F2′/F2″ 表达。F4 曾被引用但从未定义，一并删除。
 
-F1/F2/F4/F5/F6/F7 仍只是评审规则；在 Biome/CI 接入前，不要写成“已由工具拦截”。
+> 判断标准（ADR 0009 §3）：一条规则只有在 lint / CI / 测试 / 迁移之一存在时才算“已决策”，否则视为愿望并从文档删除。

@@ -59,6 +59,26 @@
       }
     },
     {
+      "includes": ["lib/db/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["next/*"],
+                    "message": "lib/db 是基础设施层，不得依赖 Next 运行时（F1'）"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["lib/db/queries/**/*.ts"],
       "linter": {
         "rules": {
