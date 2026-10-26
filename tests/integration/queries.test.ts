@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { getActivityLogs, logActivity } from '@/lib/db/queries/activity';
 import { getFolders } from '@/lib/db/queries/folders';
 import { getLineageById, getLineages } from '@/lib/db/queries/lineages';
+import { getNodes } from '@/lib/db/queries/nodes';
 import {
   getOrgById,
   getOrgsForUser,
@@ -18,6 +19,7 @@ import {
   ActivityType,
   folders,
   lineages,
+  nodes,
   organizations,
   projects,
 } from '@/lib/db/schema';
@@ -26,6 +28,7 @@ import {
   addMember,
   createFolder,
   createLineage,
+  createNode,
   createOrganization,
   createProject,
   createUser,
@@ -84,8 +87,60 @@ describe('folder queries', () => {
     expect(list.map((folder) => folder.id)).not.toContain(otherKind.id);
     expect(list.map((folder) => folder.id)).not.toContain(deleted.id);
 
-    // Cross-org and stranger isolation is covered by the list call above plus
-    // tests/integration/org-scope.test.ts; the single-row helper was removed.
+    // Isolation of the list itself (restored after the deleted single-row
+    // helper took this coverage with it — see branch review I-1).
+    const otherOrg = await createOrganization();
+    expect(await getFolders(user.id, otherOrg.id, project.id, 0)).toEqual([]);
+
+    const stranger = await createUser();
+    expect(await getFolders(stranger.id, org.id, project.id, 0)).toEqual([]);
+  });
+});
+
+describe('node queries', () => {
+  it('lists a lineage, hides soft-deleted rows and stays org-scoped', async () => {
+    const user = await createUser();
+    const org = await personalOrgFor(user.id);
+    const project = await createProject({ orgId: org.id, createdBy: user.id });
+    const lineage = await createLineage({
+      orgId: org.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+    const root = await createNode({
+      orgId: org.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+    });
+    const child = await createNode({
+      orgId: org.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 2,
+      parentId: root.id,
+    });
+    const deleted = await createNode({
+      orgId: org.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+    });
+    await getTestDb()
+      .update(nodes)
+      .set({ deletedAt: new Date() })
+      .where(eq(nodes.id, deleted.id));
+
+    const list = await getNodes(user.id, org.id, lineage.id);
+    expect(list.map((node) => node.id)).toEqual([root.id, child.id]);
+    expect(list.map((node) => node.id)).not.toContain(deleted.id);
+
+    // Foreign org id: the app-level orgId filter returns nothing…
+    const otherOrg = await createOrganization();
+    expect(await getNodes(user.id, otherOrg.id, lineage.id)).toEqual([]);
+    // …and a non-member gets nothing even when passing the right orgId (RLS).
+    const stranger = await createUser();
+    expect(await getNodes(stranger.id, org.id, lineage.id)).toEqual([]);
   });
 });
 
