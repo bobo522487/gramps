@@ -334,21 +334,22 @@ async function checkDb() {
       from pg_policies
       where schemaname = 'public'
     `;
-    const barePolicies = policies.filter((policy) => {
-      // auth_service owns the Better Auth-managed tenant tables via explicit
-      // FOR ALL USING (true); app_rw is the role the isolation guarantee is for.
-      if (!(policy.roles ?? []).includes('app_rw')) {
-        return false;
-      }
+    const appRwPolicies = policies.filter((policy) =>
+      (policy.roles ?? []).includes('app_rw')
+    );
+    // Strong form: every app_rw policy MUST call has_org_role. Checking only
+    // for the bad text `organization_member` would accept USING (true), which
+    // is the more dangerous bypass (branch review Minor 3).
+    const notViaHasOrgRole = appRwPolicies.filter((policy) => {
       const expression = `${policy.qual ?? ''} ${policy.with_check ?? ''}`;
-      return /organization_member/i.test(expression);
+      return !/auth\.has_org_role\(/i.test(expression);
     });
     check(
-      barePolicies.length === 0,
-      'no bare RLS policy on business tables',
-      barePolicies.length === 0
-        ? `${policies.length} policies via has_org_role`
-        : barePolicies
+      notViaHasOrgRole.length === 0,
+      'every app_rw policy calls auth.has_org_role',
+      notViaHasOrgRole.length === 0
+        ? `${appRwPolicies.length} policies via has_org_role`
+        : notViaHasOrgRole
             .map((policy) => `${policy.tablename}.${policy.policyname}`)
             .join(', ')
     );

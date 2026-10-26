@@ -149,7 +149,7 @@ describe('documented stack versions', () => {
     // F5 needs a database assertion, not just a docs lint.
     expect(source).toContain('pg_policies');
     expect(source).toContain('has_org_role');
-    expect(source).toContain('bare RLS policy');
+    expect(source).toContain('app_rw policy calls auth.has_org_role');
   });
 
   test('fitness functions without an executor are deleted, not promised', () => {
