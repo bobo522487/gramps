@@ -224,4 +224,17 @@ describe('migrations', () => {
 
     expect(rows[0]?.is_nullable).toBe('YES');
   });
+
+  it('drops escape-hatch columns that nothing reads or writes', async () => {
+    const rows = await getTestSql()<
+      { table_name: string; column_name: string }[]
+    >`
+      SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND ((table_name = 'node' AND column_name IN ('mother_id', 'attributes'))
+          OR (table_name = 'lineage' AND column_name = 'hang_rule'))
+      ORDER BY table_name, column_name`;
+
+    expect(rows).toEqual([]);
+  });
 });

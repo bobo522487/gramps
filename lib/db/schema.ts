@@ -301,7 +301,6 @@ export const lineages = pgTable(
     generationWords: jsonb('generation_words').$type<string[]>(),
     region: text('region'),
     notes: text('notes'),
-    hangRule: jsonb('hang_rule').$type<Record<string, unknown>>(),
     nodeCount: integer('node_count').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
@@ -331,9 +330,6 @@ export const nodes = pgTable(
     orgId: uuid('organization_id').notNull(),
     lineageId: uuid('lineage_id').notNull(),
     parentId: uuid('parent_id'),
-    motherId: uuid('mother_id').references((): AnyPgColumn => nodes.id, {
-      onDelete: 'restrict',
-    }),
     spouseOfId: uuid('spouse_of_id').references((): AnyPgColumn => nodes.id, {
       onDelete: 'restrict',
     }),
@@ -363,10 +359,6 @@ export const nodes = pgTable(
     deathYear: integer('death_year'),
     burialPlace: text('burial_place'),
     biography: text('biography'),
-    attributes: jsonb('attributes')
-      .$type<Record<string, unknown>>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
     updatedAt: timestamptz('updated_at'),
