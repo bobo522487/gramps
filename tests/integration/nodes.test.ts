@@ -9,6 +9,7 @@ import {
   deleteNodeInTransaction,
   moveNodeInTransaction,
   reorderSiblingsInTransaction,
+  updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
 import { createLineageInTransaction } from '@/lib/lineage/services';
 import { getTestDb } from '../helpers/db';
@@ -615,5 +616,94 @@ describe('node tree semantics', () => {
     });
     expect(foreign).toEqual({ ok: false, reason: 'not_found' });
     expect(project.id).toBeTruthy();
+  });
+
+  // Every write entry point funnels through withOrgWrite; this pins each one so
+  // a future rewrite cannot keep the guard on seven and drop it on the eighth.
+  it('refuses every node write entry point for a viewer', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+    const childNode = await child(
+      user.id,
+      organization.id,
+      lineage.id,
+      founder.id,
+      '元英'
+    );
+
+    const viewer = await createUser();
+    await addMember({
+      userId: viewer.id,
+      organizationId: organization.id,
+      role: 'viewer',
+    });
+
+    const attempts = await Promise.all([
+      createRootNodeInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        name: '越权始祖',
+        sex: 0,
+      }),
+      addChildInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        parentId: founder.id,
+        name: '越权子女',
+        surname: '陈',
+        sex: 0,
+      }),
+      addSiblingInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        siblingOfId: childNode.id,
+        name: '越权兄弟',
+        surname: '陈',
+        sex: 0,
+      }),
+      addSpouseInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        spouseOfId: founder.id,
+        name: '越权配偶',
+        surname: '陈',
+        sex: 1,
+      }),
+      updateNodeInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        nodeId: founder.id,
+        updates: { name: '越权改名', surname: '陈', sex: 0 },
+      }),
+      deleteNodeInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        nodeId: childNode.id,
+      }),
+      moveNodeInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        nodeId: childNode.id,
+        newParentId: founder.id,
+      }),
+      reorderSiblingsInTransaction({
+        userId: viewer.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        parentId: founder.id,
+        orderedIds: [childNode.id],
+      }),
+    ]);
+
+    for (const result of attempts) {
+      expect(result).toEqual({ ok: false, reason: 'forbidden' });
+    }
   });
 });
