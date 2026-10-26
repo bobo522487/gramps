@@ -1,5 +1,3 @@
-import { resolveLogLevel } from '@/lib/config';
-
 type Level = 'debug' | 'info' | 'warn' | 'error';
 
 const LEVEL_PRIORITY: Record<Level, number> = {
@@ -9,9 +7,18 @@ const LEVEL_PRIORITY: Record<Level, number> = {
   error: 40,
 };
 
+// This module is shared by Server Components and the client error boundary, so
+// it cannot import lib/config.ts (which is server-only). instrumentation.ts
+// installs the validated level at startup; the fallback keeps the browser quiet.
+let levelOverride: Level | null = null;
+
+/** Called once from instrumentation.ts with the level from lib/config.ts. */
+export function setLogLevel(level: Level) {
+  levelOverride = level;
+}
+
 function currentLevel(): Level {
-  // Environment access is centralised in lib/config.ts (F7).
-  return resolveLogLevel();
+  return levelOverride ?? 'error';
 }
 
 type LogContext = Record<string, unknown>;

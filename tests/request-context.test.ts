@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { logger } from '@/lib/logger';
+import { logger, setLogLevel } from '@/lib/logger';
 import {
   addLogContext,
   getRequestContext,
@@ -7,7 +7,7 @@ import {
 } from '@/lib/server/request-context';
 
 afterEach(() => {
-  process.env.LOG_LEVEL = 'error';
+  setLogLevel('error');
   vi.restoreAllMocks();
 });
 
@@ -32,7 +32,7 @@ describe('request log context', () => {
   });
 
   it('attaches the active context to log lines', async () => {
-    process.env.LOG_LEVEL = 'info';
+    setLogLevel('info');
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await runWithRequestContext({ request_id: 'req-2' }, async () => {
@@ -58,5 +58,17 @@ describe('request log context', () => {
         expect(getRequestContext()?.request_id).toBe('b');
       }),
     ]);
+  });
+
+  it('defaults to error level so a client bundle stays quiet', () => {
+    vi.resetModules();
+    return import('@/lib/logger').then(({ logger: fresh }) => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      fresh.info('not printed');
+      fresh.warn('not printed either');
+      expect(log).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 });

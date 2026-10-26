@@ -8,13 +8,14 @@ export async function register() {
     return;
   }
 
-  const [{ getServerConfig }, { logger }] = await Promise.all([
-    import('@/lib/config'),
-    import('@/lib/logger'),
-  ]);
+  const [{ getServerConfig, resolveLogLevel }, { logger, setLogLevel }] =
+    await Promise.all([import('@/lib/config'), import('@/lib/logger')]);
 
   try {
     const config = getServerConfig();
+    // lib/logger.ts is also bundled for the browser, so it cannot read the
+    // server-only config itself; hand it the validated level here.
+    setLogLevel(resolveLogLevel());
     logger.info('server configuration validated', {
       log_level: config.LOG_LEVEL ?? 'default',
     });
