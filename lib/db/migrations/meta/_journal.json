@@ -57,6 +57,13 @@
       "when": 1792917481751,
       "tag": "0007_magical_speedball",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792999042411,
+      "tag": "0008_dry_randall",
+      "breakpoints": true
     }
   ]
 }

@@ -11,9 +11,12 @@ import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
   createInvitation,
+  createLineage,
+  createNode,
   createOrganization,
   createProject,
   createUser,
+  getPersonalOrg,
 } from '../helpers/factories';
 
 describe('database constraints', () => {
@@ -266,5 +269,83 @@ describe('database constraints', () => {
         values (${organization.id}::uuid, '非法等级', ${owner.id}::uuid, 9)
       `
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
+  });
+});
+
+describe('node tree invariants enforced by the database', () => {
+  async function lineageScope() {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal)
+      throw new Error('registration trigger did not create an org');
+    const organization = personal.organization;
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const lineage = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+    return { user, organization, project, lineage };
+  }
+
+  it('derives level from the ltree path instead of trusting the writer', async () => {
+    const { user, organization, lineage } = await lineageScope();
+    const root = await createNode({
+      orgId: organization.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+      path: 'aaaa',
+    });
+    const child = await createNode({
+      orgId: organization.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 2,
+      path: 'aaaa.bbbb',
+      parentId: root.id,
+    });
+    const rows = await getTestSql()<{ id: string; level: number }[]>`
+      select id, level from node
+      where id in (${root.id}, ${child.id})
+      order by level`;
+    expect(rows.map((row) => row.level)).toEqual([0, 1]);
+  });
+
+  it('rejects a generation below the path-derived level', async () => {
+    const { user, organization, lineage } = await lineageScope();
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 0,
+        path: 'aaaa.bbbb',
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
+  });
+
+  it('accepts a spouse node with no path at the minimum generation', async () => {
+    const { user, organization, lineage } = await lineageScope();
+    const root = await createNode({
+      orgId: organization.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+      path: 'aaaa',
+    });
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 1,
+        role: 'spouse',
+        spouseOfId: root.id,
+      })
+    ).resolves.toBeTruthy();
   });
 });

@@ -335,6 +335,14 @@ export const nodes = pgTable(
     path: ltree('path'),
     depth: integer('depth').notNull().default(0),
     generation: integer('generation').notNull(),
+    /**
+     * Derived from path, so a writer cannot disagree with the tree it lives in.
+     * Spouses have no path and sit at level 0. Read-only: the database rejects
+     * any INSERT/UPDATE that names this column.
+     */
+    level: integer('level').generatedAlwaysAs(
+      sql`case when ${sql.identifier('path')} is null then 0 else nlevel(${sql.identifier('path')}) - 1 end`
+    ),
     sort: integer('sort').notNull().default(0),
     name: text('name').notNull(),
     surname: text('surname').notNull(),
@@ -370,6 +378,15 @@ export const nodes = pgTable(
     check(
       'ck_node_spouse_has_no_path',
       sql`(${t.role} = 'spouse' and ${t.path} is null and ${t.spouseOfId} is not null) or (${t.role} = 'blood' and ${t.path} is not null)`
+    ),
+    /**
+     * A CHECK cannot reference a generated column, so this repeats the level
+     * expression rather than comparing against "level" (which PostgreSQL
+     * rejects at ALTER TABLE time).
+     */
+    check(
+      'ck_node_generation_lte_level',
+      sql`${t.generation} >= case when ${t.path} is null then 1 else nlevel(${t.path}) end`
     ),
     index('idx_node_lineage_depth').on(t.orgId, t.lineageId, t.depth),
     index('idx_node_parent').on(t.orgId, t.parentId),

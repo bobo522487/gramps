@@ -1,0 +1,2 @@
+ALTER TABLE "node" ADD COLUMN "level" integer GENERATED ALWAYS AS (case when "path" is null then 0 else nlevel("path") - 1 end) STORED;--> statement-breakpoint
+ALTER TABLE "node" ADD CONSTRAINT "ck_node_generation_lte_level" CHECK ("node"."generation" >= case when "node"."path" is null then 1 else nlevel("node"."path") end);
