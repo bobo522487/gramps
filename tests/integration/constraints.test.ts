@@ -474,4 +474,82 @@ describe('tree edges belong to exactly one parent scope', () => {
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
+
+});
+
+describe('spouse edges belong to exactly one lineage', () => {
+  it('rejects a spouse whose spouse_of_id lives in another lineage', async () => {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal) throw new Error('registration trigger did not create an org');
+    const organization = personal.organization;
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const lineageA = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      name: '甲谱',
+    });
+    const lineageB = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      name: '乙谱',
+    });
+    const foreignBlood = await createNode({
+      orgId: organization.id,
+      lineageId: lineageB.id,
+      createdBy: user.id,
+      generation: 1,
+      path: 'aaaa',
+    });
+
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineageA.id,
+        createdBy: user.id,
+        generation: 1,
+        role: 'spouse',
+        spouseOfId: foreignBlood.id,
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
+  });
+
+  it('still allows a spouse attached inside the same lineage', async () => {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal) throw new Error('registration trigger did not create an org');
+    const organization = personal.organization;
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const lineage = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+    const blood = await createNode({
+      orgId: organization.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+      path: 'aaaa',
+    });
+
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 1,
+        role: 'spouse',
+        spouseOfId: blood.id,
+      })
+    ).resolves.toBeTruthy();
+  });
 });

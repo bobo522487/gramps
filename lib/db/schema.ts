@@ -1,6 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
 import {
-  type AnyPgColumn,
   boolean,
   check,
   customType,
@@ -330,9 +329,7 @@ export const nodes = pgTable(
     orgId: uuid('organization_id').notNull(),
     lineageId: uuid('lineage_id').notNull(),
     parentId: uuid('parent_id'),
-    spouseOfId: uuid('spouse_of_id').references((): AnyPgColumn => nodes.id, {
-      onDelete: 'restrict',
-    }),
+    spouseOfId: uuid('spouse_of_id'),
     role: text('role').notNull().default('blood'),
     path: ltree('path'),
     depth: integer('depth').notNull().default(0),
@@ -378,6 +375,13 @@ export const nodes = pgTable(
       columns: [t.parentId, t.orgId, t.lineageId],
       foreignColumns: [t.id, t.orgId, t.lineageId],
       name: 'fk_node_parent_same_lineage',
+    }).onDelete('restrict'),
+    // A spouse must be attached inside the same tree; the composite unique key
+    // uk_node_org_lineage_id above is what makes this edge constrainable.
+    foreignKey({
+      columns: [t.spouseOfId, t.orgId, t.lineageId],
+      foreignColumns: [t.id, t.orgId, t.lineageId],
+      name: 'fk_node_spouse_same_lineage',
     }).onDelete('restrict'),
     check('ck_node_role', sql`${t.role} in ('blood', 'spouse')`),
     check('ck_node_sex', sql`${t.sex} in (0, 1)`),
