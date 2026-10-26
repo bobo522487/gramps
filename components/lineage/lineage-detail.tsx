@@ -26,12 +26,12 @@ import {
 } from 'react';
 import { EmptyState } from '@/components/console/empty-state';
 import { GenealogyCanvas } from '@/components/lineage/canvas/genealogy-canvas';
-import {
-  buildLineageIndex,
-  generationWord,
-  lifeSpan,
-} from '@/components/lineage/derived';
+import { generationWord, lifeSpan } from '@/components/lineage/derived';
 import { LineageEditDialog } from '@/components/lineage/lineage-edit-dialog';
+import {
+  LineageIndexProvider,
+  useLineageIndex,
+} from '@/components/lineage/lineage-index-context';
 import {
   INSPECTOR_MAX_WIDTH,
   INSPECTOR_MIN_WIDTH,
@@ -315,19 +315,34 @@ function NodeRows({
   );
 }
 
-export function LineageDetail({
-  orgId,
-  lineage,
-  nodes,
-  folders,
-  canWrite,
-}: {
+type LineageDetailProps = {
   orgId: string;
   lineage: LineageInfo;
   nodes: NodeView[];
   folders: FolderOption[];
   canWrite: boolean;
-}) {
+};
+
+/**
+ * Owns the single lineage index for this subtree: the canvas, the inspector,
+ * the create dialog and the detail table read it from context instead of each
+ * rebuilding the same maps over the same array.
+ */
+export function LineageDetail(props: LineageDetailProps) {
+  return (
+    <LineageIndexProvider nodes={props.nodes}>
+      <LineageDetailInner {...props} />
+    </LineageIndexProvider>
+  );
+}
+
+function LineageDetailInner({
+  orgId,
+  lineage,
+  nodes,
+  folders,
+  canWrite,
+}: LineageDetailProps) {
   const router = useRouter();
 
   const view = useLineageStore((state) => state.view);
@@ -363,7 +378,7 @@ export function LineageDetail({
     initializeForLineage(lineage.id);
   }, [initializeForLineage, lineage.id]);
 
-  const index = useMemo(() => buildLineageIndex(nodes), [nodes]);
+  const index = useLineageIndex();
   const bloodNodes = index.blood;
   const spousesByBlood = index.spousesByBlood;
   const hasRoot = bloodNodes.length > 0;
@@ -507,7 +522,6 @@ export function LineageDetail({
       orgId={orgId}
       lineageId={lineage.id}
       generationWords={lineage.generationWords}
-      nodes={nodes}
       node={selectedNode}
       canWrite={canWrite}
       width={inspectorWidth}
@@ -821,7 +835,6 @@ export function LineageDetail({
           lineageId={lineage.id}
           lineageSurname={lineage.surname}
           generationWords={lineage.generationWords}
-          nodes={nodes}
           target={createDialog.target}
           onCreated={handleCreated}
           onClose={() => setCreateDialog(null)}

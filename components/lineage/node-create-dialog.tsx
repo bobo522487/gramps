@@ -2,10 +2,11 @@
 
 import { Heart, UserPlus, X } from 'lucide-react';
 import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
+import { generationWord } from '@/components/lineage/derived';
 import {
-  buildLineageIndex,
-  generationWord,
-} from '@/components/lineage/derived';
+  type LineageIndex,
+  useLineageIndex,
+} from '@/components/lineage/lineage-index-context';
 import type { NodeView } from '@/components/lineage/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,11 +60,7 @@ const COPY: Record<
   },
 };
 
-function nextRank(
-  index: ReturnType<typeof buildLineageIndex>,
-  parentId: string | null,
-  sex: number
-) {
+function nextRank(index: LineageIndex, parentId: string | null, sex: number) {
   if (!parentId) {
     return '始祖';
   }
@@ -90,7 +87,6 @@ export function NodeCreateDialog({
   lineageId,
   lineageSurname,
   generationWords,
-  nodes,
   target,
   onCreated,
   onClose,
@@ -100,12 +96,11 @@ export function NodeCreateDialog({
   lineageId: string;
   lineageSurname: string;
   generationWords: string[] | null;
-  nodes: NodeView[];
   target?: NodeView;
   onCreated: (nodeId: string, spouseId?: string) => void;
   onClose: () => void;
 }) {
-  const index = useMemo(() => buildLineageIndex(nodes), [nodes]);
+  const index = useLineageIndex();
   const action =
     mode === 'root'
       ? createRootNodeAction

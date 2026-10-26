@@ -51,10 +51,10 @@ import type {
 } from '@/components/lineage/canvas/types';
 import {
   ancestorsOf,
-  buildLineageIndex,
   isDescendant,
   matchLineagePerson,
 } from '@/components/lineage/derived';
+import { useLineageIndex } from '@/components/lineage/lineage-index-context';
 import { useLineageStore } from '@/components/lineage/lineage-store';
 import type { NodeView } from '@/components/lineage/types';
 
@@ -130,7 +130,7 @@ function CanvasInner({
   const focus = useLineageStore((state) => state.focus);
   const requestFocus = useLineageStore((state) => state.requestFocus);
 
-  const index = useMemo(() => buildLineageIndex(nodes), [nodes]);
+  const index = useLineageIndex();
   const collapsedSet = useMemo(
     () => new Set(collapsedNodeIds),
     [collapsedNodeIds]

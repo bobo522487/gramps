@@ -6,15 +6,14 @@ import {
   type CSSProperties,
   useActionState,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
+import { generationWord, rankLabel } from '@/components/lineage/derived';
 import {
-  buildLineageIndex,
-  generationWord,
-  rankLabel,
-} from '@/components/lineage/derived';
+  type LineageIndex,
+  useLineageIndex,
+} from '@/components/lineage/lineage-index-context';
 import type { NodeView } from '@/components/lineage/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,7 +49,6 @@ export function PersonInspector({
   orgId,
   lineageId,
   generationWords,
-  nodes,
   node,
   canWrite,
   width,
@@ -65,7 +63,6 @@ export function PersonInspector({
   orgId: string;
   lineageId: string;
   generationWords: string[] | null;
-  nodes: NodeView[];
   node: NodeView | null;
   canWrite: boolean;
   width: number;
@@ -77,7 +74,7 @@ export function PersonInspector({
   onAddSpouse: (nodeId: string) => void;
   onDelete: (target: NodeView) => void;
 }) {
-  const index = useMemo(() => buildLineageIndex(nodes), [nodes]);
+  const index = useLineageIndex();
 
   if (!node) {
     return <EmptyInspector width={width} />;
@@ -123,7 +120,7 @@ function PersonInspectorForm({
   orgId: string;
   lineageId: string;
   generationWords: string[] | null;
-  index: ReturnType<typeof buildLineageIndex>;
+  index: LineageIndex;
   node: NodeView;
   canWrite: boolean;
   width: number;
