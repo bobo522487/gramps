@@ -106,12 +106,14 @@ export function displayGivenName(node: NodeView): string {
   return node.name;
 }
 
-const MALE_RANKS = ['长子', '次子', '三子', '四子', '五子', '六子'];
-const FEMALE_RANKS = ['长女', '次女', '三女', '四女', '五女', '六女'];
+export const RANK_LABELS = {
+  male: ['长子', '次子', '三子', '四子', '五子', '六子'],
+  female: ['长女', '次女', '三女', '四女', '五女', '六女'],
+} as const;
 
 export function rankLabel(index: LineageIndex, node: NodeView): string {
   if (node.role === 'spouse') {
-    return node.sex === 1 ? '配' : '配';
+    return '配';
   }
   if (!node.parentId) {
     return '始祖';
@@ -123,7 +125,7 @@ export function rankLabel(index: LineageIndex, node: NodeView): string {
   if (order < 0) {
     return '';
   }
-  const labels = node.sex === 1 ? FEMALE_RANKS : MALE_RANKS;
+  const labels = node.sex === 1 ? RANK_LABELS.female : RANK_LABELS.male;
   return labels[order] ?? `第${order + 1}${node.sex === 1 ? '女' : '子'}`;
 }
 

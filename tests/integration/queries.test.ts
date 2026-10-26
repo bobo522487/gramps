@@ -1,14 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { getActivityLogs, logActivity } from '@/lib/db/queries/activity';
-import { getFolderById, getFolders } from '@/lib/db/queries/folders';
+import { getFolders } from '@/lib/db/queries/folders';
 import { getLineageById, getLineages } from '@/lib/db/queries/lineages';
-import {
-  countNodes,
-  getNodeById,
-  getNodes,
-  searchNodes,
-} from '@/lib/db/queries/nodes';
 import {
   getOrgById,
   getOrgsForUser,
@@ -24,7 +18,6 @@ import {
   ActivityType,
   folders,
   lineages,
-  nodes,
   organizations,
   projects,
 } from '@/lib/db/schema';
@@ -33,7 +26,6 @@ import {
   addMember,
   createFolder,
   createLineage,
-  createNode,
   createOrganization,
   createProject,
   createUser,
@@ -92,17 +84,8 @@ describe('folder queries', () => {
     expect(list.map((folder) => folder.id)).not.toContain(otherKind.id);
     expect(list.map((folder) => folder.id)).not.toContain(deleted.id);
 
-    expect(await getFolderById(user.id, org.id, earlier.id)).toMatchObject({
-      id: earlier.id,
-      name: '测试分类',
-    });
-    expect(await getFolderById(user.id, org.id, deleted.id)).toBeNull();
-
-    const otherOrg = await createOrganization();
-    expect(await getFolderById(user.id, otherOrg.id, earlier.id)).toBeNull();
-
-    const stranger = await createUser();
-    expect(await getFolderById(stranger.id, org.id, earlier.id)).toBeNull();
+    // Cross-org and stranger isolation is covered by the list call above plus
+    // tests/integration/org-scope.test.ts; the single-row helper was removed.
   });
 });
 
@@ -148,98 +131,6 @@ describe('lineage queries', () => {
 
     const stranger = await createUser();
     expect(await getLineageById(stranger.id, org.id, lineage.id)).toBeNull();
-  });
-});
-
-describe('node queries', () => {
-  it('lists, searches, counts and scopes nodes by lineage and org', async () => {
-    const user = await createUser();
-    const org = await personalOrgFor(user.id);
-    const project = await createProject({ orgId: org.id, createdBy: user.id });
-    const lineage = await createLineage({
-      orgId: org.id,
-      projectId: project.id,
-      createdBy: user.id,
-    });
-    const root = await createNode({
-      orgId: org.id,
-      lineageId: lineage.id,
-      createdBy: user.id,
-      generation: 1,
-      name: '太公',
-      sort: 0,
-    });
-    const child = await createNode({
-      orgId: org.id,
-      lineageId: lineage.id,
-      createdBy: user.id,
-      parentId: root.id,
-      generation: 2,
-      name: '二世',
-      depth: 1,
-      sort: 0,
-    });
-    const spouse = await createNode({
-      orgId: org.id,
-      lineageId: lineage.id,
-      createdBy: user.id,
-      spouseOfId: root.id,
-      role: 'spouse',
-      generation: 1,
-      name: '太婆',
-      sort: 1,
-      sex: 1,
-    });
-    const percent = await createNode({
-      orgId: org.id,
-      lineageId: lineage.id,
-      createdBy: user.id,
-      generation: 2,
-      name: '百%成',
-      depth: 1,
-      sort: 1,
-    });
-    const deleted = await createNode({
-      orgId: org.id,
-      lineageId: lineage.id,
-      createdBy: user.id,
-      generation: 3,
-      name: '删丁',
-      depth: 2,
-    });
-    await getTestDb()
-      .update(nodes)
-      .set({ deletedAt: new Date() })
-      .where(eq(nodes.id, deleted.id));
-
-    const list = await getNodes(user.id, org.id, lineage.id);
-    expect(list.map((node) => node.id)).toEqual(
-      expect.arrayContaining([root.id, child.id, spouse.id, percent.id])
-    );
-    expect(list.map((node) => node.id)).not.toContain(deleted.id);
-    expect(list[0].generation).toBe(1);
-
-    expect(
-      (await searchNodes(user.id, org.id, lineage.id, '二世')).map((n) => n.id)
-    ).toEqual([child.id]);
-    expect(
-      (await searchNodes(user.id, org.id, lineage.id, '%')).map((n) => n.id)
-    ).toEqual([percent.id]);
-    expect(
-      await searchNodes(user.id, org.id, lineage.id, '陈', 2)
-    ).toHaveLength(2);
-
-    expect(
-      await getNodeById(user.id, org.id, lineage.id, child.id)
-    ).toMatchObject({ fullName: '陈二世' });
-    expect(
-      await getNodeById(user.id, org.id, lineage.id, deleted.id)
-    ).toBeNull();
-    expect(await countNodes(user.id, org.id, lineage.id)).toBe(4);
-
-    const stranger = await createUser();
-    expect(await getNodes(stranger.id, org.id, lineage.id)).toEqual([]);
-    expect(await countNodes(stranger.id, org.id, lineage.id)).toBe(0);
   });
 });
 

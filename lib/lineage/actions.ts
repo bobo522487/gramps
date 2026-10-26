@@ -14,7 +14,6 @@ import {
   deleteLineageSchema,
   deleteNodeSchema,
   moveNodeSchema,
-  reorderSiblingsSchema,
   updateLineageSchema,
   updateNodeSchema,
 } from '@/lib/genealogy/schemas';
@@ -28,7 +27,6 @@ import {
   type NodeCreateDetails,
   type NodeUpdates,
   type OptionalSpouse,
-  reorderSiblingsInTransaction,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
 import {
@@ -396,25 +394,5 @@ export const moveNodeAction = validatedActionWithUser(
 
     revalidateProject();
     return { success: '人丁已移动', nodeId: result.node.id };
-  }
-);
-
-export const reorderSiblingsAction = validatedActionWithUser(
-  reorderSiblingsSchema,
-  async (data, _, user) => {
-    const result = await reorderSiblingsInTransaction({
-      userId: user.id,
-      orgId: data.orgId,
-      lineageId: data.lineageId,
-      parentId: data.parentId ?? null,
-      orderedIds: data.orderedIds,
-    });
-
-    if (!result.ok) {
-      return lineageError(result.reason);
-    }
-
-    revalidateProject();
-    return { success: '排序已保存' };
   }
 );

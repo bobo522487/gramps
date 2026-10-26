@@ -25,24 +25,3 @@ export async function getFolders(
       .orderBy(asc(folders.sort), asc(folders.createdAt))
   );
 }
-
-export async function getFolderById(
-  userId: string,
-  orgId: string,
-  folderId: string
-): Promise<Folder | null> {
-  return withOrg(userId, async (tx) => {
-    const rows = await tx
-      .select()
-      .from(folders)
-      .where(
-        and(
-          eq(folders.id, folderId),
-          eq(folders.orgId, orgId),
-          isNull(folders.deletedAt)
-        )
-      )
-      .limit(1);
-    return rows[0] ?? null;
-  });
-}

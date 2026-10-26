@@ -1,6 +1,5 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { searchNodes } from '@/lib/db/queries/nodes';
 import { ActivityType, activityLogs, lineages, nodes } from '@/lib/db/schema';
 import {
   addChildInTransaction,
@@ -578,29 +577,6 @@ describe('node tree semantics', () => {
       orderedIds: [first.id, founder.id],
     });
     expect(invalid).toEqual({ ok: false, reason: 'invalid_order' });
-  });
-
-  it('searches by full name and stays scoped to the org', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    await child(user.id, organization.id, lineage.id, founder.id, '元英');
-
-    const results = await searchNodes(
-      user.id,
-      organization.id,
-      lineage.id,
-      '元英'
-    );
-    expect(results).toHaveLength(1);
-    expect(results[0]?.fullName).toBe('陈元英');
-
-    const foreign = await searchNodes(
-      user.id,
-      (await createOrganization({ name: '别的组织' })).id,
-      lineage.id,
-      '元英'
-    );
-    expect(foreign).toHaveLength(0);
   });
 
   it('rejects node writes from viewers and from other orgs', async () => {

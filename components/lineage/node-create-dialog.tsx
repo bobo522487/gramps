@@ -2,7 +2,7 @@
 
 import { Heart, UserPlus, X } from 'lucide-react';
 import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
-import { generationWord } from '@/components/lineage/derived';
+import { generationWord, RANK_LABELS } from '@/components/lineage/derived';
 import {
   type LineageIndex,
   useLineageIndex,
@@ -22,9 +22,6 @@ import {
 } from '@/lib/lineage/actions';
 
 export type NodeCreateMode = 'root' | 'child' | 'sibling' | 'spouse' | 'person';
-
-const MALE_RANKS = ['长子', '次子', '三子', '四子', '五子', '六子'];
-const FEMALE_RANKS = ['长女', '次女', '三女', '四女', '五女', '六女'];
 
 const COPY: Record<
   NodeCreateMode,
@@ -67,7 +64,7 @@ function nextRank(index: LineageIndex, parentId: string | null, sex: number) {
   const siblings = (index.childrenByParent.get(parentId) ?? []).filter(
     (node) => node.sex === sex
   );
-  const labels = sex === 1 ? FEMALE_RANKS : MALE_RANKS;
+  const labels = sex === 1 ? RANK_LABELS.female : RANK_LABELS.male;
   return (
     labels[siblings.length] ??
     `第${siblings.length + 1}${sex === 1 ? '女' : '子'}`

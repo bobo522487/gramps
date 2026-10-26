@@ -21,6 +21,7 @@ import {
   generationWord,
   isDescendant,
   matchLineagePerson,
+  RANK_LABELS,
   rankLabel,
 } from '@/components/lineage/derived';
 import {
@@ -562,5 +563,48 @@ describe('lineage sidebar tree', () => {
     ]);
     expect(tree.unfiled).toHaveLength(1);
     expect(tree.folders[0]?.lineageCount).toBe(0);
+  });
+
+  it('exposes a single source for rank labels', () => {
+    expect(RANK_LABELS.male).toEqual([
+      '长子',
+      '次子',
+      '三子',
+      '四子',
+      '五子',
+      '六子',
+    ]);
+    expect(RANK_LABELS.female).toEqual([
+      '长女',
+      '次女',
+      '三女',
+      '四女',
+      '五女',
+      '六女',
+    ]);
+  });
+
+  it('labels a spouse with a single neutral rank regardless of sex', () => {
+    const index = buildLineageIndex([
+      person({ id: 'a', name: '实', generation: 1, role: 'blood', sex: 0 }),
+      person({
+        id: 'b',
+        name: '妻',
+        generation: 1,
+        role: 'spouse',
+        sex: 1,
+        spouseOfId: 'a',
+      }),
+      person({
+        id: 'c',
+        name: '夫',
+        generation: 1,
+        role: 'spouse',
+        sex: 0,
+        spouseOfId: 'a',
+      }),
+    ]);
+    expect(rankLabel(index, index.byId.get('b')!)).toBe('配');
+    expect(rankLabel(index, index.byId.get('c')!)).toBe('配');
   });
 });

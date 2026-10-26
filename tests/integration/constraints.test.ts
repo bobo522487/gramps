@@ -11,8 +11,8 @@ import {
 import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
-  createInvitation,
   createFolder,
+  createInvitation,
   createLineage,
   createNode,
   createOrganization,
@@ -356,7 +356,8 @@ describe('tree edges belong to exactly one parent scope', () => {
   async function orgScope() {
     const user = await createUser();
     const personal = await getPersonalOrg(user.id);
-    if (!personal) throw new Error('registration trigger did not create an org');
+    if (!personal)
+      throw new Error('registration trigger did not create an org');
     return { user, organization: personal.organization };
   }
 
