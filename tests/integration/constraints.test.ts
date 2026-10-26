@@ -474,14 +474,14 @@ describe('tree edges belong to exactly one parent scope', () => {
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
-
 });
 
 describe('spouse edges belong to exactly one lineage', () => {
   it('rejects a spouse whose spouse_of_id lives in another lineage', async () => {
     const user = await createUser();
     const personal = await getPersonalOrg(user.id);
-    if (!personal) throw new Error('registration trigger did not create an org');
+    if (!personal)
+      throw new Error('registration trigger did not create an org');
     const organization = personal.organization;
     const project = await createProject({
       orgId: organization.id,
@@ -522,7 +522,8 @@ describe('spouse edges belong to exactly one lineage', () => {
   it('still allows a spouse attached inside the same lineage', async () => {
     const user = await createUser();
     const personal = await getPersonalOrg(user.id);
-    if (!personal) throw new Error('registration trigger did not create an org');
+    if (!personal)
+      throw new Error('registration trigger did not create an org');
     const organization = personal.organization;
     const project = await createProject({
       orgId: organization.id,
@@ -552,4 +553,68 @@ describe('spouse edges belong to exactly one lineage', () => {
       })
     ).resolves.toBeTruthy();
   });
+
+describe('depth is derived from the path too', () => {
+  it('rejects a blood row whose depth disagrees with its ltree path', async () => {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal) throw new Error('registration trigger did not create an org');
+    const organization = personal.organization;
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const lineage = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 2,
+        path: 'aaaa.bbbb',
+        depth: 0, // deliberate mismatch: nlevel('aaaa.bbbb') - 1 === 1
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
+  });
+
+  it('leaves spouse depth to the application (path IS NULL rows are exempt)', async () => {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal) throw new Error('registration trigger did not create an org');
+    const organization = personal.organization;
+    const project = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const lineage = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+    const blood = await createNode({
+      orgId: organization.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+      path: 'aaaa',
+    });
+
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 1,
+        role: 'spouse',
+        spouseOfId: blood.id,
+        depth: 0,
+      })
+    ).resolves.toBeTruthy();
+  });
+});
 });
