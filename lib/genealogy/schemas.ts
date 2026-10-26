@@ -286,30 +286,6 @@ export const moveNodeSchema = z.object({
   newParentId: nodeId,
 });
 
-export const reorderSiblingsSchema = z.object({
-  orgId,
-  lineageId,
-  parentId: optionalUuid('父节点无效'),
-  orderedIds: z.string({ error: '排序数据无效' }).transform((value, ctx) => {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      if (
-        !Array.isArray(parsed) ||
-        parsed.some((id) => typeof id !== 'string')
-      ) {
-        throw new Error('invalid');
-      }
-      return parsed as string[];
-    } catch {
-      ctx.addIssue({
-        code: 'custom',
-        message: '排序数据无效',
-      });
-      return z.NEVER;
-    }
-  }),
-});
-
 export type CreateFolderInput = z.infer<typeof createFolderSchema>;
 export type CreateLineageInput = z.infer<typeof createLineageSchema>;
 export type UpdateLineageInput = z.infer<typeof updateLineageSchema>;

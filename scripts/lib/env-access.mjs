@@ -19,6 +19,25 @@ const ENV_PATTERNS = [
  * @param {string[]} exempt
  * @returns {{ path: string, line: number }[]}
  */
+/**
+ * Next build/runtime markers are platform signals, not configuration: they must
+ * be readable before any module loads, so lib/config.ts cannot own them. Allow
+ * only these exact keys, and only in the root entry file.
+ */
+const NEXT_MARKERS = /^(NEXT_RUNTIME|NEXT_PHASE)$/;
+const ROOT_ENTRY = /^instrumentation\.tsx?$/;
+const MARKER_PATTERN =
+  /\bprocess\s*(?:\.\s*env\s*(?:\.\s*(\w+)|\[\s*['"]\w+['"]\s*\]))/g;
+
+function stripNextMarkers(text, path) {
+  if (!ROOT_ENTRY.test(path)) {
+    return text;
+  }
+  return text.replace(MARKER_PATTERN, (match, key) =>
+    NEXT_MARKERS.test(key ?? '') ? 'NEXT_MARKER' : match
+  );
+}
+
 export function envAccessViolations(files, exempt = []) {
   const exemptSet = new Set(exempt);
   /** @type {{ path: string, line: number }[]} */
@@ -30,7 +49,8 @@ export function envAccessViolations(files, exempt = []) {
     }
     const lines = file.source.split('\n');
     for (const [index, text] of lines.entries()) {
-      if (ENV_PATTERNS.some((pattern) => pattern.test(text))) {
+      const scanned = stripNextMarkers(text, file.path);
+      if (ENV_PATTERNS.some((pattern) => pattern.test(scanned))) {
         violations.push({ path: file.path, line: index + 1 });
       }
     }

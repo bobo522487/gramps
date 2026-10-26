@@ -61,8 +61,8 @@
 | F2″ | `lib/db/queries/**` 不得 import `@/lib/*/actions` | `biome.json` `noRestrictedImports`（`pnpm check`） |
 | F3 | 每张业务表都启用 RLS | `pnpm verify:deploy` 查 `pg_class.relrowsecurity` |
 | F5 | 业务表策略必须走 `auth.has_org_role()`，不得用裸子查询 | `pnpm verify:deploy` 查 `pg_policies` |
-| F6 | 单文件 ≤ 400 行 | `pnpm arch:check`（存量 8 个文件豁免，豁免过期会报错） |
-| F7 | `process.env` 只在 `lib/config.ts` 读取 | `pnpm arch:check`（零豁免） |
+| F6 | 单文件 ≤ 400 行（扫描 `app/`、`components/`、`lib/`、`hooks/`；`tests/`、`scripts/` 暂不在面内） | `pnpm arch:check`（存量 8 个文件带行数预算：只准缩不准涨，过期豁免报错） |
+| F7 | `process.env` 只在 `lib/config.ts` 读取；扫描面 `app/`、`components/`、`lib/`、`hooks/` 加根入口文件（`instrumentation.ts` 仅放行 `NEXT_RUNTIME`/`NEXT_PHASE` 平台标记）；零豁免 | `pnpm arch:check` |
 | F8 | 迁移目录与 schema 无漂移 | CI：`pnpm db:generate` 后无变更 |
 | F9 | 文档链接/过期路径/矛盾措辞 | `pnpm docs:check --strict` |
 

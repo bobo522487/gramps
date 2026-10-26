@@ -6,13 +6,16 @@
  * turning into `undefined` in the middle of a request.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { envAccessViolations } from './lib/env-access.mjs';
 
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
 const SCANNED = ['app', 'components', 'lib', 'hooks'];
+// Root entry files are platform bootstrap; the checker allows only the exact
+// NEXT_RUNTIME/NEXT_PHASE markers in instrumentation.ts (see scripts/lib/env-access.mjs).
+const ROOT_FILES = ['instrumentation.ts', 'proxy.ts'];
 
 // Empty on purpose: the goal is zero readers outside lib/config.ts. Adding an
 // entry here means accepting a second configuration path; justify it in review.
@@ -31,13 +34,19 @@ function walk(dir) {
   return out;
 }
 
-const files = SCANNED.flatMap((dir) => {
-  try {
-    return walk(join(ROOT, dir));
-  } catch {
-    return [];
-  }
-}).map((full) => ({
+const scanned = [
+  ...SCANNED.flatMap((dir) => {
+    try {
+      return walk(join(ROOT, dir));
+    } catch {
+      return [];
+    }
+  }),
+  ...ROOT_FILES.filter((name) => existsSync(join(ROOT, name))).map((name) =>
+    join(ROOT, name)
+  ),
+];
+const files = scanned.map((full) => ({
   path: relative(ROOT, full).split(sep).join('/'),
   source: readFileSync(full, 'utf8'),
 }));
