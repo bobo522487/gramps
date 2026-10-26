@@ -68,4 +68,14 @@ describe('F7 process.env check', () => {
 
     expect(envAccessViolations(files)).toEqual([]);
   });
+
+  it('ratchets: an exempted file may shrink but never grow past its ceiling', () => {
+    const budget = [{ path: 'a.ts', lines: 500 }];
+    expect(fileSizeViolations([{ path: 'a.ts', lines: 450 }], budget)).toEqual(
+      []
+    );
+    const grew = fileSizeViolations([{ path: 'a.ts', lines: 501 }], budget);
+    expect(grew).toHaveLength(1);
+    expect(grew[0]?.reason).toBe('over-budget');
+  });
 });

@@ -15,15 +15,18 @@ import { fileSizeViolations } from './lib/file-size.mjs';
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
 const SCANNED = ['app', 'components', 'lib', 'hooks'];
 
+// Ratchet budget: each entry is the line count when it was exempted. Growing
+// past the ceiling fails the check; only shrinking (toward eventually removing
+// the exemption) is allowed. Captured at feat/arch-simplification.
 const EXEMPT = [
-  'lib/lineage/node-services.ts',
-  'components/lineage/lineage-detail.tsx',
-  'components/lineage/canvas/genealogy-canvas.tsx',
-  'components/lineage/lineage-sidebar.tsx',
-  'components/ui/sidebar.tsx',
-  'lib/db/schema.ts',
-  'components/lineage/person-inspector.tsx',
-  'components/lineage/node-create-dialog.tsx',
+  { path: 'lib/lineage/node-services.ts', lines: 875 },
+  { path: 'components/lineage/lineage-detail.tsx', lines: 865 },
+  { path: 'components/lineage/canvas/genealogy-canvas.tsx', lines: 776 },
+  { path: 'components/lineage/lineage-sidebar.tsx', lines: 734 },
+  { path: 'components/ui/sidebar.tsx', lines: 717 },
+  { path: 'lib/db/schema.ts', lines: 688 },
+  { path: 'components/lineage/person-inspector.tsx', lines: 606 },
+  { path: 'components/lineage/node-create-dialog.tsx', lines: 583 },
 ];
 
 function walk(dir) {
@@ -47,7 +50,7 @@ const files = SCANNED.flatMap((dir) => {
   }
 }).map((full) => ({
   path: relative(ROOT, full).split(sep).join('/'),
-  lines: readFileSync(full, 'utf8').split('\n').length - 1,
+  lines: (readFileSync(full, 'utf8').match(/\n/g) ?? []).length,
 }));
 
 const violations = fileSizeViolations(files, EXEMPT);
@@ -63,6 +66,10 @@ for (const violation of violations) {
   if (violation.reason === 'over-limit') {
     console.error(
       `[F6] ${violation.path}: ${violation.lines} lines exceeds 400 and is not exempt`
+    );
+  } else if (violation.reason === 'over-budget') {
+    console.error(
+      `[F6] ${violation.path}: ${violation.lines} lines exceeds its exemption ceiling — shrink the file or justify a raised ceiling in review`
     );
   } else {
     console.error(
