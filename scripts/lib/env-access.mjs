@@ -10,7 +10,7 @@ export const ENV_OWNER = 'lib/config.ts';
 // Text scan, not AST: catch the common obfuscations that a `process.env`
 // literal-only regex misses (bracket access, spacing, destructuring).
 const ENV_PATTERNS = [
-  /\bprocess\s*(?:\.\s*env\b|\[\s*['\"]env['\"]\s*\])/,
+  /\bprocess\s*(?:\.\s*env\b|\[\s*['"]env['"]\s*\])/,
   /\{\s*(?:[\w$]+\s*,\s*)*\benv\b[^}]*\}\s*=\s*\bprocess\b/,
 ];
 

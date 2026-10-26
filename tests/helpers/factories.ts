@@ -177,7 +177,8 @@ export async function createNode(params: {
   // ck_node_depth_eq_level pins depth to the path; writers that pass an
   // explicit inconsistent depth still hit the constraint (deliberate:
   // tests/integration/constraints.test.ts proves the database rejects it).
-  const path = role === 'spouse' ? null : (params.path ?? id.replaceAll('-', ''));
+  const path =
+    role === 'spouse' ? null : (params.path ?? id.replaceAll('-', ''));
   const derivedDepth = path === null ? 0 : path.split('.').length - 1;
   const [node] = await getTestDb()
     .insert(nodes)

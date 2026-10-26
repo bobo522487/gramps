@@ -56,7 +56,11 @@ describe('F7 process.env check', () => {
     ];
 
     const hits = envAccessViolations(files);
-    expect(hits.map((entry) => entry.path).sort()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+    expect(hits.map((entry) => entry.path).sort()).toEqual([
+      'a.ts',
+      'b.ts',
+      'c.ts',
+    ]);
   });
 
   it('does not flag an unrelated identifier that merely contains the text', () => {
