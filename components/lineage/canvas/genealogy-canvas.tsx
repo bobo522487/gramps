@@ -56,7 +56,6 @@ import {
 } from '@/components/lineage/derived';
 import { useLineageIndex } from '@/components/lineage/lineage-index-context';
 import { useLineageStore } from '@/components/lineage/lineage-store';
-import type { NodeView } from '@/components/lineage/types';
 
 const nodeTypes = {
   bookPerson: BookPersonNode,
@@ -75,7 +74,6 @@ type DragTemplate = {
 
 export type GenealogyCanvasProps = {
   lineageId: string;
-  nodes: NodeView[];
   generationWords: string[] | null;
   canWrite: boolean;
   onCreateChild: (parentId: string) => void;
@@ -89,7 +87,6 @@ export type GenealogyCanvasProps = {
 
 function CanvasInner({
   lineageId,
-  nodes,
   generationWords,
   canWrite,
   onCreateChild,
@@ -136,8 +133,8 @@ function CanvasInner({
     [collapsedNodeIds]
   );
   const freshLimit = useMemo(
-    () => initialRenderLimit(nodes.length, index.maxGeneration),
-    [nodes.length, index.maxGeneration]
+    () => initialRenderLimit(index.nodes.length, index.maxGeneration),
+    [index.nodes.length, index.maxGeneration]
   );
 
   useEffect(() => {

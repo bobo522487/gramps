@@ -654,7 +654,6 @@ function LineageDetailInner({
           <div className="min-h-0 min-w-0 flex-1">
             <GenealogyCanvas
               lineageId={lineage.id}
-              nodes={nodes}
               generationWords={lineage.generationWords}
               canWrite={canWrite}
               onCreateChild={(parentId) => {
