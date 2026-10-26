@@ -7,7 +7,12 @@
 
 export const ENV_OWNER = 'lib/config.ts';
 
-const ENV_PATTERN = /process\.env\b/;
+// Text scan, not AST: catch the common obfuscations that a `process.env`
+// literal-only regex misses (bracket access, spacing, destructuring).
+const ENV_PATTERNS = [
+  /\bprocess\s*(?:\.\s*env\b|\[\s*['\"]env['\"]\s*\])/,
+  /\{\s*(?:[\w$]+\s*,\s*)*\benv\b[^}]*\}\s*=\s*\bprocess\b/,
+];
 
 /**
  * @param {{ path: string, source: string }[]} files
@@ -25,7 +30,7 @@ export function envAccessViolations(files, exempt = []) {
     }
     const lines = file.source.split('\n');
     for (const [index, text] of lines.entries()) {
-      if (ENV_PATTERN.test(text)) {
+      if (ENV_PATTERNS.some((pattern) => pattern.test(text))) {
         violations.push({ path: file.path, line: index + 1 });
       }
     }

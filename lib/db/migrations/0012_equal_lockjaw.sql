@@ -1,0 +1,1 @@
+ALTER TABLE "node" ADD CONSTRAINT "ck_node_depth_eq_level" CHECK ("node"."path" is null or "node"."depth" = nlevel("node"."path") - 1);

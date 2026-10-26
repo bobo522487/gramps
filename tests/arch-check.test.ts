@@ -47,4 +47,21 @@ describe('F7 process.env check', () => {
 
     expect(envAccessViolations(files, ['lib/db/drizzle.ts'])).toEqual([]);
   });
+
+  it('catches obfuscated env access forms, not just the literal one', () => {
+    const files = [
+      { path: 'a.ts', source: "const x = process['env'].FOO;" },
+      { path: 'b.ts', source: 'const { env } = process;' },
+      { path: 'c.ts', source: 'const x = process . env.FOO;' },
+    ];
+
+    const hits = envAccessViolations(files);
+    expect(hits.map((entry) => entry.path).sort()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
+  it('does not flag an unrelated identifier that merely contains the text', () => {
+    const files = [{ path: 'a.ts', source: 'const processEnvProxy = 1;' }];
+
+    expect(envAccessViolations(files)).toEqual([]);
+  });
 });

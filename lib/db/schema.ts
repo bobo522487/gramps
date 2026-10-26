@@ -398,6 +398,13 @@ export const nodes = pgTable(
       'ck_node_generation_lte_level',
       sql`${t.generation} >= case when ${t.path} is null then 1 else nlevel(${t.path}) end`
     ),
+    // Depth must agree with the same ltree path that level is derived from.
+    // CHECK cannot reference the generated `level` column, so the expression
+    // is repeated; spouses (path IS NULL) keep their app-managed depth.
+    check(
+      'ck_node_depth_eq_level',
+      sql`${t.path} is null or ${t.depth} = nlevel(${t.path}) - 1`
+    ),
     index('idx_node_lineage_depth').on(t.orgId, t.lineageId, t.depth),
     index('idx_node_parent').on(t.orgId, t.parentId),
     index('idx_node_alive')
