@@ -1,8 +1,8 @@
 import 'server-only';
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { getOrgRoleInTx, hasPermission } from '@/lib/auth/permissions';
 import { type DbTransaction, queryRows, withOrg } from '@/lib/db/drizzle';
+import { requireOrgPermission } from '@/lib/db/guards';
 import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
   ActivityType,
@@ -69,15 +69,6 @@ async function newNodeId(tx: DbTransaction): Promise<string> {
 
 function fullName(surname: string, name: string) {
   return `${surname}${name}`;
-}
-
-async function requireLineageWrite(
-  tx: DbTransaction,
-  userId: string,
-  orgId: string
-) {
-  const role = await getOrgRoleInTx(tx, userId, orgId);
-  return Boolean(role && hasPermission(role, 'lineage.write'));
 }
 
 /** Locks the lineage row so node count and root checks stay serialized. */
@@ -247,7 +238,7 @@ export async function createRootNodeInTransaction(params: {
   const { userId, orgId, lineageId, name, sex, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
@@ -326,7 +317,7 @@ export async function addChildInTransaction(params: {
   const { userId, orgId, lineageId, parentId, name, sex, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
@@ -398,7 +389,7 @@ export async function addSiblingInTransaction(params: {
     params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
@@ -475,7 +466,7 @@ export async function addSpouseInTransaction(params: {
   const { userId, orgId, lineageId, spouseOfId, name, sex, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
@@ -549,7 +540,7 @@ export async function updateNodeInTransaction(params: {
   const { userId, orgId, lineageId, nodeId, updates, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
@@ -619,7 +610,7 @@ export async function deleteNodeInTransaction(params: {
   const { userId, orgId, lineageId, nodeId, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
@@ -701,7 +692,7 @@ export async function moveNodeInTransaction(params: {
   const { userId, orgId, lineageId, nodeId, newParentId, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
@@ -821,7 +812,7 @@ export async function reorderSiblingsInTransaction(params: {
   const { userId, orgId, lineageId, parentId, orderedIds } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     const lineage = await loadLineageForUpdate(tx, orgId, lineageId);

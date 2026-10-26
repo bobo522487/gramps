@@ -1,8 +1,8 @@
 import 'server-only';
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { getOrgRoleInTx, hasPermission } from '@/lib/auth/permissions';
 import { type DbTransaction, withOrg } from '@/lib/db/drizzle';
+import { requireOrgPermission } from '@/lib/db/guards';
 import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
   ActivityType,
@@ -23,15 +23,6 @@ type FolderFailure =
 export type FolderMutationResult =
   | { ok: true; folder: Folder }
   | { ok: false; reason: FolderFailure };
-
-async function requireProjectWrite(
-  tx: DbTransaction,
-  userId: string,
-  orgId: string
-): Promise<boolean> {
-  const role = await getOrgRoleInTx(tx, userId, orgId);
-  return Boolean(role && hasPermission(role, 'project.write'));
-}
 
 async function assertProjectInOrg(
   tx: DbTransaction,
@@ -122,7 +113,7 @@ export async function createFolderInTransaction(params: {
   const { userId, orgId, projectId, kind, parentId, name, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireProjectWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
     if (!(await assertProjectInOrg(tx, orgId, projectId))) {
@@ -182,7 +173,7 @@ export async function renameFolderInTransaction(params: {
   const { userId, orgId, folderId, name, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireProjectWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
 
@@ -226,7 +217,7 @@ export async function deleteFolderInTransaction(params: {
   const { userId, orgId, folderId, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireProjectWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
 

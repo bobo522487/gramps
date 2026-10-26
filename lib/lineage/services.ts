@@ -1,9 +1,9 @@
 import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { getOrgRoleInTx, hasPermission } from '@/lib/auth/permissions';
 import { type DbTransaction, withOrg } from '@/lib/db/drizzle';
 import { isUniqueViolation } from '@/lib/db/errors';
+import { requireOrgPermission } from '@/lib/db/guards';
 import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
   ActivityType,
@@ -27,15 +27,6 @@ type LineageFailure =
 export type LineageMutationResult =
   | { ok: true; lineage: Lineage }
   | { ok: false; reason: LineageFailure };
-
-async function requireLineageWrite(
-  tx: DbTransaction,
-  userId: string,
-  orgId: string
-) {
-  const role = await getOrgRoleInTx(tx, userId, orgId);
-  return Boolean(role && hasPermission(role, 'lineage.write'));
-}
 
 async function validProjectFolder(
   tx: DbTransaction,
@@ -138,7 +129,7 @@ export async function createLineageInTransaction(params: {
 
   try {
     return await withOrg(userId, async (tx) => {
-      if (!(await requireLineageWrite(tx, userId, orgId))) {
+      if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
         return { ok: false, reason: 'forbidden' as const };
       }
 
@@ -227,7 +218,7 @@ export async function updateLineageInTransaction(params: {
 
   try {
     return await withOrg(userId, async (tx) => {
-      if (!(await requireLineageWrite(tx, userId, orgId))) {
+      if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
         return { ok: false, reason: 'forbidden' as const };
       }
 
@@ -305,7 +296,7 @@ export async function deleteLineageInTransaction(params: {
   const { userId, orgId, lineageId, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    if (!(await requireLineageWrite(tx, userId, orgId))) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
 

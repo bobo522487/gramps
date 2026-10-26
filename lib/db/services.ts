@@ -1,10 +1,10 @@
 import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { getOrgRoleInTx, hasPermission } from '@/lib/auth/permissions';
 import { generatePublicId } from '@/lib/ids';
 import type { ProjectStatus } from '@/lib/project/constants';
 import { withOrg } from './drizzle';
+import { requireOrgPermission } from './guards';
 import { logActivityInTx } from './queries/activity';
 import { ActivityType, organizations, type Project, projects } from './schema';
 
@@ -42,8 +42,7 @@ export async function createProjectInTransaction(params: {
   const { userId, orgId, input, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    const role = await getOrgRoleInTx(tx, userId, orgId);
-    if (!role || !hasPermission(role, 'project.write')) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
 
@@ -101,8 +100,7 @@ export async function updateProjectInTransaction(params: {
   const { userId, orgId, projectId, updates, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    const role = await getOrgRoleInTx(tx, userId, orgId);
-    if (!role || !hasPermission(role, 'project.write')) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
 
@@ -154,8 +152,7 @@ export async function deleteProjectInTransaction(params: {
   const { userId, orgId, projectId, ipAddress } = params;
 
   return withOrg(userId, async (tx) => {
-    const role = await getOrgRoleInTx(tx, userId, orgId);
-    if (!role || !hasPermission(role, 'project.write')) {
+    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
       return { ok: false, reason: 'forbidden' as const };
     }
 
