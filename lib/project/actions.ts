@@ -86,6 +86,9 @@ export const updateProjectAction = validatedActionWithUser(
       return { error: PROJECT_ERRORS[result.reason] };
     }
 
+    // Already narrower than the rest: the project subtree is refreshed by path.
+    // A full scoping needs orgSlug in updateProjectSchema (tracked in Task 10's
+    // ruling); the whole-console call stays until then.
     revalidatePath('/dashboard', 'layout');
     revalidatePath(`/dashboard/project/${result.project.ref}`, 'layout');
     return { success: '云谱空间已更新' };
