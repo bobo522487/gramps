@@ -1,3 +1,5 @@
+import { resolveLogLevel } from '@/lib/config';
+
 type Level = 'debug' | 'info' | 'warn' | 'error';
 
 const LEVEL_PRIORITY: Record<Level, number> = {
@@ -8,9 +10,8 @@ const LEVEL_PRIORITY: Record<Level, number> = {
 };
 
 function currentLevel(): Level {
-  const configured = process.env.LOG_LEVEL as Level | undefined;
-  if (configured && configured in LEVEL_PRIORITY) return configured;
-  return process.env.NODE_ENV === 'production' ? 'info' : 'debug';
+  // Environment access is centralised in lib/config.ts (F7).
+  return resolveLogLevel();
 }
 
 type LogContext = Record<string, unknown>;

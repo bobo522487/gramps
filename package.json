@@ -25,6 +25,7 @@
     "test:coverage": "vitest run --config vitest.coverage.config.ts --coverage",
     "test:e2e": "playwright test",
     "docs:check": "node scripts/check-docs.mjs",
+    "arch:check": "node scripts/check-file-size.mjs && node scripts/check-env-access.mjs",
     "verify:deploy": "node scripts/verify-deployment.mjs"
   },
   "dependencies": {

@@ -10,7 +10,7 @@ import {
 } from 'drizzle-orm/postgres-js';
 import { Pool } from 'pg';
 import postgres from 'postgres';
-import { getServerConfig } from '@/lib/config';
+import { getServerConfig, isVercel } from '@/lib/config';
 import * as schema from './schema';
 
 // Keep startup output quiet; dotenv >= 17 logs an injection summary by default.
@@ -26,7 +26,7 @@ function createDb(): Db {
   // when the platform-managed URL uses the database owner.
   const connectionString = APP_POSTGRES_URL ?? POSTGRES_URL;
 
-  if (process.env.VERCEL) {
+  if (isVercel()) {
     // Vercel Fluid compute: let the platform freeze/resume the pg pool
     // instead of leaking connections between invocations.
     const pool = new Pool({ connectionString, max: 5 });

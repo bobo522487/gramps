@@ -61,6 +61,28 @@ const serverConfigSchema = z
     }
   });
 
+/**
+ * The one place allowed to read process.env (see F7 in
+ * docs/architecture/07-quality.md). Everything else asks this module.
+ */
+export function isVercel(): boolean {
+  return Boolean(process.env.VERCEL);
+}
+
+/** Current log level; unset in development means verbose. */
+export function resolveLogLevel(): 'debug' | 'info' | 'warn' | 'error' {
+  const configured = process.env.LOG_LEVEL;
+  if (
+    configured === 'debug' ||
+    configured === 'info' ||
+    configured === 'warn' ||
+    configured === 'error'
+  ) {
+    return configured;
+  }
+  return process.env.NODE_ENV === 'production' ? 'info' : 'debug';
+}
+
 export type ServerConfig = z.infer<typeof serverConfigSchema>;
 
 let cached: ServerConfig | null = null;

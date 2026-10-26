@@ -49,6 +49,9 @@ jobs:
       - name: Docs consistency
         run: pnpm run docs:check --strict
 
+      - name: Architecture constraints (F6/F7)
+        run: pnpm arch:check
+
       - name: Typecheck
         run: pnpm typecheck
 

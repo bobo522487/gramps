@@ -5,6 +5,18 @@
 > 本文件面向**在当前仓库写代码的人与 AI Agent**。它以现有代码、`package.json` 和 CI 为准。
 > 家谱业务层已实现谱系/人丁第一版（画布、世系表、检查器与写流程），谱文/谱书等仍未实现；基础层（UUIDv7、RLS、4 角色、软删）已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地，认证与租户写入已切换到自托管 Better Auth（[ADR 0007](docs/decisions/0007-self-hosted-better-auth.md)）。以 [实现状态](docs/implementation-status.md) 为准。
 
+## 0. 技能系统（Superpowers）
+
+本仓库安装了 [superpowers](https://github.com/obra/superpowers) 技能库，位于 `.agents/superpowers/`，15 个技能已链接到 `.agents/skills/` 供 Agent 自动发现。
+
+**开工前先调用 `using-superpowers` 技能**；之后凡是有技能可能适用的任务（设计新功能、改行为、调试、写计划、代码评审、收尾交付），按技能优先级先调用流程类技能：
+
+- "我们来做个 X" / 改行为 / 新功能 → 先 `brainstorming`，再写 `writing-plans`，再 `test-driven-development` 实现。
+- 遇到 bug、测试失败、意外行为 → 先 `systematic-debugging`，不要先猜着改。
+- 准备声称"完成/修好了" → 先 `verification-before-completion`，拿命令输出作证据。
+
+调用格式：`skill({ name: "<技能名>" })`。技能与本文档冲突时，本文档的仓库约定（安全、数据规则、禁止清单）优先。
+
 ---
 
 ## 1. 项目是什么
@@ -66,6 +78,8 @@ pnpm dev            # 开发服务器（Turbopack）
 pnpm build          # 生产构建
 pnpm start          # 启动生产构建
 pnpm check          # Biome 检查（CI 使用）
+pnpm arch:check     # 架构约束：单文件 ≤400 行（F6）+ 只在 lib/config.ts 读 process.env（F7）
+pnpm docs:check     # 文档链接/过期路径/矛盾措辞（--strict 在 CI 失败）
 pnpm lint           # Biome lint
 pnpm format         # Biome 格式化
 pnpm fix            # Biome 检查并自动修复
@@ -89,7 +103,7 @@ pnpm db:studio      # Drizzle Studio
 pnpm check && pnpm typecheck && pnpm test
 ```
 
-CI 还会连接 `postgres:18` 服务执行 `pnpm test:coverage`（单测 + 集成 + 覆盖率门槛）、迁移漂移检查、`pnpm build`、`pnpm test:e2e`（production server）与 `pnpm verify:deploy`。
+CI 还执行 `pnpm run docs:check --strict` 与 `pnpm arch:check`，并连接 `postgres:18` 服务执行 `pnpm test:coverage`（单测 + 集成 + 覆盖率门槛）、迁移漂移检查、`pnpm build`、`pnpm test:e2e`（production server）与 `pnpm verify:deploy`。
 
 E2E 选择器与外部模式约束见 `tests/e2e/`：外部模式必须同时设置 `E2E_EXTERNAL_SERVER=1` 与 `E2E_ALLOW_EXTERNAL=1`，仅限 staging。
 
