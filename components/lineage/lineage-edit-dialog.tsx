@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useMemo, useState } from 'react';
+import { type FolderOption, folderOptions } from '@/components/lineage/types';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -30,37 +31,6 @@ import {
   MAX_LINEAGE_NOTES_LENGTH,
   MAX_LINEAGE_REGION_LENGTH,
 } from '@/lib/lineage/constants';
-
-type FolderOption = {
-  id: string;
-  name: string;
-  parentId: string | null;
-};
-
-function folderOptions(folders: FolderOption[]) {
-  const byId = new Map(folders.map((folder) => [folder.id, folder]));
-  const childrenByParent = new Map<string | null, FolderOption[]>();
-  for (const folder of folders) {
-    const parentId =
-      folder.parentId && byId.has(folder.parentId) ? folder.parentId : null;
-    const bucket = childrenByParent.get(parentId) ?? [];
-    bucket.push(folder);
-    childrenByParent.set(parentId, bucket);
-  }
-
-  const options: { id: string; label: string }[] = [];
-  function walk(parentId: string | null, depth: number) {
-    for (const folder of childrenByParent.get(parentId) ?? []) {
-      options.push({
-        id: folder.id,
-        label: `${'— '.repeat(depth)}${folder.name}`,
-      });
-      walk(folder.id, depth + 1);
-    }
-  }
-  walk(null, 0);
-  return options;
-}
 
 export function LineageEditDialog({
   orgId,

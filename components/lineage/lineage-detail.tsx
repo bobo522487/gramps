@@ -43,7 +43,7 @@ import {
 } from '@/components/lineage/node-create-dialog';
 import { NodeMoveDialog } from '@/components/lineage/node-move-dialog';
 import { PersonInspector } from '@/components/lineage/person-inspector';
-import type { NodeView } from '@/components/lineage/types';
+import type { FolderOption, NodeView } from '@/components/lineage/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -67,12 +67,6 @@ import { useResizable } from '@/hooks/use-resizable';
 import { deleteNodeAction, moveNodeAction } from '@/lib/lineage/actions';
 import { shouldAutoOpenRoot } from '@/lib/lineage/auto-root';
 import { cn } from '@/lib/utils';
-
-type FolderOption = {
-  id: string;
-  name: string;
-  parentId: string | null;
-};
 
 type LineageInfo = {
   id: string;
