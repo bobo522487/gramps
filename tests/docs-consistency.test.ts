@@ -143,4 +143,12 @@ describe('documented stack versions', () => {
     expect(adr).toMatch(/^## 重估触发条件$/m);
     expect(index).toContain('0009-dependency-and-runtime-stance.md');
   });
+
+  test('deploy verification rejects bare RLS policies on business tables', () => {
+    const source = readFileSync('scripts/verify-deployment.mjs', 'utf8');
+    // F5 needs a database assertion, not just a docs lint.
+    expect(source).toContain('pg_policies');
+    expect(source).toContain('has_org_role');
+    expect(source).toContain('bare RLS policy');
+  });
 });

@@ -325,6 +325,34 @@ async function checkDb() {
         : unprotectedAuth.join(', ')
     );
 
+    // F5: every business-table policy must go through auth.has_org_role().
+    // A bare `organization_id IN (SELECT ... FROM organization_member)` policy
+    // is the failure mode data-model.md used to recommend, and it cannot express
+    // "read includes viewer, write excludes viewer" (ADR 0006).
+    const policies = await sql`
+      select policyname, tablename, roles::text[] as roles, qual, with_check
+      from pg_policies
+      where schemaname = 'public'
+    `;
+    const barePolicies = policies.filter((policy) => {
+      // auth_service owns the Better Auth-managed tenant tables via explicit
+      // FOR ALL USING (true); app_rw is the role the isolation guarantee is for.
+      if (!(policy.roles ?? []).includes('app_rw')) {
+        return false;
+      }
+      const expression = `${policy.qual ?? ''} ${policy.with_check ?? ''}`;
+      return /organization_member/i.test(expression);
+    });
+    check(
+      barePolicies.length === 0,
+      'no bare RLS policy on business tables',
+      barePolicies.length === 0
+        ? `${policies.length} policies via has_org_role`
+        : barePolicies
+            .map((policy) => `${policy.tablename}.${policy.policyname}`)
+            .join(', ')
+    );
+
     const journal = JSON.parse(
       readFileSync(
         new URL('../lib/db/migrations/meta/_journal.json', import.meta.url),
