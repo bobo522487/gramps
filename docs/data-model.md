@@ -659,6 +659,7 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 | `node` | `idx_node_lineage_depth` | B-tree | 按代加载（视口分段） |
 | `node` | `idx_node_parent` | B-tree | 父节点查找 |
 | `node` | `idx_node_alive` | B-tree（部分） | 未删除节点列表 |
+| `node` | `idx_node_spouse_sort` | B-tree `(organization_id, spouse_of_id)`，部分（`deleted_at IS NULL`）（`0014`） | 配偶排序 `max(sort)` 查询，避免谱系内扫描 |
 | `node` | ~~`idx_node_search`~~ | ~~GIN trgm~~ | **已删除**（`0013`）：人丁搜索在客户端全量匹配，见 [ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md) |
 | `article` | `idx_article_search` | **GIN trgm** | 全文检索（FR-ART-5） |
 | `book` | `uk_book_name` | 唯一部分 | 同项目书名检查 |

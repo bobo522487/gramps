@@ -68,7 +68,7 @@ RLS 统一通过 `auth.has_org_role(organization_id, roles[])` 判断成员与�
 
 **为什么必须分开**：`prd.md` §7 的 50 万是组织级上限，而 `G2` 的「十万级」与「1000 节点 45fps」说的是画布体验。三者混用会让「1000 节点达标」被误读为「50 万人丁也达标」——后者在浏览器端不可能成立。
 
-**检索边界**：[ADR 0011](../decisions/0011-search-boundary-node-client-article-trgm.md) 把两张表的检索分开。人丁搜索是**客户端全量匹配**（`getNodes` 载入 + `matchLineagePerson`），所以 `node` 上没有 trigram 索引，数据库不承担人丁检索成本；`pg_trgm` + `idx_article_search` 只服务谱文（FR-ART-5）。单谱系人丁超过约 5000 或全量载入不再可行时，检索会同时撞上「单次读取与画布内存」这条口径——那时先改 ADR 0011，再在同一改动里加回服务端查询与索引。
+**检索边界**：[ADR 0011](../decisions/0011-search-boundary-node-client-article-trgm.md) 把两张表的检索分开。人丁搜索是**客户端全量匹配**（`getNodes` 载入 + `matchLineagePerson`），所以 `node` 上没有 trigram 索引，数据库不承担人丁检索成本；`pg_trgm` + `idx_article_search` 只服务谱文（FR-ART-5）。单谱系人丁超过约 5000 或全量载入不再可行时，检索会同时撞上「单次读取与画布内存」这条口径——那时先改 ADR 0011，再在同一改动里加回服务端查询与索引。**这个 5000 是 ADR 0011 的保守重估阈值，不是上表的容量上限**：上表 5 万说的是「存储与内存能装下多少」，5000 说的是「全量载入 + 内存匹配还能不能保持体验」，两者不矛盾，越线时先做的是重估检索边界。
 
 ### 8.6 数据生命周期（缺口）
 

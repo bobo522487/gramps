@@ -708,7 +708,7 @@ function LineageDetailInner({
                   <Input
                     value={tableQuery}
                     onChange={(event) => setTableQuery(event.target.value)}
-                    placeholder="搜索姓名、字号或配偶"
+                    placeholder="搜索姓名、字号、生卒、葬地或配偶"
                     size="sm"
                     aria-label="搜索人丁"
                     className="w-56 pl-7"
@@ -735,7 +735,7 @@ function LineageDetailInner({
                   <EmptyState
                     icon={Search}
                     title="没有匹配的人丁"
-                    description="试试其他姓名、字号，或清空搜索条件。"
+                    description="试试其他姓名、字号、生卒、葬地，或清空搜索条件。"
                   />
                 </Card>
               ) : isSearching ? (

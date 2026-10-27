@@ -69,6 +69,7 @@
 - 最后 owner 保护触发器 `trg_org_member_last_owner_delete` / `trg_org_member_last_owner_update`。
 - `FORCE ROW LEVEL SECURITY`：`app_rw` 以及表属主都受策略约束；迁移角色通过 `SET LOCAL ROLE app_rw` 降权后查询。
 - 扩展 `ltree`、`pg_trgm`、`btree_gist`；GiST 用于 `node` 的 `path` 索引。`pg_trgm` 保留给 `article`（`idx_article_search`，FR-ART-5）；`node` 搜索在客户端，`idx_node_search` 已在 `0013` 删除（[ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md)）。
+- `0014`：手写 custom migration 新增 `idx_node_spouse_sort`（B-tree，部分于 `deleted_at IS NULL`，列 `(organization_id, spouse_of_id)`），服务 `nextSpouseSort` 的 `max(sort)` 查询，避免配偶写入在 `FOR UPDATE` 锁内扫描整谱系；同 0013 的思路——每个索引都有消费者。它只活在迁移里，不进 `lib/db/schema.ts`（该文件恰在 F6 豁免线 688，零余量），与 `idx_node_search`/`idx_node_lineage_path` 一致。
 - `0002_app_role_grant` 与 `0003_better_auth`：登录角色存在时补 `GRANT app_rw TO app` / `GRANT auth_service TO auth_runtime`；角色创建仍属本地/运维步骤。
 
 ### 1.2 公开 ID 与控制台路由
