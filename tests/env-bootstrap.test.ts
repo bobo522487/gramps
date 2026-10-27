@@ -25,7 +25,10 @@ const RUNTIME_ALLOWLIST = new Set(['lib/db/seed.ts']);
 describe('env bootstrap', () => {
   // Loading dotenv is a startup responsibility of entry points, not of modules
   // the bundler pulls into the server build: a module-scope config() there
-  // re-runs its side effect on every serverless cold start.
+  // re-runs its side effect on every serverless cold start. The guard matches
+  // the module specifier in both forms — `import ... from 'dotenv'` /
+  // `import 'dotenv/config'` (quoted specifier) and `require('dotenv')` (quote
+  // after the call) — while bare identifiers like `myDotenvHelper` stay clean.
   test('lib runtime modules do not load dotenv', () => {
     const files = listTs('lib');
 
@@ -38,7 +41,7 @@ describe('env bootstrap', () => {
       expect(
         src,
         `${file} 不应加载 dotenv（非 Next 入口改用 loadEnv）`
-      ).not.toMatch(/['"]dotenv(\/config)?['"]/);
+      ).not.toMatch(/['"]dotenv(\/config)?['"]|require\(\s*['"]dotenv/);
     }
   });
 });
