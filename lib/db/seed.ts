@@ -1,3 +1,6 @@
+// Dev-only CLI entry (`pnpm db:seed`, tsx outside Next): nothing under app/
+// imports it, so it is not in the server bundle and must load .env itself.
+import 'dotenv/config';
 import { and, eq } from 'drizzle-orm';
 import { getAuth } from '@/lib/auth/better-auth';
 import { withOrg } from './drizzle';

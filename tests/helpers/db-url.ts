@@ -1,7 +1,6 @@
-import { config } from 'dotenv';
+import { loadEnv } from '@/scripts/load-env.mjs';
 
-// Keep startup output quiet; dotenv >= 17 logs an injection summary by default.
-config({ quiet: true });
+loadEnv();
 
 export type DatabaseEnv = Record<string, string | undefined>;
 

@@ -1,11 +1,12 @@
-import { config } from 'dotenv';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@/lib/db/schema';
+import { loadEnv } from '@/scripts/load-env.mjs';
 import { resolveTestDatabaseUrl } from './db-url';
 
-// Keep startup output quiet; dotenv >= 17 logs an injection summary by default.
-config({ quiet: true });
+// Before any read of process.env below: `testDatabaseUrl` is resolved at module
+// load, so a late load would leave POSTGRES_URL undefined for every test.
+loadEnv();
 
 export function getTestDatabaseUrl(): string {
   return resolveTestDatabaseUrl(process.env);
