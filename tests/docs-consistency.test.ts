@@ -171,16 +171,28 @@ describe('documented stack versions', () => {
           }
         ).dependencies
       );
-      for (const banned of [
-        'tiptap',
-        '@tiptap/core',
-        'prosemirror-state',
-        'lexical',
-      ]) {
-        expect(
-          deps,
-          `${banned} 违反 ADR 0010「决策 ≠ 现在安装」`
-        ).not.toContain(banned);
+      // Semantics: match the *package name* against the rule the ADR states
+      // (tiptap / @tiptap/* / prosemirror-* / lexical / slate), not four exact
+      // names — otherwise @tiptap/react or prosemirror-model would slip through.
+      // `tiptap`-and-friends are matched as a whole name or as a prefix segment
+      // (`tiptap-*`) so a hypothetical `my-tiptap-thing` is NOT banned, while
+      // `prosemirror-*` is banned by prefix as the ADR says. `lexical` gets the
+      // `@lexical/*` scope too; `slate` stays an exact name (`slate-react` is a
+      // different package from the editor core we ruled out).
+      const banned = (name: string): boolean =>
+        name === 'tiptap' ||
+        name.startsWith('tiptap-') ||
+        name.startsWith('@tiptap/') ||
+        name.startsWith('prosemirror-') ||
+        name === 'lexical' ||
+        name.startsWith('@lexical/') ||
+        name === 'slate';
+      for (const name of deps) {
+        if (banned(name)) {
+          throw new Error(
+            `依赖 ${name} 违反 ADR 0010「决策 ≠ 现在安装」（tiptap / @tiptap/* / prosemirror-* / lexical / slate）`
+          );
+        }
       }
     }
   });
