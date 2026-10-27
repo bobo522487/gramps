@@ -57,9 +57,11 @@ describe('ADR 0009 §2 ORM 版本钉死', () => {
 
   // 说明性用例，不是独立证据：keepsPin 用的就是「钉的是实际安装版本」那条断言的同一个
   // 常量，这几行永远跟着 PINNED_ORM_MINOR 一起改，独立证伪不了任何东西。
-  // 真正的证明是变异测试（见 .superpowers/sdd/…/final-fix-wave-report.md）：
-  // 把 node_modules/drizzle-orm/package.json 的 version 改成 0.46.0，
-  // 「钉的是实际安装版本」会红（`expected '0.46' to be '0.45'`）。
+  // 真正的证明是变异测试，可自行复现（不依赖任何外部记录）：
+  // 把 node_modules/drizzle-orm/package.json 的 version 改成 0.46.0 →
+  // 「钉的是实际安装版本」红，报 `expected '0.46' to be '0.45'`；
+  // 把 ORM_SPECIFIER 改成 /^~/ → 「specifier 形态不变」红，报
+  // `expected '^0.45.4' to match /^~/`。改回即绿。
   it.each([
     ['0.45.4', true, '当前安装的补丁版本'],
     ['0.45.9', true, '补丁应放行'],
