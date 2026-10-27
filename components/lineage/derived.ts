@@ -186,7 +186,11 @@ export type PersonMatch = {
   count: number;
 };
 
-function matchesNode(node: NodeView, needle: string): boolean {
+/**
+ * The single person-search predicate, shared by the canvas and the 世系表.
+ * `needle` must already be `trim().toLowerCase()`-normalized by the caller.
+ */
+export function matchesNode(node: NodeView, needle: string): boolean {
   const values = [
     node.fullName,
     node.name,

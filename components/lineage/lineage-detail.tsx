@@ -18,6 +18,7 @@ import {
 import { useRouter } from 'next/navigation';
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -26,7 +27,11 @@ import {
 } from 'react';
 import { EmptyState } from '@/components/console/empty-state';
 import { GenealogyCanvas } from '@/components/lineage/canvas/genealogy-canvas';
-import { generationWord, lifeSpan } from '@/components/lineage/derived';
+import {
+  generationWord,
+  lifeSpan,
+  matchesNode,
+} from '@/components/lineage/derived';
 import { LineageEditDialog } from '@/components/lineage/lineage-edit-dialog';
 import {
   LineageIndexProvider,
@@ -408,22 +413,17 @@ function LineageDetailInner({
     }
   }, [index, selectedNodeId, setSelectedNode]);
 
+  const deferredQuery = useDeferredValue(tableQuery);
   const visibleBlood = useMemo(() => {
-    const needle = tableQuery.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     if (!needle) {
       return bloodNodes;
     }
     return bloodNodes.filter((node) => {
-      const spouses = spousesByBlood.get(node.id) ?? [];
-      return (
-        node.fullName.toLowerCase().includes(needle) ||
-        (node.courtesy ?? '').toLowerCase().includes(needle) ||
-        (node.namePrefix ?? '').toLowerCase().includes(needle) ||
-        (node.biography ?? '').toLowerCase().includes(needle) ||
-        spouses.some((spouse) => spouse.fullName.toLowerCase().includes(needle))
-      );
+      const hit = (n: NodeView) => matchesNode(n, needle);
+      return hit(node) || (spousesByBlood.get(node.id) ?? []).some(hit);
     });
-  }, [bloodNodes, tableQuery, spousesByBlood]);
+  }, [bloodNodes, deferredQuery, spousesByBlood]);
 
   const groups = useMemo(() => {
     if (tableQuery.trim()) {
