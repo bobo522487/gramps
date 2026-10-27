@@ -239,7 +239,10 @@ if (existsSync(decisionsFile)) {
       continue;
     }
     const match = line.match(/^\|\s*(D-\d+)\s*\|/);
-    if (match && ['D-1', 'D-2', 'D-3', 'D-5', 'D-7'].includes(match[1])) {
+    if (
+      match &&
+      ['D-1', 'D-2', 'D-3', 'D-5', 'D-7', 'D-9'].includes(match[1])
+    ) {
       addIssue(
         decisionsFile,
         index + 1,

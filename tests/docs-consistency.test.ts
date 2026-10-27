@@ -144,6 +144,47 @@ describe('documented stack versions', () => {
     expect(index).toContain('0009-dependency-and-runtime-stance.md');
   });
 
+  // D-9 is closed as ADR 0010, but closed as a *decision*, not as an install
+  // (ADR 0009 §1: no dependency without a replacement/need). The guard below
+  // only bites while the ADR still says 尚未安装, so implementing 谱文 later
+  // removes that sentence and the assertion retires with it.
+  test('ADR 0010 pins the editor choice without installing it', () => {
+    const adr = read('docs/decisions/0010-rich-text-editor-selection.md');
+    const index = read('docs/decisions/README.md');
+
+    expect(adr).toMatch(/^## 决策$/m);
+    expect(adr).toMatch(/^## 后果$/m);
+    expect(adr).toMatch(/^## 放弃的方案$/m);
+    expect(adr).toMatch(/^## 重估触发条件$/m);
+    expect(index).toContain('0010-rich-text-editor-selection.md');
+    expect(adr).toContain('决策 ≠ 现在安装');
+    // D-9 must have moved out of the pending table into a resolved entry, and
+    // the pending-table executor in scripts/check-docs.mjs must know about it.
+    expect(index).not.toMatch(/^\|\s*D-9\s*\|/m);
+    expect(index).toMatch(/D-9（富文本选型）→ \[ADR 0010\]/);
+
+    if (adr.includes('尚未安装')) {
+      const deps = Object.keys(
+        (
+          JSON.parse(read('package.json')) as {
+            dependencies: Record<string, string>;
+          }
+        ).dependencies
+      );
+      for (const banned of [
+        'tiptap',
+        '@tiptap/core',
+        'prosemirror-state',
+        'lexical',
+      ]) {
+        expect(
+          deps,
+          `${banned} 违反 ADR 0010「决策 ≠ 现在安装」`
+        ).not.toContain(banned);
+      }
+    }
+  });
+
   test('deploy verification rejects bare RLS policies on business tables', () => {
     const source = readFileSync('scripts/verify-deployment.mjs', 'utf8');
     // F5 needs a database assertion, not just a docs lint.

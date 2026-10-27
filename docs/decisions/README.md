@@ -24,7 +24,7 @@
 | ADR-09 | 删除 | 软删，但 M1 无回收站界面 | 单向门 | [0004](./0004-soft-delete-forever.md) |
 | ADR-10 | 并发 | **M1 不做锁**，last-write-wins | 双向门 | [0002](./0002-no-edit-lock.md) |
 | ADR-11 | 邮件与邀请 | **M1 无邮件通道**，邀请走手动复制的一次性链接 | 双向门 | — |
-| ADR-12 | 富文本 | 边界是 ProseMirror JSON，不存 HTML；具体编辑器待决策，见 [D-9](#待决策) | 单向门 | — |
+| ADR-12 | 富文本 | 边界是 ProseMirror JSON，不存 HTML；编辑器选 TipTap，依赖**尚未安装**（决策 ≠ 现在安装） | 单向门 | [0010](./0010-rich-text-editor-selection.md) |
 | ADR-13 | 检索 | 人丁搜索在客户端（全量载入 + 内存匹配）；`pg_trgm` 只保留给谱文 | 双向门 | [0011](./0011-search-boundary-node-client-article-trgm.md) |
 | ADR-14 | 主键 | UUIDv7，PostgreSQL 18 原生 `uuidv7()` | 单向门 | — |
 | ADR-15 | 后台任务 | M1 零个；边界见 ADR-23 | 双向门 | [0005](./0005-zero-background-jobs.md) · [0009](./0009-dependency-and-runtime-stance.md) |
@@ -57,6 +57,7 @@
 | [0007](./0007-self-hosted-better-auth.md) | 自托管 Better Auth + Neon PostgreSQL | 替换自建认证与邀请；引入 `auth_service` 角色边界与数据库会话 |
 | [0008](./0008-read-only-route-handlers.md) | 保留只读 Route Handler | 读缓存、预取与路由级可观测；写仍只走 Server Action |
 | [0009](./0009-dependency-and-runtime-stance.md) | 依赖与运行时立场（依赖只减不增 / 钉死 ORM 版本 / 约束必须有执行者 / 零常驻进程） | 决策地图此前缺这一类；`drizzle-orm` 1.0 与 M3 排版都依赖它 |
+| [0010](./0010-rich-text-editor-selection.md) | 富文本编辑器选 TipTap，正文存 ProseMirror JSON；编辑器**尚未安装** | 闭合 D-9；ADR-12 定了格式却没定引擎，而 TipTap 的传递依赖现在没有消费者 |
 | [0011](./0011-search-boundary-node-client-article-trgm.md) | 检索边界：人丁搜索在客户端，trigram 只给谱文 | 取代 ADR-13 的一行结论；删掉零消费者的 `idx_node_search`，边界由集成测试守住 |
 
 ### ADR 模板
@@ -101,11 +102,11 @@
 - D-5 → `01-drivers` G3 改为“≤5 个源文件 + 1 个迁移 + 1 处状态更新”
 - D-7 → `api.md` 采用 `ActionState`（定义在 `lib/auth/types.ts`）
 - D-8（依赖与运行时立场）→ [ADR 0009](./0009-dependency-and-runtime-stance.md)
+- D-9（富文本选型）→ [ADR 0010](./0010-rich-text-editor-selection.md)
 
 | # | 问题 | 两种说法 |
 |---|---|---|
 | D-4 | 关系模型 | 单 `parent_id` 无法表达过继 / 兼祧 / 入赘 |
 | D-6 | 数据生命周期 | 软删永存 vs 删除权与保留期 |
-| D-9 | 富文本选型 | ADR-12 定了 ProseMirror JSON，但没有任何编辑器依赖；PRD 只要 5 种块级排版（评审 S1-1） |
 | D-10 | 表单栈 | `04-runtime §6.2` 写 React Hook Form，`package.json` 没有；扁平表单模型挡住自定义字段与编目树（评审 S1-2） |
 | D-11 | 登录限流 | 进程内 Map（best-effort）vs 共享存储（多实例生效）；key 部分来自可伪造的 `x-forwarded-for`（评审 S1-3） |

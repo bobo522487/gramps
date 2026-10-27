@@ -150,7 +150,7 @@ T3  结果：B 的修改丢失
 |---|---|
 | 服务端数据（首屏） | RSC 直接读取并直出，以 `initialData` 或 `dehydrate` / `HydrationBoundary` 注入 TanStack Query，并设置 `staleTime` / `initialDataUpdatedAt` 避免水合后立即重取 |
 | 服务端数据（客户端缓存） | TanStack Query：统一 `queryKey`；`queryFn` 调用只读 Route Handler，`mutationFn` 调用 Server Action；写后 `invalidateQueries` 或精确更新缓存，禁止组件内手写 `fetch` |
-| 表单 | React Hook Form + Zod |
+| 表单 | Zod 校验 + Server Action + `useActionState`（`validatedAction` 包装）；**未引入** React Hook Form——表单栈本身仍是待决策，见 [decisions/README D-10](../decisions/README.md#待决策) |
 | 乐观更新 | TanStack Query mutation 的 `onMutate` / `onError` / `onSettled`（仅用于排序、改名等可回滚操作） |
 | 画布视口 | React Flow 内部管理；工作区 UI 状态入 Zustand |
 | 全局 UI 状态 | 谱系工作区使用 Zustand：仅客户端、仅 UI 状态（视图、选中、折叠、搜索、筛选、渲染窗口、侧栏宽度），不存数据库实体、不做持久化；其余场景不引入 Redux/Jotai |
