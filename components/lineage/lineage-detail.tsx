@@ -414,6 +414,7 @@ function LineageDetailInner({
   }, [index, selectedNodeId, setSelectedNode]);
 
   const deferredQuery = useDeferredValue(tableQuery);
+  const isSearching = deferredQuery.trim().length > 0;
   const visibleBlood = useMemo(() => {
     const needle = deferredQuery.trim().toLowerCase();
     if (!needle) {
@@ -426,7 +427,7 @@ function LineageDetailInner({
   }, [bloodNodes, deferredQuery, spousesByBlood]);
 
   const groups = useMemo(() => {
-    if (tableQuery.trim()) {
+    if (isSearching) {
       return [];
     }
     const map = new Map<number, NodeView[]>();
@@ -436,7 +437,7 @@ function LineageDetailInner({
       map.set(node.generation, bucket);
     }
     return [...map.entries()].sort((left, right) => left[0] - right[0]);
-  }, [visibleBlood, tableQuery]);
+  }, [visibleBlood, isSearching]);
 
   const handlePrint = useCallback(() => {
     setView('table');
@@ -688,7 +689,7 @@ function LineageDetailInner({
             <div className="space-y-3 p-4 print:p-0">
               <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
                 <div className="flex flex-wrap items-center gap-2">
-                  {tableQuery.trim() ? (
+                  {isSearching ? (
                     <Badge variant="outline">
                       {visibleBlood.length} 条匹配
                     </Badge>
@@ -737,7 +738,7 @@ function LineageDetailInner({
                     description="试试其他姓名、字号，或清空搜索条件。"
                   />
                 </Card>
-              ) : tableQuery.trim() ? (
+              ) : isSearching ? (
                 <Card size="dense">
                   <Table size="dense">
                     <TableHeader>
