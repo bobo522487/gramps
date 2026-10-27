@@ -8,7 +8,7 @@
 
 ## 背景
 
-ADR-13 写的是一句「检索用 `pg_trgm` + ILIKE」。据此 `0000_baseline` 建了两个 GIN trigram 索引：`idx_node_search`（`node.full_name`）与 `idx_article_search`（`article.plain_text`）。
+ADR-13 写的是一句「检索用 `pg_trgm` + ILIKE」。据此 `0001_auth_rls` 建了两个 GIN trigram 索引：`idx_node_search`（`node.full_name`）与 `idx_article_search`（`article.plain_text`）。
 
 但实现从来没有按这句话走。`ee41526` 删掉了 `searchNodes`（唯一使用 trigram 运算符的查询）之后：
 
