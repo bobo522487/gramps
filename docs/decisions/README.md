@@ -25,7 +25,7 @@
 | ADR-10 | 并发 | **M1 不做锁**，last-write-wins | 双向门 | [0002](./0002-no-edit-lock.md) |
 | ADR-11 | 邮件与邀请 | **M1 无邮件通道**，邀请走手动复制的一次性链接 | 双向门 | — |
 | ADR-12 | 富文本 | 边界是 ProseMirror JSON，不存 HTML；具体编辑器待决策，见 [D-9](#待决策) | 单向门 | — |
-| ADR-13 | 检索 | `pg_trgm` + ILIKE | 双向门 | — |
+| ADR-13 | 检索 | 人丁搜索在客户端（全量载入 + 内存匹配）；`pg_trgm` 只保留给谱文 | 双向门 | [0011](./0011-search-boundary-node-client-article-trgm.md) |
 | ADR-14 | 主键 | UUIDv7，PostgreSQL 18 原生 `uuidv7()` | 单向门 | — |
 | ADR-15 | 后台任务 | M1 零个；边界见 ADR-23 | 双向门 | [0005](./0005-zero-background-jobs.md) · [0009](./0009-dependency-and-runtime-stance.md) |
 | ADR-16 | 渲染管线 | M1 不做，M3 独立进程 | 双向门 | — |
@@ -57,6 +57,7 @@
 | [0007](./0007-self-hosted-better-auth.md) | 自托管 Better Auth + Neon PostgreSQL | 替换自建认证与邀请；引入 `auth_service` 角色边界与数据库会话 |
 | [0008](./0008-read-only-route-handlers.md) | 保留只读 Route Handler | 读缓存、预取与路由级可观测；写仍只走 Server Action |
 | [0009](./0009-dependency-and-runtime-stance.md) | 依赖与运行时立场（依赖只减不增 / 钉死 ORM 版本 / 约束必须有执行者 / 零常驻进程） | 决策地图此前缺这一类；`drizzle-orm` 1.0 与 M3 排版都依赖它 |
+| [0011](./0011-search-boundary-node-client-article-trgm.md) | 检索边界：人丁搜索在客户端，trigram 只给谱文 | 取代 ADR-13 的一行结论；删掉零消费者的 `idx_node_search`，边界由集成测试守住 |
 
 ### ADR 模板
 

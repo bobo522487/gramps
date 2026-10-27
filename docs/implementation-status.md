@@ -68,7 +68,7 @@
 - 注册触发器 `trg_auth_user_created` / `handle_new_user()`：创建 `auth.users` 时自动建立个人组织与 `owner` 成员关系。
 - 最后 owner 保护触发器 `trg_org_member_last_owner_delete` / `trg_org_member_last_owner_update`。
 - `FORCE ROW LEVEL SECURITY`：`app_rw` 以及表属主都受策略约束；迁移角色通过 `SET LOCAL ROLE app_rw` 降权后查询。
-- 扩展 `ltree`、`pg_trgm`、`btree_gist`；GIN/GiST 索引已建立。
+- 扩展 `ltree`、`pg_trgm`、`btree_gist`；GiST 用于 `node` 的 `path` 索引。`pg_trgm` 保留给 `article`（`idx_article_search`，FR-ART-5）；`node` 搜索在客户端，`idx_node_search` 已在 `0013` 删除（[ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md)）。
 - `0002_app_role_grant` 与 `0003_better_auth`：登录角色存在时补 `GRANT app_rw TO app` / `GRANT auth_service TO auth_runtime`；角色创建仍属本地/运维步骤。
 
 ### 1.2 公开 ID 与控制台路由

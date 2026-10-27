@@ -482,7 +482,7 @@ CREATE TABLE node (
 CREATE INDEX idx_node_lineage_path  ON node USING gist (organization_id, lineage_id, path);
 CREATE INDEX idx_node_lineage_depth ON node (organization_id, lineage_id, depth);
 CREATE INDEX idx_node_parent        ON node (organization_id, parent_id);
-CREATE INDEX idx_node_search        ON node USING gin (full_name gin_trgm_ops);
+-- no trigram index on node: person search matches in memory, see ADR 0011
 CREATE INDEX idx_node_alive         ON node (organization_id, lineage_id)
   WHERE deleted_at IS NULL;
 ```
@@ -659,14 +659,17 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 | `node` | `idx_node_lineage_depth` | B-tree | 按代加载（视口分段） |
 | `node` | `idx_node_parent` | B-tree | 父节点查找 |
 | `node` | `idx_node_alive` | B-tree（部分） | 未删除节点列表 |
-| `node` | `idx_node_search` | **GIN trgm** | 姓名模糊搜索 |
-| `article` | `idx_article_search` | **GIN trgm** | 全文检索 |
+| `node` | ~~`idx_node_search`~~ | ~~GIN trgm~~ | **已删除**（`0013`）：人丁搜索在客户端全量匹配，见 [ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md) |
+| `article` | `idx_article_search` | **GIN trgm** | 全文检索（FR-ART-5） |
 | `book` | `uk_book_name` | 唯一部分 | 同项目书名检查 |
 | `book_catalog` | `idx_catalog_book` | B-tree | 编目树加载 |
 
 ### 10.1 检索
 
-中文检索用 `pg_trgm` + `ILIKE`，不用 `to_tsvector`：
+检索按表分成两条路，见 [ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md)：
+
+- **人丁（`node`）在客户端搜索**：`getNodes` 按谱系全量载入，`matchLineagePerson` 在内存里按姓名等字段做子串匹配（FR-LIN-11）。`node` 上**没有** trigram 索引；这是当前实现的事实，不是待办。
+- **谱文（`article`）用 `pg_trgm` + GIN**：`idx_article_search`（FR-ART-5），不用 `to_tsvector`：
 
 | 方案 | 中文支持 | 依赖 |
 |---|---|---|
@@ -674,7 +677,7 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 | `pg_trgm` + GIN | trigram 对中文子串可用 | 内置扩展 |
 | 外部搜索引擎 | 好 | 多一个服务 |
 
-数据量在十万级，`pg_trgm` 足够。触发条件：`node` 单表超 500 万行或搜索 p95 > 300ms，才考虑引入外部索引。
+数据量在十万级，`pg_trgm` 足够。触发条件：`node` 单表超 500 万行或搜索 p95 > 300ms，才考虑引入外部索引；单谱系人丁超约 5000 或 `getNodes` 全量载入不再可行时，先改 ADR 0011 再把服务端查询与索引一起加回。
 
 ---
 

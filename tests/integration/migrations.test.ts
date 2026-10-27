@@ -81,7 +81,8 @@ describe('migrations', () => {
         'idx_activity_logs_org',
         'idx_activity_logs_user',
         'idx_node_lineage_path',
-        'idx_node_search',
+        // idx_node_search is gone on purpose: ADR 0011 puts person search in
+        // the client and keeps trigram only for article (search-boundary.test.ts).
         'idx_article_search',
       ])
     );
