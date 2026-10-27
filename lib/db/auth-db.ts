@@ -66,7 +66,3 @@ export async function closeAuthDb(): Promise<void> {
   await instance.$client.end();
   instance = null;
 }
-
-export async function resetAuthDb(): Promise<void> {
-  await closeAuthDb();
-}
