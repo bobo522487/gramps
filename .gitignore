@@ -46,3 +46,6 @@ postgres_data/
 .qoder/
 .env*
 .worktrees/
+
+# SDD (subagent-driven-development) scratch workspace
+.superpowers/
