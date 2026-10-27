@@ -164,13 +164,20 @@ describe('documented stack versions', () => {
     expect(index).toMatch(/D-9（富文本选型）→ \[ADR 0010\]/);
 
     if (adr.includes('尚未安装')) {
-      const deps = Object.keys(
-        (
-          JSON.parse(read('package.json')) as {
-            dependencies: Record<string, string>;
-          }
-        ).dependencies
-      );
+      // ADR 0010 bans the editor *packages*, not one dependency field: an
+      // `@tiptap/react` added to devDependencies would reach the bundle just
+      // the same (and drizzle-kit lives there). The root importer in
+      // pnpm-lock.yaml mirrors package.json's two fields, but the lockfile on
+      // this branch is stale and a human regenerates it, so assert on
+      // package.json instead of failing for an unrelated reason.
+      const rootPkg = JSON.parse(read('package.json')) as {
+        dependencies: Record<string, string>;
+        devDependencies: Record<string, string>;
+      };
+      const deps = [
+        ...Object.keys(rootPkg.dependencies),
+        ...Object.keys(rootPkg.devDependencies ?? {}),
+      ];
       // Semantics: match the *package name* against the rule the ADR states
       // (tiptap / @tiptap/* / prosemirror-* / lexical / slate), not four exact
       // names — otherwise @tiptap/react or prosemirror-model would slip through.
