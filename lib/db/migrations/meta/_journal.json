@@ -99,6 +99,13 @@
       "when": 1793101572826,
       "tag": "0013_drop_node_trgm",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793150000000,
+      "tag": "0014_spouse_sort_index",
+      "breakpoints": true
     }
   ]
 }

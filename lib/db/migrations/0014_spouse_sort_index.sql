@@ -1,0 +1,30 @@
+-- Index for the spouse-sort lookup on the hottest write path.
+--
+-- nextSpouseSort (lib/lineage/node-services.ts:137-156) computes the next spouse
+-- sort by filtering node on (organization_id, lineage_id, role = 'spouse',
+-- spouse_of_id, deleted_at IS NULL) and taking max(sort). It is called from two
+-- live write paths — :217 when a blood node is created with a co-recorded
+-- spouse, and :495 when a spouse is added by itself — and both run inside the
+-- FOR UPDATE lineage lock taken by loadLineageForUpdate. Nothing between the
+-- existing idx_node_lineage_depth / idx_node_parent / idx_node_alive leads on
+-- spouse_of_id, so each of those calls scanned the whole lineage while the
+-- lock was held. This is the mirror image of 0013: that one dropped an index
+-- with no consumer, this one gives the consumer an index.
+--
+-- Column order: organization_id first (the prefix every node query and the
+-- RLS shape carries), then the spouse_of_id equality. Partial on
+-- deleted_at IS NULL, matching the query predicate and the idx_node_alive
+-- precedent above: soft-deleted rows are never read here, so they stay out of
+-- the index.
+--
+-- Deliberately migration-only, NOT a lib/db/schema.ts index() declaration.
+-- schema.ts is exactly at its F6 exemption ceiling of 688 lines
+-- (scripts/check-file-size.mjs), so adding even one declaration turns
+-- pnpm arch:check red. Hand-written indexes living only in migrations is the
+-- established pattern here: idx_node_search and idx_node_lineage_path are in
+-- migrations and absent from the Drizzle snapshot, and drizzle-kit generate
+-- does not model them, so the CI drift check stays clean. A future reader
+-- should move this into schema.ts only as part of a genuine split of that
+-- file, not as a drive-by "tidy-up".
+CREATE INDEX idx_node_spouse_sort ON node
+  (organization_id, spouse_of_id) WHERE deleted_at IS NULL;
