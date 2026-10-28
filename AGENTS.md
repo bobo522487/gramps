@@ -94,7 +94,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 - 页面默认 Server Component，服务端直接调 `lib/db/queries/<domain>.ts`；客户端组件不查库。
 - 需要 scope 时用 `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)`（内部已含 `getSessionUser()` + 成员校验，失败 `notFound()`）或 `getOrgContext` / `getProjectContext`（返回 `null`）。**不要再自行 `getSessionUser()` + 查询 scope**，也不要在页面里重复解析。
 - 页面数据查询仍按 UUID `orgId` 过滤；scope 里的 `id` 来自服务端校验过的成员关系。
-- 首屏数据由 RSC 通过 `dehydrate` / `components/query-provider.tsx` 注入，客户端用 `useQuery` 读取只读路由；`queryKey` 一律从 `lib/query-keys.ts` 的工厂取，**不要在组件里手写 `fetch` 或拼字符串 key**。写成功后除 `revalidatePath` 外按需 `invalidateQueries`。不要引入 SWR。
+- 首屏数据由 RSC 通过 `dehydrate` / `components/query-provider.tsx` 注入，客户端用 `useQuery` 读取只读路由；`queryKey` 一律从 `lib/query-keys.ts` 的工厂取，**不要在组件里手写 `fetch` 或拼字符串 key**。**不要在单个 hook 上设 `refetchOnMount`**（`'always'` 会绕过新鲜度判断，把服务端刚查过的同一份数据再打一遍；新鲜度只由 `createQueryClient` 的 `staleTime` 统一决定，见 [ADR 0013](docs/decisions/0013-next-react-runtime-layer.md)）。写成功后除 `revalidatePath` 外按需 `invalidateQueries`。不要引入 SWR。
 - 谱系列表/文件夹走 `lib/lineage/nav.ts`（React `cache()` 请求级共享）；新增导航数据也走这里。
 
 ### 5.2 写

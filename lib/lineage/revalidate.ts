@@ -3,15 +3,17 @@ import 'server-only';
 import { revalidatePath } from 'next/cache';
 
 /**
- * Invalidation is scoped to the subtree a write can actually change. Before
- * this module every action called `revalidatePath('/dashboard', 'layout')`, so
- * one node edit threw away the whole console's cache.
+ * 现状（由 `tests/revalidate-paths.test.ts` 钉住）：25 处写入 Action 全部只调
+ * `revalidateWholeConsole()`；下面两个 scoped helper **尚未接线**，因为 Action 的
+ * Zod 入参只有 UUID `orgId` / `lineageId` / `projectId`，拿不到路径需要的公开
+ * `orgSlug` / `projectRef`。接线要同时改 schema 与提交它们的对话框，属于评审 P1-8，
+ * 在那之前不要假设失效是收窄的。
  *
- * Lineage and folder actions cannot use the scoped helpers yet: their payloads
- * carry only UUIDs (`orgId` / `lineageId`), not the public `orgSlug` /
- * `projectRef` that a path needs. Widening 12 Zod schemas and the six dialogs
- * that submit them is an interface change tracked separately; until then those
- * actions keep the whole-console call through `revalidateWholeConsole()`.
+ * 为什么这件事现在不值得优先做：`pnpm build` 的 21 条路由全是 `ƒ (Dynamic)`，
+ * `○ (Static)` 为 0，`prerender-manifest.json` 里只有 `/_global-error` 与
+ * `/favicon.ico`。也就是说服务端没有预渲染 HTML 可被「炸掉」，整树失效的代价落在
+ * 客户端 Router Cache（下次导航重新拉 RSC payload），不是服务端重渲染。等路由真的
+ * 静态化或被缓存之后，再回到这里收窄。
  */
 
 /** A lineage / node / folder write: only this project and its org shell change. */
@@ -26,9 +28,8 @@ export function revalidateOrg(orgSlug: string) {
 }
 
 /**
- * Membership, org-list and lineage-write invalidation: the root layout reads the
- * caller's orgs and the console switcher, and lineage actions still lack a
- * public path, so these genuinely need the whole console today.
+ * 当前所有写入的失效入口：根布局读会话与组织列表，控制台切换器跨 org/project，
+ * 所以整棵树都要失效。
  */
 export function revalidateWholeConsole() {
   revalidatePath('/dashboard', 'layout');

@@ -28,7 +28,7 @@
 | 角色 | `owner` / `admin` / `editor` / `viewer` + 9 个权限字符串 | `lib/auth/permissions.ts` |
 | 数据隔离 | 应用层成员过滤 + `withOrg` 事务内 RLS（`app_rw`）+ 复合外键 | `lib/db/drizzle.ts`、`0001_auth_rls.sql` |
 | 界面 | 简体中文，品牌“云谱”；无 i18n 框架 | `app/layout.tsx`、各页面组件 |
-| 客户端数据 | TanStack Query 5；RSC 首屏 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 调用只读 API，写后 `invalidateQueries` | `components/query-provider.tsx`、`lib/query-keys.ts`、`hooks/use-session-user.ts` |
+| 客户端数据 | TanStack Query 5；RSC 首屏 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 调用只读 API，写后 `invalidateQueries`；首屏数据以 RSC 为唯一来源，单个 hook 不设 `refetchOnMount`，新鲜度统一由 `createQueryClient` 的 `staleTime` 决定 | `components/query-provider.tsx`、`lib/query-keys.ts`、`hooks/use-session-user.ts`、`tests/first-paint-data.test.ts`、[ADR 0013](./decisions/0013-next-react-runtime-layer.md) |
 | 谱系画布 | `@xyflow/react` 12 + zustand 5.0.16（zustand 仅存谱系工作区 UI 状态，不存实体数据） | `components/lineage/canvas/`、`components/lineage/lineage-store.ts` |
 | 数据表 | 11 张组织级业务表 + 4 张 `auth.*` 表 | 见 §1.1 |
 | Route Handler | 4 个 | 见 §1.3 |
@@ -264,7 +264,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 11. **谱系画布一次加载全部节点**：详情页仍读取整棵谱系，画布只按世代窗口渲染；超过 500 人时首屏 5 世、每次追加 5 世，但没有服务端分页或虚拟滚动。极大人丁量下传输与索引仍有成本，后续需补按代查询。
 12. **活动日志语义不一致**：谱系写入在业务事务内（日志失败会回滚业务），组织写入在提交后（失败只告警）。目标语义是“日志尽力而为、不回滚业务”；差异见 2026-10-24 评审 P1-10。
 13. **根布局读取会话与组织**：`app/layout.tsx` 对每个请求查会话与组织，营销页因此动态渲染；这是营销页无法静态化的直接原因，见评审 P1-9。
-14. **缓存失效范围过宽**：谱系 Action 仍调用 `revalidateProject()`，影响整个 dashboard 路由树；精确到项目/谱系的失效需要 Action 拿到 `projectRef`，见评审 P1-8。
+14. **缓存失效范围过宽**：25 处写入 Action 全部调用 `revalidateWholeConsole()`（整棵 `/dashboard` 树 + `layout`）；`lib/lineage/revalidate.ts` 里按子树收窄的 `revalidateProject(orgSlug, projectRef)` / `revalidateOrg(orgSlug)` **已实现但零调用者**，前提是 Action 能拿到公开 `orgSlug` / `projectRef`（现在只有 UUID）。见评审 P1-8 与 [ADR 0013](./decisions/0013-next-react-runtime-layer.md)。
 
 > `getSessionUser()` 只返回 `SessionUser`（`{ id, name, email }`），不再返回完整用户行；新增对外出口必须显式挑字段，不能直接序列化任何认证记录。
 

@@ -266,13 +266,13 @@ export const updateNodeAction = validatedActionWithUser(
       return lineageError(result.reason);
     }
 
-    revalidateProject();
+    revalidateWholeConsole();
     return { success: '人丁信息已保存', nodeId: result.node.id };
   }
 );
 ```
 
-`updateNodeInTransaction` 在内部用 `withOrg` + `requireLineageWrite` 复核；Action 只传内部 UUID。`revalidateProject()` 目前仍是整树失效，收窄到项目/谱系是评审 P1-8 的代码任务；文档可以把它写成目标，但不能写成现状。
+`updateNodeInTransaction` 在内部用 `withOrg` + `requireLineageWrite` 复核；Action 只传内部 UUID。失效目前走 `revalidateWholeConsole()`（整棵 `/dashboard` 树）：`lib/lineage/revalidate.ts` 里的 `revalidateProject(orgSlug, projectRef)` 是**已实现但零调用者**的收窄版本，因为 Action 的 Zod 入参只有 UUID，拿不到路径需要的公开 `orgSlug` / `projectRef`。收窄是评审 P1-8 的代码任务，不能写成现状。
 
 | 规则 | 说明 |
 |---|---|
