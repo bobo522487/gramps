@@ -1,6 +1,6 @@
 # 实现状态
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-25
+> **文档状态：当前实现说明** · 最后更新：2026-10-28
 > 目标定义来自 [PRD](./prd.md)、[架构](./architecture/00-overview.md)、[数据模型](./data-model.md)、[接口](./api.md)。
 > 本文件只描述**代码里真实存在什么**，不描述计划。
 
@@ -8,7 +8,7 @@
 |---|---|
 | 文档版本 | 2.1 |
 | 文档状态 | 当前实现说明 |
-| 最后更新 | 2026-10-25 |
+| 最后更新 | 2026-10-28 |
 | 部署状态 | 目标为 Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`VERCEL` 环境用 `pg` + `attachDatabasePool`），本地/CI 用 `postgres.js`。**本地生产模式已用 `verify:deploy` 全项验证**；真实 Vercel/Neon 未部署（无凭据），云端入口已就绪 |
 
 ---
@@ -100,6 +100,65 @@
 - 单元测试覆盖配置、请求上下文、权限矩阵、会话、ID、限流、fetcher、设计系统、书本布局/折叠/懒渲染窗口、谱系索引与搜索匹配、侧栏树、zustand 工作区 store、人丁创建 schema。
 - CI 使用 `postgres:18-alpine` service，执行覆盖率与迁移漂移检查（`pnpm db:generate` 后迁移目录必须无变化），构建后跑 production-mode E2E 与部署验证。
 - `tests/security-regressions.test.ts` 与 `tests/design-system.test.ts` 仍保留源码字符串断言，但关键安全与数据完整性行为已由集成测试覆盖。
+
+### 1.5 当前代码结构
+
+顶层就是 `app/` + `components/` + `lib/`，没有 `src/modules`，也没有 `*.service.ts` / `*.repo.ts`。依赖方向见 [03-components §4.3](./architecture/03-components.md)。
+
+```
+app/
+├── (marketing)/              # / 首页
+├── (login)/                  # /sign-in、/sign-up
+├── (dashboard)/dashboard/    # 登录后控制台
+│   ├── (account)/            # /dashboard、general、security、activity（无 org scope）
+│   ├── join/                 # /dashboard/join?token=... 接受邀请
+│   ├── org/[orgSlug]/        # projects、team、settings
+│   └── project/[projectRef]/ # overview、lineages（layout 左侧谱系管理；含 [lineageId] 画布/世系表）、articles、books、settings
+└── api/                      # health、orgs、orgs/[orgId]/projects、user（见 §1.3）
+components/
+├── console/                  # 控制台框架、导航、组织/项目选择器、scope context、路由错误边界
+├── lineage/                  # 谱系列表/分类树、左侧谱系管理、世系表、人丁对话框、检查器
+│   ├── canvas/               # React Flow 欧式书本画布（布局/节点/连线/懒渲染）
+│   ├── lineage-store.ts      # zustand：谱系工作区 UI 状态（不存数据库实体）
+│   ├── derived.ts            # 谱系索引、排行、字辈、搜索匹配等纯函数
+│   ├── lineage-tree.ts       # 文件夹/谱系树构建与搜索过滤
+│   ├── lineage-shell.tsx     # 可调宽侧栏 + 移动端抽屉外壳
+│   └── lineage-sidebar.tsx   # 文件夹/谱系管理侧栏
+├── org/                      # 组织成员/设置、邀请详情查询
+├── project/                  # 项目设置/工作区
+├── marketing/                # 营销页组件
+├── query-provider.tsx        # TanStack Query Provider + HydrationBoundary
+└── ui/                       # shadcn/ui 基础组件
+lib/
+├── auth/                     # Better Auth 实例、会话 context、access-control、错误映射、限流、schema、actions
+├── db/
+│   ├── queries/              # 按领域拆分：organizations、invitations、projects、activity、folders、lineages、nodes
+│   ├── services.ts           # 项目多步事务流程
+│   ├── schema.ts             # Drizzle schema（auth 表 + 业务表）
+│   ├── auth-schema.ts        # Better Auth Drizzle adapter 的表映射
+│   ├── auth-db.ts            # 认证连接单例（固定 role=auth_service）
+│   ├── drizzle.ts            # 业务连接单例（本地 postgres.js / Vercel pg）
+│   ├── errors.ts             # PG 错误码识别
+│   └── migrations/           # drizzle-kit 迁移（清单见 _journal.json）
+├── folder/                   # 分类树 Server Action 与事务服务
+├── genealogy/schemas.ts      # 分类/谱系/人丁 Zod schema
+├── lineage/                  # 谱系与人丁 Server Action、事务服务、请求级导航缓存（nav.ts）
+├── org/actions.ts            # 组织相关 Server Action
+├── project/actions.ts        # 项目相关 Server Action
+├── server/request-context.ts # AsyncLocalStorage 请求日志上下文
+├── api.ts                    # Route Handler 日志/request_id/500 包装
+├── config.ts                 # Zod 环境变量校验（唯一可读 process.env 的文件）
+├── errors.ts                 # ActionState 错误码构造
+├── ids.ts                    # 20 位公开 ID 生成与校验
+├── query-keys.ts             # TanStack Query queryKey 工厂
+└── ui/status.ts              # 枚举/角色/区域 → 中文文案与状态样式
+hooks/                        # use-session-user、use-resizable（侧栏/检查器拖宽）
+tests/                        # Vitest 单测 + 真实 PostgreSQL 集成测试 + Playwright E2E
+instrumentation.ts            # 启动时校验配置并注册日志上下文
+proxy.ts                      # Next 16 路由门禁（乐观，不是授权边界）
+```
+
+不为了「以后可能用到」提前拆 `service/repo/module` 目录；当前代码以页面、Action、查询函数为主。
 
 ---
 
