@@ -30,7 +30,7 @@ Next.js 组织/项目控制台 + 家谱业务第一版：组织 → 项目两层
 | 项 | 当前值 |
 |---|---|
 | 框架 | Next.js 16.4.3 App Router + React 19.3.1 |
-| 语言 | TypeScript 7.0.2（`strict: true`） |
+| 语言 | TypeScript 7.0.2（Go 原生实现）；`strict` + 4 条实测零报错的额外检查，开关账目与「为什么不开更贵的开关」见 [ADR 0012](docs/decisions/0012-typescript7-compiler-flags.md) |
 | 运行时 | Node.js 24 LTS · pnpm 12 |
 | 数据库 | PostgreSQL + Drizzle ORM（业务 `app_rw`、认证 `auth_service`；本地/CI `postgres.js`，Vercel `pg` + `attachDatabasePool`） |
 | 认证 | 自托管 Better Auth 1.7.12（数据库会话 + organization 插件） |
@@ -198,6 +198,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 | 新增后台任务 / 队列 / 定时器 | 当前部署模型没有消费者也没有调度器 |
 | 套用目标设计的 `src/modules`、`*.service.ts`、`*.repo.ts` 结构 | 当前目录不是这样 |
 | 以为依赖方向规则没生效 | `pnpm check` 已用 Biome `noRestrictedImports` 拦下三条（客户端 import `@/lib/db/*`、`lib/db/**` import `next/*`、`lib/db/queries/**` import Actions），其余靠评审 |
+| 按「清理冗余」删 `tsconfig.json` 里的 `strict` / `target` / `allowJs` 等行 | Next 每次构建在**键缺失时**把 `strict: false`、`target: ES2017` 写回，全仓库静默降级且无报错；唯一可删的是被 `verbatimModuleSyntax` 覆盖的 `isolatedModules`，见 [ADR 0012 §2](docs/decisions/0012-typescript7-compiler-flags.md) |
 | 把「软删 / 回收站」当成已有能力 | 当前业务删除不可恢复 |
 | 直接删组织 / 成员而不确认备份 | 成员与邀请是硬删除，直接清库不可恢复；生产走工单/备份 |
 | 只靠应用层判断最后一个 owner | 直接删成员仍可产生无主组织；触发器兜底 + 应用层预检 |
@@ -208,7 +209,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 ## 9. 提交与评审
 
 **Commit**：`<type>(<scope>): <描述>`，一个 commit 只做一件事，迁移与业务代码分开提交。
-`type` = `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf`；`scope` = `auth` / `org` / `project` / `db` / `ui` / `docs` / `ci`。
+`type` = `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf`；`scope` = `auth` / `org` / `project` / `db` / `ui` / `docs` / `ci` / `ts`（编译器与工具链配置）。
 
 **PR 自查**（勾选前须有命令输出为证）：
 

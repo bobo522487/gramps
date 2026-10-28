@@ -261,7 +261,7 @@ pnpm db:seed
 | `pnpm lint` | 仅 Biome lint |
 | `pnpm format` | Biome 格式化 |
 | `pnpm fix` | Biome 检查并自动修复 |
-| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm typecheck` | `tsc --noEmit`（TypeScript 7 的 Go 原生编译器；实测冷跑 1.36s、增量暖跑 0.43s，账目见 [ADR 0012](decisions/0012-typescript7-compiler-flags.md)） |
 | `pnpm test` | Vitest 单测（不连数据库） |
 | `pnpm test:unit` | 同 `pnpm test` |
 | `pnpm test:integration` | 真实 PostgreSQL 集成测试（需要 `*_test` 数据库） |

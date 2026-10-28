@@ -18,7 +18,7 @@
 | 项 | 值 | 证据 |
 |---|---|---|
 | 框架 | Next.js 16.4.3、React 19.3.1 | `package.json` |
-| 语言 | TypeScript 7.0.2（`strict: true`） | `tsconfig.json` |
+| 语言 | TypeScript 7.0.2（Go 原生实现，无 `@typescript/native-preview`）；`strict` + `verbatimModuleSyntax` / `noImplicitReturns` / `noFallthroughCasesInSwitch` / `noUncheckedSideEffectImports`；`isolatedModules` 已由 `verbatimModuleSyntax` 覆盖并删除 | `tsconfig.json`、[ADR 0012](./decisions/0012-typescript7-compiler-flags.md) |
 | 运行时 | Node.js 24 LTS、pnpm 12.15.0、TypeScript 7.0.2 | `.nvmrc`、`package.json`（`packageManager` / `engines`）、CI |
 | 数据库 | PostgreSQL 18 + Drizzle 0.45.4；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
 | 主键 | UUIDv7（`uuidv7()`）；20 位公开 `slug`/`ref` 仅用于 URL | `lib/db/schema.ts`、`lib/ids.ts` |
