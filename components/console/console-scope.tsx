@@ -47,7 +47,6 @@ export function useConsoleOrgs() {
   return useQuery({
     queryKey: queryKeys.orgs,
     queryFn: () => fetcher<ConsoleOrg[]>('/api/orgs'),
-    refetchOnMount: 'always',
   });
 }
 

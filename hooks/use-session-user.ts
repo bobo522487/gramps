@@ -9,6 +9,5 @@ export function useSessionUser() {
   return useQuery({
     queryKey: queryKeys.user,
     queryFn: () => fetcher<SessionUser>('/api/user'),
-    refetchOnMount: 'always',
   });
 }

@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-query';
 import { useState } from 'react';
 
-function createQueryClient() {
+export function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
