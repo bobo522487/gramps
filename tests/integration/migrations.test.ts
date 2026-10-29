@@ -31,7 +31,7 @@ describe('migrations', () => {
     expect(rows[0]?.count).toBeGreaterThanOrEqual(3);
   });
 
-  it('creates exactly the twelve business tables plus the activity feed', async () => {
+  it('creates exactly the fifteen business tables plus the activity feed', async () => {
     const rows = await getTestSql()<
       { table_name: string }[]
     >`SELECT table_name FROM information_schema.tables
@@ -43,6 +43,9 @@ describe('migrations', () => {
       'article',
       'book',
       'book_catalog',
+      'family',
+      'family_child',
+      'family_partner',
       'folder',
       'invite',
       'lineage',
@@ -94,6 +97,14 @@ describe('migrations', () => {
         'uk_person_name_type_order',
         'uk_person_legacy_node',
         'idx_person_primary_name',
+        // The family fact layer: the three-column keys Tasks 6/7 reference,
+        // and the two partial keys that keep one live row per person per
+        // family on each side of the union.
+        'uk_family_organization_project_id',
+        'uk_family_partner_organization_project_id',
+        'uk_family_child_organization_project_id',
+        'uk_family_partner_family_person',
+        'uk_family_child_family_person',
       ])
     );
   });
@@ -131,7 +142,7 @@ describe('migrations', () => {
         AND n.nspname IN ('public', 'auth')
       ORDER BY n.nspname, c.relname`;
 
-    expect(rows).toHaveLength(17);
+    expect(rows).toHaveLength(20);
     for (const row of rows) {
       expect(row.enabled, `${row.schema}.${row.name} RLS`).toBe(true);
       expect(row.forced, `${row.schema}.${row.name} FORCE RLS`).toBe(true);

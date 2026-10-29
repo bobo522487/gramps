@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -35,6 +36,14 @@ export const projects = pgTable(
       .notNull()
       .default('in_progress'),
     importance: smallint('importance').notNull().default(1),
+    /**
+     * Per-project escape hatch for 族内婚 (堂兄妹婚): when true,
+     * `app.check_family_blood_side()` stops enforcing "at most one blood
+     * partner per family". Default false because the invariant is the point.
+     */
+    allowConsanguineousMarriage: boolean('allow_consanguineous_marriage')
+      .notNull()
+      .default(false),
     notes: text('notes'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),

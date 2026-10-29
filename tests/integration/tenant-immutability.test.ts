@@ -200,7 +200,7 @@ describe('tenant columns are immutable', () => {
       ORDER BY c.relname`;
 
     // The pinned columns per table, in the order the trigger lists them. Seven
-    // of these twelve lists had no assertion at all before: a wrong list — a
+    // of these fifteen lists had no assertion at all before: a wrong list — a
     // typo, a missing project_id, folder_id added back — used to pass as long
     // as the trigger existed.
     const expected: Record<string, string[]> = {
@@ -208,6 +208,13 @@ describe('tenant columns are immutable', () => {
       article: ['organization_id', 'project_id'],
       book: ['organization_id', 'project_id'],
       book_catalog: ['organization_id', 'book_id'],
+      // The family fact layer pins both halves on all three tables: a family
+      // belongs to one project, and its partners and children must stay in it.
+      // family_id itself stays writable (a partner can be moved to another
+      // union in the same project), the composite FK keeps that honest.
+      family: ['organization_id', 'project_id'],
+      family_child: ['organization_id', 'project_id'],
+      family_partner: ['organization_id', 'project_id'],
       folder: ['organization_id', 'project_id'],
       invite: ['organization_id'],
       lineage: ['organization_id', 'project_id'],

@@ -6,6 +6,9 @@ import {
   articles,
   bookCatalogs,
   books,
+  families,
+  familyChildren,
+  familyPartners,
   folders,
   invitations,
   lineages,
@@ -20,9 +23,13 @@ import {
 import type {
   LivingStatus,
   NameStatus,
+  ParentageType,
+  PartnerRole,
+  PartnerStatus,
   PersonNameType,
   PersonSex,
   PrivacyLevel,
+  UnionType,
 } from '@/lib/genealogy/constants';
 import { generatePublicId } from '@/lib/ids';
 import { getTestDb } from './db';
@@ -289,6 +296,80 @@ export async function createPersonName(params: {
     })
     .returning();
   return name;
+}
+
+export async function createFamily(params: {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  unionType?: UnionType;
+  sort?: number;
+  notes?: string | null;
+}) {
+  const [family] = await getTestDb()
+    .insert(families)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      createdBy: params.createdBy,
+      unionType: params.unionType ?? 'unknown',
+      sort: params.sort ?? 0,
+      notes: params.notes ?? null,
+    })
+    .returning();
+  return family;
+}
+
+export async function createFamilyPartner(params: {
+  orgId: string;
+  projectId: string;
+  familyId: string;
+  personId: string;
+  createdBy: string;
+  role?: PartnerRole;
+  partnerOrder?: number;
+  status?: PartnerStatus;
+}) {
+  const [partner] = await getTestDb()
+    .insert(familyPartners)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      familyId: params.familyId,
+      personId: params.personId,
+      createdBy: params.createdBy,
+      role: params.role ?? 'blood',
+      partnerOrder: params.partnerOrder ?? 1,
+      status: params.status ?? 'unknown',
+    })
+    .returning();
+  return partner;
+}
+
+export async function createFamilyChild(params: {
+  orgId: string;
+  projectId: string;
+  familyId: string;
+  personId: string;
+  createdBy: string;
+  parentageType?: ParentageType;
+  isPrimary?: boolean;
+  sort?: number;
+}) {
+  const [child] = await getTestDb()
+    .insert(familyChildren)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      familyId: params.familyId,
+      personId: params.personId,
+      createdBy: params.createdBy,
+      parentageType: params.parentageType ?? 'birth',
+      isPrimary: params.isPrimary ?? true,
+      sort: params.sort ?? 0,
+    })
+    .returning();
+  return child;
 }
 
 export async function createBook(params: {
