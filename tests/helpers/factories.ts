@@ -6,6 +6,7 @@ import {
   articles,
   bookCatalogs,
   books,
+  events,
   families,
   familyChildren,
   familyPartners,
@@ -21,6 +22,11 @@ import {
   projects,
 } from '@/lib/db/schema';
 import type {
+  Calendar,
+  DatePrecision,
+  DateQualifier,
+  EventKind,
+  EventType,
   LivingStatus,
   NameStatus,
   ParentageType,
@@ -370,6 +376,65 @@ export async function createFamilyChild(params: {
     })
     .returning();
   return child;
+}
+
+export async function createEvent(params: {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  personId?: string | null;
+  familyId?: string | null;
+  eventKind?: EventKind;
+  eventType?: EventType;
+  customType?: string | null;
+  gedcomTag?: string | null;
+  title?: string | null;
+  value?: string | null;
+  description?: string | null;
+  dateOriginal?: string | null;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  datePrecision?: DatePrecision | null;
+  dateQualifier?: DateQualifier;
+  calendar?: Calendar;
+  dateCn?: unknown;
+  ageText?: string | null;
+  ageYears?: number | null;
+  ageBasis?: string | null;
+  placeOriginal?: string | null;
+}) {
+  const [event] = await getTestDb()
+    .insert(events)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      createdBy: params.createdBy,
+      // Deliberately not derived from eventType: the column has to agree with
+      // the type (ck_event_kind_matches_type), and a factory that guessed would
+      // hide a wrong kind instead of letting the database refuse it.
+      eventKind: params.eventKind ?? 'event',
+      eventType: params.eventType ?? 'event',
+      personId: params.personId ?? null,
+      familyId: params.familyId ?? null,
+      customType: params.customType ?? null,
+      gedcomTag: params.gedcomTag ?? null,
+      title: params.title ?? null,
+      value: params.value ?? null,
+      description: params.description ?? null,
+      dateOriginal: params.dateOriginal ?? null,
+      dateStart: params.dateStart ?? null,
+      dateEnd: params.dateEnd ?? null,
+      datePrecision: params.datePrecision ?? null,
+      dateQualifier: params.dateQualifier ?? 'unknown',
+      calendar: params.calendar ?? 'gregorian',
+      dateCn: params.dateCn ?? null,
+      ageText: params.ageText ?? null,
+      ageYears: params.ageYears ?? null,
+      ageBasis: params.ageBasis ?? null,
+      placeOriginal: params.placeOriginal ?? null,
+    })
+    .returning();
+  return event;
 }
 
 export async function createBook(params: {

@@ -41,6 +41,7 @@ export function getTestDb() {
 export async function resetDatabase() {
   await getTestSql().unsafe(
     `TRUNCATE TABLE
+       event,
        family_child,
        family_partner,
        family,

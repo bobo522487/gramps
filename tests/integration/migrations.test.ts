@@ -31,7 +31,7 @@ describe('migrations', () => {
     expect(rows[0]?.count).toBeGreaterThanOrEqual(3);
   });
 
-  it('creates exactly the fifteen business tables plus the activity feed', async () => {
+  it('creates exactly the sixteen business tables plus the activity feed', async () => {
     const rows = await getTestSql()<
       { table_name: string }[]
     >`SELECT table_name FROM information_schema.tables
@@ -43,6 +43,7 @@ describe('migrations', () => {
       'article',
       'book',
       'book_catalog',
+      'event',
       'family',
       'family_child',
       'family_partner',
@@ -105,6 +106,13 @@ describe('migrations', () => {
         'uk_family_child_organization_project_id',
         'uk_family_partner_family_person',
         'uk_family_child_family_person',
+        // The event fact layer: the three-column key P4/P6 will reference and
+        // the three non-partial lookup indexes (timeline by person, union
+        // facts, type rollups). Soft-delete filtering lives in the queries.
+        'uk_event_organization_project_id',
+        'idx_event_subject',
+        'idx_event_family',
+        'idx_event_type',
       ])
     );
   });
@@ -142,7 +150,7 @@ describe('migrations', () => {
         AND n.nspname IN ('public', 'auth')
       ORDER BY n.nspname, c.relname`;
 
-    expect(rows).toHaveLength(20);
+    expect(rows).toHaveLength(21);
     for (const row of rows) {
       expect(row.enabled, `${row.schema}.${row.name} RLS`).toBe(true);
       expect(row.forced, `${row.schema}.${row.name} FORCE RLS`).toBe(true);
