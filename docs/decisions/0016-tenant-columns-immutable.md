@@ -36,6 +36,10 @@ DECLARE
   col text;
 BEGIN
   FOREACH col IN ARRAY TG_ARGV LOOP
+    IF NOT (to_jsonb(NEW) ? col) THEN
+      RAISE EXCEPTION 'tenant column % does not exist on %', col, TG_TABLE_NAME
+        USING ERRCODE = '42703';
+    END IF;
     IF to_jsonb(NEW) -> col IS DISTINCT FROM to_jsonb(OLD) -> col THEN
       RAISE EXCEPTION 'column %.% is immutable', TG_TABLE_NAME, col
         USING ERRCODE = '42501',
@@ -46,6 +50,8 @@ BEGIN
 END;
 $$;
 ```
+
+第一个 `IF` 是给手写清单兜底的：`to_jsonb(NEW) -> 'typo'` 在两侧都是 `NULL`，比较永远不成立，参数写错时那张表会**静默不受保护**；`42703`（`undefined_column`）让错误在第一次 `UPDATE` 时就暴露，而不是等一次越权才发现。10 张表的参数列表由 `tests/integration/tenant-immutability.test.ts` 逐张断言（`tgtype`、`tgnargs`、`tgargs` 三样都比对），不是只数触发器名字。
 
 用 `IS DISTINCT FROM` 而不是 `<>`：`activity_logs.organization_id` 对账号级事件是 `NULL`，而 `NULL <> NULL` 是 `NULL`，会让 `NULL → 某组织` 的搬运悄悄通过。
 
@@ -61,10 +67,12 @@ $$;
 |---|---|
 | `node.parent_id` / `node.spouse_of_id` | 移动人丁、改父、挂配偶都是产品功能（`lib/lineage/node-services.ts`） |
 | `folder.parent_id` | 文件夹可以换父 |
-| `lineage` / `article` / `book` 的 `folder_id` | 重新归类；删除文件夹时 `deleteFolderInTransaction` 会把内容解除归类（`folder_id = NULL`） |
+| `lineage` / `article` / `book` 的 `folder_id` | 重新归类；删除文件夹时 `deleteFolderInTransaction` 会把内容解除归类（`folder_id = NULL`，`lib/folder/services.ts:268-309`） |
 | `book_catalog` 的排序、`node.sort` / `path` / `depth` / `generation` | 排版与路径重算 |
 
 `folder_id` 这一条是**实测出来的**：按「所有外键都钉住」写完后，`tests/integration/folders-lineages.test.ts` 有 3 条用例变红（`column lineage.folder_id is immutable`、SQLSTATE `42501`）——「删除文件夹 → 内容解除归类」是产品行为，不是越权。所以 `folder_id` 保持可写，`project_id` / `lineage_id` / `book_id` 钉住。
+
+**残留缺口（已批准）**：`folder_id` 既没有外键也没有触发器，所以「把内容挪进另一个组织的文件夹」目前只有应用层 `WHERE organization_id` 一道闸；后续阶段用复合外键 `(organization_id, project_id, folder_id) → folder(organization_id, project_id, id)` 补上（目标唯一键 `uk_folder_org_project_id` 已存在）。
 
 ### 受保护的 10 张表
 
@@ -87,7 +95,9 @@ $$;
 
 `app_rw` 与 `auth_service` 都拿到 `USAGE ON SCHEMA app` 与 `EXECUTE ON FUNCTION app.forbid_tenant_move()`。`organization` / `organization_member` / `invite` 的写权限属于 `auth_service`（Better Auth 的 organization 插件会 `UPDATE` 它们改角色名、组织名）。
 
-**实测修正**：PostgreSQL 18 在 `CREATE TRIGGER` 时检查函数 `EXECUTE` 权限，触发器**触发时不再检查**。把 `auth_service` 的 `EXECUTE` 撤掉后重跑 `tests/integration/better-auth.test.ts`，29 个用例仍然全绿。所以这份授权今天是**双保险而不是必需**——保留它是因为：迁移角色一旦不是超级用户（托管平台、CI 用受限角色），创建触发器时就会因缺少 `EXECUTE` 报错，而那种失败只在部署时出现；冗余授权的代价远低于漏授。
+**实测（PostgreSQL 18.6，scratch schema，事务内回滚）**：先 `REVOKE ALL ON FUNCTION … FROM PUBLIC`，确认 `has_function_privilege('app_rw', …, 'EXECUTE')` 为 `false`；此时 `SET LOCAL ROLE app_rw` 后的 `UPDATE` 仍然触发函数并抛出函数自己的异常——**触发时不检查 `EXECUTE`**。同一个函数以 `app_rw` 身份 `CREATE TRIGGER` 则报 `42501 permission denied for function`——**创建时检查**。所以这份授权今天是**双保险而不是必需**：真正让它生效的是函数默认对 `PUBLIC` 的 `EXECUTE`（`proacl` 里的 `=X/<owner>`）。
+
+早前的一版验证不成立，记在这里免得有人重做：只撤掉 `auth_service` 的 `EXECUTE` 再重跑 `tests/integration/better-auth.test.ts` 全绿，什么也证明不了——`PUBLIC` 的默认授权还在，`auth_service` 的实际权限没有变化。迁移照 brief 保留 `PUBLIC` 授权，所以在今天的环境里显式 GRANT 是冗余的；保留它是因为它免费、能在将来真的 `REVOKE FROM PUBLIC` 之后继续生效，并且当迁移角色不是函数属主时能满足 `CREATE TRIGGER` 的检查。
 
 不 `REVOKE ALL ... FROM PUBLIC`：这个函数只读 `NEW` / `OLD` 并可能 `RAISE`，没有可被滥用的能力，而漏授一个角色会让成员管理在生产上失败。
 
