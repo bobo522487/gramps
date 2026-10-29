@@ -93,11 +93,17 @@ export type UnionType = (typeof UNION_TYPE_VALUES)[number];
 // --- events ----------------------------------------------------------------
 
 /**
- * Which GEDCOM record an event row comes from. Attributes (occupation,
- * education, …) share the event table, so they need their own kind. Derived in
- * TypeScript only — the blueprint does not store this as a column.
+ * Which GEDCOM structure an event row came from. GEDCOM 7 has two independent
+ * axes: the subject (`person_id` vs `family_id`, plus P2's generated
+ * `subject_type`) and whether the structure is an event or an attribute. Only
+ * the second axis is stored here; folding the subject into this column would
+ * duplicate it and could not represent a family attribute (e.g. RESI on FAM).
+ *
+ * `attribute` rows must use one of `ATTRIBUTE_EVENT_TYPE_VALUES`; Task 6 writes
+ * `CHECK (event_kind = 'attribute') = (event_type IN (...))` from that list, so
+ * the column and the enum cannot drift.
  */
-export const EVENT_KIND_VALUES = ['individual', 'family', 'attribute'] as const;
+export const EVENT_KIND_VALUES = ['event', 'attribute'] as const;
 export type EventKind = (typeof EVENT_KIND_VALUES)[number];
 
 /**
@@ -107,7 +113,9 @@ export type EventKind = (typeof EVENT_KIND_VALUES)[number];
  * source but is not in this list", so imports never have to drop a fact.
  */
 export const EVENT_TYPE_VALUES = [
-  // Individual events.
+  // Individual events (GEDCOM 7 INDIVIDUAL_EVENT_STRUCTURE). GRAD and RETI are
+  // events, not attributes; `event` (EVEN) is a real tag, not a fallback;
+  // `migration` has no GEDCOM 7 tag (EMIG/IMMI cover it) but the brief names it.
   'birth',
   'death',
   'burial',
@@ -129,12 +137,16 @@ export const EVENT_TYPE_VALUES = [
   'emigration',
   'immigration',
   'migration',
-  'residence',
-  // Individual attributes.
-  'occupation',
-  'education',
   'graduation',
   'retirement',
+  'event',
+  // Individual attributes (GEDCOM 7 INDIVIDUAL_ATTRIBUTE_STRUCTURE). RESI is an
+  // attribute, not an event; `fact` (FACT) is a real tag, not a fallback;
+  // `military_service` is carried as EVEN + TYPE in GEDCOM 7 but the brief
+  // names it.
+  'occupation',
+  'education',
+  'residence',
   'title',
   'nationality',
   'property',
@@ -147,7 +159,6 @@ export const EVENT_TYPE_VALUES = [
   'social_security_number',
   'military_service',
   'fact',
-  'event',
   // Family events.
   'engagement',
   'marriage',
@@ -164,11 +175,39 @@ export const EVENT_TYPE_VALUES = [
   'genealogy_compiled',
   'name_change',
   'posthumous_title',
-  // Fallbacks.
+  // Fallbacks. `custom` requires `custom_type`; `other` means the source tag is
+  // not in this list. Neither is an attribute.
   'custom',
   'other',
 ] as const;
 export type EventType = (typeof EVENT_TYPE_VALUES)[number];
+
+/**
+ * The `EVENT_TYPE_VALUES` members that GEDCOM 7 defines as attribute
+ * structures (CAST, DSCR, EDUC, IDNO, NATI, NCHI, NMR, OCCU, PROP, RELI, RESI,
+ * SSN, TITL, FACT) rather than events. `custom` and `other` are fallbacks, not
+ * attributes, and every member here must also be in `EVENT_TYPE_VALUES` (the
+ * `satisfies` clause enforces that at compile time). Task 6 writes
+ * `CHECK (event_kind = 'attribute') = (event_type IN (...))` from this list, so
+ * the column and the enum cannot drift.
+ */
+export const ATTRIBUTE_EVENT_TYPE_VALUES = [
+  'occupation',
+  'education',
+  'residence',
+  'title',
+  'nationality',
+  'property',
+  'religion',
+  'caste',
+  'physical_description',
+  'national_id_number',
+  'number_of_children',
+  'number_of_marriages',
+  'social_security_number',
+  'fact',
+] as const satisfies readonly EventType[];
+export type AttributeEventType = (typeof ATTRIBUTE_EVENT_TYPE_VALUES)[number];
 
 // --- dates -----------------------------------------------------------------
 
