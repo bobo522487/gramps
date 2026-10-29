@@ -155,6 +155,13 @@
       "when": 1793287200000,
       "tag": "0021_fact_event_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793318208061,
+      "tag": "0022_abandoned_skullbuster",
+      "breakpoints": true
     }
   ]
 }

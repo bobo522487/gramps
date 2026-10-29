@@ -20,6 +20,9 @@ import type {
 } from '../../genealogy/constants';
 import {
   ATTRIBUTE_EVENT_TYPE_VALUES,
+  CALENDAR_VALUES,
+  DATE_PRECISION_VALUES,
+  DATE_QUALIFIER_VALUES,
   EVENT_KIND_VALUES,
   EVENT_TYPE_VALUES,
 } from '../../genealogy/constants';
@@ -71,6 +74,11 @@ function valueSet(values: readonly string[]) {
  * "no date" state is `date_qualifier = 'unknown'` with both bounds NULL;
  * `date_qualifier` is NOT NULL precisely so that state cannot be expressed by
  * leaving the qualifier NULL, which would satisfy every matrix CHECK vacuously.
+ * For the same reason `date_qualifier`, `date_precision` and `calendar` each
+ * carry an enum CHECK generated from `lib/genealogy/constants.ts`
+ * (`ck_event_date_qualifier`, `ck_event_date_precision`, `ck_event_calendar`):
+ * a qualifier outside the set satisfies every matrix CHECK just as a NULL one
+ * would, and the matrix would guard nothing.
  *
  * ## Kind and type
  *
@@ -183,6 +191,28 @@ export const events = pgTable(
     check(
       'ck_event_kind',
       sql`${t.eventKind} in ${valueSet(EVENT_KIND_VALUES)}`
+    ),
+    // The three date enums are CHECKed for the same reason `date_qualifier` is
+    // NOT NULL: every constraint in the 0021 matrix is written as
+    // `date_qualifier <> 'x' OR (…)`, so a qualifier outside the closed set
+    // matches none of them and satisfies all five. Without these, a row with
+    // `date_qualifier = 'circa'` could carry any bounds at all — inverted, or
+    // both bounds while claiming `before` — and the date matrix would guard
+    // nothing. The same applies to `date_precision` and `calendar`, which are
+    // otherwise unchecked text columns.
+    check(
+      'ck_event_date_qualifier',
+      sql`${t.dateQualifier} in ${valueSet(DATE_QUALIFIER_VALUES)}`
+    ),
+    // Nullable, and `IN` is NULL-tolerant: a row with no precision passes, a row
+    // with an invented precision does not.
+    check(
+      'ck_event_date_precision',
+      sql`${t.datePrecision} in ${valueSet(DATE_PRECISION_VALUES)}`
+    ),
+    check(
+      'ck_event_calendar',
+      sql`${t.calendar} in ${valueSet(CALENDAR_VALUES)}`
     ),
     check(
       'ck_event_kind_matches_type',

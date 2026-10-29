@@ -1,0 +1,3 @@
+ALTER TABLE "event" ADD CONSTRAINT "ck_event_date_qualifier" CHECK ("event"."date_qualifier" in ('exact', 'about', 'estimated', 'calculated', 'before', 'after', 'between', 'period', 'unknown'));--> statement-breakpoint
+ALTER TABLE "event" ADD CONSTRAINT "ck_event_date_precision" CHECK ("event"."date_precision" in ('day', 'month', 'year', 'decade', 'century'));--> statement-breakpoint
+ALTER TABLE "event" ADD CONSTRAINT "ck_event_calendar" CHECK ("event"."calendar" in ('gregorian', 'julian', 'hebrew', 'french_r', 'chinese_lunar', 'other'));

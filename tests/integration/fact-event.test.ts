@@ -4,6 +4,9 @@ import { withOrg } from '@/lib/db/drizzle';
 import { events } from '@/lib/db/schema';
 import {
   ATTRIBUTE_EVENT_TYPE_VALUES,
+  CALENDAR_VALUES,
+  DATE_PRECISION_VALUES,
+  DATE_QUALIFIER_VALUES,
   EVENT_KIND_VALUES,
   EVENT_TYPE_VALUES,
 } from '@/lib/genealogy/constants';
@@ -386,6 +389,28 @@ describe('event date boundary matrix', () => {
       })
     ).rejects.toSatisfy(isCheckViolation('ck_event_date_between'));
   });
+
+  // Every constraint in the matrix is written as `date_qualifier <> 'x' OR (…)`,
+  // so a qualifier that is not in DATE_QUALIFIER_VALUES matches none of them and
+  // satisfies all five: `'circa'` is not 'before', not 'unknown', not in the
+  // point or range sets. The whole date matrix then guards nothing, which is
+  // exactly why the three enum columns need their own CHECKs.
+  //
+  // One row carries both halves of the hole — a garbage qualifier *and* an
+  // inverted range — so this test fails if either check goes missing. Written
+  // with raw SQL because `'circa'` is not a `DateQualifier`: a factory that
+  // accepted it would defeat the point.
+  it('refuses an out-of-enum qualifier carrying an inverted range', async () => {
+    const { scope, person } = await eventScope();
+
+    await expect(
+      getTestSql()`
+        insert into event
+          (organization_id, project_id, person_id, event_type, date_qualifier, date_start, date_end, created_by)
+        values
+          (${scope.orgId}, ${scope.projectId}, ${person.id}, 'birth', 'circa', '1900-01-01', '1800-01-01', ${scope.createdBy})`
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
+  });
 });
 
 describe('event age, type and kind', () => {
@@ -597,6 +622,9 @@ describe('event tenant isolation', () => {
 const enumConstraints = [
   { constraint: 'ck_event_type', values: EVENT_TYPE_VALUES },
   { constraint: 'ck_event_kind', values: EVENT_KIND_VALUES },
+  { constraint: 'ck_event_date_qualifier', values: DATE_QUALIFIER_VALUES },
+  { constraint: 'ck_event_date_precision', values: DATE_PRECISION_VALUES },
+  { constraint: 'ck_event_calendar', values: CALENDAR_VALUES },
   // The equality also mentions the literal 'attribute' on its left half, which
   // is why that one is expected on top of the attribute type list.
   {
