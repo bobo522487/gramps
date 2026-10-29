@@ -200,9 +200,9 @@ describe('tenant columns are immutable', () => {
       ORDER BY c.relname`;
 
     // The pinned columns per table, in the order the trigger lists them. Seven
-    // of these ten lists had no assertion at all before: a wrong list — a typo,
-    // a missing project_id, folder_id added back — used to pass as long as the
-    // trigger existed.
+    // of these twelve lists had no assertion at all before: a wrong list — a
+    // typo, a missing project_id, folder_id added back — used to pass as long
+    // as the trigger existed.
     const expected: Record<string, string[]> = {
       activity_logs: ['organization_id'],
       article: ['organization_id', 'project_id'],
@@ -213,6 +213,10 @@ describe('tenant columns are immutable', () => {
       lineage: ['organization_id', 'project_id'],
       node: ['organization_id', 'lineage_id'],
       organization_member: ['organization_id'],
+      // person_name pins only the tenant, not person_id: Task 8's
+      // reconciliation moves a name between people inside one project.
+      person: ['organization_id', 'project_id'],
+      person_name: ['organization_id', 'project_id'],
       project: ['organization_id'],
     };
 

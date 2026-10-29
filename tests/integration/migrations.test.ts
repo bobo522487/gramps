@@ -31,7 +31,7 @@ describe('migrations', () => {
     expect(rows[0]?.count).toBeGreaterThanOrEqual(3);
   });
 
-  it('creates exactly the ten business tables plus the activity feed', async () => {
+  it('creates exactly the twelve business tables plus the activity feed', async () => {
     const rows = await getTestSql()<
       { table_name: string }[]
     >`SELECT table_name FROM information_schema.tables
@@ -49,6 +49,8 @@ describe('migrations', () => {
       'node',
       'organization',
       'organization_member',
+      'person',
+      'person_name',
       'project',
     ]);
 
@@ -84,6 +86,14 @@ describe('migrations', () => {
         // idx_node_search is gone on purpose: ADR 0011 puts person search in
         // the client and keeps trigram only for article (search-boundary.test.ts).
         'idx_article_search',
+        // The fact layer: the composite key a person_name hangs off, the key
+        // person.primary_name_id points through, and the two partial keys that
+        // keep one name type and one legacy node per person/project unique.
+        'uk_person_organization_project_id',
+        'uk_person_name_organization_person_id',
+        'uk_person_name_type_order',
+        'uk_person_legacy_node',
+        'idx_person_primary_name',
       ])
     );
   });
@@ -121,7 +131,7 @@ describe('migrations', () => {
         AND n.nspname IN ('public', 'auth')
       ORDER BY n.nspname, c.relname`;
 
-    expect(rows).toHaveLength(15);
+    expect(rows).toHaveLength(17);
     for (const row of rows) {
       expect(row.enabled, `${row.schema}.${row.name} RLS`).toBe(true);
       expect(row.forced, `${row.schema}.${row.name} FORCE RLS`).toBe(true);

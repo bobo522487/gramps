@@ -13,8 +13,17 @@ import {
   nodes,
   organizations,
   orgMembers,
+  personNames,
+  persons,
   projects,
 } from '@/lib/db/schema';
+import type {
+  LivingStatus,
+  NameStatus,
+  PersonNameType,
+  PersonSex,
+  PrivacyLevel,
+} from '@/lib/genealogy/constants';
 import { generatePublicId } from '@/lib/ids';
 import { getTestDb } from './db';
 
@@ -201,6 +210,85 @@ export async function createNode(params: {
     })
     .returning();
   return node;
+}
+
+export async function createPerson(params: {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  sex?: PersonSex;
+  livingStatus?: LivingStatus;
+  livingStatusLocked?: boolean;
+  privacyLevel?: PrivacyLevel;
+  nameStatus?: NameStatus;
+  primaryNameId?: string | null;
+  mergedIntoId?: string | null;
+  sortKey?: string | null;
+  legacyNodeId?: string | null;
+}) {
+  const [person] = await getTestDb()
+    .insert(persons)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      createdBy: params.createdBy,
+      sex: params.sex ?? 'male',
+      livingStatus: params.livingStatus ?? 'unknown',
+      livingStatusLocked: params.livingStatusLocked ?? false,
+      privacyLevel: params.privacyLevel ?? 'private',
+      nameStatus: params.nameStatus ?? 'known',
+      primaryNameId: params.primaryNameId ?? null,
+      mergedIntoId: params.mergedIntoId ?? null,
+      sortKey: params.sortKey ?? null,
+      legacyNodeId: params.legacyNodeId ?? null,
+    })
+    .returning();
+  return person;
+}
+
+export async function createPersonName(params: {
+  orgId: string;
+  projectId: string;
+  personId: string;
+  createdBy: string;
+  nameType?: PersonNameType;
+  customType?: string | null;
+  /** `null` is meaningful here: 名讳失考 has a name row with no full name. */
+  fullName?: string | null;
+  surname?: string | null;
+  givenName?: string | null;
+  namePrefix?: string | null;
+  nameSuffix?: string | null;
+  surnamePrefix?: string | null;
+  nickname?: string | null;
+  pinyin?: string | null;
+  romanized?: string | null;
+  language?: string | null;
+  sortOrder?: number;
+}) {
+  const [name] = await getTestDb()
+    .insert(personNames)
+    .values({
+      orgId: params.orgId,
+      projectId: params.projectId,
+      personId: params.personId,
+      createdBy: params.createdBy,
+      nameType: params.nameType ?? 'birth',
+      customType: params.customType ?? null,
+      fullName: params.fullName === undefined ? '陈测试' : params.fullName,
+      surname: params.surname === undefined ? '陈' : params.surname,
+      givenName: params.givenName === undefined ? '测试' : params.givenName,
+      namePrefix: params.namePrefix ?? null,
+      nameSuffix: params.nameSuffix ?? null,
+      surnamePrefix: params.surnamePrefix ?? null,
+      nickname: params.nickname ?? null,
+      pinyin: params.pinyin ?? null,
+      romanized: params.romanized ?? null,
+      language: params.language ?? null,
+      sortOrder: params.sortOrder ?? 0,
+    })
+    .returning();
+  return name;
 }
 
 export async function createBook(params: {
