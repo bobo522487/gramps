@@ -24,7 +24,6 @@ const EXEMPT = [
   { path: 'components/lineage/canvas/genealogy-canvas.tsx', lines: 776 },
   { path: 'components/lineage/lineage-sidebar.tsx', lines: 734 },
   { path: 'components/ui/sidebar.tsx', lines: 717 },
-  { path: 'lib/db/schema.ts', lines: 688 },
   { path: 'components/lineage/person-inspector.tsx', lines: 606 },
   { path: 'components/lineage/node-create-dialog.tsx', lines: 583 },
 ];
