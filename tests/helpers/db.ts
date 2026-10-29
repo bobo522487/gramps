@@ -69,18 +69,44 @@ export async function closeTestDatabase() {
   testDb = null;
 }
 
-/** SQLSTATE from a driver, Drizzle or Better Auth error chain. */
-export function pgErrorCode(error: unknown): string | undefined {
+/** Objects along a driver, Drizzle or Better Auth error chain, outermost first. */
+function errorChain(error: unknown): object[] {
+  const chain: object[] = [];
   let current: unknown = error;
   for (let depth = 0; depth < 8; depth += 1) {
     if (typeof current !== 'object' || current === null) {
-      return undefined;
+      break;
     }
-    const value = current as { code?: unknown; cause?: unknown };
-    if (typeof value.code === 'string') {
-      return value.code;
+    chain.push(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return chain;
+}
+
+/** SQLSTATE from a driver, Drizzle or Better Auth error chain. */
+export function pgErrorCode(error: unknown): string | undefined {
+  for (const link of errorChain(error)) {
+    const code = (link as { code?: unknown }).code;
+    if (typeof code === 'string') {
+      return code;
     }
-    current = value.cause;
   }
   return undefined;
+}
+
+/**
+ * Every message in the chain, outermost first. The SQLSTATE alone cannot tell
+ * two controls apart when both raise 42501 (RLS WITH CHECK does), so callers
+ * assert on the server text as well; the wrapper's own message ("Failed
+ * query: …") is included, hence "every" rather than "the".
+ */
+export function pgErrorMessages(error: unknown): string[] {
+  const messages: string[] = [];
+  for (const link of errorChain(error)) {
+    const message = (link as { message?: unknown }).message;
+    if (typeof message === 'string') {
+      messages.push(message);
+    }
+  }
+  return messages;
 }

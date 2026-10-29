@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { withOrg } from '@/lib/db/drizzle';
 import { lineages, nodes, projects } from '@/lib/db/schema';
-import { getTestSql, pgErrorCode } from '../helpers/db';
+import { getTestSql, pgErrorCode, pgErrorMessages } from '../helpers/db';
 import {
   addMember,
   createLineage,
@@ -11,6 +11,19 @@ import {
   createProject,
   createUser,
 } from '../helpers/factories';
+
+// RLS WITH CHECK raises 42501 as well, so the SQLSTATE alone cannot tell which
+// control refused the move: a policy violation says 'new row violates
+// row-level security policy for table "project"', while the trigger names the
+// table and the column it pinned. Both are asserted, otherwise a policy change
+// could take over the job and hide a trigger that stopped working.
+function immutableRejection(table: string, column: string) {
+  return (error: unknown) =>
+    pgErrorCode(error) === '42501' &&
+    pgErrorMessages(error).some((message) =>
+      message.includes(`column ${table}.${column} is immutable`)
+    );
+}
 
 describe('tenant columns are immutable', () => {
   it('rejects moving a project into another organization', async () => {
@@ -34,7 +47,7 @@ describe('tenant columns are immutable', () => {
           sql`update project set organization_id = ${to.id} where id = ${project.id}`
         )
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(immutableRejection('project', 'organization_id'));
   });
 
   it('rejects moving a lineage into another project', async () => {
@@ -66,7 +79,7 @@ describe('tenant columns are immutable', () => {
           .set({ projectId: to.id })
           .where(eq(lineages.id, lineage.id))
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(immutableRejection('lineage', 'project_id'));
   });
 
   it('rejects moving a node into another lineage', async () => {
@@ -104,7 +117,7 @@ describe('tenant columns are immutable', () => {
       withOrg(user.id, (tx) =>
         tx.update(nodes).set({ lineageId: to.id }).where(eq(nodes.id, node.id))
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(immutableRejection('node', 'lineage_id'));
   });
 
   it('still allows updating ordinary columns', async () => {
@@ -131,24 +144,92 @@ describe('tenant columns are immutable', () => {
     expect(renamed?.name).toBe('改名后的云谱');
   });
 
-  it('guards every tenant table that has a tenant column', async () => {
-    const rows = await getTestSql()<{ table_name: string }[]>`
-      SELECT c.relname AS table_name
+  it('rejects a trigger argument that is not a column', async () => {
+    // Every argument list is hand-written, so a typo has to fail loudly:
+    // to_jsonb(NEW) -> 'typo' is NULL on both sides and the comparison would
+    // silently protect nothing. A scratch table with a mis-spelled argument
+    // proves the 42703 guard; the transaction is always rolled back.
+    const raw = getTestSql();
+    await raw`begin`;
+    try {
+      await raw`create table probe_tenant_typo (
+        id int primary key, organization_id int
+      )`;
+      await raw`create trigger trg_probe_tenant_typo
+        before update on probe_tenant_typo
+        for each row execute function app.forbid_tenant_move('organisation_id')`;
+      await raw`insert into probe_tenant_typo values (1, 1)`;
+
+      await expect(
+        raw`update probe_tenant_typo set organization_id = 2`
+      ).rejects.toSatisfy(
+        (error) =>
+          pgErrorCode(error) === '42703' &&
+          pgErrorMessages(error).some((message) =>
+            message.includes(
+              'tenant column organisation_id does not exist on probe_tenant_typo'
+            )
+          )
+      );
+    } finally {
+      await raw`rollback`;
+    }
+  });
+
+  it('guards every tenant table with the exact column list', async () => {
+    // tgargs is a NUL-separated bytea holding the EXECUTE FUNCTION arguments.
+    // The decode is explicit: encode(..., 'escape') renders each NUL as the
+    // literal four characters \000, and array_remove drops the empty tail.
+    const rows = await getTestSql()<
+      {
+        table_name: string;
+        tgtype: number;
+        tgnargs: number;
+        columns: string[];
+      }[]
+    >`
+      SELECT c.relname AS table_name,
+             t.tgtype::int AS tgtype,
+             t.tgnargs::int AS tgnargs,
+             array_remove(
+               string_to_array(encode(t.tgargs, 'escape'), '\\000'), ''
+             ) AS columns
       FROM pg_trigger t
       JOIN pg_class c ON c.oid = t.tgrelid
       WHERE NOT t.tgisinternal AND t.tgname LIKE 'trg_%_tenant_immutable'
       ORDER BY c.relname`;
-    expect(rows.map((r) => r.table_name)).toEqual([
-      'activity_logs',
-      'article',
-      'book',
-      'book_catalog',
-      'folder',
-      'invite',
-      'lineage',
-      'node',
-      'organization_member',
-      'project',
-    ]);
+
+    // The pinned columns per table, in the order the trigger lists them. Seven
+    // of these ten lists had no assertion at all before: a wrong list — a typo,
+    // a missing project_id, folder_id added back — used to pass as long as the
+    // trigger existed.
+    const expected: Record<string, string[]> = {
+      activity_logs: ['organization_id'],
+      article: ['organization_id', 'project_id'],
+      book: ['organization_id', 'project_id'],
+      book_catalog: ['organization_id', 'book_id'],
+      folder: ['organization_id', 'project_id'],
+      invite: ['organization_id'],
+      lineage: ['organization_id', 'project_id'],
+      node: ['organization_id', 'lineage_id'],
+      organization_member: ['organization_id'],
+      project: ['organization_id'],
+    };
+
+    // Exact set first: a tenant table without a trigger, or a trigger on a
+    // table that should not have one, is what this test exists to catch.
+    const byTable = new Map(rows.map((row) => [row.table_name, row]));
+    expect([...byTable.keys()].sort()).toEqual(Object.keys(expected).sort());
+
+    for (const [table, columns] of Object.entries(expected)) {
+      const row = byTable.get(table);
+      // 19 = BEFORE (2) | ROW (1) | UPDATE (16). An AFTER, statement-level or
+      // INSERT/DELETE trigger would not abort the row's update in place.
+      expect(row?.tgtype, table).toBe(19);
+      // tgnargs is the server's own count; checking it against the decoded
+      // list means a decode that silently dropped an argument cannot pass.
+      expect(row?.tgnargs, table).toBe(columns.length);
+      expect(row?.columns, table).toEqual(columns);
+    }
   });
 });

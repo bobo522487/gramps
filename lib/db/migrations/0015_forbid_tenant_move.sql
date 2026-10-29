@@ -18,7 +18,10 @@
 --
 -- One function serves all tables: the columns to pin are passed as TG_ARGV, so
 -- adding a table later is one CREATE TRIGGER, not another 20 lines of
--- PL/pgSQL. Column lists are deliberately ownership-only: parent_id,
+-- PL/pgSQL. Because every argument list is hand-written, the function also
+-- rejects an argument that is not a column on the row (42703): a typo would
+-- make to_jsonb(NEW) -> 'typo' NULL on both sides and silently protect
+-- nothing. Column lists are deliberately ownership-only: parent_id,
 -- spouse_of_id, sort, path, deleted_at and the rest stay writable, because
 -- moving a node under a new parent and soft-deleting a row are legitimate
 -- operations (tests/integration/nodes.test.ts covers both).
@@ -42,6 +45,15 @@ DECLARE
   col text;
 BEGIN
   FOREACH col IN ARRAY TG_ARGV LOOP
+    -- Guard the hand-written argument list: to_jsonb(NEW) -> 'organisation_id'
+    -- is NULL on both sides, so the comparison below would pass every time and
+    -- the table would be silently unprotected. 42703 (undefined_column) turns
+    -- that typo into an error the first time the trigger fires.
+    IF NOT (to_jsonb(NEW) ? col) THEN
+      RAISE EXCEPTION 'tenant column % does not exist on %', col, TG_TABLE_NAME
+        USING ERRCODE = '42703';
+    END IF;
+
     IF to_jsonb(NEW) -> col IS DISTINCT FROM to_jsonb(OLD) -> col THEN
       RAISE EXCEPTION 'column %.% is immutable', TG_TABLE_NAME, col
         USING ERRCODE = '42501',
@@ -64,13 +76,20 @@ GRANT EXECUTE ON FUNCTION app.forbid_tenant_move() TO app_rw;
 -- function wherever a deployment creates these triggers with a less privileged
 -- migration role than the local superuser.
 --
--- Measured on PostgreSQL 18: EXECUTE on a trigger function is checked when the
--- trigger is created, not when it fires, so revoking it from auth_service keeps
--- better-auth green (verified by revoking it and re-running
--- tests/integration/better-auth.test.ts). The grant is therefore belt and
--- braces rather than load-bearing today — kept because relying on that detail
--- would break the first non-superuser migration run, and because a redundant
--- grant costs nothing next to a permission-denied in member management.
+-- Measured on PostgreSQL 18.6, in a scratch schema, inside a transaction that
+-- was rolled back: with `REVOKE ALL ON FUNCTION ... FROM PUBLIC` in place
+-- (has_function_privilege('app_rw', ..., 'EXECUTE') = false) an UPDATE still
+-- fired the trigger and raised the function's own exception, so EXECUTE is NOT
+-- checked when a trigger fires; the same function under CREATE TRIGGER as
+-- app_rw failed with 42501 "permission denied for function". The check happens
+-- when the trigger is created, not when it runs.
+--
+-- A function is EXECUTE-able by PUBLIC by default (proacl shows `=X/<owner>`),
+-- which is why revoking the grant from auth_service alone would change nothing.
+-- While PUBLIC keeps its default the explicit grants are redundant; they are
+-- kept because they are free, they survive a future REVOKE FROM PUBLIC, and
+-- they satisfy the CREATE TRIGGER check when the migrating role does not own
+-- the function.
 --
 -- Deliberately no `REVOKE ALL ... FROM PUBLIC`: the function only reads NEW and
 -- OLD and may RAISE, so there is nothing to abuse (ADR 0016, 后果).
@@ -113,7 +132,8 @@ CREATE TRIGGER trg_folder_tenant_immutable
 
 -- lineage: organization_id + project_id are the tenant keys; folder_id is a
 -- container that legitimately changes when content is refiled or a folder is
--- deleted (deleteFolderInTransaction unfiles lineages), so it is not pinned.
+-- deleted (deleteFolderInTransaction NULLs it at
+-- lib/folder/services.ts:268-309), so it is not pinned.
 DROP TRIGGER IF EXISTS trg_lineage_tenant_immutable ON lineage;
 --> statement-breakpoint
 CREATE TRIGGER trg_lineage_tenant_immutable
