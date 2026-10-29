@@ -160,10 +160,14 @@ describe('0003_better_auth migration', () => {
     expect(rows.map((row) => row.tgname)).toEqual([
       'trg_auth_user_created',
       'trg_invite_active_org',
+      // 0015 pins the tenant columns of these two tables; asserted here as well
+      // so that adding another trigger to them stays a deliberate change.
+      'trg_invite_tenant_immutable',
       'trg_org_member_active_org',
       'trg_org_member_last_owner_delete',
       'trg_org_member_last_owner_update',
       'trg_org_slug_immutable',
+      'trg_organization_member_tenant_immutable',
     ]);
   });
 

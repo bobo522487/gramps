@@ -63,6 +63,7 @@
 | [0011](./0011-search-boundary-node-client-article-trgm.md) | 检索边界：人丁搜索在客户端，trigram 只给谱文 | 取代 ADR-13 的一行结论；删掉零消费者的 `idx_node_search`，边界由集成测试守住 |
 | [0012](./0012-typescript7-compiler-flags.md) | TypeScript 7 编译器开关：只开实测 0 报错的 4 条，其余全部拒绝 | 推翻了一个从未实测的假设（检查冷跑仅 1.36s，无性能问题）；并记录 `strict` 删不得的框架陷阱——Next 会在键缺失时写回 `strict: false` |
 | [0013](./0013-next-react-runtime-layer.md) | 首屏只查一遍：RSC `dehydrate` 为唯一来源，`refetchOnMount:'always'` 移除 | 实测出控制台每次硬加载重复打 `/api/user` + `/api/orgs`；同时把 P1-8（整树失效）与 P1-9（营销页静态化）判为「前提不存在」——21 条路由全动态、零预渲染 |
+| [0016](./0016-tenant-columns-immutable.md) | 租户列不可变：`UPDATE` 不得改归属列，10 张表各挂 `trg_<table>_tenant_immutable` | 修的是已发布代码里的真实越权路径（RLS `WITH CHECK` 只看新值，双组织用户能把行搬走）；并记录 `folder_id` 属结构列、必须保持可写，否则删文件夹会失败 |
 
 ### ADR 模板
 

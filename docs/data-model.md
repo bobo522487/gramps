@@ -862,6 +862,16 @@ CREATE POLICY node_select ON node
 | 3 | 查询层唯一入口 | 当前评审；Biome `noRestrictedImports` 待接入（评审 P1-12），禁止 `lib/db/drizzle` 被查询层之外的文件导入 |
 | 4 | 复合外键 | 跨组织引用在 schema 层不成立 |
 | 5 | 注册触发器测试 | 注册后必须有且仅有 1 条 `role = 'owner'` 的成员关系 |
+| 6 | 租户列不可变触发器 | `app.forbid_tenant_move()` + 10 个 `trg_<table>_tenant_immutable`（见 §12.7）；`UPDATE` 改归属列报 SQLSTATE `42501`，精确表集合由 `tests/integration/tenant-immutability.test.ts` 断言 |
+
+### 12.7 租户列不可变
+
+`app_rw` 对每张业务表都有 `UPDATE`，而 RLS 的 `UPDATE` 策略分两半：`USING` 只看旧行、`WITH CHECK` 只看新行。同时属于两个组织的用户，旧行上满足 `USING`（他是 A 组织成员）、新行上满足 `WITH CHECK`（他是 B 组织成员），于是 `update project set organization_id = <B>` 在迁移前**成功**——行被搬走，三层防护的根失效。policy 表达不了「比较新旧两行」，所以这条规则由触发器兜底（[ADR 0016](./decisions/0016-tenant-columns-immutable.md)）。
+
+- 函数 `app.forbid_tenant_move()`：`BEFORE UPDATE ... FOR EACH ROW`，要钉住的列名从 `TG_ARGV` 传入，用 `IS DISTINCT FROM` 比较 `to_jsonb(NEW)` / `to_jsonb(OLD)`（`activity_logs.organization_id` 可为 `NULL`）；报错 `column <table>.<col> is immutable`，SQLSTATE `42501`，带 hint。
+- 受保护的 10 张表：`organization_member`、`invite`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog`、`activity_logs`，触发器名统一 `trg_<table>_tenant_immutable`。
+- 钉住的是**归属列**：`organization_id`，加上上一级容器（`project_id`、`lineage_id`、`book_id`）。结构关系列保持可写——`node.parent_id` / `spouse_of_id`（移动、改父、挂配偶）、`folder.parent_id`，以及 `lineage` / `article` / `book` 的 `folder_id`（重新归类、删除文件夹时解除归类）。把 `folder_id` 也钉住会让「删除文件夹」失败，不是越权。
+- **新增组织级表必须挂这个触发器**；漏挂不会报错，只会静默不受保护，靠 §12.6 第 6 行的精确集合断言发现。
 
 ---
 

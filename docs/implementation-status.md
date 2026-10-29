@@ -71,6 +71,7 @@
 - 扩展 `ltree`、`pg_trgm`、`btree_gist`；GiST 用于 `node` 的 `path` 索引。`pg_trgm` 保留给 `article`（`idx_article_search`，FR-ART-5）；`node` 搜索在客户端，`idx_node_search` 已在 `0013` 删除（[ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md)）。
 - `0014`：手写 custom migration 新增 `idx_node_spouse_sort`（B-tree，部分于 `deleted_at IS NULL`，列 `(organization_id, spouse_of_id)`），服务 `nextSpouseSort` 的 `max(sort)` 查询，避免配偶写入在 `FOR UPDATE` 锁内扫描整谱系；同 0013 的思路——每个索引都有消费者。它只活在迁移里，不进 `lib/db/schema.ts`（该文件恰在 F6 豁免线 688，零余量），与 `idx_node_search`/`idx_node_lineage_path` 一致。
 - `0002_app_role_grant` 与 `0003_better_auth`：登录角色存在时补 `GRANT app_rw TO app` / `GRANT auth_service TO auth_runtime`；角色创建仍属本地/运维步骤。
+- `0015`：租户列不可变（[ADR 0016](./decisions/0016-tenant-columns-immutable.md)）。`app` schema 的 `app.forbid_tenant_move()` + 10 个 `trg_<table>_tenant_immutable`（`organization_member`、`invite`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog`、`activity_logs`）挡住「双组织用户把行搬到另一个组织」——RLS 的 `WITH CHECK` 只看新值，policy 无法比较新旧行。改归属列报 SQLSTATE `42501`；结构关系列（`parent_id`、`spouse_of_id`、`folder_id` 等）保持可写。`USAGE`/`EXECUTE` 同时授 `app_rw` 与 `auth_service`。新增组织级表必须挂这个触发器，`tests/integration/tenant-immutability.test.ts` 断言精确的 10 张表。
 
 ### 1.2 公开 ID 与控制台路由
 
