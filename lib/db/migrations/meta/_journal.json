@@ -162,6 +162,13 @@
       "when": 1793318208061,
       "tag": "0022_abandoned_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793320093575,
+      "tag": "0023_public_frank_castle",
+      "breakpoints": true
     }
   ]
 }

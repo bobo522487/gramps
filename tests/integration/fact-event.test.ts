@@ -157,6 +157,46 @@ describe('event subject and tenant keys', () => {
       createEvent({ ...scope, personId: sameProject.id })
     ).resolves.toBeTruthy();
   });
+
+  // The block above proves the project axis of the composite subject keys. The
+  // organization axis needs its own case: a person or union of a *different*
+  // organization differs in organization_id and project_id at once, and an
+  // event row pointing at it would leak another tenant's subject into this
+  // organization's timeline.
+  it('refuses a person or family from another organization', async () => {
+    const { scope } = await eventScope();
+    const other = await eventScope();
+    const foreignFamily = await createFamily({
+      orgId: other.scope.orgId,
+      projectId: other.scope.projectId,
+      createdBy: other.scope.createdBy,
+    });
+
+    await expect(
+      createEvent({ ...scope, personId: other.person.id })
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '23503' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes('fk_event_person')
+        )
+    );
+
+    await expect(
+      createEvent({
+        ...scope,
+        personId: null,
+        familyId: foreignFamily.id,
+        eventType: 'marriage',
+      })
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '23503' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes('fk_event_family')
+        )
+    );
+  });
 });
 
 describe('event date boundary matrix', () => {
@@ -411,6 +451,26 @@ describe('event date boundary matrix', () => {
           (${scope.orgId}, ${scope.projectId}, ${person.id}, 'birth', 'circa', '1900-01-01', '1800-01-01', ${scope.createdBy})`
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
   });
+
+  // "No date" had three encodings: NULL, '' and '   '. Only NULL is a real
+  // absence — a blank string is an importer bug that would render as an empty
+  // date on a timeline and compare unequal to NULL in every query.
+  // ck_event_date_original_not_blank removes the two blank forms without
+  // resurrecting the withdrawn NOT NULL rule (0021 explains why NULL stays
+  // legal: an event may be known only by its place).
+  it('refuses a blank date_original and keeps NULL as the only empty form', async () => {
+    const { scope, person } = await eventScope();
+
+    for (const blank of ['', '   ']) {
+      await expect(
+        createEvent({ ...scope, personId: person.id, dateOriginal: blank })
+      ).rejects.toSatisfy(isCheckViolation('ck_event_date_original_not_blank'));
+    }
+
+    const withoutDate = await createEvent({ ...scope, personId: person.id });
+    expect(withoutDate.dateOriginal).toBeNull();
+    expect(withoutDate.dateQualifier).toBe('unknown');
+  });
 });
 
 describe('event age, type and kind', () => {
@@ -643,18 +703,45 @@ describe('event enum columns match the TypeScript constants', () => {
   }
 });
 
-describe('event defaults', () => {
+describe('event column defaults', () => {
+  // Raw SQL naming only the columns a caller must supply. The factory always
+  // writes these three columns explicitly, so a factory-based assertion would
+  // pass even with every DEFAULT clause dropped: this one fails instead.
   it('stores the kind, qualifier and calendar defaults', async () => {
     const { scope, person } = await eventScope();
-    const event = await createEvent({ ...scope, personId: person.id });
 
-    // event_kind defaults to `event` and must still agree with the default
-    // event_type; a caller that passes `occupation` has to pass `attribute`.
-    expect(event.eventKind).toBe('event');
-    expect(event.eventType).toBe('event');
-    expect(event.dateQualifier).toBe('unknown');
-    expect(event.calendar).toBe('gregorian');
-    expect(event.dateCn).toBeNull();
+    const [stored] = await getTestSql()<
+      { event_kind: string; date_qualifier: string; calendar: string }[]
+    >`
+      insert into event
+        (organization_id, project_id, created_by, person_id, event_type)
+      values
+        (${scope.orgId}, ${scope.projectId}, ${scope.createdBy}, ${person.id}, 'birth')
+      returning event_kind, date_qualifier, calendar`;
+
+    // event_kind defaults to `event` and agrees with event_type 'birth'; a
+    // caller that passes `occupation` has to pass `attribute`.
+    expect(stored.event_kind).toBe('event');
+    expect(stored.date_qualifier).toBe('unknown');
+    expect(stored.calendar).toBe('gregorian');
+  });
+
+  // event_type has no DEFAULT on purpose: a fact row must state what kind of
+  // fact it is. A defaulted 'event' is how a contentless row gets written.
+  it('refuses a row that omits event_type', async () => {
+    const { scope, person } = await eventScope();
+
+    await expect(
+      getTestSql()`
+        insert into event
+          (organization_id, project_id, created_by, person_id)
+        values
+          (${scope.orgId}, ${scope.projectId}, ${scope.createdBy}, ${person.id})`
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '23502' &&
+        pgErrorMessages(error).some((message) => message.includes('event_type'))
+    );
   });
 
   it('round-trips the Chinese lunar date structure in date_cn', async () => {

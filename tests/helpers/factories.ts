@@ -21,6 +21,7 @@ import {
   persons,
   projects,
 } from '@/lib/db/schema';
+import type { DateCn } from '@/lib/db/schema/event';
 import type {
   Calendar,
   DatePrecision,
@@ -419,7 +420,7 @@ export async function createEvent(params: {
   datePrecision?: DatePrecision | null;
   dateQualifier?: DateQualifier;
   calendar?: Calendar;
-  dateCn?: unknown;
+  dateCn?: DateCn | null;
   ageText?: string | null;
   ageYears?: number | null;
   ageBasis?: string | null;

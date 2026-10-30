@@ -1,0 +1,2 @@
+ALTER TABLE "event" ALTER COLUMN "event_type" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "event" ADD CONSTRAINT "ck_event_date_original_not_blank" CHECK ("event"."date_original" is null or btrim("event"."date_original") <> '');

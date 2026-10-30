@@ -45,6 +45,35 @@ function valueSet(values: readonly string[]) {
 }
 
 /**
+ * The raw Chinese date structure stored in `date_cn`, as the source wrote it.
+ *
+ * P1 stores it verbatim and normalises nothing: `date_start`/`date_end` come
+ * from `date_original` and the Gregorian calendar only. P4 owns the semantics —
+ * era → Gregorian mapping, leap-month (闰) resolution, `ganzhi`/`shichen`
+ * interpretation — so every component below is optional except `raw`, which is
+ * the text the importer always has. Fields the importer cannot fill are
+ * deliberately absent rather than declared as maybe-someday.
+ */
+export type DateCn = {
+  /** The date exactly as the source wrote it (康熙三十八年三月十二日辰时). */
+  raw: string;
+  /** Era name (康熙, 民国), when the source names one. */
+  era?: string;
+  /** Year within the era; the lunar year number, not a Gregorian year. */
+  year?: number;
+  /** Lunar month, 1-12. */
+  month?: number;
+  /** Whether `month` is the intercalary (闰) repeat of that month. */
+  leap?: boolean;
+  /** Day of the lunar month. */
+  day?: number;
+  /** 干支 pair (己卯), when the source records one. */
+  ganzhi?: string;
+  /** 时辰 name (辰时), when the source records one. */
+  shichen?: string;
+};
+
+/**
  * One recorded fact about a person or a union.
  *
  * ## The subject is a two-way choice in P1
@@ -107,7 +136,14 @@ export const events = pgTable(
     /** Subject half two: 婚配/离婚 and other union facts hang off the family. */
     familyId: uuid('family_id'),
     eventKind: text('event_kind').$type<EventKind>().notNull().default('event'),
-    eventType: text('event_type').$type<EventType>().notNull().default('event'),
+    /**
+     * NOT NULL with no DEFAULT: a fact row has to state what kind of fact it
+     * is. A defaulted 'event' is how a contentless row gets written — the
+     * writer omits the one column that says what the row means, and the row
+     * still lands. `event_kind` keeps its default because it is derived from
+     * this column by ck_event_kind_matches_type, not a statement of its own.
+     */
+    eventType: text('event_type').$type<EventType>().notNull(),
     /** Required when `event_type` is `custom` (ck_event_custom_type). */
     customType: text('custom_type'),
     /** Original GEDCOM tag, kept so an import can round-trip a fact it cannot map. */
@@ -133,11 +169,11 @@ export const events = pgTable(
       .default('unknown'),
     calendar: text('calendar').$type<Calendar>().notNull().default('gregorian'),
     /**
-     * The original lunar date structure, stored as written. P1 keeps no
-     * lunar-to-Gregorian conversion here, so a row may carry `date_cn` with both
-     * bounds NULL and `date_qualifier = 'unknown'`.
+     * The original lunar date structure, stored as written (see `DateCn`). P1
+     * keeps no lunar-to-Gregorian conversion here, so a row may carry `date_cn`
+     * with both bounds NULL and `date_qualifier = 'unknown'`.
      */
-    dateCn: jsonb('date_cn'),
+    dateCn: jsonb('date_cn').$type<DateCn>(),
     /** `享年七十有三` as recorded, next to the parsed pair below. */
     ageText: text('age_text'),
     ageYears: smallint('age_years'),
@@ -217,6 +253,15 @@ export const events = pgTable(
     check(
       'ck_event_kind_matches_type',
       sql`(${t.eventKind} = 'attribute') = (${t.eventType} in ${valueSet(ATTRIBUTE_EVENT_TYPE_VALUES)})`
+    ),
+    // "No date" has exactly one encoding: date_original IS NULL. A blank string
+    // is an importer bug, not a second empty form — it renders as an empty date
+    // and compares unequal to NULL in every query. This does not resurrect the
+    // withdrawn NOT NULL rule: an event known only by its place keeps a NULL
+    // date_original (see the file comment).
+    check(
+      'ck_event_date_original_not_blank',
+      sql`${t.dateOriginal} is null or btrim(${t.dateOriginal}) <> ''`
     ),
     // XOR subject: a fact needs one owner, and never two.
     check(

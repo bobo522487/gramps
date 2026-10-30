@@ -117,6 +117,56 @@ describe('migrations', () => {
     );
   });
 
+  // The inventory above matches index *names*, so an index could silently lose
+  // a column (or get its columns reordered) and still pass. These assert the
+  // exact column lists, following the idx_node_spouse_sort precedent in
+  // spouse-sort-index.test.ts: every one of them is an org/project-prefixed
+  // lookup, so the prefix order is load-bearing, not cosmetic.
+  it('declares the event and family lookup indexes on their exact columns', async () => {
+    const expected = [
+      {
+        table: 'event',
+        index: 'idx_event_subject',
+        columns: '(organization_id, project_id, person_id, date_start)',
+      },
+      {
+        table: 'event',
+        index: 'idx_event_family',
+        columns: '(organization_id, project_id, family_id)',
+      },
+      {
+        table: 'event',
+        index: 'idx_event_type',
+        columns: '(organization_id, project_id, event_type)',
+      },
+      {
+        table: 'family',
+        index: 'idx_family_project',
+        columns: '(organization_id, project_id, deleted_at)',
+      },
+      {
+        table: 'family_partner',
+        index: 'idx_family_partner_person',
+        columns: '(organization_id, project_id, person_id)',
+      },
+      {
+        table: 'family_child',
+        index: 'idx_family_child_person',
+        columns: '(organization_id, project_id, person_id)',
+      },
+    ];
+
+    for (const { table, index, columns } of expected) {
+      const rows = await getTestSql()<{ indexdef: string }[]>`
+        SELECT indexdef FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename = ${table}
+          AND indexname = ${index}`;
+
+      expect(rows, `${index} is missing`).toHaveLength(1);
+      expect(String(rows[0]?.indexdef)).toContain(columns);
+    }
+  });
+
   it('adds nullable region and notes columns to lineage', async () => {
     const rows = await getTestSql()<
       { column_name: string; is_nullable: string }[]
