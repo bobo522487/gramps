@@ -275,7 +275,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 11. **谱系画布一次加载全部节点**：详情页仍读取整棵谱系，画布只按世代窗口渲染；超过 500 人时首屏 5 世、每次追加 5 世，但没有服务端分页或虚拟滚动。极大人丁量下传输与索引仍有成本，后续需补按代查询。
 12. **活动日志语义不一致**：谱系写入在业务事务内（日志失败会回滚业务），组织写入在提交后（失败只告警）。目标语义是“日志尽力而为、不回滚业务”；差异见 2026-10-24 评审 P1-10。
 13. **根布局读取会话与组织**：`app/layout.tsx` 对每个请求查会话与组织，营销页因此动态渲染；这是营销页无法静态化的直接原因，见评审 P1-9。
-14. **缓存失效范围过宽**：25 处写入 Action 全部调用 `revalidateWholeConsole()`（整棵 `/dashboard` 树 + `layout`）；`lib/lineage/revalidate.ts` 里按子树收窄的 `revalidateProject(orgSlug, projectRef)` / `revalidateOrg(orgSlug)` **已实现但零调用者**，前提是 Action 能拿到公开 `orgSlug` / `projectRef`（现在只有 UUID）。见评审 P1-8 与 [ADR 0013](./decisions/0013-next-react-runtime-layer.md)。
+14. **缓存失效范围过宽**：所有写入 Action 都调用 `revalidateWholeConsole()`（整棵 `/dashboard` 树 + `layout`）；`lib/lineage/revalidate.ts` 里按子树收窄的 `revalidateProject(orgSlug, projectRef)` / `revalidateOrg(orgSlug)` **已实现但零调用者**，前提是 Action 能拿到公开 `orgSlug` / `projectRef`（现在只有 UUID）。见评审 P1-8 与 [ADR 0013](./decisions/0013-next-react-runtime-layer.md)。
 
 > `getSessionUser()` 只返回 `SessionUser`（`{ id, name, email }`），不再返回完整用户行；新增对外出口必须显式挑字段，不能直接序列化任何认证记录。
 
