@@ -113,5 +113,5 @@
 |---|---|---|
 | D-4 | 关系模型 | 单 `parent_id` 无法表达过继 / 兼祧 / 入赘 |
 | D-6 | 数据生命周期 | 软删永存 vs 删除权与保留期 |
-| D-10 | 表单栈 | 旧 `04-runtime §6.2` 写 React Hook Form，`package.json` 没有；扁平表单模型挡住自定义字段与编目树（评审 S1-2） |
+| D-10 | 表单栈 | 旧架构文档写 React Hook Form，`package.json` 没有；扁平表单模型挡住自定义字段与编目树（评审 S1-2） |
 | D-11 | 登录限流 | 进程内 Map（best-effort）vs 共享存储（多实例生效）；key 部分来自可伪造的 `x-forwarded-for`（评审 S1-3） |

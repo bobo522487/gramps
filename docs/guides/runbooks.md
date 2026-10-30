@@ -311,7 +311,7 @@ SELECT id, hash, created_at FROM drizzle._drizzle_migrations ORDER BY created_at
 
 ### 恢复演练
 
-RPO ≤ 1 天、RTO ≤ 4 小时是承诺（[08-非功能性设计 §5](../architecture/08-非功能性设计.md)）。**每季度做一次真实恢复演练**，否则这个承诺只是纸面数字。演练内容：从 PITR 恢复到临时分支 → 抽查三张核心表行数 → 记录实际耗时。
+RPO ≤ 1 天、RTO ≤ 4 小时是 [PRD](../prd.md) 的目标值，**尚未实测**——[08-非功能性设计](../architecture/08-非功能性设计.md) 明确「没有 RPO/RTO 承诺，没有演练」。**每季度做一次真实恢复演练**，否则这个目标只是纸面数字。演练内容：从 PITR 恢复到临时分支 → 抽查三张核心表行数 → 记录实际耗时。
 
 ---
 
