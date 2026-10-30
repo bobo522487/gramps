@@ -193,9 +193,23 @@ export async function createNode(params: {
   name?: string;
   surname?: string;
   sex?: number;
+  // Task 7 additions: the fact-layer backfill is only interesting for nodes
+  // that carry the facts node can express (dates, burial place, 字号) or that
+  // were soft-deleted. Every one of them keeps its old default.
+  courtesy?: string | null;
+  isAlive?: boolean;
+  birthText?: string | null;
+  birthYear?: number | null;
+  deathText?: string | null;
+  deathYear?: number | null;
+  burialPlace?: string | null;
+  fullName?: string | null;
+  deletedAt?: Date | null;
 }) {
   const id = randomUUID();
   const role = params.role ?? 'blood';
+  const name = params.name ?? '测试人丁';
+  const surname = params.surname ?? '陈';
   // ck_node_depth_eq_level pins depth to the path; writers that pass an
   // explicit inconsistent depth still hit the constraint (deliberate:
   // tests/integration/constraints.test.ts proves the database rejects it).
@@ -216,10 +230,18 @@ export async function createNode(params: {
       depth: params.depth ?? derivedDepth,
       generation: params.generation,
       sort: params.sort ?? 0,
-      name: params.name ?? '测试人丁',
-      surname: params.surname ?? '陈',
-      fullName: `${params.surname ?? '陈'}${params.name ?? '测试人丁'}`,
+      name,
+      surname,
+      fullName: params.fullName ?? `${surname}${name}`,
       sex: params.sex ?? 0,
+      courtesy: params.courtesy ?? null,
+      isAlive: params.isAlive ?? true,
+      birthText: params.birthText ?? null,
+      birthYear: params.birthYear ?? null,
+      deathText: params.deathText ?? null,
+      deathYear: params.deathYear ?? null,
+      burialPlace: params.burialPlace ?? null,
+      deletedAt: params.deletedAt ?? null,
     })
     .returning();
   return node;
