@@ -23,7 +23,6 @@ function node(
     parentId: null,
     spouseOfId: null,
     role: 'blood',
-    depth: 0,
     generation: 1,
     sort: 0,
     surname,

@@ -93,21 +93,21 @@ describe('spouse sort index', () => {
       // id is a column default (uuidv7()), so the anchor can be placed at the
       // exact literals the plan is measured with.
       await sql`
-        insert into node (id, organization_id, lineage_id, path, depth,
+        insert into node (id, organization_id, lineage_id, path,
                           generation, sort, name, surname, full_name, sex,
                           created_by)
         values (${SPOUSE_OF}::uuid, ${orgId}::uuid, ${lineage.id}::uuid,
-                ${`${orgId}.${lineage.id}`}::ltree, 1, 2, 0,
+                ${`${orgId}.${lineage.id}`}::ltree, 2, 0,
                 'anchor', '陈', '陈anchor', 0, ${user.id}::uuid)
       `;
-      // Spouses carry no path (ck_node_spouse_has_no_path) and their depth is
-      // app-managed, so they bypass createNode, which derives depth from path.
+      // Spouses carry no path (ck_node_spouse_has_no_path), so they bypass
+      // createNode, which derives the path from the parent.
       await sql`
         insert into node (organization_id, lineage_id, role, spouse_of_id,
-                          depth, generation, sort, name, surname, full_name,
+                          generation, sort, name, surname, full_name,
                           sex, created_by)
         select ${orgId}::uuid, ${lineage.id}::uuid, 'spouse',
-               ${SPOUSE_OF}::uuid, 1, 1, g, 'spouse ' || g, '陈',
+               ${SPOUSE_OF}::uuid, 1, g, 'spouse ' || g, '陈',
                '陈spouse ' || g, 1, ${user.id}::uuid
         from generate_series(0, 199) as g
       `;

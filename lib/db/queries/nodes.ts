@@ -20,11 +20,6 @@ export async function getNodes(
           isNull(nodes.deletedAt)
         )
       )
-      .orderBy(
-        asc(nodes.generation),
-        asc(nodes.depth),
-        asc(nodes.sort),
-        asc(nodes.createdAt)
-      )
+      .orderBy(asc(nodes.generation), asc(nodes.sort), asc(nodes.createdAt))
   );
 }

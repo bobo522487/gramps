@@ -38,12 +38,10 @@ function person(
     role?: string;
   }
 ): NodeView {
-  const generation = overrides.generation;
   return {
     parentId: null,
     spouseOfId: null,
     role: 'blood',
-    depth: generation - 1,
     sort: 0,
     surname: '陈',
     fullName: `陈${overrides.name}`,

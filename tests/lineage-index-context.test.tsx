@@ -13,7 +13,6 @@ const nodes: NodeView[] = [
     parentId: null,
     spouseOfId: null,
     role: 'blood',
-    depth: 0,
     generation: 1,
     sort: 0,
     name: '实',

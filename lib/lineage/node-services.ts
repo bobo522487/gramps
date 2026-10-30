@@ -212,7 +212,6 @@ async function insertCoSpouse(
     spouseOfId: blood.id,
     role: 'spouse',
     path: null,
-    depth: blood.depth,
     generation: blood.generation,
     sort: await nextSpouseSort(tx, orgId, lineageId, blood.id),
     name: spouse.name,
@@ -269,7 +268,6 @@ export async function createRootNodeInTransaction(params: {
         lineageId,
         role: 'blood',
         path: nodeLabel(id),
-        depth: 0,
         generation: 1,
         sort: 0,
         name,
@@ -340,7 +338,6 @@ export async function addChildInTransaction(params: {
         parentId: parent.id,
         role: 'blood',
         path: `${parent.path}.${nodeLabel(id)}`,
-        depth: parent.depth + 1,
         generation: parent.generation + 1,
         sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
         name,
@@ -419,7 +416,6 @@ export async function addSiblingInTransaction(params: {
         parentId: parent.id,
         role: 'blood',
         path: `${parent.path}.${nodeLabel(id)}`,
-        depth: sibling.depth,
         generation: sibling.generation,
         sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
         name,
@@ -490,7 +486,6 @@ export async function addSpouseInTransaction(params: {
         spouseOfId: spouseOf.id,
         role: 'spouse',
         path: null,
-        depth: spouseOf.depth,
         generation: spouseOf.generation,
         sort: await nextSpouseSort(tx, orgId, lineageId, spouseOf.id),
         name,
@@ -726,7 +721,6 @@ export async function moveNodeInTransaction(params: {
       }
 
       const newPrefix = `${newParent.path}.${nodeLabel(node.id)}`;
-      const depthDelta = newParent.depth + 1 - node.depth;
       const generationDelta = newParent.generation + 1 - node.generation;
       const sort = await nextBloodSort(tx, orgId, lineageId, newParent.id);
 
@@ -748,7 +742,6 @@ export async function moveNodeInTransaction(params: {
       await tx.execute(sql`
       update ${nodes}
       set path = (${newPrefix}::ltree || subpath(${nodes.path}, nlevel(${node.path}::ltree)))::ltree,
-          depth = ${nodes.depth} + ${depthDelta},
           generation = ${nodes.generation} + ${generationDelta},
           updated_at = now()
       where ${nodes.orgId} = ${orgId}
@@ -764,21 +757,16 @@ export async function moveNodeInTransaction(params: {
           parentId: newParent.id,
           sort,
           path: newPrefix,
-          depth: node.depth + depthDelta,
           generation: node.generation + generationDelta,
           updatedAt: new Date(),
         })
         .where(eq(nodes.id, node.id))
         .returning();
 
-      if (
-        movingBlood.length > 0 &&
-        (depthDelta !== 0 || generationDelta !== 0)
-      ) {
+      if (movingBlood.length > 0 && generationDelta !== 0) {
         await tx
           .update(nodes)
           .set({
-            depth: sql`${nodes.depth} + ${depthDelta}`,
             generation: sql`${nodes.generation} + ${generationDelta}`,
             updatedAt: new Date(),
           })

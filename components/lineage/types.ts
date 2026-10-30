@@ -7,7 +7,6 @@ export type NodeView = {
   parentId: string | null;
   spouseOfId: string | null;
   role: string;
-  depth: number;
   generation: number;
   sort: number;
   name: string;
@@ -46,7 +45,6 @@ type NodeRow = {
   parentId: string | null;
   spouseOfId: string | null;
   role: string;
-  depth: number;
   generation: number;
   sort: number;
   name: string;
@@ -87,7 +85,6 @@ export function toNodeView(node: NodeRow): NodeView {
     parentId: node.parentId,
     spouseOfId: node.spouseOfId,
     role: node.role,
-    depth: node.depth,
     generation: node.generation,
     sort: node.sort,
     name: node.name,
