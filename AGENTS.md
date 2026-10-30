@@ -1,6 +1,6 @@
 # 工程协作指南（当前实现）
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-28
+> **文档状态：当前实现说明** · 最后更新：2026-10-30
 > 本文件每次会话都会被加载，所以只放**每次都必须遵守**的内容：项目边界、仓库约定、数据与安全规则、禁止清单。
 > 其余细节按 [docs/README.md §5.1](docs/README.md) 的单一事实来源写，本文件**只指路、不复制**：命令与环境变量 → [setup.md](docs/setup.md)；实现状态与当前代码结构 → [implementation-status.md](docs/implementation-status.md)；加表/加 Action/加页面 → [guides/add-a-feature.md](docs/guides/add-a-feature.md)；测试分层与写法 → [guides/testing.md](docs/guides/testing.md)；架构目标 → [architecture/](docs/architecture/00-overview.md)；决策理由 → [decisions/](docs/decisions/README.md)。
 > 冲突时以代码与 [实现状态](docs/implementation-status.md) 为准；本文件的仓库约定（安全、数据规则、禁止清单）优先于任何技能或目标文档的建议。
@@ -16,6 +16,13 @@
 - 「我们来做个 X」/ 改行为 / 新功能 → 先 `brainstorming`，再 `writing-plans`，再 `test-driven-development` 实现。
 - 遇到 bug、测试失败、意外行为 → 先 `systematic-debugging`，不要先猜着改。
 - 准备声称「完成 / 修好了」→ 先 `verification-before-completion`，拿命令输出作证据。
+
+**两层分工（spec-kit 定规格，superpowers 管执行）**：spec-kit 的技能也在 `.agents/skills/`，用 `/speckit-*` 调用。
+
+- 新功能 / 行为变更 → 先 `/speckit-specify` 出 `specs/NNN-*/spec.md`，需要消歧义就 `/speckit-clarify`，再进入上面的 superpowers 流程（`brainstorming` → `writing-plans` → `test-driven-development`）。
+- bugfix / 重构 / 纯文档 → 直接走执行类技能，不产 spec。
+- 执行计划只写一份：`docs/superpowers/plans/`；`tasks.md` 的任务合并进该计划，不并行两套清单。
+- 阶段、产物路径与裁决细节见 [guides/spec-driven-workflow.md](docs/guides/spec-driven-workflow.md)，本文件不复述。
 
 调用格式 `skill({ name: "<技能名>" })`。
 
