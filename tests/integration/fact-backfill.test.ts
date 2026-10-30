@@ -5,6 +5,7 @@ import {
   backfillFactLayer,
   FactLayerAlreadyBackfilledError,
 } from '@/lib/db/backfill/fact-layer';
+import { reconcileFactLayer } from '@/lib/db/backfill/reconcile-fact-layer';
 import { getTestDatabaseUrl, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
@@ -910,14 +911,82 @@ describe('backfillFactLayer', () => {
   });
 });
 
-// The brief's case 2 (zero-diff reconciliation) belongs to Task 8: it needs
-// lib/db/backfill/reconcile-fact-layer.ts, which Task 7 must not create. The
-// case stays in this file, skipped, so the missing gate is visible rather than
-// silently absent.
-describe.skip('reconcileFactLayer (Task 8)', () => {
-  it('reports no diff against node and covers all nine checks', () => {
-    // Task 8 fills this in: backfill one organization, then
-    // reconcileFactLayer(getTestSql(), orgId) must return diffs: [] and
-    // checked: the nine check names.
+// The brief's case 2: the zero-diff gate. It lives here rather than in
+// fact-reconcile.test.ts because it is the backfill's own acceptance test — the
+// round trip is only meaningful against the trees the cases above seed. The
+// reconciliation shares no code with the backfill (see that module's header),
+// so the agreement is between two independent implementations.
+describe('reconcileFactLayer', () => {
+  it('reports no diff against node and covers all ten checks', async () => {
+    const { orgId, lineageId, createdBy } = await seedTree();
+    const founder = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'a',
+      name: '始祖',
+      courtesy: '子美',
+      birthText: '光绪二十六年庚子',
+      birthYear: 1900,
+      deathText: '庚戌年',
+      deathYear: 1970,
+      burialPlace: '村东祖坟',
+    });
+    await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 2,
+      role: 'spouse',
+      spouseOfId: founder.id,
+      name: '始祖配',
+      birthYear: 1904,
+    });
+    await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 2,
+      path: 'a.a',
+      parentId: founder.id,
+      name: '长子',
+      birthYear: 1930,
+    });
+    // Soft-deleted nodes still have a person and a birth name, but no family,
+    // child edge or event: the reconciliation's two scopes in one tree.
+    await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'b',
+      name: '已删',
+      birthYear: 1880,
+      deletedAt: new Date('2020-01-01T00:00:00Z'),
+    });
+
+    const result = await backfillFactLayer(getTestSql(), orgId);
+    expect(result.persons).toBe(4);
+    expect(result.families).toBe(1);
+    expect(result.familyPartners).toBe(2);
+    expect(result.familyChildren).toBe(1);
+    expect(result.events).toBe(5);
+
+    const report = await reconcileFactLayer(getTestSql(), orgId);
+    expect(report.organizationId).toBe(orgId);
+    expect(report.diffs).toEqual([]);
+    expect([...report.checked].sort()).toEqual([
+      'birth_events',
+      'burial_events',
+      'child_edges',
+      'contentless_events',
+      'courtesy_names',
+      'death_events',
+      'families',
+      'partners',
+      'persons',
+      'primary_names',
+    ]);
   });
 });
