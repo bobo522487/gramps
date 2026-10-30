@@ -306,12 +306,12 @@ POSTGRES_URL_DIRECT='postgresql://<迁移角色>:<pwd>@<direct-host>/<db>?sslmod
   pnpm db:migrate
 ```
 
-`drizzle.config.ts` 已实现直连优先（实际路径为当前仓库的 `lib/db/schema.ts` 与 `lib/db/migrations`）：
+`drizzle.config.ts` 已实现直连优先（实际路径为当前仓库的 `lib/db/schema/index.ts` 与 `lib/db/migrations`）：
 
 ```typescript
 // drizzle.config.ts
 export default defineConfig({
-  schema: './lib/db/schema.ts',
+  schema: './lib/db/schema/index.ts',
   out: './lib/db/migrations',
   dialect: 'postgresql',
   dbCredentials: {

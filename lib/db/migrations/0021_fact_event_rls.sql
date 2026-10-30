@@ -92,6 +92,10 @@ CREATE TRIGGER trg_event_tenant_immutable
 -- `node` carries no burial date at all. A NOT NULL column would force the
 -- backfill to fabricate a date string. The "no date" state is
 -- `date_qualifier = 'unknown'` with both bounds NULL.
+--
+-- 0023 later added `ck_event_date_original_not_blank` on top of that: the
+-- column is still nullable, but '' and whitespace-only are rejected, so
+-- "present but empty" cannot stand in for "no date" either.
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE event DROP CONSTRAINT IF EXISTS ck_event_date_point;

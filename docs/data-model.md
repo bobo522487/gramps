@@ -79,6 +79,10 @@ M1 **没有乐观锁列**。并发写入是 last-write-wins，见 PRD §5.5 与 
 
 ## 2. 实体关系
 
+> 下图是 **node 时代**的视图：P1 的写路径仍然只写 `node`（父子与配偶都在这一棵树里），事实层是它的投影。
+> 事实层六张表（§6.3–6.8）没有画进来——两边唯一的连接是 `person.legacy_node_id`，而事实层还没有读路径；
+> 它们的字段、约束与回填分层约定见 §6.3–6.9，等 P2 的 `person_placement` 落地、关系稳定后再补一张事实层图。
+
 ```mermaid
 erDiagram
     auth.users ||--o{ organization_member : "加入"
@@ -706,6 +710,21 @@ CREATE INDEX idx_family_partner_person ON family_partner (organization_id, proje
 
 **下界故意不约束**：不要求每个家庭至少一个 `blood` 配偶。"先录配偶、后补血亲"是合法的中间状态，把它写成约束会让正常录入失败；缺血亲由 P9 的 `validation_issue` 检查器报，不在写路径上拦。
 
+**回填如何把子女分到家庭（tiering）。** `node` 只有 `parent_id`，没有"母亲"字段，所以回填只能按该血亲的配偶数分层，
+子女全部挂在同一个家庭上：
+
+| 该血亲的配偶数 | 写出的家庭 | 子女挂在哪 | 计入 loss report |
+|---|---|---|---|
+| `0`，无子女 | 不写 | — | — |
+| `0`，有子女 | 一个只有血亲 partner 的家庭 | 全部挂这里 | `noMotherAtAll` += 子女数 |
+| `1` | 一个家庭：血亲 + 该配偶 | 全部挂这里 | — |
+| `>1`，无子女 | 每个配偶一个家庭 | — | — |
+| `>1`，有子女 | 每个配偶一个家庭（不带子女）+ 一个只有血亲 partner 的家庭 | 全部挂到后者 | `unknownMother` += 子女数 |
+
+**只有一位配偶时的静默推断**：`|S| = 1` 那一行把**每个**子女都挂到这位配偶名下，等于断言"唯一记录在册的妻子是所有这些孩子的母亲"。
+如果她其实是续弦、前妻没有记录，这个断言就是错的，而且**没有任何计数器会记下它**：事实层在 P2 的 `person_placement` 落地之前表达不了"母亲另有其人"。
+这是 P1 已知并接受的丢失，不是 bug。
+
 **已知缺口**：开关只在写入时读。把 `allow_consanguineous_marriage` 从 `true` 改回 `false` 不会回查已有数据——已经存在的两个 `blood` 配偶会留着，而且此后任何 `UPDATE`（包括改 `status`、软删之外的更新）都会撞上 `23514`。这条与"翻转开关后如何收拾存量"一起留给 P9 的检查器与设置界面。
 
 ### 6.7 family_child（家庭子女）
@@ -864,7 +883,7 @@ CREATE INDEX idx_event_type    ON event (organization_id, project_id, event_type
 - **`exact` + `date_start <> date_end` 与 `between` 形状相同**，schema 层分辨不出来。要消掉这个歧义得改约束或加列，属于 P3/P4 的日期语义收口，P1 先记录不改。
 - **`date_precision` 只用于显示**，不与边界绑定：`ck_event_date_precision` 只校验取值，允许 `date_precision = 'year'` 配一个跨十年的区间。展示层不要拿它反推边界。
 - 九种 `date_qualifier` 各自被上面的形状约束覆盖（点状四种共用 `ck_event_date_point`，`before`/`after`/`between`+`period`/`unknown` 各一条）。**新增第十种会静默逃逸**——加取值时必须同时加约束，`0021` 的注释写了这一条。
-- 超出 PostgreSQL `date` 范围的年份（`0`、`10000`）在回填里降级成 `date_qualifier = 'unknown'` + 两界 `NULL`，并计入对账的 loss report，而不是让整个回填事务失败。
+- 超出 PostgreSQL `date` 范围的年份（`0`、`10000`）不会让回填失败，而是记进**回填**的 `lossReport.yearOutOfRange`（对账没有 loss report，它只比较计数）。有原文时事件保留：`date_original` = 原文、`date_qualifier = 'unknown'`、两界 `NULL`；没有原文时这个年份什么都说明不了，该人丁**不写事件**——"没得说就不写"与其它空日期是同一条规则。
 - `date_cn` 存农历原文结构（`raw`、`era`、`year`、`month`、`leap`、`day`、`ganzhi`、`shichen`），P1 只原样保存，**不做农历换公历**；`calendar` 记录原文用的是哪种历。
 
 `age_years` 与 `age_basis` 必须成对出现（`ck_event_age_pair`）：只给岁数不给依据（"据墓碑"、"据族谱"）无法复核。
@@ -874,7 +893,7 @@ CREATE INDEX idx_event_type    ON event (organization_id, project_id, event_type
 - **隔离**：六张表全部 `ENABLE` + `FORCE ROW LEVEL SECURITY`，策略形状与其它业务表一致——`<table>_select` 对 `owner/admin/editor/viewer`，`<table>_insert` 与 `<table>_update` 对 `owner/admin/editor`，全部走 `auth.has_org_role(organization_id, …)`。策略的权威定义在 `0017`/`0019`/`0021`。
 - **没有 `DELETE` 授权**：`app_rw` 只有 `SELECT`/`INSERT`/`UPDATE`。六张表**全部软删**，删除一律 `UPDATE ... SET deleted_at = now()`；物理删除只有运维按 §11.3 处理。所以唯一性都用部分索引表达（`WHERE deleted_at IS NULL`），见 §11.2。
 - **租户列不可变**：`trg_person_tenant_immutable`、`trg_person_name_tenant_immutable`、`trg_family_tenant_immutable`、`trg_family_partner_tenant_immutable`、`trg_family_child_tenant_immutable`、`trg_event_tenant_immutable` 各钉 `organization_id` + `project_id`（§12.7）。`person_name.person_id`、`family_partner.family_id`/`person_id`、`family_child.family_id`/`person_id` 保持可写：改父、换人、把配偶挪到另一个家庭都是合法的结构修改，跨组织由复合外键挡住。
-- **回填锚点**：`person.legacy_node_id` 记录这一行来自哪个 `node`，`data/backfill-fact-layer.ts` 按它写入，`data/reconcile-fact-layer.ts` 用它逐项对账（十项独立检查：人数、姓名、父子、配偶、事件、软删等）。两个脚本的调用约定见 §1.5。
+- **回填锚点**：`person.legacy_node_id` 记录这一行来自哪个 `node`，回填按它写入。对账**不读**这一列：它从 `node` 重算十四项计数，再与事实层比较（清单是 `lib/db/backfill/reconcile-fact-layer.ts` 的 `RECONCILE_CHECKS`）。其中人数、姓名、`primary_name` 指针、`person` 软删、三类事件、无内容事件与事件主体是**属性不变量**（必须相等或必须为 0）；`families`、`partners`、`child_edges` 是把 §6.6 的分层约定用 SQL 重写一遍——`node` 没有母亲链接，分层是回填自己定的约定，所以这三项只能发现两个实现之间的漂移，**不是**第二份事实来源，约定本身错了它们会一起错。软删只覆盖 `person`（`person_deleted_state`），家庭与事件不查软删状态。两个脚本的调用约定见 §1.5。
 
 ---
 

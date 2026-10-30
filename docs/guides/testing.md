@@ -121,7 +121,7 @@ describe('thing 隔离', () => {
 | `lib/db/services.ts` | 70 | 60 | — | — |
 | `lib/lineage/node-services.ts` | 70 | 60 | — | — |
 
-不统计：`lib/db/schema.ts`、迁移目录、`seed.ts`、`drizzle.ts`（驱动工厂）。
+不统计：`lib/db/schema/**`、`lib/db/migrations/**`、`lib/db/seed.ts`、`lib/db/drizzle.ts`（驱动工厂）与类型声明。
 
 > **门槛是地板不是目标。** 门槛存在的意义是防止覆盖率倒退，不是「达到 60% 就算测好了」。真正的判据是 §4.3 那四类断言有没有写。
 

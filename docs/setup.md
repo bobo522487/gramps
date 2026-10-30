@@ -118,7 +118,7 @@ cp .env.example .env
 
 ### 4.1 当前模型
 
-Schema 定义在 `lib/db/schema.ts`，迁移在 `lib/db/migrations/`（当前为 `0000_baseline`、`0001_auth_rls`、`0002_app_role_grant`、`0003_better_auth`）。
+Schema 定义在 `lib/db/schema/`（每张表一个文件，`index.ts` 汇总导出），迁移在 `lib/db/migrations/`；迁移编号与顺序以 `lib/db/migrations/meta/_journal.json` 为准，本文不抄。
 
 | 表 | 用途 |
 |---|---|
@@ -256,6 +256,8 @@ pnpm db:seed
 | `pnpm db:generate` | 生成 Drizzle 迁移 SQL |
 | `pnpm db:migrate` | 执行迁移 |
 | `pnpm db:studio` | 打开 Drizzle Studio |
+| `pnpm data:backfill:fact --org <uuid>` | 把 `node` 回填成事实层六张表（单事务，只能人工执行，见下方注意） |
+| `pnpm data:reconcile:fact --org <uuid>` | 从 `node` 重算十四项计数并与事实层比较（只读） |
 | `pnpm check` | Biome 检查（格式 + lint + import 组织），CI 使用 |
 | `pnpm docs:check` | 文档一致性检查：相对链接、锚点、过期路径、矛盾措辞、文档头 |
 | `pnpm lint` | 仅 Biome lint |
@@ -270,6 +272,12 @@ pnpm db:seed
 | `pnpm verify:deploy` | 部署验证：HTTP 健康/安全头/鉴权 + 数据库结构/RLS/角色 |
 
 **没有** `db:reset`、ESLint 或 dependency-cruiser 脚本。E2E 通过 Playwright 提供。
+
+**`data:*` 脚本的注意点**：
+
+- 两个脚本都以迁移角色直连（`POSTGRES_URL_DIRECT`），启动时断言 `rolsuper` 或 `rolbypassrls`，否则拒绝运行；它们绕过 RLS 与 `withOrg`，只能由人执行，不能从应用请求里调用。
+- 退出码：`0` 成功、`1` 有差异或该组织已回填过、`2` 用法错误、`3` 跑不起来（凭据、缺表、连不上）。
+- **回填期间持有 `organization` 行的 `SELECT … FOR UPDATE`（`lib/db/backfill/fact-layer.ts`），直到事务结束**。所以大树回填会挡住该组织的组织级写操作（改名、归档），也是两个并发回填被串行化的原因——这是有意的：宁可排队，也不要两个事务同时写同一批事实层行。回填跑完之前不要在同一组织上做组织级写。
 
 ---
 
@@ -428,7 +436,7 @@ E2E 1 个文件 2 条用例（`tests/e2e/critical-path.spec.ts`）：
 `pnpm test:coverage` 用 `vitest.coverage.config.ts` 把单测与集成测试合并为一次 V8 覆盖率采集（`text`、`json-summary`、`lcov` 输出到 `coverage/`）。
 
 - 采集范围：`lib/**/*.ts`、`app/api/**/route.ts`、`components/lineage` 的纯逻辑模块与 `canvas/layout/**`。
-- 排除：`lib/db/schema.ts`、`lib/db/auth-schema.ts`、迁移、seed、`lib/db/drizzle.ts`、`lib/db/auth-db.ts` 与类型声明文件。
+- 排除：`lib/db/schema/**`、`lib/db/migrations/**`、`lib/db/seed.ts`、`lib/db/drizzle.ts` 与类型声明文件（`**/*.d.ts`）。
 - 全局门槛：lines/statements 60、functions 55、branches 50。
 - 关键服务层门槛：`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts` 为 lines 70、functions 60。
 - 当前基线显著高于门槛；门槛按基线下方安全垫设定，不以 `skip` 凑数。

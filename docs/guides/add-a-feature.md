@@ -31,7 +31,7 @@
 
 ### ② 建表（Drizzle schema）
 
-`lib/db/schema.ts`。业务实体表必须包含这五列，缺一个都会在后面出问题：
+`lib/db/schema/<domain>.ts`（在 `lib/db/schema/index.ts` 汇总导出）。业务实体表必须包含这五列，缺一个都会在后面出问题：
 
 ```ts
 export const things = pgTable('thing', {
