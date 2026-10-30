@@ -27,7 +27,7 @@ spec-kit 管**源头需求对不对**，superpowers 管**执行稳不稳**。两
 |---|---|---|---|---|
 | 1 | 原则 | spec-kit | `/speckit-constitution` | `.specify/memory/constitution.md`（薄封装，正文在 `AGENTS.md`） |
 | 2 | 需求 | spec-kit | `/speckit-specify` | `specs/NNN-<feature>/spec.md` |
-| 3 | 规格自检 | spec-kit | `/speckit-clarify`、`/speckit-checklist`、`/speckit-analyze` | `specs/NNN-<feature>/checklists/requirements.md`；澄清结果写回 `spec.md` |
+| 3 | 规格自检 | spec-kit | `/speckit-clarify`、`/speckit-checklist`、`/speckit-analyze`（需先有 `tasks.md`） | `specs/NNN-<feature>/checklists/<domain>.md`（按需求生成）；`checklists/requirements.md` 是内建的规格质量清单，由 `/speckit-specify` 生成、`/speckit-clarify` 复核；澄清结果写回 `spec.md` |
 | 4 | 技术方案 | spec-kit | `/speckit-plan` | `specs/NNN-<feature>/plan.md` |
 | 5 | 执行计划 | superpowers | `writing-plans` | `docs/superpowers/plans/YYYY-MM-DD-<topic>.md` |
 | 6 | 实现 | superpowers | `test-driven-development`（需要任务清单时先 `/speckit-tasks`） | 代码 + `specs/NNN-<feature>/tasks.md`（可选） |
@@ -61,11 +61,11 @@ spec-kit 管**源头需求对不对**，superpowers 管**执行稳不稳**。两
 | `/speckit-constitution` | 建立或更新 `.specify/memory/constitution.md`；本仓库里它只指向 `AGENTS.md` |
 | `/speckit-specify` | 把一段需求描述写成 `specs/NNN-<feature>/spec.md` |
 | `/speckit-clarify` | 对 `spec.md` 提最多 5 个澄清问题，答案直接写回规格 |
-| `/speckit-checklist` | 按需求生成验收清单 `specs/NNN-<feature>/checklists/requirements.md` |
+| `/speckit-checklist` | 按需求生成需求质量清单 `specs/NNN-<feature>/checklists/<domain>.md`（每类需求一份）；`checklists/requirements.md` 由 `/speckit-specify` 生成、`/speckit-clarify` 复核 |
 | `/speckit-analyze` | 跨 `spec.md`、`plan.md`、`tasks.md` 查不一致，只报告不改文件 |
 | `/speckit-plan` | 生成 `specs/NNN-<feature>/plan.md`：技术方案、影响面、验证方式 |
 | `/speckit-tasks` | 生成 `specs/NNN-<feature>/tasks.md`，按用户故事排出任务顺序 |
-| `/speckit-implement` | 按 `tasks.md` 逐条执行；只在 `tasks.md` 就是唯一清单时用 |
+| `/speckit-implement` | 按 `tasks.md` 逐条执行；只在把 `tasks.md` 当唯一任务清单、不另写执行计划时用 |
 | `/speckit-converge` | 对照 `spec`、`plan`、`tasks` 算差量，把没做的追加进 `tasks.md` |
 | `/speckit-taskstoissues` | 把 `tasks.md` 转成 GitHub issues；本仓库没有 issue 流程，通常不用 |
 
