@@ -55,7 +55,8 @@ docs/
 ├── guides/                      怎么用
 │   ├── add-a-feature.md         ★ 新增一个实体的 10 步清单
 │   ├── runbooks.md              ★ 误删恢复、密码重置、密钥轮换、连接池
-│   └── testing.md               ★ 测试分层与写法
+│   ├── testing.md               ★ 测试分层与写法
+│   └── spec-driven-workflow.md  ★ spec-kit × superpowers 分工
 │
 ├── data-model.md                是什么：表结构、索引、RLS 策略、迁移规范
 ├── api.md                       是什么：Action 契约、错误码
@@ -104,6 +105,7 @@ docs/
 | 实现状态、表/Route Handler 数量、测试统计 | `implementation-status.md` |
 | 决策与放弃的方案 | `decisions/` |
 | 当前命令 | `setup.md` |
+| 需求规格与两层工作流分工 | `guides/spec-driven-workflow.md` |
 
 **同一事实不要在多个文档里各写一份。** 其他地方用链接指过来。
 
