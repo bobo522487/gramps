@@ -28,7 +28,7 @@ spec-kit 管**源头需求对不对**，superpowers 管**执行稳不稳**。两
 | 1 | 原则 | spec-kit | `/speckit-constitution` | `.specify/memory/constitution.md`（薄封装，正文在 `AGENTS.md`） |
 | 2 | 需求 | spec-kit | `/speckit-specify` | `specs/NNN-<feature>/spec.md` |
 | 3 | 规格自检 | spec-kit | `/speckit-clarify`、`/speckit-checklist`、`/speckit-analyze`（需先有 `tasks.md`） | `specs/NNN-<feature>/checklists/<domain>.md`（按需求生成）；`checklists/requirements.md` 是内建的规格质量清单，由 `/speckit-specify` 生成、`/speckit-clarify` 复核；澄清结果写回 `spec.md` |
-| 4 | 技术方案 | spec-kit | `/speckit-plan` | `specs/NNN-<feature>/plan.md` |
+| 4 | 技术方案 | spec-kit | `/speckit-plan` | `specs/NNN-<feature>/plan.md` + `research.md`、`data-model.md`、`contracts/`、`quickstart.md`（`data-model.md` 只写本特性的增量，表结构与约束仍以 `docs/data-model.md` 为准） |
 | 5 | 执行计划 | superpowers | `writing-plans` | `docs/superpowers/plans/YYYY-MM-DD-<topic>.md` |
 | 6 | 实现 | superpowers | `test-driven-development`（需要任务清单时先 `/speckit-tasks`） | 代码 + `specs/NNN-<feature>/tasks.md`（可选） |
 | 7 | 收尾 | superpowers | `verification-before-completion` | 检查输出 + `docs/` 同步 + 一个 commit（[AGENTS.md §9](../../AGENTS.md#9-提交与评审)） |
@@ -47,7 +47,7 @@ spec-kit 管**源头需求对不对**，superpowers 管**执行稳不稳**。两
 | bugfix | 不走 spec：`systematic-debugging` → `test-driven-development` |
 | 重构（行为不变） | 不走 spec：`writing-plans` + `test-driven-development` |
 | 纯文档、配置、依赖升级 | 不走 spec：直接改，跑 `pnpm check` 与 `pnpm docs:check` |
-| 实现中发现规格漏了 | 回 `spec.md` 补一条需求，再用 `/speckit-converge` 把差量追加成任务 |
+| 实现中发现规格漏了 | 回 `spec.md` 补一条需求，再用 `/speckit-converge` 把差量追加成任务（前提：已有 `tasks.md`，没有就先 `/speckit-tasks`） |
 
 - 判据是「**源头需求**是否变了」：变了才写 spec，没变就别另造一份。
 - 目录名用 kebab-case，命名规则见 [AGENTS.md §4](../../AGENTS.md#4-目录与命名)。
@@ -79,3 +79,6 @@ spec-kit 管**源头需求对不对**，superpowers 管**执行稳不稳**。两
 - **`specs/` 被 gitignore**：规格是需求源头，必须入库；`.specify/.gitignore` 只该忽略机器本地状态。
 - **照抄模板的 `src/` 路径**：`plan-template.md` 与 `tasks-template.md` 假设 `src/` + `tests/`，本仓库是 `app/` `components/` `lib/` `hooks/` `tests/`；`plan.md`、`tasks.md` 必须改写成真实路径。
 - **装扩展 / preset 与提交规范打架**：本仓库只装这十个命令；扩展会新增命令名与配置文件，与「一个 commit 只做一件事」冲突，要装就单独提交并回本文件补一行。
+- **把 `specs/NNN-*/data-model.md` 当成全库数据模型**：它是 `/speckit-plan` 为本特性写的增量设计；表结构、索引、RLS 与迁移规范只在 [data-model.md](../data-model.md)。
+- **再跑一次 `/speckit-constitution`**：它按 `.specify/templates/constitution-template.md` 整篇覆盖 `.specify/memory/constitution.md`（技能第 6 步「Write … (overwrite)」），会把现在的薄封装换回模板；原则只改 `AGENTS.md`。
+- **以为 `.specify/feature.json` 会随仓库走**：它是机器本地状态（已在 `.specify/.gitignore` 里），换一个 checkout 要先设 `SPECIFY_FEATURE_DIRECTORY`，否则 `check-prerequisites.sh` 报「Feature directory not found」。
