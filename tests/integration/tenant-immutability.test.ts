@@ -183,21 +183,27 @@ describe('tenant columns are immutable', () => {
     const rows = await getTestSql()<
       {
         table_name: string;
+        trigger_name: string;
         tgtype: number;
         tgnargs: number;
+        tgenabled: string;
+        function_name: string;
         columns: string[];
       }[]
     >`
       SELECT c.relname AS table_name,
+             t.tgname AS trigger_name,
              t.tgtype::int AS tgtype,
              t.tgnargs::int AS tgnargs,
+             t.tgenabled::text AS tgenabled,
+             t.tgfoid::regprocedure::text AS function_name,
              array_remove(
                string_to_array(encode(t.tgargs, 'escape'), '\\000'), ''
              ) AS columns
       FROM pg_trigger t
       JOIN pg_class c ON c.oid = t.tgrelid
       WHERE NOT t.tgisinternal AND t.tgname LIKE 'trg_%_tenant_immutable'
-      ORDER BY c.relname`;
+      ORDER BY c.relname, t.tgname`;
 
     // The pinned columns per table, in the order the trigger lists them. Seven
     // of these sixteen lists had no assertion at all before: a wrong list — a
@@ -232,12 +238,22 @@ describe('tenant columns are immutable', () => {
     };
 
     // Exact set first: a tenant table without a trigger, or a trigger on a
-    // table that should not have one, is what this test exists to catch.
+    // table that should not have one, is what this test exists to catch. The
+    // row count is asserted before the Map is built: a table carrying two
+    // matching triggers would otherwise collapse into one Map entry and pass.
+    expect(rows).toHaveLength(Object.keys(expected).length);
     const byTable = new Map(rows.map((row) => [row.table_name, row]));
     expect([...byTable.keys()].sort()).toEqual(Object.keys(expected).sort());
 
     for (const [table, columns] of Object.entries(expected)) {
       const row = byTable.get(table);
+      expect(row?.trigger_name, table).toBe(`trg_${table}_tenant_immutable`);
+      // 'O' = enabled for origin and local sessions. A disabled trigger ('D')
+      // would keep every other assertion green while enforcing nothing.
+      expect(row?.tgenabled, table).toBe('O');
+      // tgfoid is what actually fires. Pointing the trigger at a different
+      // function — or at a stale copy in another schema — is a silent bypass.
+      expect(row?.function_name, table).toBe('app.forbid_tenant_move()');
       // 19 = BEFORE (2) | ROW (1) | UPDATE (16). An AFTER, statement-level or
       // INSERT/DELETE trigger would not abort the row's update in place.
       expect(row?.tgtype, table).toBe(19);

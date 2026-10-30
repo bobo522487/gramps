@@ -223,6 +223,39 @@ describe('migrations', () => {
       can_delete: false,
       can_read_users: false,
     });
+
+    // The fact layer has no DELETE grant either (data-model §11.1): physical
+    // deletion must go through the runbook, never through the runtime role.
+    // Asserting the three positive grants too keeps this from passing
+    // vacuously when a table is renamed or the grants are dropped wholesale.
+    const factLayerTables = [
+      'person',
+      'person_name',
+      'family',
+      'family_partner',
+      'family_child',
+      'event',
+    ];
+    for (const table of factLayerTables) {
+      const [row] = await getTestSql()<
+        {
+          can_select: boolean;
+          can_insert: boolean;
+          can_update: boolean;
+          can_delete: boolean;
+        }[]
+      >`SELECT has_table_privilege('app_rw', ${`public.${table}`}, 'SELECT') AS can_select,
+               has_table_privilege('app_rw', ${`public.${table}`}, 'INSERT') AS can_insert,
+               has_table_privilege('app_rw', ${`public.${table}`}, 'UPDATE') AS can_update,
+               has_table_privilege('app_rw', ${`public.${table}`}, 'DELETE') AS can_delete`;
+
+      expect(row, `public.${table} privileges`).toEqual({
+        can_select: true,
+        can_insert: true,
+        can_update: true,
+        can_delete: false,
+      });
+    }
   });
 
   it('installs the required extensions and auth functions', async () => {

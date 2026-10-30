@@ -16,7 +16,12 @@ import {
   deleteProjectInTransaction,
   updateProjectInTransaction,
 } from '@/lib/db/services';
-import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
+import {
+  getTestDb,
+  getTestSql,
+  pgErrorCode,
+  pgErrorMessages,
+} from '../helpers/db';
 import {
   addMember,
   createOrganization,
@@ -324,7 +329,13 @@ describe('row level security', () => {
           .where(eq(organizations.id, bobOrg?.organization.id as string))
           .returning()
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '42501' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes('permission denied for table organization')
+        )
+    );
 
     await expect(
       withOrg(alice.id, (tx) =>
@@ -336,7 +347,15 @@ describe('row level security', () => {
           createdBy: alice.id,
         })
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '42501' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes(
+            'new row violates row-level security policy for table "project"'
+          )
+        )
+    );
   });
 
   it('blocks viewers from writing projects through RLS', async () => {
@@ -354,7 +373,15 @@ describe('row level security', () => {
           createdBy: viewer.id,
         })
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '42501' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes(
+            'new row violates row-level security policy for table "project"'
+          )
+        )
+    );
   });
 
   it('keeps auth.users unreachable for the runtime role', async () => {
@@ -362,6 +389,12 @@ describe('row level security', () => {
 
     await expect(
       withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.users`))
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '42501' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes('permission denied for table users')
+        )
+    );
   });
 });

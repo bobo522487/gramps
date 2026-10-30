@@ -177,6 +177,12 @@ const BUSINESS_TABLES = [
   'folder',
   'lineage',
   'node',
+  'person',
+  'person_name',
+  'family',
+  'family_partner',
+  'family_child',
+  'event',
   'article',
   'book',
   'book_catalog',
@@ -185,6 +191,8 @@ const BUSINESS_TABLES = [
 
 const AUTH_TABLES = ['users', 'session', 'account', 'verification'];
 
+// Guards that are not the tenant-immutability family: registration, slug
+// immutability, the last-owner rules and the active-organization invariants.
 const TENANT_TRIGGERS = [
   ['auth', 'users', 'trg_auth_user_created'],
   ['public', 'organization', 'trg_org_slug_immutable'],
@@ -192,6 +200,28 @@ const TENANT_TRIGGERS = [
   ['public', 'organization_member', 'trg_org_member_last_owner_update'],
   ['public', 'organization_member', 'trg_org_member_active_org'],
   ['public', 'invite', 'trg_invite_active_org'],
+];
+
+// Every organization-scoped table must carry `trg_<table>_tenant_immutable`
+// (ADR 0016). The list is the inventory the integration test asserts too, so a
+// new table that forgets the trigger fails here before it reaches production.
+const TENANT_IMMUTABLE_TABLES = [
+  'organization_member',
+  'invite',
+  'project',
+  'folder',
+  'lineage',
+  'node',
+  'person',
+  'person_name',
+  'family',
+  'family_partner',
+  'family_child',
+  'event',
+  'article',
+  'book',
+  'book_catalog',
+  'activity_logs',
 ];
 
 function safeDbError(error) {
@@ -440,6 +470,20 @@ async function checkDb() {
         ? `${TENANT_TRIGGERS.length} triggers`
         : missingTriggers
             .map(([, table, trigger]) => `${table}.${trigger}`)
+            .join(', ')
+    );
+
+    const missingImmutable = TENANT_IMMUTABLE_TABLES.filter(
+      (table) =>
+        !triggerKeys.has(`public.${table}.trg_${table}_tenant_immutable`)
+    );
+    check(
+      missingImmutable.length === 0,
+      'tenant columns immutable on every organization-scoped table',
+      missingImmutable.length === 0
+        ? `${TENANT_IMMUTABLE_TABLES.length} triggers`
+        : missingImmutable
+            .map((table) => `public.${table}.trg_${table}_tenant_immutable`)
             .join(', ')
     );
 

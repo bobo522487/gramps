@@ -422,7 +422,15 @@ describe('family, family_partner and family_child', () => {
           role: 'blood',
         })
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '42501' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes(
+            'new row violates row-level security policy for table "family_partner"'
+          )
+        )
+    );
 
     const editor = await projectScope('editor');
     const editorFamily = await createFamily({

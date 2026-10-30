@@ -25,7 +25,7 @@ export default defineConfig({
         'components/lineage/canvas/layout/**/*.ts',
       ],
       exclude: [
-        'lib/db/schema.ts',
+        'lib/db/schema/**',
         'lib/db/migrations/**',
         'lib/db/seed.ts',
         'lib/db/drizzle.ts',

@@ -233,7 +233,15 @@ describe('person and person_name', () => {
           nameStatus: 'known',
         })
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '42501' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes(
+            'new row violates row-level security policy for table "person"'
+          )
+        )
+    );
 
     const editor = await projectScope('editor');
     const [inserted] = await withOrg(editor.user.id, (tx) =>
@@ -251,6 +259,95 @@ describe('person and person_name', () => {
         .returning()
     );
     expect(inserted?.orgId).toBe(editor.organization.id);
+  });
+
+  it('applies the person_name policies per role', async () => {
+    const mine = await projectScope();
+    const theirs = await projectScope();
+    const theirPerson = await createPerson({
+      orgId: theirs.organization.id,
+      projectId: theirs.project.id,
+      createdBy: theirs.user.id,
+    });
+    await createPersonName({
+      orgId: theirs.organization.id,
+      projectId: theirs.project.id,
+      personId: theirPerson.id,
+      createdBy: theirs.user.id,
+    });
+
+    const visible = await withOrg(mine.user.id, (tx) =>
+      tx.select().from(personNames)
+    );
+    expect(visible).toEqual([]);
+
+    const viewer = await projectScope('viewer');
+    const viewerPerson = await createPerson({
+      orgId: viewer.organization.id,
+      projectId: viewer.project.id,
+      createdBy: viewer.user.id,
+    });
+    // 42501 alone would also be raised by a revoked INSERT grant; the message
+    // pins the rejection to the policy, which is what this test is about.
+    await expect(
+      withOrg(viewer.user.id, (tx) =>
+        tx.insert(personNames).values({
+          orgId: viewer.organization.id,
+          projectId: viewer.project.id,
+          personId: viewerPerson.id,
+          createdBy: viewer.user.id,
+          nameType: 'birth',
+          fullName: '陈拒绝',
+        })
+      )
+    ).rejects.toSatisfy(
+      (error) =>
+        pgErrorCode(error) === '42501' &&
+        pgErrorMessages(error).some((message) =>
+          message.includes(
+            'new row violates row-level security policy for table "person_name"'
+          )
+        )
+    );
+
+    const editor = await projectScope('editor');
+    const editorPerson = await createPerson({
+      orgId: editor.organization.id,
+      projectId: editor.project.id,
+      createdBy: editor.user.id,
+    });
+    const [inserted] = await withOrg(editor.user.id, (tx) =>
+      tx
+        .insert(personNames)
+        .values({
+          orgId: editor.organization.id,
+          projectId: editor.project.id,
+          personId: editorPerson.id,
+          createdBy: editor.user.id,
+          nameType: 'birth',
+          fullName: '陈允许',
+        })
+        .returning()
+    );
+    expect(inserted?.personId).toBe(editorPerson.id);
+    if (!inserted) throw new Error('editor insert returned no row');
+
+    // The UPDATE policy's USING clause filters rows instead of raising, so a
+    // viewer's update is a silent zero-row no-op, not a 42501.
+    const updated = await withOrg(viewer.user.id, (tx) =>
+      tx
+        .update(personNames)
+        .set({ fullName: '陈篡改' })
+        .where(eq(personNames.id, inserted.id))
+        .returning()
+    );
+    expect(updated).toEqual([]);
+
+    const [unchanged] = await getTestDb()
+      .select()
+      .from(personNames)
+      .where(eq(personNames.id, inserted.id));
+    expect(unchanged?.fullName).toBe('陈允许');
   });
 
   it('pins organization_id and project_id on person', async () => {
