@@ -19,7 +19,7 @@
 
 **两层分工（spec-kit 定规格，superpowers 管执行）**：spec-kit 的技能也在 `.agents/skills/`，用 `/speckit-*` 调用。
 
-- 新功能 / 行为变更 → 先 `/speckit-specify` 出 `specs/NNN-*/spec.md`，需要消歧义就 `/speckit-clarify`，再进入上面的 superpowers 流程（`brainstorming` → `writing-plans` → `test-driven-development`）。
+- 新功能 / 行为变更 → 需求还在变就先 `brainstorming` 问清，再 `/speckit-specify` 出 `specs/NNN-*/spec.md`（要消歧义就 `/speckit-clarify`）→ `/speckit-plan` 出 `plan.md`，然后进执行层（`writing-plans` → `test-driven-development`）。
 - bugfix / 重构 / 纯文档 → 直接走执行类技能，不产 spec。
 - 执行计划只写一份：`docs/superpowers/plans/`；`tasks.md` 的任务合并进该计划，不并行两套清单。
 - 阶段、产物路径与裁决细节见 [guides/spec-driven-workflow.md](docs/guides/spec-driven-workflow.md)，本文件不复述。
@@ -216,7 +216,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 ## 9. 提交与评审
 
 **Commit**：`<type>(<scope>): <描述>`，一个 commit 只做一件事，迁移与业务代码分开提交。
-`type` = `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf`；`scope` = `auth` / `org` / `project` / `db` / `ui` / `docs` / `ci` / `ts`（编译器与工具链配置）。
+`type` = `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf`；`scope` = `auth` / `org` / `project` / `db` / `ui` / `docs` / `ci` / `ts`（编译器与工具链配置）/ `spec`（spec-kit 规格层）/ `agents`（AGENTS.md 等 Agent 指引）。
 
 **PR 自查**（勾选前须有命令输出为证）：
 
