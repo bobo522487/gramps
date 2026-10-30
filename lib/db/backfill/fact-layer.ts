@@ -144,8 +144,8 @@ async function insertPersonNames(
 
 /**
  * Step 2b: point person.primary_name_id at the birth name. This cannot happen
- * in the INSERT: fk_person_primary_name is not deferrable, so the name row has
- * to exist before the person can reference it.
+ * in the INSERT: fk_person_primary_name is not deferrable, so the name row
+ * must exist before the person can reference it.
  */
 async function linkPrimaryNames(
   tx: TransactionSql,
@@ -182,9 +182,8 @@ async function readLiveNodes(
 type Cell = string | number | boolean | null;
 
 /**
- * Multi-row insert. `statement` is a literal `INSERT INTO <table> (<columns>)`
- * prefix built from this module's constants, never from node data; every value
- * is a bind parameter.
+ * Multi-row insert. `statement` is a literal prefix built from this module's
+ * constants, never from node data; every value is a bind parameter.
  */
 async function insertRows<Row extends Record<string, Cell>>(
   tx: TransactionSql,
@@ -353,10 +352,14 @@ export async function backfillFactLayer(
     await linkPrimaryNames(tx, organizationId);
 
     const lossReport = emptyLossReport();
-    const emptyNames = await tx<{ count: number }[]>`
-      SELECT count(*)::int AS count FROM node
-      WHERE organization_id = ${organizationId} AND btrim(full_name) = ''`;
-    lossReport.emptyFullName = emptyNames[0].count;
+    // Two content losses over the same rows: a blank full_name (stored as
+    // name_status='unknown') and biography, which has no P1 column at all.
+    const [content] = await tx<{ empty: number; biographies: number }[]>`
+      SELECT count(*) FILTER (WHERE btrim(full_name) = '')::int AS empty,
+             count(*) FILTER (WHERE btrim(coalesce(biography, '')) <> '')::int AS biographies
+        FROM node WHERE organization_id = ${organizationId}`;
+    lossReport.emptyFullName = content.empty;
+    lossReport.biographyDropped = content.biographies;
 
     const nodes = await readLiveNodes(tx, organizationId);
     const plans = planFamilies(nodes, lossReport);

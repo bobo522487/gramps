@@ -229,7 +229,9 @@ describe('backfillFactLayer', () => {
     expect(result.lossReport).toEqual({
       unknownMother: 0,
       noMotherAtAll: 2,
+      orphanChild: 0,
       emptyFullName: 0,
+      biographyDropped: 0,
       birthTextWithoutYear: 0,
       deathTextWithoutYear: 0,
       spouseEdgeOnBloodNode: 0,
@@ -349,6 +351,120 @@ describe('backfillFactLayer', () => {
     expect(rows[0].partners).toBe(1);
   });
 
+  it('does not invent a children-only family for a childless multi-spouse father', async () => {
+    const { orgId, lineageId, createdBy } = await seedTree();
+    const father = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'a',
+      name: '父',
+    });
+    for (const name of ['元配', '继室']) {
+      await createNode({
+        orgId,
+        lineageId,
+        createdBy,
+        generation: 1,
+        role: 'spouse',
+        spouseOfId: father.id,
+        name,
+      });
+    }
+
+    const result = await backfillFactLayer(getTestSql(), orgId);
+
+    // |S| > 1 and no children: one two-partner family per spouse, and nothing
+    // else. The children-only family used to be created unconditionally, which
+    // left a one-partner union with no children — a family the source never
+    // recorded, and the shape `partners` could not tell from a real one.
+    expect(result.families).toBe(2);
+    expect(result.familyPartners).toBe(4);
+    expect(result.familyChildren).toBe(0);
+    expect(result.lossReport.unknownMother).toBe(0);
+    expect(result.lossReport.noMotherAtAll).toBe(0);
+
+    const families = await getTestSql()<{ partners: number }[]>`
+      SELECT (SELECT count(*)::int FROM family_partner fp
+               WHERE fp.family_id = f.id AND fp.deleted_at IS NULL) AS partners
+        FROM family f
+       WHERE f.organization_id = ${orgId}`;
+    expect(families.map((row) => row.partners).sort()).toEqual([2, 2]);
+  });
+
+  it('counts a child whose parent is not a live blood node as an orphan', async () => {
+    const { orgId, lineageId, createdBy } = await seedTree();
+    const father = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'a',
+      name: '父',
+    });
+    const mother = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 2,
+      role: 'spouse',
+      spouseOfId: father.id,
+      name: '母',
+    });
+    const child = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 2,
+      path: 'a.a',
+      parentId: father.id,
+      name: '子',
+    });
+    // `parent_id` may name any node of the lineage. A spouse node can never be
+    // the blood side of a family, so this child's edge has nowhere to go; the
+    // backfill drops it and counts the loss instead of writing it twice or
+    // failing the whole organization.
+    await getTestSql()`
+      UPDATE node SET parent_id = ${mother.id} WHERE id = ${child.id}`;
+
+    const result = await backfillFactLayer(getTestSql(), orgId);
+
+    expect(result.persons).toBe(3);
+    expect(result.families).toBe(1);
+    expect(result.familyChildren).toBe(0);
+    expect(result.lossReport.orphanChild).toBe(1);
+  });
+
+  it('counts a biography the fact layer has no column for', async () => {
+    const { orgId, lineageId, createdBy } = await seedTree();
+    const withBiography = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'a',
+      name: '甲',
+    });
+    await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'b',
+      name: '乙',
+    });
+    // `node.biography` is real text in the source and has no P1 column: it is a
+    // declared loss, counted so the operator knows what P1 does not carry.
+    await getTestSql()`
+      UPDATE node SET biography = '字子安，号东轩' WHERE id = ${withBiography.id}`;
+
+    const result = await backfillFactLayer(getTestSql(), orgId);
+
+    expect(result.lossReport.biographyDropped).toBe(1);
+    expect(result.lossReport.emptyFullName).toBe(0);
+  });
+
   it('keeps a birth text without a year as date_original only', async () => {
     const { orgId, lineageId, createdBy } = await seedTree();
     await createNode({
@@ -417,7 +533,7 @@ describe('backfillFactLayer', () => {
     expect(event.date_qualifier).toBe('exact');
   });
 
-  it('degrades a placeholder birth_year of 0 instead of aborting the organization', async () => {
+  it('drops a placeholder year with no text and keeps one with text', async () => {
     const { orgId, lineageId, createdBy } = await seedTree();
     // `node.birth_year` is a plain integer with no CHECK and 0 is the common
     // legacy placeholder for "unknown". One transaction covers the whole
@@ -431,38 +547,56 @@ describe('backfillFactLayer', () => {
       name: '缺年',
       birthYear: 0,
     });
-    const dated = await createNode({
+    const withText = await createNode({
       orgId,
       lineageId,
       createdBy,
       generation: 1,
       path: 'b',
+      name: '缺年有文',
+      birthYear: 0,
+      birthText: '约清末',
+    });
+    const dated = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'c',
       name: '有年',
       birthYear: 1900,
     });
 
     const result = await backfillFactLayer(getTestSql(), orgId);
 
-    // The organization commits: both people exist, and the healthy sibling
+    // The organization commits: every person exists, and the healthy sibling
     // still gets its exact bounds.
-    expect(result.persons).toBe(2);
-    expect(await countPersons(orgId)).toBe(2);
-    expect(result.lossReport.yearOutOfRange).toBe(1);
+    expect(result.persons).toBe(3);
+    expect(await countPersons(orgId)).toBe(3);
+    expect(result.lossReport.yearOutOfRange).toBe(2);
+    expect(result.events).toBe(2);
 
     const events = await readEvents(orgId, 'birth');
     expect(events).toHaveLength(2);
 
     const placeholderPersonId = await personIdOfNode(orgId, placeholder.id);
-    const degraded = events.find(
-      (row) => row.person_id === placeholderPersonId
+    // Nothing to say: an unstorable year with no original text is not a date
+    // and not a fact, so it produces no event at all. The event used to be
+    // written with every field NULL, which is the row `contentless_events`
+    // rejects — a backfill that only its own mirror could bless.
+    expect(events.some((row) => row.person_id === placeholderPersonId)).toBe(
+      false
     );
-    expect(degraded).toBeDefined();
-    expect(degraded?.date_qualifier).toBe('unknown');
-    expect(degraded?.date_start).toBeNull();
-    expect(degraded?.date_end).toBeNull();
-    expect(degraded?.date_precision).toBeNull();
-    // A placeholder year is not original text: date_original stays NULL.
-    expect(degraded?.date_original).toBeNull();
+
+    // The text is original text, so the event survives even though the year
+    // cannot become bounds; the year itself is counted, not invented.
+    const withTextPersonId = await personIdOfNode(orgId, withText.id);
+    const kept = events.find((row) => row.person_id === withTextPersonId);
+    expect(kept?.date_original).toBe('约清末');
+    expect(kept?.date_qualifier).toBe('unknown');
+    expect(kept?.date_start).toBeNull();
+    expect(kept?.date_end).toBeNull();
+    expect(kept?.date_precision).toBeNull();
 
     const datedPersonId = await personIdOfNode(orgId, dated.id);
     const healthy = events.find((row) => row.person_id === datedPersonId);
@@ -917,7 +1051,7 @@ describe('backfillFactLayer', () => {
 // reconciliation shares no code with the backfill (see that module's header),
 // so the agreement is between two independent implementations.
 describe('reconcileFactLayer', () => {
-  it('reports no diff against node and covers all ten checks', async () => {
+  it('reports no diff against node and covers all fourteen checks', async () => {
     const { orgId, lineageId, createdBy } = await seedTree();
     const founder = await createNode({
       orgId,
@@ -983,9 +1117,13 @@ describe('reconcileFactLayer', () => {
       'contentless_events',
       'courtesy_names',
       'death_events',
+      'event_subjects',
       'families',
+      'orphan_children',
       'partners',
+      'person_deleted_state',
       'persons',
+      'primary_name_links',
       'primary_names',
     ]);
   });

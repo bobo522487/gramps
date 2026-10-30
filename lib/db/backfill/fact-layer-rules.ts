@@ -16,8 +16,22 @@ export type LossReport = {
   unknownMother: number;
   /** Children of a father with no recorded spouse at all. */
   noMotherAtAll: number;
+  /**
+   * Children whose parent_id is not a live blood node (a spouse node, or a
+   * soft-deleted node). No family can own the edge — a family's blood side is a
+   * blood node — so it is dropped here and counted instead. The loss report is
+   * the only place this shows up: `node` and the fact layer agree on the
+   * missing edge, so no count-vs-count check can see it.
+   */
+  orphanChild: number;
   /** Nodes whose full_name is blank; they become name_status='unknown'. */
   emptyFullName: number;
+  /**
+   * Nodes with biography text. P1's fact layer has no column for it, so the
+   * text stays in `node` (the read source through P1/P2) and this counter
+   * declares the gap. It is a loss, not an invariant: nothing reconciles it.
+   */
+  biographyDropped: number;
   /** birth_text without birth_year: original text, no date bounds. */
   birthTextWithoutYear: number;
   /** death_text without death_year: original text, no date bounds. */
@@ -30,9 +44,10 @@ export type LossReport = {
   spouseEdgeOnBloodNode: number;
   /**
    * birth_year / death_year outside 1..9999 (0 is the common legacy
-   * placeholder for "unknown"). The event is still written with
-   * date_qualifier='unknown' and no bounds; only the year is lost, and this
-   * counter is what makes that loss visible in the CLI output.
+   * placeholder for "unknown"). With original text the event is still written
+   * with date_qualifier='unknown' and no bounds; with no text it produces no
+   * event at all. Either way the year is lost, and this counter is what makes
+   * that loss visible in the CLI output.
    */
   yearOutOfRange: number;
 };
@@ -91,7 +106,9 @@ export function emptyLossReport(): LossReport {
   return {
     unknownMother: 0,
     noMotherAtAll: 0,
+    orphanChild: 0,
     emptyFullName: 0,
+    biographyDropped: 0,
     birthTextWithoutYear: 0,
     deathTextWithoutYear: 0,
     spouseEdgeOnBloodNode: 0,
@@ -152,9 +169,12 @@ function yearBounds(year: number) {
  * single-transaction migration. The loss is counted in
  * `lossReport.yearOutOfRange` so the operator sees it in the CLI output.
  *
- * "Nothing to say → no event" still holds, but only for a node with no year
- * column value at all and no text; a placeholder year is still a year the
- * source recorded, so it produces an 'unknown' event rather than silence.
+ * "Nothing to say → no event" is the rule, and a placeholder year does not
+ * escape it: 0 is not a date and not text, so a node whose only date column is
+ * a placeholder produces no event at all (it used to produce an 'unknown' event
+ * with every field NULL, which is precisely the row `contentless_events`
+ * rejects). The year is still counted as a loss. When the same row also carries
+ * text, the text is a fact and keeps the event.
  */
 function datedFields(
   kind: 'birth' | 'death',
@@ -183,6 +203,9 @@ function datedFields(
   }
   if (!isStorableYear(year)) {
     lossReport.yearOutOfRange += 1;
+    if (original === null) {
+      return null;
+    }
     // date_original is only ever original text: a placeholder year is not a
     // date, so nothing is synthesised from it.
     return {
@@ -219,7 +242,11 @@ export function planFamilies(
 ): FamilyPlan[] {
   const spousesByBloodId = new Map<string, LiveNode[]>();
   const childrenByParentId = new Map<string, LiveNode[]>();
+  const liveBloodIds = new Set<string>();
   for (const node of nodes) {
+    if (node.role === 'blood') {
+      liveBloodIds.add(node.id);
+    }
     if (node.role === 'blood' && node.spouse_of_id !== null) {
       lossReport.spouseEdgeOnBloodNode += 1;
     }
@@ -232,6 +259,13 @@ export function planFamilies(
       const children = childrenByParentId.get(node.parent_id) ?? [];
       children.push(node);
       childrenByParentId.set(node.parent_id, children);
+    }
+  }
+  for (const node of nodes) {
+    // A family's blood side is always a live blood node, so a child pointing
+    // anywhere else cannot be attached to any union.
+    if (node.parent_id !== null && !liveBloodIds.has(node.parent_id)) {
+      lossReport.orphanChild += 1;
     }
   }
 
@@ -259,9 +293,14 @@ export function planFamilies(
     for (const spouse of spouses) {
       plans.push({ blood, spouse, children: [] });
     }
-    // Several spouses: node does not say which one is the mother.
-    plans.push({ blood, spouse: null, children });
-    lossReport.unknownMother += children.length;
+    if (children.length > 0) {
+      // Several spouses: node does not say which one is the mother, so the
+      // children get a family of their own. A childless father needs no such
+      // family — it would be a one-partner union with no children, a family the
+      // source never recorded.
+      plans.push({ blood, spouse: null, children });
+      lossReport.unknownMother += children.length;
+    }
   }
   return plans;
 }
