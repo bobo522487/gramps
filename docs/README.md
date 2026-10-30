@@ -4,22 +4,27 @@
 
 ---
 
-## 1. 两套内容，不是同一套系统
+## 1. 事实与差异，不是两套系统
 
-本仓库同时存在两层内容：
+文档只写两件事：**现在是什么**，和**要变成什么**。前者是唯一事实来源；后者只写差异与理由，不重复描述已经落地的东西。
 
-| 平面 | 说明 | 在哪 |
+| 层 | 回答什么 | 在哪 |
 |---|---|---|
-| **目标设计** | 面向家谱编纂场景的 M1 设计：要做什么、表长什么样、接口契约、部署蓝图 | `prd.md` · `decisions/` · `data-model.md` · `api.md` · `ops-target.md` |
-| **当前实现** | 仓库里真实运行的代码，以及它现在的结构 | [`implementation-status.md`](./implementation-status.md) · [`architecture/`](./architecture/00-文档说明.md) · [`guides/`](./guides/) · [`setup.md`](./setup.md) · `../AGENTS.md` |
+| **事实层**（as-is） | 代码现在怎么搭的、表有哪些列、接口长什么样、哪个功能做到哪一步 | [`architecture/`](./architecture/00-文档说明.md)（结构）· [`data-model.md`](./data-model.md)（表与列）· [`api.md`](./api.md)（现有契约）· [`implementation-status.md`](./implementation-status.md)（状态）· [`setup.md`](./setup.md) · [`guides/`](./guides/) |
+| **差异层**（to-be） | 还没做的、为什么这么定、未来的部署形态 | [`prd.md`](./prd.md)（范围与里程碑）· [`ops-target.md`](./ops-target.md)（部署蓝图）· [`decisions/`](./decisions/README.md)（决策与理由）· [`data-model.md`](./data-model.md) §13.2 与 [`api.md`](./api.md) 里标为 M2 的段落 |
+
+**两条规则：**
+
+- 同一件事只有一个来源：表结构只在 `data-model.md`，接口契约只在 `api.md`，命令只在 `setup.md`，实现状态只在 `implementation-status.md`。
+- 差异层不重复现状：已经落地的部分由事实层描述，差异层只留「为什么这么定」和「还没做的」。
 
 **判断规则：**
 
-- 要跑项目、改代码、加页面、加迁移 → 读 `guides/` + `setup.md`。
-- 要了解现在怎么搭的（模块、数据、接口、部署、运行时）→ 读 `architecture/`。
-- 要讨论产品需求、目标数据模型、未来形态 → 读 `prd.md` + `data-model.md` + `decisions/`。
-- **不要把目标设计里的表名、目录、命令直接套到当前代码上。**
-- 一个功能到底实现了没有，**只以 [`implementation-status.md`](./implementation-status.md) 为准**——架构文档只写结构，目标设计文档不各自声明实现状态。
+- 要跑项目、改代码、加页面、加迁移 → `guides/` + `setup.md`。
+- 要了解现在怎么搭的（模块、数据、接口、部署、运行时）→ `architecture/`。
+- 要知道某个功能做到哪一步 → 只看 [`implementation-status.md`](./implementation-status.md)；架构文档不写状态，差异层文档不各自声明进度。
+- 要讨论要不要做、为什么这么定、以后长什么样 → `prd.md` + `decisions/`。
+- **不要把差异层里的表名、目录、命令直接套到当前代码上。**
 
 ---
 

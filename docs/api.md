@@ -6,6 +6,7 @@
 | 最后更新 | 2026-10-23 |
 | 接口风格 | Server Action（内部写）+ RSC（内部首屏读）+ TanStack Query（客户端缓存）+ 4 个只读 Route Handler |
 | 序列化 | JSON；Route Handler 非 2xx 返回 `{ error, code? }` |
+| 时态 | 当前实现（as-is）：已导出 Action 与 Route Handler 的契约。§5.2 的 `content` / `publishing` 两节是目标契约，代码里还没有对应的 Action |
 | 相关文档 | [架构](./architecture/01-架构总览.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
 
 ---
@@ -366,6 +367,8 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 
 #### content
 
+> **目标契约**：`article` 表已建，但 `createArticle` / `updateArticle` / `deleteArticle` 在代码里都还没有导出，`/dashboard/project/[projectRef]/articles` 只渲染占位 `EmptyState`。哪个功能做到哪一步只看 [实现状态](./implementation-status.md)。
+
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|
 | `createArticle` | `{ orgId, projectId, title, kind?, content }` | `Article` | `article.write` |
@@ -373,6 +376,8 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 | `deleteArticle` | `{ orgId, articleId }` | `void` | `article.write` |
 
 #### publishing
+
+> **目标契约**：`book` / `book_catalog` 表已建，但下面 7 个 Action 在代码里都还没有导出，`/dashboard/project/[projectRef]/books` 只渲染占位 `EmptyState`。
 
 | Action | 入参 | 返回 | 权限 |
 |---|---|---|---|

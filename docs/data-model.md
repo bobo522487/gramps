@@ -9,6 +9,7 @@
 | 部署 | Vercel + 自定义域名 + Neon；本地 Docker 只跑 PostgreSQL + `next dev` |
 | 字符集 / 时区 | UTF-8 / 所有时间列 `timestamptz` |
 | 表数量 | 17 张组织级业务表（16 张业务表 + `activity_logs`）+ 4 张 `auth.*` 表 |
+| 时态 | 当前实现（as-is）：已建表的逐列定义。未来表只在 §2.2 与 §13.2 用「M2 会增加」这类明确措辞标注，不混入正文 |
 | 相关文档 | [架构](./architecture/01-架构总览.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
 
 ---

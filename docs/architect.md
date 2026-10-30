@@ -36,8 +36,11 @@
 
 ---
 
-## 与目标设计的关系
+## 与事实层、差异层的关系
 
-`architecture/` 描述的是**当前实现**，不是目标设计。目标形态在 [PRD](./prd.md)（范围与功能需求）、[data-model](./data-model.md)（表结构）、[api](./api.md)（接口契约）、[ops-target](./ops-target.md)（部署蓝图）与 [decisions](./decisions/README.md)（决策与理由）里。
+文档不是「两套系统」，是**事实**与**差异**两层（[README §1](./README.md)）：
 
-判断一个功能到底实现了没有，只以 [implementation-status](./implementation-status.md) 为准——架构文档只写结构，不写状态。
+- **事实层**写现在是什么：[`architecture/`](./architecture/)（结构）· [data-model](./data-model.md)（表与列）· [api](./api.md)（现有契约）· [implementation-status](./implementation-status.md)（状态）· [setup](./setup.md) · [`guides/`](./guides/)。
+- **差异层**写要变成什么、为什么：[PRD](./prd.md)（范围与里程碑）· [ops-target](./ops-target.md)（部署蓝图）· [decisions](./decisions/README.md)（决策与理由），以及 `data-model.md` §13.2 与 `api.md` 里标为 M2 的段落。
+
+`architecture/` 属于事实层，只写当前代码的结构。判断一个功能到底实现了没有，只以 [implementation-status](./implementation-status.md) 为准——架构文档只写结构，不写状态。
