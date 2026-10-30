@@ -19,13 +19,13 @@ const SCANNED = ['app', 'components', 'lib', 'hooks'];
 // past the ceiling fails the check; only shrinking (toward eventually removing
 // the exemption) is allowed. Captured at feat/arch-simplification.
 const EXEMPT = [
-  { path: 'lib/lineage/node-services.ts', lines: 875 },
+  { path: 'lib/lineage/node-services.ts', lines: 820 },
   { path: 'components/lineage/lineage-detail.tsx', lines: 865 },
-  { path: 'components/lineage/canvas/genealogy-canvas.tsx', lines: 776 },
+  { path: 'components/lineage/canvas/genealogy-canvas.tsx', lines: 773 },
   { path: 'components/lineage/lineage-sidebar.tsx', lines: 734 },
   { path: 'components/ui/sidebar.tsx', lines: 717 },
   { path: 'components/lineage/person-inspector.tsx', lines: 606 },
-  { path: 'components/lineage/node-create-dialog.tsx', lines: 583 },
+  { path: 'components/lineage/node-create-dialog.tsx', lines: 581 },
 ];
 
 function walk(dir) {
