@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
-import { redirect } from 'next/navigation';
 import {
   isOrgRole,
   ORG_PERMISSIONS,
@@ -11,7 +10,6 @@ import {
   PERMISSION_REQUESTS,
   roles,
 } from '@/lib/auth/access-control';
-import type { SessionUser } from '@/lib/auth/types';
 import { type DbTransaction, withOrg } from '@/lib/db/drizzle';
 import { orgMembers } from '@/lib/db/schema';
 
@@ -61,22 +59,6 @@ export async function getOrgRole(
   orgId: string
 ): Promise<OrgRole | null> {
   return withOrg(userId, (tx) => getOrgRoleInTx(tx, userId, orgId));
-}
-
-/**
- * Server-side membership check for pages: redirects to /dashboard when the
- * signed-in user lacks the permission.
- */
-export async function requireOrgAccess(
-  user: SessionUser,
-  orgId: string,
-  permission: OrgPermission = 'content.read'
-) {
-  const role = await getOrgRole(user.id, orgId);
-  if (!role || !hasPermission(role, permission)) {
-    redirect('/dashboard');
-  }
-  return role;
 }
 
 /** Action-side check: returns an error message instead of redirecting. */

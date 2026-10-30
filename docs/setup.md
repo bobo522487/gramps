@@ -101,7 +101,7 @@ cp .env.example .env
 - 服务启动时 `instrumentation.ts` 调用 `getServerConfig()`；配置缺失或非法会记录错误并阻止启动（`next build` 阶段跳过）。
 - 在 Vercel（`process.env.VERCEL` 存在）上，`APP_POSTGRES_URL` 与 `AUTH_POSTGRES_URL` 也变为必填，避免两个运行时意外共用表属主连接。
 - `lib/db/drizzle.ts` 与 `lib/db/auth-db.ts` 都通过 `getServerConfig()` 读取连接串；测试与脚本在首次查询前设置环境变量即可。
-- 单元测试可使用 `resetServerConfig()` 清除缓存后重新校验。
+- 校验结果在进程内只算一次：进程起来之后再改 `process.env` 不会生效，需要另一套配置的测试应起独立进程（没有清除缓存的测试钩子）。
 
 ### 3.3 数据库驱动与连接池
 

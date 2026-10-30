@@ -1,4 +1,3 @@
-import { APIError } from 'better-auth/api';
 import type { ActionState } from '@/lib/auth/types';
 import { isRaisedException, isUniqueViolation } from '@/lib/db/errors';
 import type { ActionErrorCode } from '@/lib/errors';
@@ -121,10 +120,6 @@ export function mapAuthError(error: unknown): ActionState {
   }
 
   return { error: FALLBACK_MESSAGE, code: 'INTERNAL' };
-}
-
-export function isAuthApiError(error: unknown): error is APIError {
-  return error instanceof APIError;
 }
 
 export function isAuthErrorCode(error: unknown, code: string): boolean {

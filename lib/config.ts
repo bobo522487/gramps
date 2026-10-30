@@ -108,8 +108,3 @@ export function getServerConfig(): ServerConfig {
   cached = result.data;
   return cached;
 }
-
-/** Test hook: drop the cached config after changing process.env. */
-export function resetServerConfig() {
-  cached = null;
-}

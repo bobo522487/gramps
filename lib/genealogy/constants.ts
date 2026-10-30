@@ -207,7 +207,6 @@ export const ATTRIBUTE_EVENT_TYPE_VALUES = [
   'social_security_number',
   'fact',
 ] as const satisfies readonly EventType[];
-export type AttributeEventType = (typeof ATTRIBUTE_EVENT_TYPE_VALUES)[number];
 
 // --- dates -----------------------------------------------------------------
 

@@ -36,7 +36,7 @@ M1 没有公开接口——没有分享页，没有第三方消费者。引入 R
 |---|---|---|
 | Server Action | 动词 + 名词 + `Action` 后缀，驼峰 | `createLineageAction`、`addChildAction` |
 | Action 文件 | `actions.ts`，按域 | `lib/lineage/actions.ts` |
-| 入参类型 | `<Action>Input` | `CreateLineageInput` |
+| 入参类型 | 由 Zod schema 推导（`z.infer`），不另声明别名 | `createLineageSchema` |
 | 出参类型 | `ActionState`（权威定义 `lib/auth/types.ts`） | `ActionState` |
 
 ### 1.3 数据格式
