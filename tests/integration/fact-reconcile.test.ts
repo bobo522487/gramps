@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import { describe, expect, it } from 'vitest';
 import { backfillFactLayer } from '@/lib/db/backfill/fact-layer';
 import { reconcileFactLayer } from '@/lib/db/backfill/reconcile-fact-layer';
@@ -410,4 +411,437 @@ describe('reconcileFactLayer', () => {
     const report = await reconcileFactLayer(getTestSql(), orgId);
     expect(report.diffs).toEqual([]);
   });
+});
+
+// ---------------------------------------------------------------------------
+// One deliberate divergence per check.
+//
+// The tests above prove the gate catches the three shapes someone already
+// thought of. They cannot prove it catches the *other* eleven: deleting a check
+// makes the clean-tree test fail (fourteen names become thirteen), but
+// *weakening* one — `birth_year IS NOT NULL` instead of the C1 rule, say —
+// passes every one of them. This table is the missing half. Each row mutates
+// the fact layer in a way that is legal under every constraint and asserts that
+// exactly one check notices, then undoes it and asserts the organization is
+// clean again. A check that fires on everything would fail the first
+// assertion; a check that fires on nothing fails the second.
+// ---------------------------------------------------------------------------
+
+type DivergenceContext = {
+  orgId: string;
+  projectId: string;
+  createdBy: string;
+  fatherNode: string;
+  sonNode: string;
+  wifeNode: string;
+  daughterNode: string;
+  placeholderNode: string;
+};
+
+type Divergence = {
+  check: string;
+  /** Applies the divergence and returns its undo. */
+  apply: (
+    tx: Sql,
+    ctx: DivergenceContext
+  ) => Promise<(tx: Sql) => Promise<void>>;
+};
+
+/**
+ * Father (birth 1900 + burial place), his son, daughter and a placeholder-year
+ * child (year 0, no text), and the son's wife (death 1980): two families (the
+ * father's children-only union and the son's marriage), three partners, three
+ * child edges, three events.
+ *
+ * The placeholder child is the point of the seed: it is the one node whose
+ * backfill and expectation disagreed (C1), so a weakened `birth_events`
+ * expectation fails the baseline assertion below on every row of the table
+ * rather than only on the row that deletes a birth event.
+ */
+async function seedDivergenceTree(): Promise<DivergenceContext> {
+  const { orgId, projectId, lineageId, createdBy } = await seedTree();
+  const father = await createNode({
+    orgId,
+    lineageId,
+    createdBy,
+    generation: 1,
+    path: 'a',
+    name: '父',
+    birthYear: 1900,
+    burialPlace: '祖坟',
+  });
+  const son = await createNode({
+    orgId,
+    lineageId,
+    createdBy,
+    parentId: father.id,
+    generation: 2,
+    path: 'a.a',
+    name: '子',
+  });
+  const wife = await createNode({
+    orgId,
+    lineageId,
+    createdBy,
+    spouseOfId: son.id,
+    role: 'spouse',
+    generation: 2,
+    name: '媳',
+    sex: 0,
+    deathYear: 1980,
+  });
+  const daughter = await createNode({
+    orgId,
+    lineageId,
+    createdBy,
+    parentId: father.id,
+    generation: 2,
+    path: 'a.b',
+    name: '女',
+    sex: 0,
+  });
+  // Year 0 with no original text: the backfill writes no event for it, and the
+  // expectation must agree (see the C1 note in reconcile-fact-layer.ts).
+  const placeholder = await createNode({
+    orgId,
+    lineageId,
+    createdBy,
+    parentId: father.id,
+    generation: 2,
+    path: 'a.c',
+    name: '殇',
+    birthYear: 0,
+  });
+  return {
+    orgId,
+    projectId,
+    createdBy,
+    fatherNode: father.id,
+    sonNode: son.id,
+    wifeNode: wife.id,
+    daughterNode: daughter.id,
+    placeholderNode: placeholder.id,
+  };
+}
+
+async function personOfNode(
+  tx: Sql,
+  orgId: string,
+  nodeId: string
+): Promise<string> {
+  const rows = await tx<{ id: string }[]>`
+    SELECT id FROM person
+     WHERE organization_id = ${orgId} AND legacy_node_id = ${nodeId}`;
+  const row = rows[0];
+  if (row === undefined) {
+    throw new Error(`no person for node ${nodeId}`);
+  }
+  return row.id;
+}
+
+/** The family whose blood partner is `personId` (the backfill writes one). */
+async function familyOfBloodPerson(
+  tx: Sql,
+  orgId: string,
+  personId: string
+): Promise<string> {
+  const rows = await tx<{ family_id: string }[]>`
+    SELECT family_id FROM family_partner
+     WHERE organization_id = ${orgId}
+       AND person_id = ${personId}
+       AND role = 'blood'
+       AND deleted_at IS NULL`;
+  const row = rows[0];
+  if (row === undefined) {
+    throw new Error(`no family for blood person ${personId}`);
+  }
+  return row.family_id;
+}
+
+async function eventOfPerson(
+  tx: Sql,
+  personId: string,
+  eventType: string
+): Promise<string> {
+  const rows = await tx<{ id: string }[]>`
+    SELECT id FROM event
+     WHERE person_id = ${personId}
+       AND event_type = ${eventType}
+       AND deleted_at IS NULL`;
+  const row = rows[0];
+  if (row === undefined) {
+    throw new Error(`no ${eventType} event for person ${personId}`);
+  }
+  return row.id;
+}
+
+const DIVERGENCES: Divergence[] = [
+  {
+    check: 'persons',
+    // A person whose only name is not a birth name: a birth name row would
+    // move `primary_names` as well, and `primary_name_links` requires a
+    // pointer, so the name has to exist and has to be `other`.
+    apply: async (tx, ctx) => {
+      const [person] = await tx<{ id: string }[]>`
+        INSERT INTO person
+          (organization_id, project_id, sex, living_status, privacy_level,
+           name_status, created_by)
+        VALUES (${ctx.orgId}, ${ctx.projectId}, 'unknown', 'unknown', 'private',
+                'known', ${ctx.createdBy})
+        RETURNING id`;
+      const [name] = await tx<{ id: string }[]>`
+        INSERT INTO person_name
+          (organization_id, project_id, person_id, name_type, custom_type,
+           sort_order, full_name, created_by)
+        VALUES (${ctx.orgId}, ${ctx.projectId}, ${person!.id}, 'other', 'alias',
+                0, '外姓人', ${ctx.createdBy})
+        RETURNING id`;
+      await tx`
+        UPDATE person SET primary_name_id = ${name!.id} WHERE id = ${person!.id}`;
+      return async (undo) => {
+        await undo`UPDATE person SET primary_name_id = NULL WHERE id = ${person!.id}`;
+        await undo`DELETE FROM person_name WHERE id = ${name!.id}`;
+        await undo`DELETE FROM person WHERE id = ${person!.id}`;
+      };
+    },
+  },
+  {
+    check: 'primary_names',
+    // A second birth name (a 曾用名 is legal): `uk_person_name_type_order`
+    // allows it at another sort order, and only the birth-name count moves.
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.fatherNode);
+      const [name] = await tx<{ id: string }[]>`
+        INSERT INTO person_name
+          (organization_id, project_id, person_id, name_type, sort_order,
+           full_name, created_by)
+        VALUES (${ctx.orgId}, ${ctx.projectId}, ${personId}, 'birth', 1,
+                '陈曾用', ${ctx.createdBy})
+        RETURNING id`;
+      return async (undo) => {
+        await undo`DELETE FROM person_name WHERE id = ${name!.id}`;
+      };
+    },
+  },
+  {
+    check: 'courtesy_names',
+    // No node carries `courtesy`, so any courtesy name row is a diff.
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.fatherNode);
+      const [name] = await tx<{ id: string }[]>`
+        INSERT INTO person_name
+          (organization_id, project_id, person_id, name_type, sort_order,
+           full_name, created_by)
+        VALUES (${ctx.orgId}, ${ctx.projectId}, ${personId}, 'courtesy', 0,
+                '子安', ${ctx.createdBy})
+        RETURNING id`;
+      return async (undo) => {
+        await undo`DELETE FROM person_name WHERE id = ${name!.id}`;
+      };
+    },
+  },
+  {
+    check: 'primary_name_links',
+    // The pointer the backfill always sets; clearing it is legal (the FK is
+    // nullable) and makes the person unreadable by name.
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.fatherNode);
+      const [before] = await tx<{ primary_name_id: string }[]>`
+        SELECT primary_name_id FROM person WHERE id = ${personId}`;
+      await tx`UPDATE person SET primary_name_id = NULL WHERE id = ${personId}`;
+      return async (undo) => {
+        await undo`UPDATE person SET primary_name_id = ${before!.primary_name_id}
+                    WHERE id = ${personId}`;
+      };
+    },
+  },
+  {
+    check: 'person_deleted_state',
+    // Soft-deleting a person whose node is live: legal (soft delete is the only
+    // delete), invisible to `persons` (which counts deleted rows too) and to
+    // `event_subjects` (the daughter has no event).
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.daughterNode);
+      await tx`UPDATE person SET deleted_at = now() WHERE id = ${personId}`;
+      return async (undo) => {
+        await undo`UPDATE person SET deleted_at = NULL WHERE id = ${personId}`;
+      };
+    },
+  },
+  {
+    check: 'families',
+    // A union with no partners and no children: the schema allows it (the
+    // "at least one blood partner" rule is a trigger on partners, not on the
+    // family), so only the family count moves.
+    apply: async (tx, ctx) => {
+      const [family] = await tx<{ id: string }[]>`
+        INSERT INTO family (organization_id, project_id, created_by)
+        VALUES (${ctx.orgId}, ${ctx.projectId}, ${ctx.createdBy})
+        RETURNING id`;
+      return async (undo) => {
+        await undo`DELETE FROM family WHERE id = ${family!.id}`;
+      };
+    },
+  },
+  {
+    check: 'partners',
+    // A second spouse partner on the father's children-only family: legal
+    // (the trigger only rejects a second *blood* partner), and it moves the
+    // partner count without adding a family or a child.
+    apply: async (tx, ctx) => {
+      const fatherPerson = await personOfNode(tx, ctx.orgId, ctx.fatherNode);
+      const wifePerson = await personOfNode(tx, ctx.orgId, ctx.wifeNode);
+      const familyId = await familyOfBloodPerson(tx, ctx.orgId, fatherPerson);
+      const [partner] = await tx<{ id: string }[]>`
+        INSERT INTO family_partner
+          (organization_id, project_id, family_id, person_id, role,
+           partner_order, created_by)
+        VALUES (${ctx.orgId}, ${ctx.projectId}, ${familyId}, ${wifePerson},
+                'spouse', 2, ${ctx.createdBy})
+        RETURNING id`;
+      return async (undo) => {
+        await undo`DELETE FROM family_partner WHERE id = ${partner!.id}`;
+      };
+    },
+  },
+  {
+    check: 'child_edges',
+    // Soft-deleting one child edge: the family stays, so only the edge count
+    // moves.
+    apply: async (tx, ctx) => {
+      const daughterPerson = await personOfNode(
+        tx,
+        ctx.orgId,
+        ctx.daughterNode
+      );
+      const [edge] = await tx<{ id: string }[]>`
+        SELECT id FROM family_child
+         WHERE organization_id = ${ctx.orgId} AND person_id = ${daughterPerson}
+           AND deleted_at IS NULL`;
+      await tx`UPDATE family_child SET deleted_at = now() WHERE id = ${edge!.id}`;
+      return async (undo) => {
+        await undo`UPDATE family_child SET deleted_at = NULL WHERE id = ${edge!.id}`;
+      };
+    },
+  },
+  {
+    check: 'orphan_children',
+    // Repointing the daughter's `parent_id` at a spouse node makes her an
+    // orphan for the backfill's purposes. The edge has to go with it, or
+    // `child_edges` would report the same row — and the pair is exactly what
+    // the check exists for: both implementations drop the edge, and only the
+    // node-side property check can see the child.
+    apply: async (tx, ctx) => {
+      const daughterPerson = await personOfNode(
+        tx,
+        ctx.orgId,
+        ctx.daughterNode
+      );
+      const [edge] = await tx<{ id: string }[]>`
+        SELECT id FROM family_child
+         WHERE organization_id = ${ctx.orgId} AND person_id = ${daughterPerson}
+           AND deleted_at IS NULL`;
+      await tx`UPDATE node SET parent_id = ${ctx.wifeNode}
+                WHERE id = ${ctx.daughterNode}`;
+      await tx`UPDATE family_child SET deleted_at = now() WHERE id = ${edge!.id}`;
+      return async (undo) => {
+        await undo`UPDATE node SET parent_id = ${ctx.fatherNode}
+                    WHERE id = ${ctx.daughterNode}`;
+        await undo`UPDATE family_child SET deleted_at = NULL WHERE id = ${edge!.id}`;
+      };
+    },
+  },
+  {
+    check: 'birth_events',
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.fatherNode);
+      const eventId = await eventOfPerson(tx, personId, 'birth');
+      await tx`UPDATE event SET deleted_at = now() WHERE id = ${eventId}`;
+      return async (undo) => {
+        await undo`UPDATE event SET deleted_at = NULL WHERE id = ${eventId}`;
+      };
+    },
+  },
+  {
+    check: 'death_events',
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.wifeNode);
+      const eventId = await eventOfPerson(tx, personId, 'death');
+      await tx`UPDATE event SET deleted_at = now() WHERE id = ${eventId}`;
+      return async (undo) => {
+        await undo`UPDATE event SET deleted_at = NULL WHERE id = ${eventId}`;
+      };
+    },
+  },
+  {
+    check: 'burial_events',
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.fatherNode);
+      const eventId = await eventOfPerson(tx, personId, 'burial');
+      await tx`UPDATE event SET deleted_at = now() WHERE id = ${eventId}`;
+      return async (undo) => {
+        await undo`UPDATE event SET deleted_at = NULL WHERE id = ${eventId}`;
+      };
+    },
+  },
+  {
+    check: 'contentless_events',
+    // A subject-only `census` event: every date CHECK passes with the default
+    // `unknown` qualifier and no bounds, and no per-type count includes
+    // `census`, so the invariant is the only thing that can see it.
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.fatherNode);
+      const [event] = await tx<{ id: string }[]>`
+        INSERT INTO event
+          (organization_id, project_id, person_id, event_type, created_by)
+        VALUES (${ctx.orgId}, ${ctx.projectId}, ${personId}, 'census',
+                ${ctx.createdBy})
+        RETURNING id`;
+      return async (undo) => {
+        await undo`DELETE FROM event WHERE id = ${event!.id}`;
+      };
+    },
+  },
+  {
+    check: 'event_subjects',
+    // A live event whose subject came from no node: clearing the anchor is
+    // legal (`legacy_node_id` is nullable and unique only where not null) and
+    // no count-vs-count check can see it.
+    apply: async (tx, ctx) => {
+      const personId = await personOfNode(tx, ctx.orgId, ctx.wifeNode);
+      await tx`UPDATE person SET legacy_node_id = NULL WHERE id = ${personId}`;
+      return async (undo) => {
+        await undo`UPDATE person SET legacy_node_id = ${ctx.wifeNode}
+                    WHERE id = ${personId}`;
+      };
+    },
+  },
+];
+
+describe('reconcileFactLayer divergence gate', () => {
+  // Every check in RECONCILE_CHECKS has a row: if a check is ever added without
+  // a divergence, this comparison fails before any SQL runs.
+  it('covers every check with exactly one divergence', () => {
+    expect(DIVERGENCES.map((row) => row.check).sort()).toEqual(CHECK_NAMES);
+  });
+
+  it.each(DIVERGENCES.map((row): [string, Divergence] => [row.check, row]))(
+    'reports exactly %s for a legal divergence',
+    async (expectedCheck, divergence) => {
+      const ctx = await seedDivergenceTree();
+      const sql = getTestSql();
+      await backfillFactLayer(sql, ctx.orgId);
+
+      // The baseline has to be clean, or the mutation's effect is unreadable.
+      expect((await reconcileFactLayer(sql, ctx.orgId)).diffs).toEqual([]);
+
+      const undo = await divergence.apply(sql, ctx);
+      const diverged = await reconcileFactLayer(sql, ctx.orgId);
+      expect(diverged.checked).toHaveLength(14);
+      expect(diverged.diffs.map((diff) => diff.check)).toEqual([expectedCheck]);
+
+      await undo(sql);
+      expect((await reconcileFactLayer(sql, ctx.orgId)).diffs).toEqual([]);
+    }
+  );
 });
