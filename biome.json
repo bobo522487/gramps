@@ -12,6 +12,7 @@
       "!**/globals.css",
       "!**/.qoder",
       "!**/.agents",
+      "!**/.specify",
       "!**/lib/db/migrations"
     ]
   },
