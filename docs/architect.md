@@ -1,29 +1,43 @@
-# 架构设计（已拆分）
+# 架构文档入口（跳转页）
 
-> **本文件是跳转页。** 原 658 行的 `architect.md` 已按「读者 + 视图」拆成 9 份；章节编号保持与原文档一致，正文已按当前实现与 ADR 0007/0008 校正（2026-10-24），因此其他文档中「architect §3.2」这类引用仍可直接对应到「[02-context](./architecture/02-context.md) §3.2」。
+> **回答什么问题**：架构文档在哪、从哪开始读、旧章节号对应到哪一份？
+> **读者**：全体　**长度上限**：1 页
+> **目标 vs 现状**：本文描述当前实现（as-is）。目标设计见 [PRD](./prd.md) 与 [decisions](./decisions/README.md)。
 
-**从这里开始读**：[架构总览](./architecture/00-overview.md)（一页纸 + 3 张图 + 十条要点）
+**本文件是跳转页，不放正文。** 架构内容在 [`architecture/`](./architecture/)，共 15 份，每份回答一个问题、有明确读者与长度上限。
+
+---
+
+## 从这里开始读
+
+- 第一次接触这个仓库：[00-文档说明](./architecture/00-文档说明.md) → [01-架构总览](./architecture/01-架构总览.md)。
+- 只要一页纸结论：[01-架构总览](./architecture/01-架构总览.md)。
+- 不知道某件事该看哪份：[00-文档说明](./architecture/00-文档说明.md) 的「文档集导航」表。
 
 ---
 
 ## 章节对照
 
-| 原章节 | 内容 | 新位置 |
+原 `architect.md` 是一份 658 行的单文件，先按视图拆成 9 份、再重构为当前 15 份 as-is 文档。原章节号**不再保留**，下表只用于把旧引用翻译过来。
+
+| 原章节 | 内容 | 现在在哪 |
 |---|---|---|
-| §1 | 架构目标 G1–G6、约束、非目标 | [01-drivers](./architecture/01-drivers.md) |
-| §2 · §3 · §10 | 系统上下文、部署视图、部署拓扑 | [02-context](./architecture/02-context.md) |
-| §4 · §7 | 模块划分、依赖方向、分层规则、事务边界、接口形态 | [03-components](./architecture/03-components.md) |
-| §5 · §6 | 读/写请求路径、组织解析、注册、并发、前端渲染与画布 | [04-runtime](./architecture/04-runtime.md) |
-| §8 | 存储模型、隔离、连接、一致性（+ 新增 §8.5 容量口径、§8.6 生命周期） | [05-data](./architecture/05-data.md) |
-| §9 | 配置、错误、日志、安全、可观测性 | [06-crosscutting](./architecture/06-crosscutting.md) |
-| §11 | 质量属性与验证（+ 新增 §11.1 场景、§11.2 fitness function） | [07-quality](./architecture/07-quality.md) |
-| §12 · §14 | 演进路线、条件触发、风险登记簿（+ 新增 R16–R20、§15 待决策） | [08-evolution](./architecture/08-evolution.md) |
-| §13 | 21 条决策索引 + 可逆性标注 | [decisions/](./decisions/README.md) |
+| §1 | 架构目标 G1–G6、约束、非目标 | [02-架构目标与约束](./architecture/02-架构目标与约束.md) |
+| §2 | 系统上下文 | [01-架构总览](./architecture/01-架构总览.md) |
+| §3 · §10 | 部署视图、部署拓扑 | [06-部署视图-部署架构](./architecture/06-部署视图-部署架构.md) |
+| §4 · §7 | 模块划分、依赖方向、分层规则、事务边界 | [03-逻辑视图-模块设计](./architecture/03-逻辑视图-模块设计.md) |
+| §5 · §6 | 读/写请求路径、组织解析、注册、并发、前端渲染与画布 | [07-运行视图-关键流程](./architecture/07-运行视图-关键流程.md) |
+| §8 | 存储模型、隔离、连接、一致性、容量口径、生命周期 | [04-数据视图-数据架构](./architecture/04-数据视图-数据架构.md) |
+| §9 | 配置、错误、日志、安全、可观测性 | 安全 → [09-安全架构](./architecture/09-安全架构.md)；日志与运维 → [10-可观测性与运维](./architecture/10-可观测性与运维.md)；配置与错误 → [05-接口与集成设计](./architecture/05-接口与集成设计.md) |
+| §11 | 质量属性与验证、fitness function | [08-非功能性设计](./architecture/08-非功能性设计.md) |
+| §12 · §14 · §15 | 演进路线、条件触发、风险登记簿、待决策 | [13-风险与演进规划](./architecture/13-风险与演进规划.md) |
+| §13 | 决策索引与可逆性标注 | [decisions/](./decisions/README.md) |
+| — | 接口形态与契约、需求追溯、附录与图集 | [05-接口与集成设计](./architecture/05-接口与集成设计.md)、[12-需求追溯矩阵](./architecture/12-需求追溯矩阵.md)、[14-附录](./architecture/14-附录.md) |
 
 ---
 
-## 为什么要拆
+## 与目标设计的关系
 
-原来的 37KB 单文件同时服务 4 类读者（新人、模块接手者、值班、产品），却没有任何阅读路径——要么全读 1.5 小时，要么全不读。
+`architecture/` 描述的是**当前实现**，不是目标设计。目标形态在 [PRD](./prd.md)（范围与功能需求）、[data-model](./data-model.md)（表结构）、[api](./api.md)（接口契约）、[ops-target](./ops-target.md)（部署蓝图）与 [decisions](./decisions/README.md)（决策与理由）里。
 
-拆分后每份文档有自己的契约（回答什么问题 / 读者 / 长度上限 / 更新触发条件），阅读路径写在 [docs/README.md](./README.md) §3。
+判断一个功能到底实现了没有，只以 [implementation-status](./implementation-status.md) 为准——架构文档只写结构，不写状态。

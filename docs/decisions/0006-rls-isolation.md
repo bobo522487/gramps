@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-21（原始决策）· 2026-10-22（补记为 ADR）
 - **可逆性**：**单向门**（隔离模型是全系统安全假设；换掉等于重做权限体系）
-- **相关**：[data-model §12](../data-model.md) · [05-data §8.2](../architecture/05-data.md) · [07-quality §11.2](../architecture/07-quality.md) · [ADR 0001](./0001-foundation-reset.md) · [ADR 0007](./0007-self-hosted-better-auth.md)
+- **相关**：[data-model §12](../data-model.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [08-非功能性设计](../architecture/08-非功能性设计.md) · [ADR 0001](./0001-foundation-reset.md) · [ADR 0007](./0007-self-hosted-better-auth.md)
 
 > **2026-10-23 修订**：租户写权限（`organization` / `organization_member` / `invite`）已改由 [`auth_service`](./0007-self-hosted-better-auth.md) 承担，`app_rw` 不再拥有这些表的写权限；`SECURITY DEFINER` 函数属主改为 `auth_service`，因此「迁移角色必须 BYPASSRLS」不再是运行前提。**组织不入 JWT、三层隔离的结论仍然有效**，且 Better Auth 的数据库会话同样不含组织声明。
 

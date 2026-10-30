@@ -5,7 +5,7 @@
 | 状态 | 已接受，已完成基础层实现；**认证部分已被 [0007](./0007-self-hosted-better-auth.md) 取代（2026-10-23）** |
 | 日期 | 2026-10-21（执行完成 2026-10-22） |
 | 决策人 | 项目维护者 |
-| 相关文档 | [数据模型](../data-model.md) · [架构](../architecture/00-overview.md) · [实现状态](../implementation-status.md) · [部署蓝图](../ops-target.md) |
+| 相关文档 | [数据模型](../data-model.md) · [架构](../architecture/01-架构总览.md) · [实现状态](../implementation-status.md) · [部署蓝图](../ops-target.md) |
 
 ---
 

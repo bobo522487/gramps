@@ -63,7 +63,7 @@ const serverConfigSchema = z
 
 /**
  * The one place allowed to read process.env (see F7 in
- * docs/architecture/07-quality.md). Everything else asks this module.
+ * docs/architecture/08-非功能性设计.md). Everything else asks this module.
  */
 export function isVercel(): boolean {
   return Boolean(process.env.VERCEL);

@@ -12,7 +12,7 @@
 | 部署单元 | Vercel（Next.js）+ Neon PostgreSQL 18+；本地 Docker 只跑 PostgreSQL |
 | 本地开发 | `docker compose up -d db` + `pnpm dev`（`next dev`，不用应用容器） |
 | 迁移 | Drizzle Kit，对直连 URL 执行，与应用部署分离 |
-| 相关文档 | [架构](./architecture/00-overview.md) · [数据模型](./data-model.md) · [接口](./api.md) |
+| 相关文档 | [架构](./architecture/01-架构总览.md) · [数据模型](./data-model.md) · [接口](./api.md) |
 
 ---
 

@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-24
 - **可逆性**：双向门
-- **相关**：[02-context §3](../architecture/02-context.md) · [03-components §7.4](../architecture/03-components.md) · [04-runtime §6.2](../architecture/04-runtime.md) · [api §1](../api.md) · [ADR 0007](./0007-self-hosted-better-auth.md)
+- **相关**：[01-架构总览](../architecture/01-架构总览.md) · [03-逻辑视图-模块设计](../architecture/03-逻辑视图-模块设计.md) · [07-运行视图-关键流程](../architecture/07-运行视图-关键流程.md) · [api §1](../api.md) · [ADR 0007](./0007-self-hosted-better-auth.md)
 
 ## 背景
 

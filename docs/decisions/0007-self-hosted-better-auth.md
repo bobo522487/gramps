@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-23
 - **可逆性**：**单向门**（身份数据、数据库角色边界与所有认证入口都随之改变；回退需要迁移身份数据并重做租户写权限）
-- **相关**：[实现状态](../implementation-status.md) · [架构 04-runtime](../architecture/04-runtime.md) · [数据模型](../data-model.md) · [部署蓝图](../ops-target.md) · [ADR 0001](./0001-foundation-reset.md) · [ADR 0006](./0006-rls-isolation.md)
+- **相关**：[实现状态](../implementation-status.md) · [07-运行视图-关键流程](../architecture/07-运行视图-关键流程.md) · [数据模型](../data-model.md) · [部署蓝图](../ops-target.md) · [ADR 0001](./0001-foundation-reset.md) · [ADR 0006](./0006-rls-isolation.md)
 
 ---
 

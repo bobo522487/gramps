@@ -6,7 +6,7 @@
 | 最后更新 | 2026-10-23 |
 | 接口风格 | Server Action（内部写）+ RSC（内部首屏读）+ TanStack Query（客户端缓存）+ 4 个只读 Route Handler |
 | 序列化 | JSON；Route Handler 非 2xx 返回 `{ error, code? }` |
-| 相关文档 | [架构](./architecture/00-overview.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
+| 相关文档 | [架构](./architecture/01-架构总览.md) · [数据模型](./data-model.md) · [PRD](./prd.md) · [实现状态](./implementation-status.md) |
 
 ---
 

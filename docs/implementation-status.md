@@ -1,7 +1,7 @@
 # 实现状态
 
 > **文档状态：当前实现说明** · 最后更新：2026-10-30
-> 目标定义来自 [PRD](./prd.md)、[架构](./architecture/00-overview.md)、[数据模型](./data-model.md)、[接口](./api.md)。
+> 目标定义来自 [PRD](./prd.md)、[架构](./architecture/01-架构总览.md)、[数据模型](./data-model.md)、[接口](./api.md)。
 > 本文件只描述**代码里真实存在什么**，不描述计划。
 
 | 项 | 值 |
@@ -111,7 +111,7 @@
 
 ### 1.5 当前代码结构
 
-顶层就是 `app/` + `components/` + `lib/`，没有 `src/modules`，也没有 `*.service.ts` / `*.repo.ts`。依赖方向见 [03-components §4.3](./architecture/03-components.md)。
+顶层就是 `app/` + `components/` + `lib/`，没有 `src/modules`，也没有 `*.service.ts` / `*.repo.ts`。依赖方向见 [03-逻辑视图-模块设计](./architecture/03-逻辑视图-模块设计.md)。
 
 ```
 app/

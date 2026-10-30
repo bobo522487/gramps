@@ -212,7 +212,7 @@ Better Auth 用 `BETTER_AUTH_SECRET` 签名 Cookie，但会话记录保存在 `a
 
 > **轮换 `BETTER_AUTH_SECRET` 会让全量用户在下次请求时失去会话。**
 
-这是已知限制（见 [08-evolution R6 / R20](../architecture/08-evolution.md)）。
+这是已知限制（见 [13-风险与演进规划 R6 / R20](../architecture/13-风险与演进规划.md)）。
 
 ### 什么时候必须轮换
 
@@ -234,7 +234,7 @@ openssl rand -base64 48
 
 ### 改进方向
 
-加 `kid` + 双密钥（当前 + 上一把），轮换变成「加新 → 保留 1 天 → 删旧」，零登出。约 15 行代码，见 [08-evolution R20](../architecture/08-evolution.md)。
+加 `kid` + 双密钥（当前 + 上一把），轮换变成「加新 → 保留 1 天 → 删旧」，零登出。约 15 行代码，见 [13-风险与演进规划 R20](../architecture/13-风险与演进规划.md)。
 
 ---
 
@@ -311,7 +311,7 @@ SELECT id, hash, created_at FROM drizzle._drizzle_migrations ORDER BY created_at
 
 ### 恢复演练
 
-RPO ≤ 1 天、RTO ≤ 4 小时是承诺（[07-quality §11](../architecture/07-quality.md)）。**每季度做一次真实恢复演练**，否则这个承诺只是纸面数字。演练内容：从 PITR 恢复到临时分支 → 抽查三张核心表行数 → 记录实际耗时。
+RPO ≤ 1 天、RTO ≤ 4 小时是承诺（[08-非功能性设计 §5](../architecture/08-非功能性设计.md)）。**每季度做一次真实恢复演练**，否则这个承诺只是纸面数字。演练内容：从 PITR 恢复到临时分支 → 抽查三张核心表行数 → 记录实际耗时。
 
 ---
 
