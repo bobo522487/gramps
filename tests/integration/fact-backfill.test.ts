@@ -84,6 +84,16 @@ async function countPersons(orgId: string): Promise<number> {
   return rows[0].count;
 }
 
+async function personIdOfNode(
+  orgId: string,
+  legacyNodeId: string
+): Promise<string> {
+  const rows = await getTestSql()<{ id: string }[]>`
+    SELECT id FROM person
+    WHERE organization_id = ${orgId} AND legacy_node_id = ${legacyNodeId}`;
+  return rows[0].id;
+}
+
 type Scope = { orgId: string; projectId: string; createdBy: string };
 type InsertTarget = { familyId: string; personId: string };
 
@@ -222,6 +232,7 @@ describe('backfillFactLayer', () => {
       birthTextWithoutYear: 0,
       deathTextWithoutYear: 0,
       spouseEdgeOnBloodNode: 0,
+      yearOutOfRange: 0,
     });
 
     // One person per node, keyed by legacy_node_id, and every person got a
@@ -403,6 +414,108 @@ describe('backfillFactLayer', () => {
     expect(event.date_end).toBe('1900-12-31');
     expect(event.date_precision).toBe('year');
     expect(event.date_qualifier).toBe('exact');
+  });
+
+  it('degrades a placeholder birth_year of 0 instead of aborting the organization', async () => {
+    const { orgId, lineageId, createdBy } = await seedTree();
+    // `node.birth_year` is a plain integer with no CHECK and 0 is the common
+    // legacy placeholder for "unknown". One transaction covers the whole
+    // organization, so throwing here would block the migration for every node.
+    const placeholder = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'a',
+      name: '缺年',
+      birthYear: 0,
+    });
+    const dated = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'b',
+      name: '有年',
+      birthYear: 1900,
+    });
+
+    const result = await backfillFactLayer(getTestSql(), orgId);
+
+    // The organization commits: both people exist, and the healthy sibling
+    // still gets its exact bounds.
+    expect(result.persons).toBe(2);
+    expect(await countPersons(orgId)).toBe(2);
+    expect(result.lossReport.yearOutOfRange).toBe(1);
+
+    const events = await readEvents(orgId, 'birth');
+    expect(events).toHaveLength(2);
+
+    const placeholderPersonId = await personIdOfNode(orgId, placeholder.id);
+    const degraded = events.find(
+      (row) => row.person_id === placeholderPersonId
+    );
+    expect(degraded).toBeDefined();
+    expect(degraded?.date_qualifier).toBe('unknown');
+    expect(degraded?.date_start).toBeNull();
+    expect(degraded?.date_end).toBeNull();
+    expect(degraded?.date_precision).toBeNull();
+    // A placeholder year is not original text: date_original stays NULL.
+    expect(degraded?.date_original).toBeNull();
+
+    const datedPersonId = await personIdOfNode(orgId, dated.id);
+    const healthy = events.find((row) => row.person_id === datedPersonId);
+    expect(healthy?.date_start).toBe('1900-01-01');
+    expect(healthy?.date_end).toBe('1900-12-31');
+    expect(healthy?.date_qualifier).toBe('exact');
+  });
+
+  it('degrades a birth_year of 10000 and keeps the birth text as date_original', async () => {
+    const { orgId, lineageId, createdBy } = await seedTree();
+    const placeholder = await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'a',
+      name: '逾年',
+      birthYear: 10000,
+      birthText: '约万历年间',
+    });
+    await createNode({
+      orgId,
+      lineageId,
+      createdBy,
+      generation: 1,
+      path: 'b',
+      name: '有卒年',
+      isAlive: false,
+      birthYear: 1900,
+      deathYear: 1970,
+    });
+
+    const result = await backfillFactLayer(getTestSql(), orgId);
+
+    expect(result.persons).toBe(2);
+    expect(result.events).toBe(3);
+    expect(result.lossReport.yearOutOfRange).toBe(1);
+
+    const births = await readEvents(orgId, 'birth');
+    expect(births).toHaveLength(2);
+    const placeholderPersonId = await personIdOfNode(orgId, placeholder.id);
+    const degraded = births.find(
+      (row) => row.person_id === placeholderPersonId
+    );
+    // The text is original text, so it survives even though the year cannot
+    // become bounds; the year itself is counted, not invented.
+    expect(degraded?.date_original).toBe('约万历年间');
+    expect(degraded?.date_qualifier).toBe('unknown');
+    expect(degraded?.date_start).toBeNull();
+    expect(degraded?.date_end).toBeNull();
+    expect(degraded?.date_precision).toBeNull();
+
+    const [death] = await readEvents(orgId, 'death');
+    expect(death.date_start).toBe('1970-01-01');
   });
 
   it('records a burial place as a place, never as a date', async () => {

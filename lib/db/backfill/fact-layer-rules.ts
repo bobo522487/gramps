@@ -6,7 +6,10 @@
 // `date_original`, a burial place produces `place_original` and no date at all,
 // and a blood node carrying `spouse_of_id` is counted instead of being turned
 // into a second blood partner, which app.check_family_blood_side() would reject
-// with 23514 and abort the whole organization.
+// with 23514 and abort the whole organization. A year outside 1..9999 (0 is the
+// legacy "unknown" placeholder) degrades to an 'unknown' date and is counted,
+// because the backfill is one transaction per organization and a throw would
+// block the migration for every node in it.
 
 export type LossReport = {
   /** Children of a father with more than one recorded spouse. */
@@ -25,6 +28,13 @@ export type LossReport = {
    * the edge is skipped here.
    */
   spouseEdgeOnBloodNode: number;
+  /**
+   * birth_year / death_year outside 1..9999 (0 is the common legacy
+   * placeholder for "unknown"). The event is still written with
+   * date_qualifier='unknown' and no bounds; only the year is lost, and this
+   * counter is what makes that loss visible in the CLI output.
+   */
+  yearOutOfRange: number;
 };
 
 /** A live (not soft-deleted) node joined with the project of its lineage. */
@@ -85,6 +95,7 @@ export function emptyLossReport(): LossReport {
     birthTextWithoutYear: 0,
     deathTextWithoutYear: 0,
     spouseEdgeOnBloodNode: 0,
+    yearOutOfRange: 0,
   };
 }
 
@@ -110,18 +121,21 @@ function byId(left: { id: string }, right: { id: string }): number {
 }
 
 /**
+ * Whether a year can become `date` bounds. PostgreSQL stores years 1..9999, and
+ * `node.birth_year` / `node.death_year` are plain integers with no CHECK, so 0
+ * and values above 9999 reach this function from legacy data.
+ */
+function isStorableYear(year: number): boolean {
+  return Number.isInteger(year) && year >= 1 && year <= 9999;
+}
+
+/**
  * Map a year typed into `birth_year` / `death_year` onto a date range.
  *
  * `date_original` stays NULL: a year in a numeric column is not original text,
- * and the year is fully carried by the bounds. A year PostgreSQL cannot store
- * in a `date` (0 or out of range) is an error, not a silently dropped fact.
+ * and the year is fully carried by the bounds.
  */
-function yearBounds(year: number, nodeId: string, column: string) {
-  if (!Number.isInteger(year) || year < 1 || year > 9999) {
-    throw new Error(
-      `node ${nodeId}: ${column}=${year} is outside the supported range 1..9999`
-    );
-  }
+function yearBounds(year: number) {
   const padded = String(year).padStart(4, '0');
   return { start: `${padded}-01-01`, end: `${padded}-12-31` };
 }
@@ -129,14 +143,23 @@ function yearBounds(year: number, nodeId: string, column: string) {
 /**
  * Birth/death date fields. Exactly one of the five date rules in 0021 must
  * hold, and `date_qualifier` is always written explicitly:
- * - year present → 'exact', both bounds, precision 'year';
- * - text only → 'unknown', both bounds NULL.
+ * - storable year present → 'exact', both bounds, precision 'year';
+ * - text only, or a year outside 1..9999 → 'unknown', both bounds NULL.
+ *
+ * A placeholder year (0, or anything outside 1..9999) degrades instead of
+ * throwing: the source row is not lost — `node` stays the read source through
+ * P1 and P2 — so one bad legacy row must not abort the whole organization's
+ * single-transaction migration. The loss is counted in
+ * `lossReport.yearOutOfRange` so the operator sees it in the CLI output.
+ *
+ * "Nothing to say → no event" still holds, but only for a node with no year
+ * column value at all and no text; a placeholder year is still a year the
+ * source recorded, so it produces an 'unknown' event rather than silence.
  */
 function datedFields(
   kind: 'birth' | 'death',
   text: string | null,
   year: number | null,
-  node: LiveNode,
   lossReport: LossReport
 ): DateFields | null {
   const original = meaningfulText(text);
@@ -158,7 +181,20 @@ function datedFields(
       place_original: null,
     };
   }
-  const bounds = yearBounds(year, node.id, `${kind}_year`);
+  if (!isStorableYear(year)) {
+    lossReport.yearOutOfRange += 1;
+    // date_original is only ever original text: a placeholder year is not a
+    // date, so nothing is synthesised from it.
+    return {
+      date_original: original,
+      date_start: null,
+      date_end: null,
+      date_precision: null,
+      date_qualifier: 'unknown',
+      place_original: null,
+    };
+  }
+  const bounds = yearBounds(year);
   return {
     date_original: original,
     date_start: bounds.start,
@@ -261,7 +297,6 @@ export function planEvents(
       'birth',
       node.birth_text,
       node.birth_year,
-      node,
       lossReport
     );
     if (birth !== null) {
@@ -271,7 +306,6 @@ export function planEvents(
       'death',
       node.death_text,
       node.death_year,
-      node,
       lossReport
     );
     if (death !== null) {
