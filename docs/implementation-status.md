@@ -1,14 +1,14 @@
 # 实现状态
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-28
+> **文档状态：当前实现说明** · 最后更新：2026-10-30
 > 目标定义来自 [PRD](./prd.md)、[架构](./architecture/00-overview.md)、[数据模型](./data-model.md)、[接口](./api.md)。
 > 本文件只描述**代码里真实存在什么**，不描述计划。
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 2.1 |
+| 文档版本 | 2.2 |
 | 文档状态 | 当前实现说明 |
-| 最后更新 | 2026-10-28 |
+| 最后更新 | 2026-10-30 |
 | 部署状态 | 目标为 Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`VERCEL` 环境用 `pg` + `attachDatabasePool`），本地/CI 用 `postgres.js`。**本地生产模式已用 `verify:deploy` 全项验证**；真实 Vercel/Neon 未部署（无凭据），云端入口已就绪 |
 
 ---
@@ -20,8 +20,8 @@
 | 框架 | Next.js 16.4.3、React 19.3.1 | `package.json` |
 | 语言 | TypeScript 7.0.2（Go 原生实现，无 `@typescript/native-preview`）；`strict` + `verbatimModuleSyntax` / `noImplicitReturns` / `noFallthroughCasesInSwitch` / `noUncheckedSideEffectImports`；`isolatedModules` 已由 `verbatimModuleSyntax` 覆盖并删除 | `tsconfig.json`、[ADR 0012](./decisions/0012-typescript7-compiler-flags.md) |
 | 运行时 | Node.js 24 LTS、pnpm 12.15.0、TypeScript 7.0.2 | `.nvmrc`、`package.json`（`packageManager` / `engines`）、CI |
-| 数据库 | PostgreSQL 18 + Drizzle 0.45.4；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema.ts` |
-| 主键 | UUIDv7（`uuidv7()`）；20 位公开 `slug`/`ref` 仅用于 URL | `lib/db/schema.ts`、`lib/ids.ts` |
+| 数据库 | PostgreSQL 18 + Drizzle 0.45.4；本地/CI `postgres.js`，Vercel 环境 `pg` + `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/schema/index.ts` |
+| 主键 | UUIDv7（`uuidv7()`）；20 位公开 `slug`/`ref` 仅用于 URL | `lib/db/schema/index.ts`、`lib/ids.ts` |
 | 认证 | 自托管 Better Auth 1.7.12：邮箱 + 密码，scrypt；BETTER_AUTH_SECRET；不暴露 `/api/auth/*` | `lib/auth/better-auth.ts`、`lib/db/migrations/0003_better_auth.sql` |
 | 会话 | 数据库会话，Cookie `better-auth.session_token`，7 天有效、`updateAge` 1 天 | `lib/auth/better-auth.ts`、`proxy.ts` |
 | 会话撤销 | `auth.api.getSession` 查库；`getSessionUser()` 按请求缓存；改密/删号/删会话即时生效 | `lib/auth/context.ts` |
@@ -30,7 +30,7 @@
 | 界面 | 简体中文，品牌“云谱”；无 i18n 框架 | `app/layout.tsx`、各页面组件 |
 | 客户端数据 | TanStack Query 5；RSC 首屏 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 调用只读 API，写后 `invalidateQueries`；首屏数据以 RSC 为唯一来源，单个 hook 不设 `refetchOnMount`，新鲜度统一由 `createQueryClient` 的 `staleTime` 决定 | `components/query-provider.tsx`、`lib/query-keys.ts`、`hooks/use-session-user.ts`、`tests/first-paint-data.test.ts`、[ADR 0013](./decisions/0013-next-react-runtime-layer.md) |
 | 谱系画布 | `@xyflow/react` 12 + zustand 5.0.16（zustand 仅存谱系工作区 UI 状态，不存实体数据） | `components/lineage/canvas/`、`components/lineage/lineage-store.ts` |
-| 数据表 | 11 张组织级业务表 + 4 张 `auth.*` 表 | 见 §1.1 |
+| 数据表 | 17 张组织级业务表 + 4 张 `auth.*` 表 | 见 §1.1 |
 | Route Handler | 4 个 | 见 §1.3 |
 | 配置与日志 | Zod 启动校验；结构化日志自动带 `request_id`/`user_id`；API 记录 `duration_ms` | `lib/config.ts`、`instrumentation.ts`、`lib/server/request-context.ts`、`lib/api.ts` |
 | 代码检查 | Biome | `biome.json`、`package.json` |
@@ -52,11 +52,14 @@
 | `project` | 云谱空间；`ref` 为 20 位公开 ID；字段为 `name`/`surname`/`theme_name`/`hall_code`/`countries_regions`/`status`/`importance`/`notes` |
 | `folder` | 分类树（`kind` 0/1/2）；谱系分类已有 UI/Action，谱文/谱书分类待接入 |
 | `lineage` / `node` | 谱系与人丁；欧式书本画布、世系表、左侧谱系管理、搜索定位、字辈提示、增删改移、检查器、按代渲染窗口已实现 |
+| `person` / `person_name` | 人丁事实层：人丁与多姓名（谱名、字、号、讳……）；`primary_name_id` 是不可延迟的复合外键，所以带主名的人丁要三步写入；无查询层、无 UI |
+| `family` / `family_partner` / `family_child` | 事实层：家庭、配偶（`blood`/`spouse`）、子女（`parentage_type`）；「至多一个 `blood` 配偶」由 `app.check_family_blood_side()` 触发器执行；无查询层、无 UI |
+| `event` | 事实层：事件（生、卒、葬、婚、迁、职业……）与属性；日期七列语义见[数据模型 §6.8](./data-model.md#68-event事件)；无查询层、无 UI |
 | `article` | 谱文（表已存在，无业务 UI） |
 | `book` / `book_catalog` | 谱书与编目（表已存在，无业务 UI） |
 | `activity_logs` | 产品活动流；账号级事件 `organization_id` 为空；不是审计表 |
 
-除 `activity_logs`（产品活动流）外，组织级业务表都有 `deleted_at` 软删列；`organization_member` 与 `invite` 例外（硬删除）；没有回收站 UI。目标设计仍有 10 张业务表的口径，这里的 11 张包含 `activity_logs`。
+除 `activity_logs`（产品活动流）外，组织级业务表都有 `deleted_at` 软删列；`organization_member` 与 `invite` 例外（硬删除）；没有回收站 UI。共 16 张业务表，加上 `activity_logs` 是 17 张。事实层六张表全部软删，且都只有 `SELECT`/`INSERT`/`UPDATE` 授权——没有 `DELETE`，物理删除只能走运维（[数据模型 §11.3](./data-model.md#113-整组恢复运维手册)）。
 
 数据库层还有：
 
@@ -69,9 +72,13 @@
 - 最后 owner 保护触发器 `trg_org_member_last_owner_delete` / `trg_org_member_last_owner_update`。
 - `FORCE ROW LEVEL SECURITY`：`app_rw` 以及表属主都受策略约束；迁移角色通过 `SET LOCAL ROLE app_rw` 降权后查询。
 - 扩展 `ltree`、`pg_trgm`、`btree_gist`；GiST 用于 `node` 的 `path` 索引。`pg_trgm` 保留给 `article`（`idx_article_search`，FR-ART-5）；`node` 搜索在客户端，`idx_node_search` 已在 `0013` 删除（[ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md)）。
-- `0014`：手写 custom migration 新增 `idx_node_spouse_sort`（B-tree，部分于 `deleted_at IS NULL`，列 `(organization_id, spouse_of_id)`），服务 `nextSpouseSort` 的 `max(sort)` 查询，避免配偶写入在 `FOR UPDATE` 锁内扫描整谱系；同 0013 的思路——每个索引都有消费者。它只活在迁移里，不进 `lib/db/schema.ts`（该文件恰在 F6 豁免线 688，零余量），与 `idx_node_search`/`idx_node_lineage_path` 一致。
+- `0014`：手写 custom migration 新增 `idx_node_spouse_sort`（B-tree，部分于 `deleted_at IS NULL`，列 `(organization_id, spouse_of_id)`），服务 `nextSpouseSort` 的 `max(sort)` 查询，避免配偶写入在 `FOR UPDATE` 锁内扫描整谱系；同 0013 的思路——每个索引都有消费者。它只活在迁移里，不进 `lib/db/schema/`（Drizzle schema 已按域拆分），与 `idx_node_search` 一致。
 - `0002_app_role_grant` 与 `0003_better_auth`：登录角色存在时补 `GRANT app_rw TO app` / `GRANT auth_service TO auth_runtime`；角色创建仍属本地/运维步骤。
-- `0015`：租户列不可变（[ADR 0016](./decisions/0016-tenant-columns-immutable.md)）。`app` schema 的 `app.forbid_tenant_move()` + 10 个 `trg_<table>_tenant_immutable`（`organization_member`、`invite`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog`、`activity_logs`）挡住「双组织用户把行搬到另一个组织」——RLS 的 `WITH CHECK` 只看新值，policy 无法比较新旧行。改归属列报 SQLSTATE `42501`；结构关系列（`parent_id`、`spouse_of_id`、`folder_id` 等）保持可写。`USAGE`/`EXECUTE` 同时授 `app_rw` 与 `auth_service`。新增组织级表必须挂这个触发器，`tests/integration/tenant-immutability.test.ts` 断言精确的 10 张表。
+- `0015`：租户列不可变（[ADR 0016](./decisions/0016-tenant-columns-immutable.md)）。`app` schema 的 `app.forbid_tenant_move()` + 16 个 `trg_<table>_tenant_immutable`（`organization_member`、`invite`、`project`、`folder`、`lineage`、`node`、`person`、`person_name`、`family`、`family_partner`、`family_child`、`event`、`article`、`book`、`book_catalog`、`activity_logs`）挡住「双组织用户把行搬到另一个组织」——RLS 的 `WITH CHECK` 只看新值，policy 无法比较新旧行。改归属列报 SQLSTATE `42501`；结构关系列（`parent_id`、`spouse_of_id`、`folder_id` 等）保持可写。`USAGE`/`EXECUTE` 同时授 `app_rw` 与 `auth_service`。新增组织级表必须挂这个触发器，`tests/integration/tenant-immutability.test.ts` 断言精确的 16 张表。
+- `P0`（2026-10-29）：`lib/db/schema.ts`（688 行）拆成 `lib/db/schema/{shared,auth,org,project,lineage,content,activity,relations,index}.ts`，`drizzle.config.ts` 指向 `lib/db/schema/index.ts`；`arch:check` 的 F6 单文件 400 行豁免名单从 8 条降到 7 条（拆完的目录不再需要豁免）；`pnpm db:generate` 报告无漂移。
+- `P1`（2026-10-29/30）：事实层六张表落库——`0016`/`0017`（`person`、`person_name`）、`0018`/`0019`（`family`、`family_partner`、`family_child`）、`0020`–`0023`（`event`），全部 `ENABLE` + `FORCE ROW LEVEL SECURITY`、三策略、无 `DELETE` 授权，并各挂租户列不可变触发器；`0018` 给 `project` 加 `allow_consanguineous_marriage`；`0019` 加 `app.check_family_blood_side()`（至多一个 `blood` 配偶，下界故意不约束）。
+- `P1`：回填与对账已实现。`lib/db/backfill/fact-layer.ts` + `fact-layer-rules.ts`（单事务、只写事实层、`person.legacy_node_id` 作锚点），CLI `data/backfill-fact-layer.ts`（`pnpm data:backfill:fact --org <uuid>`）；`lib/db/backfill/reconcile-fact-layer.ts` 做十项独立检查，CLI `data/reconcile-fact-layer.ts`（`pnpm data:reconcile:fact`）。两个脚本以迁移角色直连、启动时断言 `rolsuper`/`rolbypassrls`，只能人工执行（[数据模型 §1.5](./data-model.md#15-两条硬约定)）。
+- **事实层还没有读写路径**：`node` 仍是唯一读源与唯一写目标。读写切换、DTO 变更、`node` 冻结与退役属于另一份计划 `2026-11-XX-p1-read-write-switch.md`（尚未编写）；本仓库当前没有任何页面、Action 或查询函数读 `person`/`family`/`event`。
 
 ### 1.2 公开 ID 与控制台路由
 
@@ -133,9 +140,10 @@ components/
 lib/
 ├── auth/                     # Better Auth 实例、会话 context、access-control、错误映射、限流、schema、actions
 ├── db/
+│   ├── backfill/             # 事实层回填与对账（fact-layer.ts、fact-layer-rules.ts、reconcile-fact-layer.ts）
 │   ├── queries/              # 按领域拆分：organizations、invitations、projects、activity、folders、lineages、nodes
 │   ├── services.ts           # 项目多步事务流程
-│   ├── schema.ts             # Drizzle schema（auth 表 + 业务表）
+│   ├── schema/               # Drizzle schema 按域拆分：shared、auth、org、project、lineage、content、activity、relations、index
 │   ├── auth-schema.ts        # Better Auth Drizzle adapter 的表映射
 │   ├── auth-db.ts            # 认证连接单例（固定 role=auth_service）
 │   ├── drizzle.ts            # 业务连接单例（本地 postgres.js / Vercel pg）
@@ -154,6 +162,7 @@ lib/
 ├── query-keys.ts             # TanStack Query queryKey 工厂
 └── ui/status.ts              # 枚举/角色/区域 → 中文文案与状态样式
 hooks/                        # use-session-user、use-resizable（侧栏/检查器拖宽）
+data/                         # 运维 CLI：backfill-fact-layer、reconcile-fact-layer（不经应用运行时，用迁移角色直连）
 tests/                        # Vitest 单测 + 真实 PostgreSQL 集成测试 + Playwright E2E
 instrumentation.ts            # 启动时校验配置并注册日志上下文
 proxy.ts                      # Next 16 路由门禁（乐观，不是授权边界）
@@ -173,6 +182,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 | 组织与成员 | 默认组织（触发器）、邀请链接 7 天、角色管理、组织停用 | 默认组织（注册触发器）、建组织、多组织、Better Auth invitation、4 角色与权限矩阵、移除成员、最后一个 owner 触发器保护、归档组织 | ✅ |
 | 云谱空间 | 谱系/谱文/谱书三棵分类树 | 目标字段的 `project`、20 位 `ref`、项目创建冲突重试；谱系分类树已可用，谱文/谱书仍是占位页 | 🟡 部分 |
 | 谱系与人丁 | `FR-LIN-1` ~ `FR-LIN-13` | 左侧谱系管理、欧式书本画布、世系表、搜索定位、字辈提示、始祖/子女/兄弟/配偶、拖拽录入、检查器、编辑/移动/删除、打印视图、按代渲染窗口；人丁自定义字段 UI 未实现 | 🟡 部分 |
+| 人丁事实层 | 目标：`person`/`family`/`event` 成为唯一读写源，`node` 退役 | 六张表 + RLS + 租户触发器 + 回填 + 十项对账已落地；**读写仍全部走 `node`**，没有查询函数、DTO 或 UI；读写切换属于 `2026-11-XX-p1-read-write-switch.md`（未编写） | 🟡 部分 |
 | 谱文 | `FR-ART-1` ~ `FR-ART-5` | 表存在；无页面、无 Action | ⬜ 未实现 |
 | 谱书与编目 | `FR-BOOK-1` ~ `FR-BOOK-8` | 表存在；无页面、无 Action | ⬜ 未实现 |
 | 分类树 | `folder` | 谱系分类已实现（三级、删除子树并解绑内容）；谱文/谱书分类未接入 | 🟡 部分 |

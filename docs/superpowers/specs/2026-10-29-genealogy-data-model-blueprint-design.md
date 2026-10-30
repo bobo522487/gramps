@@ -399,7 +399,9 @@ UNIQUE (organization_id, event_id, person_id, role)
 
 **11.2 日期语义（把"before 1691 有两种合法编码"这个洞关掉）**
 
-七列：`date_original`（原文，必填）、`date_start`、`date_end`（`date` 类型）、`date_precision`、`date_qualifier`、`calendar`、`date_cn`（农历原文结构）。
+七列：`date_original`（原文，**可空**）、`date_start`、`date_end`（`date` 类型）、`date_precision`、`date_qualifier`、`calendar`、`date_cn`（农历原文结构）。
+
+`date_original` 只存**原文**，不从年份反推，也不接受空白（`ck_event_date_original_not_blank` 拒绝 `''` 与纯空白）。它必须可空：有的事件只知道葬地（「葬地已知、卒年失考」），这一列若 `NOT NULL`，录入时只能编一个日期填进去，等于伪造史料。
 
 | `date_qualifier` | `date_start` | `date_end` | 语义 |
 |---|:--:|:--:|---|
@@ -407,9 +409,11 @@ UNIQUE (organization_id, event_id, person_id, role)
 | `before` | 必须为空 | 必填 | "不晚于"：`end` 是上界 |
 | `after` | 必填 | 必须为空 | "不早于"：`start` 是下界 |
 | `between` / `period` | 必填 | 必填 | 明确区间 |
-| `unknown` | 必须为空 | 必须为空 | 只有原文 |
+| `unknown` | 必须为空 | 必须为空 | 没有可用日期；原文可有可无（`date_original` 可空） |
 
 五条 CHECK 各自成文，附件的 `date_qualifier` 完全没有约束（评审 P1）。`date_precision`（`day|month|year|decade|century`）只管**展示粒度**，不参与边界推导——两件事分开，才不会出现"精确到年但 `date_end` 为空"的歧义。
+
+单日事实的规范写法是 `exact` 且 `date_start = date_end`。`exact` 配 `date_start <> date_end` 与 `between` 形状完全相同，语义只靠 `date_qualifier` 区分——这个歧义留给 P3/P4 收敛，P1 不加约束。
 
 **11.3 农历：存原文，换算成区间**
 
@@ -676,7 +680,7 @@ UNIQUE (organization_id, issue_code, subject_type, subject_id) WHERE status = 'o
 | `role='spouse'` 行（`spouse_of_id` 指向血亲） | `person` + `family` + `family_partner` + `person_placement(placement_kind='spouse')` | 与配偶组成一个 `family`，该人 `family_partner.role='spouse'`；**同时建一条配偶位次**（`generation`/`sort` 跟随配偶），否则配偶会从画布、客户端搜索、检查器里消失（§10.1） |
 | `parent_id` | `family_child` + `family` | 见 19.2 的母亲归属问题 |
 | `name`/`surname`/`full_name`/`courtesy`/`name_prefix` | `person_name`（主名 + `courtesy` 一条） | `full_name` 进 `person_name.full_name`，`person.primary_name_id` 指向它 |
-| `birth_text`/`birth_year` | `event(event_type='birth')` | 原文进 `date_original`，年份进 `date_start`/`date_end`（精度 `year`） |
+| `birth_text`/`birth_year` | `event(event_type='birth')` | 原文进 `date_original`（可空），年份进 `date_start`/`date_end`（精度 `year`）；只有年份没有原文时 `date_original` 留 `NULL`，不合成字符串 |
 | `death_text`/`death_year` | `event(event_type='death')` | 同上 |
 | `burial_place` | `event(event_type='burial').place_original` | 先存原文，P3 后再归一成 `place_id` |
 | `biography` | `note(note_type='biography')` | P9 才建 `note`，**P1 不迁**：`node.biography` 继续是唯一真源，P9 建表时一次性迁入，避免留一个用完就删的过渡列 |
@@ -738,8 +742,8 @@ A2.1 计划（`2026-10-29-a2-lifespan-layer.md`）的任务边界相应调整：
 
 | 期 | 主题 | 新增表 | 迁移内容 | 验收 |
 |---|---|---|---|---|
-| **P0** | 地基 | 0 | `lib/db/schema.ts` 拆目录；`app.forbid_tenant_move()` 触发器；RLS 模板核对；`placement_tree` DELETE 授权 ADR 0014 | 拆目录后 `pnpm arch:check` 通过；跨组织搬行被拒（集成测试） |
-| **P1** | 事实层 + 事件最小 | `person`、`person_name`、`family`、`family_partner`、`family_child`、`event`（6） | `node` 姓名 + 关系 + 软删 + 生卒葬（生卒葬进 `event`；`event.place_id` 列在 P3 才加，避免与 P3 的 `place` 表顺序冲突） | 人数、父子、配偶、生卒原文、软删全等；`loss_report` 只有已知的母亲缺失 |
+| **P0** ✅ | 地基 | 0 | `lib/db/schema.ts` 拆目录；`app.forbid_tenant_move()` 触发器；RLS 模板核对；`placement_tree` DELETE 授权 ADR 0014 | 拆目录后 `pnpm arch:check` 通过；跨组织搬行被拒（集成测试）。**已落地 2026-10-29**：`lib/db/schema/` 九个域文件，F6 豁免 8 → 7，`db:generate` 无漂移；见 [计划](../plans/2026-10-29-p0-p1-schema-split-and-fact-layer.md) |
+| **P1** ✅（库） | 事实层 + 事件最小 | `person`、`person_name`、`family`、`family_partner`、`family_child`、`event`（6） | `node` 姓名 + 关系 + 软删 + 生卒葬（生卒葬进 `event`；`event.place_id` 列在 P3 才加，避免与 P3 的 `place` 表顺序冲突） | 人数、父子、配偶、生卒原文、软删全等；`loss_report` 只有已知的母亲缺失。**表、RLS、回填与十项对账已落地 2026-10-30**（见同一计划）；**读写切换仍未做**——`node` 仍是唯一读源与写目标，切换属于 `2026-11-XX-p1-read-write-switch.md`（未编写） |
 | **P2** | 位次层 | `person_placement`、`placement_tree`、`lineage_branch`（3） | `node` 的树、世代、排序、配偶位次（`placement_kind`） | `placement_tree` 增量维护与重建结果一致；画布/世系表读新表照常；兼祧两张卡片 |
 | **P3** | 地点层 | `place`、`event.place_id` 回填（1） | `node.burial_place` 原文归一成 `place` | 地名归一后原文不丢；`place_id` 可空 |
 | **P4** | 时间层全量 | `place_name`、`era`、`event_participant`（3） | — | 农历原文 + 区间换算可测；证人/主婚可录 |
@@ -750,7 +754,7 @@ A2.1 计划（`2026-10-29-a2-lifespan-layer.md`）的任务边界相应调整：
 | **P9** | 呈现与治理 | `note`、`note_link`、`book_snapshot`、`validation_issue`、`person_merge_log`（5） | `person.legacy_biography` → `note` | 快照不可变；问题去重键生效 |
 | **P10** | 退役 `node` | 删 1 | 含 `lineage.node_count` → `person_count` 改名 | 全量 JSON 备份完成；`node` 相关代码零引用 |
 
-合计新增 34 张表，终态约 44 张（现有 10 张保留）。每期 ≤6 张新表，单期可评审、可回滚。
+合计新增 34 张表，终态约 49 张（现有 16 张业务表，P10 退役 `node` 后保留 15 张）。每期 ≤6 张新表，单期可评审、可回滚。
 
 **期与期的依赖**：P0 硬前置（不拆 schema 加不了表）；P1 → P2 → P3 严格顺序；P4–P9 之间除 P5 依赖 P3（事件要挂来源）外可以并行；P10 必须最后。
 

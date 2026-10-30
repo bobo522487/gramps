@@ -2,13 +2,13 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.6 |
-| 最后更新 | 2026-10-23 |
+| 文档版本 | 1.7 |
+| 最后更新 | 2026-10-30 |
 | 数据库 | Neon PostgreSQL 18+（生产）/ Docker PostgreSQL 18+（本地） |
 | 驱动 | 本地 `postgres.js`；生产 `pg` + `attachDatabasePool` |
 | 部署 | Vercel + 自定义域名 + Neon；本地 Docker 只跑 PostgreSQL + `next dev` |
 | 字符集 / 时区 | UTF-8 / 所有时间列 `timestamptz` |
-| 表数量 | 11 张组织级业务表（10 张业务表 + `activity_logs`）+ 4 张 `auth.*` 表 |
+| 表数量 | 17 张组织级业务表（16 张业务表 + `activity_logs`）+ 4 张 `auth.*` 表 |
 | 相关文档 | [架构](./architecture/00-overview.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
 
 ---
@@ -40,11 +40,11 @@ id uuid PRIMARY KEY DEFAULT uuidv7()
 
 `uuidv7()` 是 PostgreSQL 18 内置函数，不再依赖应用层生成或随机 UUID。部署前置为 PostgreSQL 18+；迁移前先执行 `SELECT uuidv7();` 自检。
 
-10 张业务表、`activity_logs` 与 4 张 `auth.*` 表的主键都使用上面的默认值。
+16 张业务表、`activity_logs` 与 4 张 `auth.*` 表的主键都使用上面的默认值。
 
 ### 1.3 公共列
 
-**8 张软删业务实体表**（organization/project/folder/lineage/node/article/book/book_catalog）统一包含：
+**14 张软删业务实体表**（organization/project/folder/lineage/node/article/book/book_catalog/person/person_name/family/family_partner/family_child/event）统一包含：
 
 | 列 | 类型 | 说明 |
 |---|---|---|
@@ -67,6 +67,13 @@ M1 **没有乐观锁列**。并发写入是 last-write-wins，见 PRD §5.5 与 
 | 结构化配置 | `jsonb` | `json` | 可索引 |
 | 富文本 | `jsonb`（ProseMirror） | `text` HTML | 结构可校验、可迁移 |
 | 树路径 | `ltree` | `text` 逗号分隔 | 原生祖先/后代查询 |
+
+### 1.5 两条硬约定
+
+| 约定 | 规则 | 依据 |
+|---|---|---|
+| 租户列不可变 | `organization_id` 与上一级容器列（`project_id`、`lineage_id`、`book_id`）写入后不能 `UPDATE`；要换归属只能新建一行再迁移数据。由 `app.forbid_tenant_move()` 触发器兜底，改归属列报 SQLSTATE `42501` | [ADR 0016](./decisions/0016-tenant-columns-immutable.md)、§12.7 |
+| `data/` 脚本绕过 RLS | `data/` 下的运维 CLI 以迁移角色直连（`POSTGRES_URL_DIRECT`，回退 `POSTGRES_URL_NON_POOLING`、`POSTGRES_URL`），启动时断言当前角色有 `rolsuper` 或 `rolbypassrls`，否则在写入前退出。它们不经过 `withOrg`，因此**不能**从应用请求或 Server Action 里调用，只能由人显式执行 | `data/backfill-fact-layer.ts`、`data/reconcile-fact-layer.ts` |
 
 ---
 
@@ -101,6 +108,10 @@ organization                      ← 隔离边界（RLS 生效范围）
 └── project                       ← 云谱空间（组织内分组，不独立隔离）
     ├── folder
     ├── lineage ── node
+    ├── person ── person_name     ← 事实层：人丁与姓名
+    ├── family ── family_partner
+    │         └── family_child
+    ├── event                     ← 事实层：事件，挂 person 或 family
     ├── article
     └── book ── book_catalog
 ```
@@ -117,15 +128,23 @@ organization                      ← 隔离边界（RLS 生效范围）
 | 4 | `project` | 云谱空间 | `project` |
 | 5 | `folder` | 分类 | `project` |
 | 6 | `lineage` | 谱系 | `lineage` |
-| 7 | `node` | 人丁 | `lineage` |
-| 8 | `article` | 谱文 | `content` |
-| 9 | `book` | 谱书 | `publishing` |
-| 10 | `book_catalog` | 编目 | `publishing` |
-| 11 | `activity_logs` | 产品活动流 | `organization` |
+| 7 | `node` | 人丁（当前读写源） | `lineage` |
+| 8 | `person` | 人丁（事实层） | `lineage` |
+| 9 | `person_name` | 人丁姓名 | `lineage` |
+| 10 | `family` | 家庭 | `lineage` |
+| 11 | `family_partner` | 家庭配偶 | `lineage` |
+| 12 | `family_child` | 家庭子女 | `lineage` |
+| 13 | `event` | 事件 | `lineage` |
+| 14 | `article` | 谱文 | `content` |
+| 15 | `book` | 谱书 | `publishing` |
+| 16 | `book_catalog` | 编目 | `publishing` |
+| 17 | `activity_logs` | 产品活动流 | `organization` |
 
 每张表有且只有一个 owner 域。跨域读取调用 owner 域导出的查询函数，不直接 join 别人的表。
 
-上表是 **10 张业务表**；加上 `activity_logs` 共 **11 张组织级业务表**。另有 4 张 `auth.*` 表，位于独立的 `auth` schema，由 Better Auth 管理，不属于业务表计数，也不参与组织的三层隔离。
+上表是 **16 张业务表**；加上 `activity_logs` 共 **17 张组织级业务表**。另有 4 张 `auth.*` 表，位于独立的 `auth` schema，由 Better Auth 管理，不属于业务表计数，也不参与组织的三层隔离。
+
+`node` 与 `person`/`family`/`event` 是同一批人丁的两种表示：`node` 把关系、姓名、生卒葬压在一行里（§6.2），事实层拆成六张规范化表（§6.3–§6.8），用 `person.legacy_node_id` 记录回填来源。两套表示并存期间 `node` 仍是读写源，事实层只做回填与对账；读写切换属于单独的读写计划，当前建到什么程度见 [实现状态](./implementation-status.md)。
 
 **M2 会增加的表**：`share_link`（分享）、`delete_batch`（回收站批次）、`resource_lock`（编辑锁）、`media`（媒体）。**M3** 增加 `edition`（排版版本）。M1 不建，避免空表。
 
@@ -502,6 +521,361 @@ CREATE INDEX idx_node_alive         ON node (organization_id, lineage_id)
 
 **边约束的已知缺口**：`parent_id` / `mother_id` / `spouse_of_id` 目前只引用 `node(id)`，没有带 `(organization_id, lineage_id)` 的复合外键。复合外键覆盖的是 node→lineage 这一层，不是 node→node 的边。评审 P0-1 已给出补丁；在迁移落地前，不要把“三层防护”表述成“每条边都被 schema 完全约束”。
 
+### 6.3 person（人丁，事实层）
+
+```sql
+CREATE TABLE person (
+  id                   uuid PRIMARY KEY DEFAULT uuidv7(),
+  organization_id      uuid NOT NULL,
+  project_id           uuid NOT NULL,
+
+  -- 状态
+  sex                  text NOT NULL,
+  living_status        text NOT NULL,
+  living_status_locked boolean NOT NULL DEFAULT false,
+  privacy_level        text NOT NULL,
+  name_status          text NOT NULL,
+
+  -- 关联
+  primary_name_id      uuid,      -- 主名，三步写入，见下
+  merged_into_id       uuid,      -- 合并目标，同项目
+  sort_key             text,
+  legacy_node_id       uuid,      -- 回填来源 node.id，不是外键
+
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  created_by           uuid NOT NULL,
+  updated_at           timestamptz,
+  deleted_at           timestamptz,
+
+  CONSTRAINT uk_person_organization_project_id UNIQUE (organization_id, project_id, id),
+  CONSTRAINT ck_person_sex CHECK (sex IN ('male','female','other','unknown')),
+  CONSTRAINT ck_person_living_status CHECK (living_status IN ('living','deceased','unknown')),
+  CONSTRAINT ck_person_privacy_level CHECK (privacy_level IN ('public','restricted','private')),
+  CONSTRAINT ck_person_name_status CHECK (name_status IN ('known','unknown','partial')),
+  CONSTRAINT ck_person_not_self_merged CHECK (merged_into_id IS DISTINCT FROM id),
+  FOREIGN KEY (organization_id, project_id) REFERENCES project (organization_id, id)
+    ON DELETE RESTRICT,
+  FOREIGN KEY (organization_id, project_id, merged_into_id)
+    REFERENCES person (organization_id, project_id, id) ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX uk_person_legacy_node ON person (organization_id, project_id, legacy_node_id)
+  WHERE deleted_at IS NULL AND legacy_node_id IS NOT NULL;
+CREATE INDEX idx_person_project ON person (organization_id, project_id, deleted_at);
+CREATE INDEX idx_person_merged  ON person (organization_id, project_id, merged_into_id);
+
+-- 手写在 0017：主名是循环引用，且必须复合，见下
+ALTER TABLE person ADD CONSTRAINT fk_person_primary_name
+  FOREIGN KEY (organization_id, id, primary_name_id)
+  REFERENCES person_name (organization_id, person_id, id) ON DELETE RESTRICT;
+CREATE INDEX idx_person_primary_name ON person (organization_id, id, primary_name_id);
+```
+
+**`primary_name_id` 是不可延迟（`NOT DEFERRABLE`）的复合外键**，所以一个人丁只能分三步写入，永远不能一条 `INSERT` 连名字一起写：
+
+1. `INSERT INTO person (...)`，`primary_name_id` 留 `NULL`；
+2. `INSERT INTO person_name (person_id, ...)`；
+3. `UPDATE person SET primary_name_id = <刚插入的姓名 id>`。
+
+三步必须在同一事务里。复合键 `(organization_id, id, primary_name_id) → person_name (organization_id, person_id, id)` 同时挡住两种错：指向**别人**的姓名、指向**别的组织**的姓名。目标唯一键 `uk_person_name_organization_person_id` 因此必须是非部分索引（部分索引不能当外键目标）。
+
+`legacy_node_id` 是回填锚点，**不是外键**：它指向 `node.id`，而 `node` 行可以被软删、将来会被退役；用外键会让 `node` 的清理卡住事实层。`uk_person_legacy_node` 保证同一项目内一个 `node` 最多回填出一个人丁（部分索引，软删后可以重填）。
+
+`merged_into_id` 指向同项目的另一个人丁（合并重复人丁），`ck_person_not_self_merged` 禁止自己指向自己；软删与合并都靠 `UPDATE`，所以这两列保持可写。
+
+### 6.4 person_name（人丁姓名）
+
+```sql
+CREATE TABLE person_name (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  organization_id uuid NOT NULL,
+  project_id      uuid NOT NULL,
+  person_id       uuid NOT NULL,
+
+  name_type       text NOT NULL,          -- 14 种，见 §14
+  custom_type     text,                   -- name_type='other' 时必填
+  full_name       text,                   -- 可空：失名、只知"某氏"
+  surname         text,
+  given_name      text,
+  name_prefix     text,
+  name_suffix     text,
+  surname_prefix  text,
+  nickname        text,
+  pinyin          text,
+  romanized       text,
+  language        varchar(35),
+  sort_order      smallint NOT NULL DEFAULT 0,
+
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      uuid NOT NULL,
+  updated_at      timestamptz,
+  deleted_at      timestamptz,
+
+  CONSTRAINT uk_person_name_organization_person_id
+    UNIQUE (organization_id, person_id, id),
+  CONSTRAINT ck_person_name_type CHECK (name_type IN (
+    'birth','courtesy','art','posthumous','temple','childhood','maiden',
+    'married','aka','religious','professional','school','official','other')),
+  CONSTRAINT ck_person_name_custom_type
+    CHECK (name_type <> 'other' OR custom_type IS NOT NULL),
+  FOREIGN KEY (organization_id, project_id, person_id)
+    REFERENCES person (organization_id, project_id, id) ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX uk_person_name_type_order
+  ON person_name (organization_id, person_id, name_type, sort_order)
+  WHERE deleted_at IS NULL;
+CREATE INDEX idx_person_name_person ON person_name (organization_id, person_id, sort_order);
+```
+
+一个人丁可以有多个名字（谱名、字、号、讳、法名……），`name_type` + `sort_order` 排序。`full_name` 可空是刻意的：旧数据里存在"某氏"这类只有姓氏、没有全名的人丁，回填时写 `full_name = NULL` 并把 `person.name_status` 置为 `unknown`，不编造姓名。
+
+`uk_person_name_type_order` 是**部分**唯一索引：软删一个名字之后，可以再补一个同类型同序号的，不会被历史行挡住。`uk_person_name_organization_person_id` 相反，必须覆盖所有行，因为它是 `fk_person_primary_name` 的外键目标。
+
+### 6.5 family（家庭）
+
+```sql
+CREATE TABLE family (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  organization_id uuid NOT NULL,
+  project_id      uuid NOT NULL,
+  union_type      varchar(20) NOT NULL DEFAULT 'unknown',
+  sort            integer NOT NULL DEFAULT 0,
+  notes           text,
+
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      uuid NOT NULL,
+  updated_at      timestamptz,
+  deleted_at      timestamptz,
+
+  CONSTRAINT uk_family_organization_project_id UNIQUE (organization_id, project_id, id),
+  CONSTRAINT ck_family_union_type CHECK (union_type IN ('marriage','cohabitation','unknown')),
+  FOREIGN KEY (organization_id, project_id) REFERENCES project (organization_id, id)
+    ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_family_project ON family (organization_id, project_id, deleted_at);
+```
+
+一个 `family` 是一次结合（婚姻、同居或未知），配偶在 `family_partner`，子女在 `family_child`。只知一方配偶的家庭是合法的：旧数据里"某人之子、母不详"回填出来就是一个只有一个 partner 的家庭。`union_type` 默认 `unknown`——旧数据不写婚姻性质，猜一个比留空更糟。
+
+### 6.6 family_partner（家庭配偶）
+
+```sql
+CREATE TABLE family_partner (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  organization_id uuid NOT NULL,
+  project_id      uuid NOT NULL,
+  family_id       uuid NOT NULL,
+  person_id       uuid NOT NULL,
+  role            text NOT NULL,                    -- blood / spouse
+  partner_order   smallint NOT NULL DEFAULT 1,
+  status          varchar(20) NOT NULL DEFAULT 'unknown',
+
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      uuid NOT NULL,
+  updated_at      timestamptz,
+  deleted_at      timestamptz,
+
+  CONSTRAINT uk_family_partner_organization_project_id
+    UNIQUE (organization_id, project_id, id),
+  CONSTRAINT ck_family_partner_role CHECK (role IN ('blood','spouse')),
+  CONSTRAINT ck_family_partner_status
+    CHECK (status IN ('current','divorced','widowed','separated','unknown')),
+  FOREIGN KEY (organization_id, project_id) REFERENCES project (organization_id, id)
+    ON DELETE RESTRICT,
+  FOREIGN KEY (organization_id, project_id, family_id)
+    REFERENCES family (organization_id, project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (organization_id, project_id, person_id)
+    REFERENCES person (organization_id, project_id, id) ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX uk_family_partner_family_person
+  ON family_partner (organization_id, family_id, person_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX idx_family_partner_person ON family_partner (organization_id, project_id, person_id);
+```
+
+`role = 'blood'` 表示这一方是**本谱血亲**，`spouse` 表示姻亲（外姓配偶）。这条区分决定"往上追哪一边"，也是下面那条规则的对象。
+
+**至多一个 `blood` 配偶，但不是 `CHECK`。** 它要读项目开关、要跨行计数，`CHECK` 做不到，所以由 `app.check_family_blood_side()` + `trg_family_partner_blood_side`（`BEFORE INSERT OR UPDATE`，`0019`）执行：
+
+- `role <> 'blood'` 或 `deleted_at IS NOT NULL` 直接返回，不算数；
+- 读 `project.allow_consanguineous_marriage`（`0018` 新增的列，默认 `false`），为 `true` 时直接放行——近亲婚配是合法的录入口径，不是数据错误；
+- 否则取 `pg_advisory_xact_lock(hashtextextended(organization_id || ':' || family_id, 0))`，数同一家庭里其它**未删除**的 `blood` 配偶；已有 ≥1 个就报 `23514`，消息 `family <id> already has a blood partner`，hint 指向那个开关。
+
+**下界故意不约束**：不要求每个家庭至少一个 `blood` 配偶。"先录配偶、后补血亲"是合法的中间状态，把它写成约束会让正常录入失败；缺血亲由 P9 的 `validation_issue` 检查器报，不在写路径上拦。
+
+**已知缺口**：开关只在写入时读。把 `allow_consanguineous_marriage` 从 `true` 改回 `false` 不会回查已有数据——已经存在的两个 `blood` 配偶会留着，而且此后任何 `UPDATE`（包括改 `status`、软删之外的更新）都会撞上 `23514`。这条与"翻转开关后如何收拾存量"一起留给 P9 的检查器与设置界面。
+
+### 6.7 family_child（家庭子女）
+
+```sql
+CREATE TABLE family_child (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  organization_id uuid NOT NULL,
+  project_id      uuid NOT NULL,
+  family_id       uuid NOT NULL,
+  person_id       uuid NOT NULL,
+  parentage_type  varchar(20) NOT NULL DEFAULT 'birth',
+  is_primary      boolean NOT NULL DEFAULT true,
+  sort            integer NOT NULL DEFAULT 0,
+
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      uuid NOT NULL,
+  updated_at      timestamptz,
+  deleted_at      timestamptz,
+
+  CONSTRAINT uk_family_child_organization_project_id
+    UNIQUE (organization_id, project_id, id),
+  CONSTRAINT ck_family_child_parentage_type
+    CHECK (parentage_type IN ('birth','adoptive','foster','step','traditional','unknown')),
+  FOREIGN KEY (organization_id, project_id) REFERENCES project (organization_id, id)
+    ON DELETE RESTRICT,
+  FOREIGN KEY (organization_id, project_id, family_id)
+    REFERENCES family (organization_id, project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (organization_id, project_id, person_id)
+    REFERENCES person (organization_id, project_id, id) ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX uk_family_child_family_person
+  ON family_child (organization_id, family_id, person_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX idx_family_child_person ON family_child (organization_id, project_id, person_id);
+```
+
+`is_primary` 标记"主父母家庭"：一个人丁可能因为再婚出现在多个家庭里，默认取主家庭作父子/母子关系的展示口径。`parentage_type` 区分亲生、过继、养、继、传统（兼祧等）、未知。
+
+**回填只写 `birth`**：`node` 里没有过继/入赘的信息，`data/backfill-fact-layer.ts` 一律写 `parentage_type = 'birth'`。所以在 P2 的 `person_placement.succession_type` 落地之前，旧数据里过继、入赘的关系会被标成亲生——这是已知的表述损失，不是回填 bug。
+
+### 6.8 event（事件）
+
+```sql
+CREATE TABLE event (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  organization_id uuid NOT NULL,
+  project_id      uuid NOT NULL,
+
+  -- 主体：二选一
+  person_id       uuid,
+  family_id       uuid,
+
+  -- 分类
+  event_kind      text NOT NULL DEFAULT 'event',   -- event / attribute
+  event_type      text NOT NULL,                   -- 54 种，无默认值
+  custom_type     text,                            -- event_type='custom' 时必填
+  gedcom_tag      text,
+
+  -- 内容
+  title           text,
+  value           text,
+  description     text,
+
+  -- 日期
+  date_original   text,                            -- 原文，可空
+  date_start      date,
+  date_end        date,
+  date_precision  text,                            -- 仅用于显示
+  date_qualifier  text NOT NULL DEFAULT 'unknown',
+  calendar        text NOT NULL DEFAULT 'gregorian',
+  date_cn         jsonb,
+
+  -- 年龄与地点
+  age_text        text,
+  age_years       smallint,
+  age_basis       text,
+  place_original  text,
+
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      uuid NOT NULL,
+  updated_at      timestamptz,
+  deleted_at      timestamptz,
+
+  CONSTRAINT uk_event_organization_project_id UNIQUE (organization_id, project_id, id),
+  -- 54 个取值，完整列表见 lib/genealogy/constants.ts 与 0020 迁移
+  CONSTRAINT ck_event_type CHECK (event_type IN (…54 个取值…)),
+  CONSTRAINT ck_event_kind CHECK (event_kind IN ('event','attribute')),
+  CONSTRAINT ck_event_kind_matches_type CHECK (
+    (event_kind = 'attribute') = (event_type IN (
+      'occupation','education','residence','title','nationality','property',
+      'religion','caste','physical_description','national_id_number',
+      'number_of_children','number_of_marriages','social_security_number','fact'))
+  ),
+  CONSTRAINT ck_event_subject_exactly_one CHECK (num_nonnulls(person_id, family_id) = 1),
+  CONSTRAINT ck_event_custom_type CHECK (event_type <> 'custom' OR custom_type IS NOT NULL),
+  CONSTRAINT ck_event_age_pair CHECK ((age_years IS NULL) = (age_basis IS NULL)),
+  CONSTRAINT ck_event_date_qualifier CHECK (date_qualifier IN (
+    'exact','about','estimated','calculated','before','after','between','period','unknown')),
+  CONSTRAINT ck_event_date_precision CHECK (
+    date_precision IS NULL OR date_precision IN ('day','month','year','decade','century')),
+  CONSTRAINT ck_event_calendar CHECK (calendar IN (
+    'gregorian','julian','hebrew','french_r','chinese_lunar','other')),
+  CONSTRAINT ck_event_date_original_not_blank CHECK (
+    date_original IS NULL OR btrim(date_original) <> ''),
+
+  -- 日期形状，0021 手写，见下
+  CONSTRAINT ck_event_date_point CHECK (
+    date_qualifier NOT IN ('exact','about','estimated','calculated')
+    OR (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= date_end)),
+  CONSTRAINT ck_event_date_before CHECK (
+    date_qualifier <> 'before' OR (date_start IS NULL AND date_end IS NOT NULL)),
+  CONSTRAINT ck_event_date_after CHECK (
+    date_qualifier <> 'after' OR (date_start IS NOT NULL AND date_end IS NULL)),
+  CONSTRAINT ck_event_date_between CHECK (
+    date_qualifier NOT IN ('between','period')
+    OR (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= date_end)),
+  CONSTRAINT ck_event_date_unknown CHECK (
+    date_qualifier <> 'unknown' OR (date_start IS NULL AND date_end IS NULL)),
+
+  FOREIGN KEY (organization_id, project_id) REFERENCES project (organization_id, id)
+    ON DELETE RESTRICT,
+  FOREIGN KEY (organization_id, project_id, person_id)
+    REFERENCES person (organization_id, project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (organization_id, project_id, family_id)
+    REFERENCES family (organization_id, project_id, id) ON DELETE RESTRICT
+);
+
+CREATE INDEX idx_event_subject ON event (organization_id, project_id, person_id, date_start);
+CREATE INDEX idx_event_family  ON event (organization_id, project_id, family_id);
+CREATE INDEX idx_event_type    ON event (organization_id, project_id, event_type);
+```
+
+**主体二选一**：事件要么属于一个人丁（生、卒、葬、迁、职业……），要么属于一个家庭（婚姻、离婚）。`ck_event_subject_exactly_one` 用 `num_nonnulls(person_id, family_id) = 1` 保证恰好一个。两个复合外键都是 `MATCH SIMPLE`（默认），`person_id` 为 `NULL` 时整条外键被跳过，所以"家庭事件"不会被人丁外键拦住。
+
+**日期语义。** 这七列的分工是这张表最容易读错的地方：
+
+| 源数据 | `date_original` | `date_start` | `date_end` | `date_precision` | `date_qualifier` |
+|---|---|---|---|---|---|
+| 只有年份（旧数据 `birth_year = 1900`） | `NULL` | `1900-01-01` | `1900-12-31` | `year` | `exact` |
+| 只有原文（`"康熙三年"`，无法换算） | `康熙三年` | `NULL` | `NULL` | `NULL` | `unknown` |
+| 原文 + 可解析年份 | 原文 | 年首 | 年末 | `year` | `exact` |
+| 确切一天 | 原文或 `NULL` | `D` | `D` | `day` | `exact` |
+| 只有上界（`"before 1691"`） | 原文或 `NULL` | `NULL` | 边界日 | 视精度 | `before` |
+| 只有下界（`"after 1691"`） | 原文或 `NULL` | 边界日 | `NULL` | 视精度 | `after` |
+| 无日期 | `NULL` | `NULL` | `NULL` | `NULL` | `unknown` |
+
+规则逐条：
+
+- **`date_original` 只存原文，可空，绝不从年份反推。** 事件可能只知道葬地、卒年失考（"葬地已知、卒年失考"），也可能只知道年份；把年份格式化成 `"1900"` 写进原文列，等于把机器推断伪装成史料。`NOT NULL` 会逼出这种伪造，所以这一列没有非空约束。
+- **空白原文被拒绝**：`ck_event_date_original_not_blank`（`0023`）挡掉 `''` 和纯空白，避免"有值但等于没值"的行。
+- **只有年份的源数据落在年份精度**：`date_start`/`date_end` 取该年首末日，`date_precision = 'year'`，`date_qualifier = 'exact'`，`date_original IS NULL`。这是唯一允许从年份造边界的地方——边界是**精度**声明，不是原文。
+- **"没有日期"只有一种编码**：`date_qualifier = 'unknown'` 且 `date_start`、`date_end` 都为 `NULL`（`ck_event_date_unknown`）。不要用 `1900-01-01` 之类的哨兵值。
+- **单日事实**：`exact` + `date_start = date_end`，这是唯一表示"就是这一天"的形状。
+- **`exact` + `date_start <> date_end` 与 `between` 形状相同**，schema 层分辨不出来。要消掉这个歧义得改约束或加列，属于 P3/P4 的日期语义收口，P1 先记录不改。
+- **`date_precision` 只用于显示**，不与边界绑定：`ck_event_date_precision` 只校验取值，允许 `date_precision = 'year'` 配一个跨十年的区间。展示层不要拿它反推边界。
+- 九种 `date_qualifier` 各自被上面的形状约束覆盖（点状四种共用 `ck_event_date_point`，`before`/`after`/`between`+`period`/`unknown` 各一条）。**新增第十种会静默逃逸**——加取值时必须同时加约束，`0021` 的注释写了这一条。
+- 超出 PostgreSQL `date` 范围的年份（`0`、`10000`）在回填里降级成 `date_qualifier = 'unknown'` + 两界 `NULL`，并计入对账的 loss report，而不是让整个回填事务失败。
+- `date_cn` 存农历原文结构（`raw`、`era`、`year`、`month`、`leap`、`day`、`ganzhi`、`shichen`），P1 只原样保存，**不做农历换公历**；`calendar` 记录原文用的是哪种历。
+
+`age_years` 与 `age_basis` 必须成对出现（`ck_event_age_pair`）：只给岁数不给依据（"据墓碑"、"据族谱"）无法复核。
+
+### 6.9 六张事实层表的共同规则
+
+- **隔离**：六张表全部 `ENABLE` + `FORCE ROW LEVEL SECURITY`，策略形状与其它业务表一致——`<table>_select` 对 `owner/admin/editor/viewer`，`<table>_insert` 与 `<table>_update` 对 `owner/admin/editor`，全部走 `auth.has_org_role(organization_id, …)`。策略的权威定义在 `0017`/`0019`/`0021`。
+- **没有 `DELETE` 授权**：`app_rw` 只有 `SELECT`/`INSERT`/`UPDATE`。六张表**全部软删**，删除一律 `UPDATE ... SET deleted_at = now()`；物理删除只有运维按 §11.3 处理。所以唯一性都用部分索引表达（`WHERE deleted_at IS NULL`），见 §11.2。
+- **租户列不可变**：`trg_person_tenant_immutable`、`trg_person_name_tenant_immutable`、`trg_family_tenant_immutable`、`trg_family_partner_tenant_immutable`、`trg_family_child_tenant_immutable`、`trg_event_tenant_immutable` 各钉 `organization_id` + `project_id`（§12.7）。`person_name.person_id`、`family_partner.family_id`/`person_id`、`family_child.family_id`/`person_id` 保持可写：改父、换人、把配偶挪到另一个家庭都是合法的结构修改，跨组织由复合外键挡住。
+- **回填锚点**：`person.legacy_node_id` 记录这一行来自哪个 `node`，`data/backfill-fact-layer.ts` 按它写入，`data/reconcile-fact-layer.ts` 用它逐项对账（十项独立检查：人数、姓名、父子、配偶、事件、软删等）。两个脚本的调用约定见 §1.5。
+
 ---
 
 ## 7. 内容域
@@ -661,6 +1035,19 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 | `node` | `idx_node_alive` | B-tree（部分） | 未删除节点列表 |
 | `node` | `idx_node_spouse_sort` | B-tree `(organization_id, spouse_of_id)`，部分（`deleted_at IS NULL`）（`0014`） | 配偶排序 `max(sort)` 查询，避免谱系内扫描 |
 | `node` | ~~`idx_node_search`~~ | ~~GIN trgm~~ | **已删除**（`0013`）：人丁搜索在客户端全量匹配，见 [ADR 0011](./decisions/0011-search-boundary-node-client-article-trgm.md) |
+| `person` | `uk_person_legacy_node` | 唯一部分 | 回填幂等：一个 `node` 只回填出一个人丁 |
+| `person` | `idx_person_project` | B-tree | 项目内人丁列表 |
+| `person` | `idx_person_primary_name` | B-tree | 主名外键的子侧索引，改/删姓名时不扫全表 |
+| `person_name` | `uk_person_name_type_order` | 唯一部分 | 同类型同序号不重复（软删后释放） |
+| `person_name` | `idx_person_name_person` | B-tree | 一个人丁的全部姓名，按 `sort_order` |
+| `family` | `idx_family_project` | B-tree | 项目内家庭列表 |
+| `family_partner` | `uk_family_partner_family_person` | 唯一部分 | 同一家庭同一人只有一条配偶行 |
+| `family_partner` | `idx_family_partner_person` | B-tree | 按人查家庭 |
+| `family_child` | `uk_family_child_family_person` | 唯一部分 | 同一家庭同一子女只有一条 |
+| `family_child` | `idx_family_child_person` | B-tree | 按人查父母家庭 |
+| `event` | `idx_event_subject` | B-tree | 一个人丁的事件按日期排序 |
+| `event` | `idx_event_family` | B-tree | 家庭事件（婚姻、离婚） |
+| `event` | `idx_event_type` | B-tree | 按类型筛（生卒葬统计） |
 | `article` | `idx_article_search` | **GIN trgm** | 全文检索（FR-ART-5） |
 | `book` | `uk_book_name` | 唯一部分 | 同项目书名检查 |
 | `book_catalog` | `idx_catalog_book` | B-tree | 编目树加载 |
@@ -690,13 +1077,15 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 
 | 表类别 | 表 | 软删 |
 |---|---|---|
-| 8 张业务实体表 | `organization`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` | ✅ 有 `deleted_at` |
+| 14 张业务实体表 | `organization`、`project`、`folder`、`lineage`、`node`、`person`、`person_name`、`family`、`family_partner`、`family_child`、`event`、`article`、`book`、`book_catalog` | ✅ 有 `deleted_at` |
 | 关系/邀请表 | `organization_member`、`invite` | ❌ **硬删除**（由 Better Auth 管理） |
 | 活动流 | `activity_logs` | ❌ 无 `deleted_at`；账号级事件 org 为空 |
 
-`auth.*` 是独立 schema 的认证表，不属于 11 张组织级业务表（§4.1），没有软删。
+`auth.*` 是独立 schema 的认证表，不属于 17 张组织级业务表（§4.1），没有软删。
 
 `app_rw` 不授予 `DELETE` 权限；软删统一走 `UPDATE ... SET deleted_at = now()`。`organization_member` 与 `invite` 的删除由 `auth_service` 执行，是真实删除。
+
+**事实层六张表（`person`、`person_name`、`family`、`family_partner`、`family_child`、`event`）全部软删，且都没有 `DELETE` 授权**：`0017`/`0019`/`0021` 只 `GRANT SELECT, INSERT, UPDATE`，所以"删掉一个人丁"在数据库层只能是 `UPDATE ... SET deleted_at = now()`。它们的唯一约束因此都用部分索引（`WHERE deleted_at IS NULL`），见 §11.2。
 
 M1 **没有回收站界面**（PRD §6.2），但软删保留，原因是：软删是零成本的保险，硬删是不可逆的灾难。
 
@@ -840,7 +1229,7 @@ CREATE POLICY node_select ON node
 
 ### 12.5 策略清单
 
-**策略的权威定义在迁移，不在本文。** `project` 是特例（INSERT/UPDATE 只 owner/admin）；`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` 用同一 DO 块（SELECT 四角色，INSERT/UPDATE 三写角色）；`activity_logs` 另有 `user_id = auth.uid() AND (organization_id IS NULL OR has_org_role(...))` 的 SELECT/INSERT 策略。新增表复制 `lib/db/migrations/0001_auth_rls.sql` 的三段式策略，不要手写 `FOR ALL` 裸子查询。
+**策略的权威定义在迁移，不在本文。** `project` 是特例（INSERT/UPDATE 只 owner/admin）；`folder`、`lineage`、`node`、`article`、`book`、`book_catalog` 用同一 DO 块（SELECT 四角色，INSERT/UPDATE 三写角色）；`activity_logs` 另有 `user_id = auth.uid() AND (organization_id IS NULL OR has_org_role(...))` 的 SELECT/INSERT 策略。事实层六张表在 `0017`/`0019`/`0021` 里逐表显式写出同一三段式（不套 DO 块），策略名 `<table>_select` / `<table>_insert` / `<table>_update`。新增表复制 `lib/db/migrations/0001_auth_rls.sql` 的三段式策略，不要手写 `FOR ALL` 裸子查询。
 
 **单独写的表**：
 
@@ -851,7 +1240,7 @@ CREATE POLICY node_select ON node
 | `invite` | `app_rw` 无策略、无表权限；读写只属于 `auth_service` |
 | `activity_logs` | `app_rw` 只 SELECT/INSERT：`user_id = auth.uid()` 且（`organization_id IS NULL` 或 `has_org_role(...)`） |
 
-**`public` schema 的 11 张组织级业务表全部开启并强制 RLS。** `auth.*` 不在 `public` schema，不参与组织隔离；`app_rw` 没有它的表权限，读写只经 Better Auth 的 `auth_service` 连接。
+**`public` schema 的 17 张组织级业务表全部开启并强制 RLS。** `auth.*` 不在 `public` schema，不参与组织隔离；`app_rw` 没有它的表权限，读写只经 Better Auth 的 `auth_service` 连接。
 
 ### 12.6 防漏机制
 
@@ -862,15 +1251,16 @@ CREATE POLICY node_select ON node
 | 3 | 查询层唯一入口 | 当前评审；Biome `noRestrictedImports` 待接入（评审 P1-12），禁止 `lib/db/drizzle` 被查询层之外的文件导入 |
 | 4 | 复合外键 | 跨组织引用在 schema 层不成立 |
 | 5 | 注册触发器测试 | 注册后必须有且仅有 1 条 `role = 'owner'` 的成员关系 |
-| 6 | 租户列不可变触发器 | `app.forbid_tenant_move()` + 10 个 `trg_<table>_tenant_immutable`（见 §12.7）；`UPDATE` 改归属列报 SQLSTATE `42501`，精确表集合与每张表的参数列表由 `tests/integration/tenant-immutability.test.ts` 断言 |
+| 6 | 租户列不可变触发器 | `app.forbid_tenant_move()` + 16 个 `trg_<table>_tenant_immutable`（见 §12.7）；`UPDATE` 改归属列报 SQLSTATE `42501`，精确表集合与每张表的参数列表由 `tests/integration/tenant-immutability.test.ts` 断言 |
 
 ### 12.7 租户列不可变
 
 `app_rw` 对每张业务表都有 `UPDATE`，而 RLS 的 `UPDATE` 策略分两半：`USING` 只看旧行、`WITH CHECK` 只看新行。同时属于两个组织的用户，旧行上满足 `USING`（他是 A 组织成员）、新行上满足 `WITH CHECK`（他是 B 组织成员），于是 `update project set organization_id = <B>` 在迁移前**成功**——行被搬走，三层防护的根失效。policy 表达不了「比较新旧两行」，所以这条规则由触发器兜底（[ADR 0016](./decisions/0016-tenant-columns-immutable.md)）。
 
 - 函数 `app.forbid_tenant_move()`：`BEFORE UPDATE ... FOR EACH ROW`，要钉住的列名从 `TG_ARGV` 传入，用 `IS DISTINCT FROM` 比较 `to_jsonb(NEW)` / `to_jsonb(OLD)`（`activity_logs.organization_id` 可为 `NULL`）；报错 `column <table>.<col> is immutable`，SQLSTATE `42501`，带 hint。`TG_ARGV` 里的列名在该表上不存在时报 `42703`，避免手写参数写错后那张表静默不受保护。
-- 受保护的 10 张表：`organization_member`、`invite`、`project`、`folder`、`lineage`、`node`、`article`、`book`、`book_catalog`、`activity_logs`，触发器名统一 `trg_<table>_tenant_immutable`。
-- 钉住的是**归属列**：`organization_id`，加上上一级容器（`project_id`、`lineage_id`、`book_id`）。结构关系列保持可写——`node.parent_id` / `spouse_of_id`（移动、改父、挂配偶）、`folder.parent_id`，以及 `lineage` / `article` / `book` 的 `folder_id`（重新归类、删除文件夹时解除归类）。把 `folder_id` 也钉住会让「删除文件夹」失败，不是越权。
+- 受保护的 16 张表：`organization_member`、`invite`、`project`、`folder`、`lineage`、`node`、`person`、`person_name`、`family`、`family_partner`、`family_child`、`event`、`article`、`book`、`book_catalog`、`activity_logs`，触发器名统一 `trg_<table>_tenant_immutable`。
+- 钉住的是**归属列**：`organization_id`，加上上一级容器（`project_id`、`lineage_id`、`book_id`）。结构关系列保持可写——`node.parent_id` / `spouse_of_id`（移动、改父、挂配偶）、`folder.parent_id`、事实层的 `person_name.person_id` / `family_partner.family_id` / `family_child.family_id`，以及 `lineage` / `article` / `book` 的 `folder_id`（重新归类、删除文件夹时解除归类）。把 `folder_id` 也钉住会让「删除文件夹」失败，不是越权。
+- **`folder_id` 的残留缺口**：它既没有触发器也没有外键，所以「把内容挪进另一个组织的文件夹」只有应用层 `WHERE organization_id` 一道闸。补法是复合外键 `(organization_id, project_id, folder_id) → folder(organization_id, project_id, id)`，记录在 [ADR 0016](./decisions/0016-tenant-columns-immutable.md) 的「残留缺口（已批准）」。
 - **新增组织级表必须挂这个触发器**；漏挂不会报错，只会静默不受保护，靠 §12.6 第 6 行的精确集合与参数列表断言发现。
 
 ---
@@ -927,4 +1317,21 @@ UUIDv7 由 PostgreSQL 18 的 `uuidv7()` 内置函数提供，不需要额外扩�
 | `folder.kind` | `0` / `1` / `2` | 谱系 / 谱文 / 谱书 |
 | `node.role` | `blood` / `spouse` | 血亲 / 配偶 |
 | `node.sex` | `0` / `1` | 男 / 女 |
+| `person.sex` | `male` / `female` / `other` / `unknown` | 性别 |
+| `person.living_status` | `living` / `deceased` / `unknown` | 在世状态 |
+| `person.living_status_locked` | `boolean` | 人工锁定在世状态；回填不写这一列 |
+| `person.privacy_level` | `public` / `restricted` / `private` | 隐私级别 |
+| `person.name_status` | `known` / `unknown` / `partial` | 姓名完整度；失名的人丁是 `unknown` |
+| `person_name.name_type` | `birth` / `courtesy` / `art` / `posthumous` / `temple` / `childhood` / `maiden` / `married` / `aka` / `religious` / `professional` / `school` / `official` / `other` | 谱名、字、号、讳、法名等；`other` 必须带 `custom_type` |
+| `family.union_type` | `marriage` / `cohabitation` / `unknown` | 结合性质 |
+| `family_partner.role` | `blood` / `spouse` | 本谱血亲 / 姻亲 |
+| `family_partner.status` | `current` / `divorced` / `widowed` / `separated` / `unknown` | 配偶关系状态 |
+| `family_child.parentage_type` | `birth` / `adoptive` / `foster` / `step` / `traditional` / `unknown` | 亲生 / 过继 / 收养 / 继 / 传统 / 未知 |
+| `event.event_kind` | `event` / `attribute` | 事件 / 属性（职业、学历…）；与 `event_type` 由 `ck_event_kind_matches_type` 绑定 |
+| `event.event_type` | 54 个取值 | 生、卒、葬、婚、迁、职业…；完整列表见 `lib/genealogy/constants.ts` |
+| `event.date_original` | 原文文本 / `NULL` | **只存原文**，可空；不从年份反推，`''` 与纯空白被拒（§6.8） |
+| `event.date_qualifier` | `exact` / `about` / `estimated` / `calculated` / `before` / `after` / `between` / `period` / `unknown` | 日期确定性；决定哪几个边界必须为空/非空（§6.8） |
+| `event.date_precision` | `day` / `month` / `year` / `decade` / `century`（可空） | 显示用精度，**不**与边界绑定 |
+| `event.calendar` | `gregorian` / `julian` / `hebrew` / `french_r` / `chinese_lunar` / `other` | 原文所用的历法 |
+| `event.age_basis` | 文本 | 年龄依据（据墓碑、据族谱…），与 `age_years` 成对出现 |
 | `book_catalog.section` | `1` / `2` / `3` | 开篇 / 正文 / 附录 |

@@ -48,6 +48,11 @@ function valueSet(values: readonly string[]) {
  * is `person_name (organization_id, person_id, id)`, which only exists once
  * `person_name` does, and the two tables would then reference each other.
  * `0017_fact_person_rls.sql` adds `fk_person_primary_name` by hand.
+ *
+ * That key is NOT DEFERRABLE, so a person with a primary name takes three
+ * statements in one transaction: insert the person with `primary_name_id` NULL,
+ * insert the `person_name` row, then `UPDATE person SET primary_name_id = ...`.
+ * There is no single-statement form, and no way to insert the name first.
  */
 export const persons = pgTable(
   'person',

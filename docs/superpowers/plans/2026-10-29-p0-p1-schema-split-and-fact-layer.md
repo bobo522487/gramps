@@ -315,13 +315,14 @@ $$;
 GRANT USAGE ON SCHEMA app TO app_rw;
 GRANT EXECUTE ON FUNCTION app.forbid_tenant_move() TO app_rw;
 -- organization / organization_member / invite 的写权限属于 auth_service（AGENTS.md §5.4），
--- Better Auth 的 organization 插件会 UPDATE 这三张表的非租户列。触发器以调用者身份执行，
--- 所以 auth_service 也必须有 EXECUTE，否则改成员角色会报 permission denied。
+-- 所以这个角色也要能把这些表的触发器挂到这个函数上。PostgreSQL 18.6 的实测结论：
+-- 触发函数的 EXECUTE 权限在 CREATE TRIGGER 时检查，不在触发时检查——漏授会让迁移失败，
+-- 不会让 Better Auth 改成员角色时失败。这里的授权是保险，不是运行期必需（ADR 0016 §98-100）。
 GRANT USAGE ON SCHEMA app TO auth_service;
 GRANT EXECUTE ON FUNCTION app.forbid_tenant_move() TO auth_service;
 ```
 
-**不要** `REVOKE ALL ... FROM PUBLIC`：这个函数只读 `NEW`/`OLD` 并可能 `RAISE`，没有可被滥用的能力；而漏授一个角色会让 Better Auth 的成员变更在生产上失败，是比"多余授权"贵得多的故障。这一点写进 ADR 0016 的"后果"段。
+**不要** `REVOKE ALL ... FROM PUBLIC`：这个函数只读 `NEW`/`OLD` 并可能 `RAISE`，没有可被滥用的能力，多授一个角色不会放宽任何数据边界。授权真正的作用是让挂触发器的迁移能通过（`CREATE TRIGGER` 检查 EXECUTE），不是让运行期触发能成功。这一点与 ADR 0016 §98-100 的实测记录一致。
 
 然后 10 张表各一组 `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER ... BEFORE UPDATE ... FOR EACH ROW EXECUTE FUNCTION app.forbid_tenant_move('...')`，列清单**必须逐字照下表**（结构关系列如 `parent_id`、`spouse_of_id` 不在内——移动节点是合法操作）：
 
@@ -365,7 +366,7 @@ Run: `pnpm test:integration`
 Expected: 全绿。三处必须逐个确认：
 
 1. `tests/integration/nodes.test.ts`（移动节点、改父节点）、`projects.test.ts`（改名）、`folders-lineages.test.ts`——都在 UPDATE 非租户列，必须照常通过。
-2. `tests/integration/better-auth.test.ts`、`tests/integration/auth-migration.test.ts`——走 `auth_service` 连接改 `organization_member.role` / `organization.name`。如果这两处红了，就是 Step 3 漏授了 `auth_service` 的 EXECUTE，回去补，**不要**改成 `DISABLE TRIGGER`。
+2. `tests/integration/better-auth.test.ts`、`tests/integration/auth-migration.test.ts`——走 `auth_service` 连接改 `organization_member.role` / `organization.name`。如果这两处红了，先确认触发器没有误拦非租户列：EXECUTE 已在迁移里授予，且 PostgreSQL 18.6 在 `CREATE TRIGGER` 时就检查过，运行期不会因为漏授而报 `permission denied`（ADR 0016 §98-100）。**不要**改成 `DISABLE TRIGGER`。
 3. `tests/integration/org-scope.test.ts`——跨组织越权的既有断言必须仍然通过（说明触发器没有意外收紧合法路径）。
 
 - [ ] **Step 7: 写 ADR 0016**

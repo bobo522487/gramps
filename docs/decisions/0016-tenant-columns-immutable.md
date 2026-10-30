@@ -51,13 +51,13 @@ END;
 $$;
 ```
 
-第一个 `IF` 是给手写清单兜底的：`to_jsonb(NEW) -> 'typo'` 在两侧都是 `NULL`，比较永远不成立，参数写错时那张表会**静默不受保护**；`42703`（`undefined_column`）让错误在第一次 `UPDATE` 时就暴露，而不是等一次越权才发现。10 张表的参数列表由 `tests/integration/tenant-immutability.test.ts` 逐张断言（`tgtype`、`tgnargs`、`tgargs` 三样都比对），不是只数触发器名字。
+第一个 `IF` 是给手写清单兜底的：`to_jsonb(NEW) -> 'typo'` 在两侧都是 `NULL`，比较永远不成立，参数写错时那张表会**静默不受保护**；`42703`（`undefined_column`）让错误在第一次 `UPDATE` 时就暴露，而不是等一次越权才发现。16 张表的参数列表由 `tests/integration/tenant-immutability.test.ts` 逐张断言（`tgtype`、`tgnargs`、`tgargs`、`tgenabled`、`tgfoid` 五样都比对，且先断言行数等于表数），不是只数触发器名字。
 
 用 `IS DISTINCT FROM` 而不是 `<>`：`activity_logs.organization_id` 对账号级事件是 `NULL`，而 `NULL <> NULL` 是 `NULL`，会让 `NULL → 某组织` 的搬运悄悄通过。
 
 ### 为什么用触发器，而不是收紧 policy
 
-`USING` 只能看旧行，`WITH CHECK` 只能看新行，**policy 表达不了「比较两行」**。要在 policy 里做到等价效果，只能塞子查询或再写一个 `SECURITY DEFINER` 辅助函数按主键回查旧行——既绕、又慢（每次 UPDATE 多一次回查）、还要在 10 个策略块里重复。触发器是 PostgreSQL 里唯一同时拿到 `OLD` 和 `NEW` 的地方，而且它是**兜底**：直接 SQL、`psql`、将来的脚本都绕不过去，符合「RLS 是兜底，不是替代品」的立场。
+`USING` 只能看旧行，`WITH CHECK` 只能看新行，**policy 表达不了「比较两行」**。要在 policy 里做到等价效果，只能塞子查询或再写一个 `SECURITY DEFINER` 辅助函数按主键回查旧行——既绕、又慢（每次 UPDATE 多一次回查）、还要在 16 个策略块里重复。触发器是 PostgreSQL 里唯一同时拿到 `OLD` 和 `NEW` 的地方，而且它是**兜底**：直接 SQL、`psql`、将来的脚本都绕不过去，符合「RLS 是兜底，不是替代品」的立场。
 
 ### 为什么列清单是「归属列」，不是「全部外键列」
 
@@ -74,7 +74,7 @@ $$;
 
 **残留缺口（已批准）**：`folder_id` 既没有外键也没有触发器，所以「把内容挪进另一个组织的文件夹」目前只有应用层 `WHERE organization_id` 一道闸；后续阶段用复合外键 `(organization_id, project_id, folder_id) → folder(organization_id, project_id, id)` 补上（目标唯一键 `uk_folder_org_project_id` 已存在）。
 
-### 受保护的 10 张表
+### 受保护的 16 张表
 
 | 表 | `TG_ARGV` |
 |---|---|
@@ -84,12 +84,20 @@ $$;
 | `folder` | `'organization_id', 'project_id'` |
 | `lineage` | `'organization_id', 'project_id'` |
 | `node` | `'organization_id', 'lineage_id'` |
+| `person` | `'organization_id', 'project_id'` |
+| `person_name` | `'organization_id', 'project_id'` |
+| `family` | `'organization_id', 'project_id'` |
+| `family_partner` | `'organization_id', 'project_id'` |
+| `family_child` | `'organization_id', 'project_id'` |
+| `event` | `'organization_id', 'project_id'` |
 | `article` | `'organization_id', 'project_id'` |
 | `book` | `'organization_id', 'project_id'` |
 | `book_catalog` | `'organization_id', 'book_id'` |
 | `activity_logs` | `'organization_id'` |
 
-**新增组织级表必须挂这个触发器**，否则它静默不受保护。`tests/integration/tenant-immutability.test.ts` 断言的是这 10 张表的**精确集合**（不是子集），所以加表忘挂触发器会让测试变红——这是 ADR-24「约束必须有执行者」的应用。
+事实层六张表（`person`、`person_name`、`family`、`family_partner`、`family_child`、`event`）是在 P1 加进来的，触发器分别写在 `0017_fact_person_rls.sql`、`0019_fact_family_rls.sql`、`0021_fact_event_rls.sql`。它们的 `person_id` / `family_id` 不钉：改名换人、把配偶挪到另一个家庭都是合法的结构修改，跨组织由复合外键挡住。
+
+**新增组织级表必须挂这个触发器**，否则它静默不受保护。`tests/integration/tenant-immutability.test.ts` 断言的是这 16 张表的**精确集合**（不是子集），所以加表忘挂触发器会让测试变红——这是 ADR-24「约束必须有执行者」的应用。
 
 ### 授权：两个运行期角色都给，且不 `REVOKE FROM PUBLIC`
 
@@ -108,7 +116,7 @@ $$;
 - 越权路径关闭：三条移动用例从「UPDATE 成功」变成 `42501` + 明确 hint。
 - 单函数 + `TG_ARGV`：新增表是一行 `CREATE TRIGGER`，不是 20 行几乎相同的 PL/pgSQL。
 - 报错自带表名与列名（`column lineage.lineage_id is immutable`），日志和排障不需要猜。
-- 与 RLS、复合外键、软删正交：不改变任何合法路径，`pnpm test:integration` 全绿（15 文件 / 147 用例）。
+- 与 RLS、复合外键、软删正交：不改变任何合法路径，`pnpm test:integration` 全绿。
 
 ### 负面
 
@@ -126,8 +134,8 @@ $$;
 
 | 方案 | 为什么不够好 |
 |---|---|
-| 收紧 RLS 策略 | `USING` 只看旧行、`WITH CHECK` 只看新行，policy 表达不了「这一列不许变」；等价写法要回查旧行，慢且要在 10 处重复 |
-| 只给 `app_rw` 列级 `UPDATE` 权限（`GRANT UPDATE (name, …)`） | 列级授权是静态清单，10 张表 × 十几个列要逐个维护；新增列默认不可写，每次加列都得改授权；也不区分「谁在改」 |
+| 收紧 RLS 策略 | `USING` 只看旧行、`WITH CHECK` 只看新行，policy 表达不了「这一列不许变」；等价写法要回查旧行，慢且要在 16 处重复 |
+| 只给 `app_rw` 列级 `UPDATE` 权限（`GRANT UPDATE (name, …)`） | 列级授权是静态清单，16 张表 × 十几个列要逐个维护；新增列默认不可写，每次加列都得改授权；也不区分「谁在改」 |
 | 只保护 `organization_id`，放过 `project_id` / `lineage_id` | 同组织内跨项目、跨谱系搬运同样越权：复合外键只保证「引用成立」，不保证「容器没变」 |
 | 在应用层（move 服务）断言 | 只保护走过服务的路径；直接 SQL、未来脚本、新代码都能绕，且与「RLS 是兜底」的立场冲突 |
 | 用视图 + `INSTEAD OF` 触发器暴露可写列 | 要重写所有查询与写入路径，代价远超收益 |
