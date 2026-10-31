@@ -1,8 +1,7 @@
 import 'server-only';
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { type DbTransaction, withOrg } from '@/lib/db/drizzle';
-import { requireOrgPermission } from '@/lib/db/guards';
+import type { DbTransaction } from '@/lib/db/drizzle';
 import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
   ActivityType,
@@ -13,6 +12,7 @@ import {
   lineages,
   projects,
 } from '@/lib/db/schema';
+import { withOrgWrite } from '@/lib/db/write';
 
 type FolderFailure =
   | 'forbidden'
@@ -112,10 +112,7 @@ export async function createFolderInTransaction(params: {
 }): Promise<FolderMutationResult> {
   const { userId, orgId, projectId, kind, parentId, name, ipAddress } = params;
 
-  return withOrg(userId, async (tx) => {
-    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
-      return { ok: false, reason: 'forbidden' as const };
-    }
+  return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     if (!(await assertProjectInOrg(tx, orgId, projectId))) {
       return { ok: false, reason: 'not_found' as const };
     }
@@ -172,11 +169,7 @@ export async function renameFolderInTransaction(params: {
 }): Promise<FolderMutationResult> {
   const { userId, orgId, folderId, name, ipAddress } = params;
 
-  return withOrg(userId, async (tx) => {
-    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
-      return { ok: false, reason: 'forbidden' as const };
-    }
-
+  return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     const [folder] = await tx
       .update(folders)
       .set({ name })
@@ -216,11 +209,7 @@ export async function deleteFolderInTransaction(params: {
 }): Promise<DeleteFolderResult> {
   const { userId, orgId, folderId, ipAddress } = params;
 
-  return withOrg(userId, async (tx) => {
-    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
-      return { ok: false, reason: 'forbidden' as const };
-    }
-
+  return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     const rows = await tx
       .select()
       .from(folders)

@@ -1,9 +1,8 @@
 import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { type DbTransaction, withOrg } from '@/lib/db/drizzle';
+import type { DbTransaction } from '@/lib/db/drizzle';
 import { isUniqueViolation } from '@/lib/db/errors';
-import { requireOrgPermission } from '@/lib/db/guards';
 import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
   ActivityType,
@@ -14,6 +13,7 @@ import {
   nodes,
   projects,
 } from '@/lib/db/schema';
+import { withOrgWrite } from '@/lib/db/write';
 import { DEFAULT_LINEAGE_FOLDER_NAME } from '@/lib/lineage/constants';
 
 type LineageFailure =
@@ -128,11 +128,7 @@ export async function createLineageInTransaction(params: {
   } = params;
 
   try {
-    return await withOrg(userId, async (tx) => {
-      if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
-        return { ok: false, reason: 'forbidden' as const };
-      }
-
+    return await withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
       const [project] = await tx
         .select({ id: projects.id, surname: projects.surname })
         .from(projects)
@@ -217,11 +213,7 @@ export async function updateLineageInTransaction(params: {
   const { userId, orgId, lineageId, updates, ipAddress } = params;
 
   try {
-    return await withOrg(userId, async (tx) => {
-      if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
-        return { ok: false, reason: 'forbidden' as const };
-      }
-
+    return await withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
       const [current] = await tx
         .select()
         .from(lineages)
@@ -295,11 +287,7 @@ export async function deleteLineageInTransaction(params: {
 }): Promise<DeleteLineageResult> {
   const { userId, orgId, lineageId, ipAddress } = params;
 
-  return withOrg(userId, async (tx) => {
-    if (!(await requireOrgPermission(tx, userId, orgId, 'lineage.write'))) {
-      return { ok: false, reason: 'forbidden' as const };
-    }
-
+  return withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
     const [lineage] = await tx
       .select({ id: lineages.id })
       .from(lineages)

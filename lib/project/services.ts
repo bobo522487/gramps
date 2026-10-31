@@ -1,8 +1,6 @@
 import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { withOrg } from '@/lib/db/drizzle';
-import { requireOrgPermission } from '@/lib/db/guards';
 import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
   ActivityType,
@@ -10,6 +8,7 @@ import {
   type Project,
   projects,
 } from '@/lib/db/schema';
+import { withOrgWrite } from '@/lib/db/write';
 import { generatePublicId } from '@/lib/ids';
 import type { ProjectStatus } from './constants';
 
@@ -46,11 +45,7 @@ export async function createProjectInTransaction(params: {
 }): Promise<ProjectMutationResult> {
   const { userId, orgId, input, ipAddress } = params;
 
-  return withOrg(userId, async (tx) => {
-    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
-      return { ok: false, reason: 'forbidden' as const };
-    }
-
+  return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     const [organization] = await tx
       .select({ id: organizations.id })
       .from(organizations)
@@ -104,11 +99,7 @@ export async function updateProjectInTransaction(params: {
 }): Promise<ProjectMutationResult> {
   const { userId, orgId, projectId, updates, ipAddress } = params;
 
-  return withOrg(userId, async (tx) => {
-    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
-      return { ok: false, reason: 'forbidden' as const };
-    }
-
+  return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     const mutable: ProjectUpdates = {};
     if (updates.name !== undefined) mutable.name = updates.name;
     if (updates.countriesRegions !== undefined) {
@@ -156,11 +147,7 @@ export async function deleteProjectInTransaction(params: {
 }): Promise<{ ok: true } | { ok: false; reason: 'forbidden' | 'not_found' }> {
   const { userId, orgId, projectId, ipAddress } = params;
 
-  return withOrg(userId, async (tx) => {
-    if (!(await requireOrgPermission(tx, userId, orgId, 'project.write'))) {
-      return { ok: false, reason: 'forbidden' as const };
-    }
-
+  return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     const rows = await tx
       .update(projects)
       .set({ deletedAt: new Date() })

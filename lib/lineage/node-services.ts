@@ -125,16 +125,13 @@ async function withLineageWrite<T>(
 ): Promise<T | { ok: false; reason: NodeFailure }> {
   const { userId, orgId, lineageId } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' } as const;
-      }
-      return fn(tx, lineage);
+  return withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
+    const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
+    if (!lineage) {
+      return { ok: false, reason: 'not_found' } as const;
     }
-  );
+    return fn(tx, lineage);
+  });
 }
 
 async function nextBloodSort(
