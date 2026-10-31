@@ -1,10 +1,10 @@
 -- Index for the spouse-sort lookup on the hottest write path.
 --
--- nextSpouseSort (lib/lineage/node-services.ts:137-156) computes the next spouse
--- sort by filtering node on (organization_id, lineage_id, role = 'spouse',
+-- nextSpouseSort (lib/lineage/node-services.ts) computes the next spouse sort
+-- by filtering node on (organization_id, lineage_id, role = 'spouse',
 -- spouse_of_id, deleted_at IS NULL) and taking max(sort). It is called from two
--- live write paths — :217 when a blood node is created with a co-recorded
--- spouse, and :495 when a spouse is added by itself — and both run inside the
+-- live write paths — a blood node created with a co-recorded spouse, and a
+-- spouse added on its own — and both run inside the
 -- FOR UPDATE lineage lock taken by loadLineageForUpdate. Nothing between the
 -- existing idx_node_lineage_depth / idx_node_parent / idx_node_alive leads on
 -- spouse_of_id, so each of those calls scanned the whole lineage while the

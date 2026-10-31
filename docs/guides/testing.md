@@ -116,14 +116,14 @@ describe('thing 隔离', () => {
 
 | 范围 | lines | functions | branches | statements |
 |---|---:|---:|---:|---:|
-| 全局 | 60 | 55 | 50 | 60 |
-| `lib/db/queries/**` | 70 | 60 | — | — |
-| `lib/project/services.ts` | 70 | 60 | — | — |
-| `lib/lineage/node-services.ts` | 70 | 60 | — | — |
+| 全局 | 76 | 84 | 65 | 76 |
+| `lib/db/queries/**` | 98 | 98 | — | — |
+| `lib/project/services.ts` | 92 | 98 | — | — |
+| `lib/lineage/node-services.ts` | 84 | 94 | — | — |
 
 不统计：`lib/db/schema/**`、`lib/db/migrations/**`、`lib/db/seed.ts`、`lib/db/drizzle.ts`（驱动工厂）与类型声明。
 
-> **门槛是地板不是目标。** 门槛存在的意义是防止覆盖率倒退，不是「达到 60% 就算测好了」。真正的判据是 §4.3 那四类断言有没有写。
+> **门槛是地板不是目标。** 门槛存在的意义是防止覆盖率倒退，不是「达到 76% 就算测好了」。真正的判据是 §4.3 那四类断言有没有写。每条门槛设在实测基线下方约 2 个百分点：基线涨了就跟着抬，不要为了过而往下调。
 
 ---
 

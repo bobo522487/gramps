@@ -10,17 +10,15 @@ import {
 // The write-path index behind Task 1's mirror image. Task 1 deleted an index
 // with no consumer; this is a consumer with no index.
 //
-// nextSpouseSort (lib/lineage/node-services.ts:137-156) computes the next
-// spouse `sort` by filtering node on
+// nextSpouseSort (lib/lineage/node-services.ts) computes the next spouse `sort`
+// by filtering node on
 //   organization_id, lineage_id, role = 'spouse', spouse_of_id, deleted_at IS NULL
-// and it runs from both live spouse write paths (:217 co-recorded spouse,
-// :495 add spouse) inside the FOR UPDATE lineage lock taken by
+// and it runs from both live spouse write paths (a co-recorded spouse, and a
+// spouse added on its own) inside the FOR UPDATE lineage lock taken by
 // loadLineageForUpdate. node had no index leading on spouse_of_id, so every
 // one of those writes scanned the whole lineage while holding the lock.
 //
-// The index lives in migration 0014 only, not lib/db/schema.ts: schema.ts sits
-// exactly at its F6 exemption ceiling of 688 lines (scripts/check-file-size.mjs),
-// so adding an index() declaration there turns pnpm arch:check red. Same
+// The index lives in migration 0014 only, not lib/db/schema/lineage.ts: same
 // precedent as idx_node_lineage_path — hand-written in a migration, absent
 // from the Drizzle snapshot, drift check clean.
 

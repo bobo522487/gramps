@@ -437,8 +437,8 @@ E2E 1 个文件 2 条用例（`tests/e2e/critical-path.spec.ts`）：
 
 - 采集范围：`lib/**/*.ts`、`app/api/**/route.ts`、`components/lineage` 的纯逻辑模块与 `canvas/layout/**`。
 - 排除：`lib/db/schema/**`、`lib/db/migrations/**`、`lib/db/seed.ts`、`lib/db/drizzle.ts` 与类型声明文件（`**/*.d.ts`）。
-- 全局门槛：lines/statements 60、functions 55、branches 50。
-- 关键服务层门槛：`lib/db/queries/**`、`lib/project/services.ts`、`lib/lineage/node-services.ts` 为 lines 70、functions 60。
+- 全局门槛：lines/statements 76、functions 84、branches 65。
+- 关键服务层门槛：`lib/db/queries/**` lines/functions 98、`lib/project/services.ts` lines 92 / functions 98、`lib/lineage/node-services.ts` lines 84 / functions 94。
 - 当前基线显著高于门槛；门槛按基线下方安全垫设定，不以 `skip` 凑数。
 
 ---
