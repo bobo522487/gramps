@@ -113,6 +113,27 @@ async function loadNode(
   return node ?? null;
 }
 
+/**
+ * The lineage-write preamble: org-scoped transaction, `lineage.write` re-check,
+ * then the `FOR UPDATE` lineage lock. Every node mutation needs all three — the
+ * lock is what stops two concurrent writers from computing the same `sort`, the
+ * same `node_count`, or overlapping subtree rewrites.
+ */
+async function withLineageWrite<T>(
+  params: { userId: string; orgId: string; lineageId: string },
+  fn: (tx: DbTransaction, lineage: Lineage) => Promise<T>
+): Promise<T | { ok: false; reason: NodeFailure }> {
+  const { userId, orgId, lineageId } = params;
+
+  return withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
+    const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
+    if (!lineage) {
+      return { ok: false, reason: 'not_found' } as const;
+    }
+    return fn(tx, lineage);
+  });
+}
+
 async function nextBloodSort(
   tx: DbTransaction,
   orgId: string,
@@ -212,7 +233,6 @@ async function insertCoSpouse(
     spouseOfId: blood.id,
     role: 'spouse',
     path: null,
-    depth: blood.depth,
     generation: blood.generation,
     sort: await nextSpouseSort(tx, orgId, lineageId, blood.id),
     name: spouse.name,
@@ -237,69 +257,60 @@ export async function createRootNodeInTransaction(params: {
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, name, sex, ipAddress } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-
-      const [existing] = await tx
-        .select({ id: nodes.id })
-        .from(nodes)
-        .where(
-          and(
-            eq(nodes.orgId, orgId),
-            eq(nodes.lineageId, lineageId),
-            eq(nodes.role, 'blood'),
-            isNull(nodes.deletedAt)
-          )
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
+    const [existing] = await tx
+      .select({ id: nodes.id })
+      .from(nodes)
+      .where(
+        and(
+          eq(nodes.orgId, orgId),
+          eq(nodes.lineageId, lineageId),
+          eq(nodes.role, 'blood'),
+          isNull(nodes.deletedAt)
         )
-        .limit(1);
-      if (existing) {
-        return { ok: false, reason: 'root_exists' as const };
-      }
-
-      const surname = params.surname ?? lineage.surname;
-      const id = await newNodeId(tx);
-      const node = await insertNode(tx, {
-        id,
-        orgId,
-        lineageId,
-        role: 'blood',
-        path: nodeLabel(id),
-        depth: 0,
-        generation: 1,
-        sort: 0,
-        name,
-        surname,
-        fullName: fullName(surname, name),
-        sex,
-        ...detailValues(params.details),
-        createdBy: userId,
-      });
-      const spouse = params.spouse
-        ? await insertCoSpouse(tx, {
-            userId,
-            orgId,
-            lineageId,
-            blood: node,
-            spouse: params.spouse,
-          })
-        : null;
-
-      await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.CREATE_NODE,
-        ipAddress
-      );
-      return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
+      )
+      .limit(1);
+    if (existing) {
+      return { ok: false, reason: 'root_exists' as const };
     }
-  );
+
+    const surname = params.surname ?? lineage.surname;
+    const id = await newNodeId(tx);
+    const node = await insertNode(tx, {
+      id,
+      orgId,
+      lineageId,
+      role: 'blood',
+      path: nodeLabel(id),
+      generation: 1,
+      sort: 0,
+      name,
+      surname,
+      fullName: fullName(surname, name),
+      sex,
+      ...detailValues(params.details),
+      createdBy: userId,
+    });
+    const spouse = params.spouse
+      ? await insertCoSpouse(tx, {
+          userId,
+          orgId,
+          lineageId,
+          blood: node,
+          spouse: params.spouse,
+        })
+      : null;
+
+    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.CREATE_NODE,
+      ipAddress
+    );
+    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
+  });
 }
 
 export async function addChildInTransaction(params: {
@@ -316,61 +327,53 @@ export async function addChildInTransaction(params: {
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, parentId, name, sex, ipAddress } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      const parent = await loadNode(tx, orgId, lineageId, parentId);
-      if (!parent) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      if (parent.role !== 'blood' || !parent.path) {
-        return { ok: false, reason: 'invalid_parent' as const };
-      }
-
-      const surname = params.surname ?? lineage.surname;
-      const id = await newNodeId(tx);
-      const node = await insertNode(tx, {
-        id,
-        orgId,
-        lineageId,
-        parentId: parent.id,
-        role: 'blood',
-        path: `${parent.path}.${nodeLabel(id)}`,
-        depth: parent.depth + 1,
-        generation: parent.generation + 1,
-        sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
-        name,
-        surname,
-        fullName: fullName(surname, name),
-        sex,
-        ...detailValues(params.details),
-        createdBy: userId,
-      });
-      const spouse = params.spouse
-        ? await insertCoSpouse(tx, {
-            userId,
-            orgId,
-            lineageId,
-            blood: node,
-            spouse: params.spouse,
-          })
-        : null;
-
-      await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.CREATE_NODE,
-        ipAddress
-      );
-      return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
+    const parent = await loadNode(tx, orgId, lineageId, parentId);
+    if (!parent) {
+      return { ok: false, reason: 'not_found' as const };
     }
-  );
+    if (parent.role !== 'blood' || !parent.path) {
+      return { ok: false, reason: 'invalid_parent' as const };
+    }
+
+    const surname = params.surname ?? lineage.surname;
+    const id = await newNodeId(tx);
+    const node = await insertNode(tx, {
+      id,
+      orgId,
+      lineageId,
+      parentId: parent.id,
+      role: 'blood',
+      path: `${parent.path}.${nodeLabel(id)}`,
+      generation: parent.generation + 1,
+      sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
+      name,
+      surname,
+      fullName: fullName(surname, name),
+      sex,
+      ...detailValues(params.details),
+      createdBy: userId,
+    });
+    const spouse = params.spouse
+      ? await insertCoSpouse(tx, {
+          userId,
+          orgId,
+          lineageId,
+          blood: node,
+          spouse: params.spouse,
+        })
+      : null;
+
+    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.CREATE_NODE,
+      ipAddress
+    );
+    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
+  });
 }
 
 export async function addSiblingInTransaction(params: {
@@ -388,68 +391,60 @@ export async function addSiblingInTransaction(params: {
   const { userId, orgId, lineageId, siblingOfId, name, sex, ipAddress } =
     params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      const sibling = await loadNode(tx, orgId, lineageId, siblingOfId);
-      if (!sibling) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      if (sibling.role !== 'blood' || !sibling.path) {
-        return { ok: false, reason: 'invalid_target' as const };
-      }
-      if (!sibling.parentId) {
-        return { ok: false, reason: 'root_sibling' as const };
-      }
-      const parent = await loadNode(tx, orgId, lineageId, sibling.parentId);
-      if (!parent?.path) {
-        return { ok: false, reason: 'invalid_parent' as const };
-      }
-
-      const surname = params.surname ?? lineage.surname;
-      const id = await newNodeId(tx);
-      const node = await insertNode(tx, {
-        id,
-        orgId,
-        lineageId,
-        parentId: parent.id,
-        role: 'blood',
-        path: `${parent.path}.${nodeLabel(id)}`,
-        depth: sibling.depth,
-        generation: sibling.generation,
-        sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
-        name,
-        surname,
-        fullName: fullName(surname, name),
-        sex,
-        ...detailValues(params.details),
-        createdBy: userId,
-      });
-      const spouse = params.spouse
-        ? await insertCoSpouse(tx, {
-            userId,
-            orgId,
-            lineageId,
-            blood: node,
-            spouse: params.spouse,
-          })
-        : null;
-
-      await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.CREATE_NODE,
-        ipAddress
-      );
-      return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
+    const sibling = await loadNode(tx, orgId, lineageId, siblingOfId);
+    if (!sibling) {
+      return { ok: false, reason: 'not_found' as const };
     }
-  );
+    if (sibling.role !== 'blood' || !sibling.path) {
+      return { ok: false, reason: 'invalid_target' as const };
+    }
+    if (!sibling.parentId) {
+      return { ok: false, reason: 'root_sibling' as const };
+    }
+    const parent = await loadNode(tx, orgId, lineageId, sibling.parentId);
+    if (!parent?.path) {
+      return { ok: false, reason: 'invalid_parent' as const };
+    }
+
+    const surname = params.surname ?? lineage.surname;
+    const id = await newNodeId(tx);
+    const node = await insertNode(tx, {
+      id,
+      orgId,
+      lineageId,
+      parentId: parent.id,
+      role: 'blood',
+      path: `${parent.path}.${nodeLabel(id)}`,
+      generation: sibling.generation,
+      sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
+      name,
+      surname,
+      fullName: fullName(surname, name),
+      sex,
+      ...detailValues(params.details),
+      createdBy: userId,
+    });
+    const spouse = params.spouse
+      ? await insertCoSpouse(tx, {
+          userId,
+          orgId,
+          lineageId,
+          blood: node,
+          spouse: params.spouse,
+        })
+      : null;
+
+    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.CREATE_NODE,
+      ipAddress
+    );
+    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
+  });
 }
 
 export async function addSpouseInTransaction(params: {
@@ -465,53 +460,45 @@ export async function addSpouseInTransaction(params: {
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, spouseOfId, name, sex, ipAddress } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      const spouseOf = await loadNode(tx, orgId, lineageId, spouseOfId);
-      if (!spouseOf) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      if (spouseOf.role !== 'blood' || !spouseOf.path) {
-        return { ok: false, reason: 'invalid_target' as const };
-      }
-
-      const surname = params.surname ?? spouseOf.surname;
-      const id = await newNodeId(tx);
-      const node = await insertNode(tx, {
-        id,
-        orgId,
-        lineageId,
-        parentId: null,
-        spouseOfId: spouseOf.id,
-        role: 'spouse',
-        path: null,
-        depth: spouseOf.depth,
-        generation: spouseOf.generation,
-        sort: await nextSpouseSort(tx, orgId, lineageId, spouseOf.id),
-        name,
-        surname,
-        fullName: fullName(surname, name),
-        sex,
-        ...detailValues(params.details),
-        createdBy: userId,
-      });
-
-      await adjustNodeCount(tx, orgId, lineageId, 1);
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.CREATE_NODE,
-        ipAddress
-      );
-      return { ok: true as const, node };
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+    const spouseOf = await loadNode(tx, orgId, lineageId, spouseOfId);
+    if (!spouseOf) {
+      return { ok: false, reason: 'not_found' as const };
     }
-  );
+    if (spouseOf.role !== 'blood' || !spouseOf.path) {
+      return { ok: false, reason: 'invalid_target' as const };
+    }
+
+    const surname = params.surname ?? spouseOf.surname;
+    const id = await newNodeId(tx);
+    const node = await insertNode(tx, {
+      id,
+      orgId,
+      lineageId,
+      parentId: null,
+      spouseOfId: spouseOf.id,
+      role: 'spouse',
+      path: null,
+      generation: spouseOf.generation,
+      sort: await nextSpouseSort(tx, orgId, lineageId, spouseOf.id),
+      name,
+      surname,
+      fullName: fullName(surname, name),
+      sex,
+      ...detailValues(params.details),
+      createdBy: userId,
+    });
+
+    await adjustNodeCount(tx, orgId, lineageId, 1);
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.CREATE_NODE,
+      ipAddress
+    );
+    return { ok: true as const, node };
+  });
 }
 
 export type NodeUpdates = {
@@ -539,67 +526,58 @@ export async function updateNodeInTransaction(params: {
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, nodeId, updates, ipAddress } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      const current = await loadNode(tx, orgId, lineageId, nodeId);
-      if (!current) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-
-      const [node] = await tx
-        .update(nodes)
-        .set({
-          name: updates.name,
-          surname: updates.surname,
-          sex: updates.sex,
-          fullName: fullName(updates.surname, updates.name),
-          ...(updates.courtesy !== undefined
-            ? { courtesy: updates.courtesy }
-            : {}),
-          ...(updates.namePrefix !== undefined
-            ? { namePrefix: updates.namePrefix }
-            : {}),
-          ...(updates.isAlive !== undefined
-            ? { isAlive: updates.isAlive }
-            : {}),
-          ...(updates.birthText !== undefined
-            ? { birthText: updates.birthText }
-            : {}),
-          ...(updates.deathText !== undefined
-            ? { deathText: updates.deathText }
-            : {}),
-          ...(updates.birthYear !== undefined
-            ? { birthYear: updates.birthYear }
-            : {}),
-          ...(updates.deathYear !== undefined
-            ? { deathYear: updates.deathYear }
-            : {}),
-          ...(updates.burialPlace !== undefined
-            ? { burialPlace: updates.burialPlace }
-            : {}),
-          ...(updates.biography !== undefined
-            ? { biography: updates.biography }
-            : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(nodes.id, nodeId))
-        .returning();
-
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.UPDATE_NODE,
-        ipAddress
-      );
-      return { ok: true as const, node };
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+    const current = await loadNode(tx, orgId, lineageId, nodeId);
+    if (!current) {
+      return { ok: false, reason: 'not_found' as const };
     }
-  );
+
+    const [node] = await tx
+      .update(nodes)
+      .set({
+        name: updates.name,
+        surname: updates.surname,
+        sex: updates.sex,
+        fullName: fullName(updates.surname, updates.name),
+        ...(updates.courtesy !== undefined
+          ? { courtesy: updates.courtesy }
+          : {}),
+        ...(updates.namePrefix !== undefined
+          ? { namePrefix: updates.namePrefix }
+          : {}),
+        ...(updates.isAlive !== undefined ? { isAlive: updates.isAlive } : {}),
+        ...(updates.birthText !== undefined
+          ? { birthText: updates.birthText }
+          : {}),
+        ...(updates.deathText !== undefined
+          ? { deathText: updates.deathText }
+          : {}),
+        ...(updates.birthYear !== undefined
+          ? { birthYear: updates.birthYear }
+          : {}),
+        ...(updates.deathYear !== undefined
+          ? { deathYear: updates.deathYear }
+          : {}),
+        ...(updates.burialPlace !== undefined
+          ? { burialPlace: updates.burialPlace }
+          : {}),
+        ...(updates.biography !== undefined
+          ? { biography: updates.biography }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(nodes.id, nodeId))
+      .returning();
+
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.UPDATE_NODE,
+      ipAddress
+    );
+    return { ok: true as const, node };
+  });
 }
 
 export async function deleteNodeInTransaction(params: {
@@ -611,76 +589,69 @@ export async function deleteNodeInTransaction(params: {
 }): Promise<DeleteNodeResult> {
   const { userId, orgId, lineageId, nodeId, ipAddress } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      const target = await loadNode(tx, orgId, lineageId, nodeId);
-      if (!target) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      if (target.role === 'blood' && !target.parentId) {
-        return { ok: false, reason: 'root_forbidden' as const };
-      }
-
-      const ids = new Set<string>([target.id]);
-
-      if (target.role === 'blood' && target.path) {
-        const bloodRows = await tx
-          .select({ id: nodes.id })
-          .from(nodes)
-          .where(
-            and(
-              eq(nodes.orgId, orgId),
-              eq(nodes.lineageId, lineageId),
-              eq(nodes.role, 'blood'),
-              isNull(nodes.deletedAt),
-              sql`${nodes.path} <@ ${target.path}::ltree`
-            )
-          );
-        for (const row of bloodRows) {
-          ids.add(row.id);
-        }
-
-        const bloodIds = [...ids];
-        const spouseRows = await tx
-          .select({ id: nodes.id })
-          .from(nodes)
-          .where(
-            and(
-              eq(nodes.orgId, orgId),
-              eq(nodes.lineageId, lineageId),
-              eq(nodes.role, 'spouse'),
-              inArray(nodes.spouseOfId, bloodIds),
-              isNull(nodes.deletedAt)
-            )
-          );
-        for (const row of spouseRows) {
-          ids.add(row.id);
-        }
-      }
-
-      const deleted = await tx
-        .update(nodes)
-        .set({ deletedAt: new Date() })
-        .where(inArray(nodes.id, [...ids]))
-        .returning({ id: nodes.id });
-
-      await adjustNodeCount(tx, orgId, lineageId, -deleted.length);
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.DELETE_NODE,
-        ipAddress
-      );
-
-      return { ok: true as const, node: target, deletedNodes: deleted.length };
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+    const target = await loadNode(tx, orgId, lineageId, nodeId);
+    if (!target) {
+      return { ok: false, reason: 'not_found' as const };
     }
-  );
+    if (target.role === 'blood' && !target.parentId) {
+      return { ok: false, reason: 'root_forbidden' as const };
+    }
+
+    const ids = new Set<string>([target.id]);
+
+    if (target.role === 'blood' && target.path) {
+      const bloodRows = await tx
+        .select({ id: nodes.id })
+        .from(nodes)
+        .where(
+          and(
+            eq(nodes.orgId, orgId),
+            eq(nodes.lineageId, lineageId),
+            eq(nodes.role, 'blood'),
+            isNull(nodes.deletedAt),
+            sql`${nodes.path} <@ ${target.path}::ltree`
+          )
+        );
+      for (const row of bloodRows) {
+        ids.add(row.id);
+      }
+
+      const bloodIds = [...ids];
+      const spouseRows = await tx
+        .select({ id: nodes.id })
+        .from(nodes)
+        .where(
+          and(
+            eq(nodes.orgId, orgId),
+            eq(nodes.lineageId, lineageId),
+            eq(nodes.role, 'spouse'),
+            inArray(nodes.spouseOfId, bloodIds),
+            isNull(nodes.deletedAt)
+          )
+        );
+      for (const row of spouseRows) {
+        ids.add(row.id);
+      }
+    }
+
+    const deleted = await tx
+      .update(nodes)
+      .set({ deletedAt: new Date() })
+      .where(inArray(nodes.id, [...ids]))
+      .returning({ id: nodes.id });
+
+    await adjustNodeCount(tx, orgId, lineageId, -deleted.length);
+    await logActivityInTx(
+      tx,
+      userId,
+      orgId,
+      ActivityType.DELETE_NODE,
+      ipAddress
+    );
+
+    return { ok: true as const, node: target, deletedNodes: deleted.length };
+  });
 }
 
 export async function moveNodeInTransaction(params: {
@@ -693,124 +664,104 @@ export async function moveNodeInTransaction(params: {
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, nodeId, newParentId, ipAddress } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      const node = await loadNode(tx, orgId, lineageId, nodeId);
-      if (!node) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      if (node.role !== 'blood' || !node.path) {
-        return { ok: false, reason: 'invalid_target' as const };
-      }
-      if (!node.parentId) {
-        return { ok: false, reason: 'invalid_target' as const };
-      }
-      if (node.id === newParentId) {
-        return { ok: false, reason: 'invalid_parent' as const };
-      }
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+    const node = await loadNode(tx, orgId, lineageId, nodeId);
+    if (!node) {
+      return { ok: false, reason: 'not_found' as const };
+    }
+    if (node.role !== 'blood' || !node.path) {
+      return { ok: false, reason: 'invalid_target' as const };
+    }
+    if (!node.parentId) {
+      return { ok: false, reason: 'invalid_target' as const };
+    }
+    if (node.id === newParentId) {
+      return { ok: false, reason: 'invalid_parent' as const };
+    }
 
-      const newParent = await loadNode(tx, orgId, lineageId, newParentId);
-      if (!newParent?.path || newParent.role !== 'blood') {
-        return { ok: false, reason: 'invalid_parent' as const };
-      }
-      if (
-        newParent.path === node.path ||
-        newParent.path.startsWith(`${node.path}.`)
-      ) {
-        return { ok: false, reason: 'cycle' as const };
-      }
+    const newParent = await loadNode(tx, orgId, lineageId, newParentId);
+    if (!newParent?.path || newParent.role !== 'blood') {
+      return { ok: false, reason: 'invalid_parent' as const };
+    }
+    if (
+      newParent.path === node.path ||
+      newParent.path.startsWith(`${node.path}.`)
+    ) {
+      return { ok: false, reason: 'cycle' as const };
+    }
 
-      const newPrefix = `${newParent.path}.${nodeLabel(node.id)}`;
-      const depthDelta = newParent.depth + 1 - node.depth;
-      const generationDelta = newParent.generation + 1 - node.generation;
-      const sort = await nextBloodSort(tx, orgId, lineageId, newParent.id);
+    const newPrefix = `${newParent.path}.${nodeLabel(node.id)}`;
+    const generationDelta = newParent.generation + 1 - node.generation;
+    const sort = await nextBloodSort(tx, orgId, lineageId, newParent.id);
 
-      // Spouses keep a null path but follow the generation of the blood node
-      // they are attached to, so collect the moving subtree before paths change.
-      const movingBlood = await tx
-        .select({ id: nodes.id })
-        .from(nodes)
+    // Spouses keep a null path but follow the generation of the blood node
+    // they are attached to, so collect the moving subtree before paths change.
+    const movingBlood = await tx
+      .select({ id: nodes.id })
+      .from(nodes)
+      .where(
+        and(
+          eq(nodes.orgId, orgId),
+          eq(nodes.lineageId, lineageId),
+          eq(nodes.role, 'blood'),
+          isNull(nodes.deletedAt),
+          sql`${nodes.path} <@ ${node.path}::ltree`
+        )
+      );
+
+    await tx.execute(sql`
+    update ${nodes}
+    set path = (${newPrefix}::ltree || subpath(${nodes.path}, nlevel(${node.path}::ltree)))::ltree,
+        generation = ${nodes.generation} + ${generationDelta},
+        updated_at = now()
+    where ${nodes.orgId} = ${orgId}
+      and ${nodes.lineageId} = ${lineageId}
+      and ${nodes.deletedAt} is null
+      and ${nodes.path} <@ ${node.path}::ltree
+      and ${nodes.id} <> ${node.id}
+  `);
+
+    const [updated] = await tx
+      .update(nodes)
+      .set({
+        parentId: newParent.id,
+        sort,
+        path: newPrefix,
+        generation: node.generation + generationDelta,
+        updatedAt: new Date(),
+      })
+      .where(eq(nodes.id, node.id))
+      .returning();
+
+    if (movingBlood.length > 0 && generationDelta !== 0) {
+      await tx
+        .update(nodes)
+        .set({
+          generation: sql`${nodes.generation} + ${generationDelta}`,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(nodes.orgId, orgId),
             eq(nodes.lineageId, lineageId),
-            eq(nodes.role, 'blood'),
-            isNull(nodes.deletedAt),
-            sql`${nodes.path} <@ ${node.path}::ltree`
+            eq(nodes.role, 'spouse'),
+            inArray(
+              nodes.spouseOfId,
+              movingBlood.map((row) => row.id)
+            ),
+            isNull(nodes.deletedAt)
           )
         );
-
-      await tx.execute(sql`
-      update ${nodes}
-      set path = (${newPrefix}::ltree || subpath(${nodes.path}, nlevel(${node.path}::ltree)))::ltree,
-          depth = ${nodes.depth} + ${depthDelta},
-          generation = ${nodes.generation} + ${generationDelta},
-          updated_at = now()
-      where ${nodes.orgId} = ${orgId}
-        and ${nodes.lineageId} = ${lineageId}
-        and ${nodes.deletedAt} is null
-        and ${nodes.path} <@ ${node.path}::ltree
-        and ${nodes.id} <> ${node.id}
-    `);
-
-      const [updated] = await tx
-        .update(nodes)
-        .set({
-          parentId: newParent.id,
-          sort,
-          path: newPrefix,
-          depth: node.depth + depthDelta,
-          generation: node.generation + generationDelta,
-          updatedAt: new Date(),
-        })
-        .where(eq(nodes.id, node.id))
-        .returning();
-
-      if (
-        movingBlood.length > 0 &&
-        (depthDelta !== 0 || generationDelta !== 0)
-      ) {
-        await tx
-          .update(nodes)
-          .set({
-            depth: sql`${nodes.depth} + ${depthDelta}`,
-            generation: sql`${nodes.generation} + ${generationDelta}`,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(nodes.orgId, orgId),
-              eq(nodes.lineageId, lineageId),
-              eq(nodes.role, 'spouse'),
-              inArray(
-                nodes.spouseOfId,
-                movingBlood.map((row) => row.id)
-              ),
-              isNull(nodes.deletedAt)
-            )
-          );
-      }
-
-      await tx
-        .update(lineages)
-        .set({ updatedAt: new Date() })
-        .where(eq(lineages.id, lineageId));
-
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.MOVE_NODE,
-        ipAddress
-      );
-      return { ok: true as const, node: updated };
     }
-  );
+
+    await tx
+      .update(lineages)
+      .set({ updatedAt: new Date() })
+      .where(eq(lineages.id, lineageId));
+
+    await logActivityInTx(tx, userId, orgId, ActivityType.MOVE_NODE, ipAddress);
+    return { ok: true as const, node: updated };
+  });
 }
 
 export async function reorderSiblingsInTransaction(params: {
@@ -822,54 +773,45 @@ export async function reorderSiblingsInTransaction(params: {
 }): Promise<ReorderNodesResult> {
   const { userId, orgId, lineageId, parentId, orderedIds } = params;
 
-  return withOrgWrite(
-    { userId, orgId, permission: 'lineage.write' },
-    async (tx) => {
-      const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-      if (!lineage) {
-        return { ok: false, reason: 'not_found' as const };
-      }
-      if (new Set(orderedIds).size !== orderedIds.length) {
-        return { ok: false, reason: 'invalid_order' as const };
-      }
-      if (orderedIds.length === 0) {
-        return { ok: true as const };
-      }
-
-      const rows = await tx
-        .select({
-          id: nodes.id,
-          parentId: nodes.parentId,
-          role: nodes.role,
-        })
-        .from(nodes)
-        .where(
-          and(
-            eq(nodes.orgId, orgId),
-            eq(nodes.lineageId, lineageId),
-            inArray(nodes.id, orderedIds),
-            isNull(nodes.deletedAt)
-          )
-        );
-
-      if (rows.length !== orderedIds.length) {
-        return { ok: false, reason: 'invalid_order' as const };
-      }
-      const sameParent = rows.every(
-        (row) =>
-          row.role === 'blood' &&
-          (parentId === null
-            ? row.parentId === null
-            : row.parentId === parentId)
-      );
-      if (!sameParent) {
-        return { ok: false, reason: 'invalid_order' as const };
-      }
-
-      for (const [index, id] of orderedIds.entries()) {
-        await tx.update(nodes).set({ sort: index }).where(eq(nodes.id, id));
-      }
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      return { ok: false, reason: 'invalid_order' as const };
+    }
+    if (orderedIds.length === 0) {
       return { ok: true as const };
     }
-  );
+
+    const rows = await tx
+      .select({
+        id: nodes.id,
+        parentId: nodes.parentId,
+        role: nodes.role,
+      })
+      .from(nodes)
+      .where(
+        and(
+          eq(nodes.orgId, orgId),
+          eq(nodes.lineageId, lineageId),
+          inArray(nodes.id, orderedIds),
+          isNull(nodes.deletedAt)
+        )
+      );
+
+    if (rows.length !== orderedIds.length) {
+      return { ok: false, reason: 'invalid_order' as const };
+    }
+    const sameParent = rows.every(
+      (row) =>
+        row.role === 'blood' &&
+        (parentId === null ? row.parentId === null : row.parentId === parentId)
+    );
+    if (!sameParent) {
+      return { ok: false, reason: 'invalid_order' as const };
+    }
+
+    for (const [index, id] of orderedIds.entries()) {
+      await tx.update(nodes).set({ sort: index }).where(eq(nodes.id, id));
+    }
+    return { ok: true as const };
+  });
 }

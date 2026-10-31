@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-21（原始决策）· 2026-10-22（补记为 ADR）
 - **可逆性**：双向门（加锁是加法，不改数据形态）
-- **相关**：[PRD §6.3 缺口 3](../prd.md) · [04-runtime §5.5](../architecture/04-runtime.md) · [08-evolution R3](../architecture/08-evolution.md)
+- **相关**：[PRD §6.3 缺口 3](../prd.md) · [07-运行视图-关键流程](../architecture/07-运行视图-关键流程.md) · [13-风险与演进规划 R3](../architecture/13-风险与演进规划.md)
 
 ## 背景
 

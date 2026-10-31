@@ -31,14 +31,17 @@ export default defineConfig({
         'lib/db/drizzle.ts',
         '**/*.d.ts',
       ],
+      // Floors, not targets (docs/guides/testing.md §5): each sits ~2 points
+      // under the measured baseline, so a regression fails and ordinary work
+      // does not. Raise them when the baseline rises; never lower them to pass.
       thresholds: {
-        lines: 60,
-        statements: 60,
-        functions: 55,
-        branches: 50,
-        'lib/db/queries/**': { lines: 70, functions: 60 },
-        'lib/db/services.ts': { lines: 70, functions: 60 },
-        'lib/lineage/node-services.ts': { lines: 70, functions: 60 },
+        lines: 76,
+        statements: 76,
+        functions: 84,
+        branches: 65,
+        'lib/db/queries/**': { lines: 98, functions: 98 },
+        'lib/project/services.ts': { lines: 92, functions: 98 },
+        'lib/lineage/node-services.ts': { lines: 84, functions: 94 },
       },
     },
   },

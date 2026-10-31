@@ -70,8 +70,3 @@ export function getAuth() {
   }
   return instance;
 }
-
-/** Test hook: rebuild the auth instance after changing env or DB clients. */
-export function resetAuth() {
-  instance = null;
-}

@@ -7,7 +7,7 @@
 | 关注点 | 去哪读 |
 |---|---|
 | 项目边界、数据规则、禁止清单、提交与评审 | `AGENTS.md` |
-| 架构目标与模块边界 | `docs/architecture/00-overview.md` |
+| 架构目标与模块边界 | `docs/architecture/01-架构总览.md` |
 | 表结构与约束 | `docs/data-model.md` |
 | 命令与测试分层 | `docs/setup.md`、`docs/guides/testing.md` |
 

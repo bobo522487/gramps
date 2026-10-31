@@ -13,11 +13,11 @@ export type OrgWriteRefusal = { ok: false; reason: 'forbidden' };
  * ActionState contract (see AGENTS §5.2).
  */
 export async function withOrgWrite<T>(
-  params: { userId: string; orgId: string; permission: OrgPermission },
+  userId: string,
+  orgId: string,
+  permission: OrgPermission,
   fn: (tx: DbTransaction) => Promise<T>
 ): Promise<T | OrgWriteRefusal> {
-  const { userId, orgId, permission } = params;
-
   return withOrg(userId, async (tx) => {
     if (!(await requireOrgPermission(tx, userId, orgId, permission))) {
       return { ok: false, reason: 'forbidden' } as const;

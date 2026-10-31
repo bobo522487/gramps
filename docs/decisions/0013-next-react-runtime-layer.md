@@ -40,7 +40,7 @@ refetchOnMount 未设置      | 同上                                        | 
 
 1. **删掉那两处 `refetchOnMount: 'always'`**：首屏数据以 RSC `dehydrate` 为唯一来源，新鲜度交给客户端唯一的 `staleTime: 30_000` 策略；三个查询 key 从此走同一条规则。`components/query-provider.tsx` 的 `createQueryClient` 改为导出，新增 `tests/first-paint-data.test.ts` 用**同一个工厂**锁住这套语义（含一例源码守卫：任何 hook 里出现 `refetchOnMount` 就红）。
 2. **不加 `next/dynamic`、不做 bundle 瘦身**：证据是 §1——重库已经按路由切分，公开路由 201 KiB gzip 基本就是 React + Next 运行时的底。手工分包在这里没有对象可分。
-3. **不把 `/` 静态化**（10-24 评审 P1-9 的那条验收标准「`/` 标为 `○ (Static)`」本轮**判为不做**）：让营销页动态的正是「读会话与组织列表」这个设计选择，而按 [架构总览](../architecture/00-overview.md) 的边界，M1 没有匿名业务数据页、分享页或公开 API。静态化要先拆根布局的会话读取，换来的是一个**没有观众的页面**少一次渲染。等真的有公开入口再说。
+3. **不把 `/` 静态化**（10-24 评审 P1-9 的那条验收标准「`/` 标为 `○ (Static)`」本轮**判为不做**）：让营销页动态的正是「读会话与组织列表」这个设计选择，而按 [架构总览](../architecture/01-架构总览.md) 的边界，M1 没有匿名业务数据页、分享页或公开 API。静态化要先拆根布局的会话读取，换来的是一个**没有观众的页面**少一次渲染。等真的有公开入口再说。
 4. **不接线 scoped `revalidateProject` / `revalidateOrg`**（P1-8 从「已在产生成本的债务」降级）：没有任何预渲染路由，就没有「整树失效」能炸掉的服务端 HTML 缓存；整树失效的代价落在客户端 Router Cache（下次导航重取 RSC payload），而写入后本来就该重取。本轮只把**说法**改对：`lib/lineage/revalidate.ts` 文档注释重写成现状、`tests/revalidate-paths.test.ts` 改成描述真实调用图并钉住「scoped helper 尚未接线」、实现状态第 14 条与 `docs/api.md` 的代码样例改正（样例里的 `revalidateProject()` 是无参旧签名，照抄不能编译）。
 5. **不动画布的 `computedNodes`**：`genealogy-canvas.tsx` 的那个 memo 依赖里确实有 `lineage-detail.tsx:660-678` 传下来的行内箭头，但同一个依赖里还有 `selectedNodeId`——每个节点的 `data.isSelected` 就是从它算的，所以「选中即重建整个节点数组」是**构造性的**，不是引用稳定性造成的。把箭头换成 `useCallback` 不会改变这一点。而单次重建的真实代价取决于人丁数量，本仓库连「谱系规模 < 5000 节点」这个假设都还没测（10-25 评审 §9）。
 

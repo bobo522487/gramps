@@ -3,8 +3,8 @@ import 'server-only';
 import { revalidatePath } from 'next/cache';
 
 /**
- * 现状（由 `tests/revalidate-paths.test.ts` 钉住）：25 处写入 Action 全部只调
- * `revalidateWholeConsole()`；下面两个 scoped helper **尚未接线**，因为 Action 的
+ * 现状（由 `tests/revalidate-paths.test.ts` 钉住）：所有写入 Action 都只调
+ * `revalidateWholeConsole()`，没有一处调下面的 scoped helper。它们**尚未接线**，因为 Action 的
  * Zod 入参只有 UUID `orgId` / `lineageId` / `projectId`，拿不到路径需要的公开
  * `orgSlug` / `projectRef`。接线要同时改 schema 与提交它们的对话框，属于评审 P1-8，
  * 在那之前不要假设失效是收窄的。

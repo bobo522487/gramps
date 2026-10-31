@@ -2,7 +2,7 @@
 
 > **文档状态：当前实现说明** · 最后更新：2026-10-30
 > 本文件每次会话都会被加载，所以只放**每次都必须遵守**的内容：项目边界、仓库约定、数据与安全规则、禁止清单。
-> 其余细节按 [docs/README.md §5.1](docs/README.md) 的单一事实来源写，本文件**只指路、不复制**：命令与环境变量 → [setup.md](docs/setup.md)；实现状态与当前代码结构 → [implementation-status.md](docs/implementation-status.md)；加表/加 Action/加页面 → [guides/add-a-feature.md](docs/guides/add-a-feature.md)；测试分层与写法 → [guides/testing.md](docs/guides/testing.md)；架构目标 → [architecture/](docs/architecture/00-overview.md)；决策理由 → [decisions/](docs/decisions/README.md)。
+> 其余细节按 [docs/README.md §5.1](docs/README.md) 的单一事实来源写，本文件**只指路、不复制**：命令与环境变量 → [setup.md](docs/setup.md)；实现状态与当前代码结构 → [implementation-status.md](docs/implementation-status.md)；加表/加 Action/加页面 → [guides/add-a-feature.md](docs/guides/add-a-feature.md)；测试分层与写法 → [guides/testing.md](docs/guides/testing.md)；架构现状与结构 → [architecture/](docs/architecture/00-文档说明.md)；目标设计 → [prd.md](docs/prd.md)；决策理由 → [decisions/](docs/decisions/README.md)。
 > 冲突时以代码与 [实现状态](docs/implementation-status.md) 为准；本文件的仓库约定（安全、数据规则、禁止清单）优先于任何技能或目标文档的建议。
 
 ---
@@ -56,7 +56,8 @@ Next.js 组织/项目控制台 + 家谱业务第一版：组织 → 项目两层
 | 加页面 / Action / API | [接口契约](docs/api.md)（目标）；当前做法见 [add-a-feature ⑤–⑧](docs/guides/add-a-feature.md) |
 | 写测试 / 覆盖率门槛 | [guides/testing.md](docs/guides/testing.md) |
 | 线上故障 / 恢复 | [guides/runbooks.md](docs/guides/runbooks.md)、[ops-target.md](docs/ops-target.md) |
-| 讨论家谱目标架构 | [architecture/](docs/architecture/00-overview.md)、[decisions/](docs/decisions/README.md) |
+| 了解架构现状与结构 | [architecture/](docs/architecture/00-文档说明.md) |
+| 讨论家谱目标架构 | [prd.md](docs/prd.md)、[decisions/](docs/decisions/README.md) |
 
 ---
 
@@ -79,7 +80,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 ## 4. 目录与命名
 
-目录树与「哪块代码在哪」见 [implementation-status §1.5](docs/implementation-status.md)；模块边界与依赖方向见 [03-components](docs/architecture/03-components.md)。顶层是 `app/` + `components/` + `lib/` + `hooks/` + `tests/`，没有 `src/modules`。
+目录树与「哪块代码在哪」见 [implementation-status §1.5](docs/implementation-status.md)；模块边界与依赖方向见 [03-逻辑视图-模块设计](docs/architecture/03-逻辑视图-模块设计.md)。顶层是 `app/` + `components/` + `lib/` + `hooks/` + `tests/`，没有 `src/modules`。
 
 | 对象 | 规则 | 示例 |
 |---|---|---|

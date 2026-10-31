@@ -101,7 +101,7 @@ cp .env.example .env
 - 服务启动时 `instrumentation.ts` 调用 `getServerConfig()`；配置缺失或非法会记录错误并阻止启动（`next build` 阶段跳过）。
 - 在 Vercel（`process.env.VERCEL` 存在）上，`APP_POSTGRES_URL` 与 `AUTH_POSTGRES_URL` 也变为必填，避免两个运行时意外共用表属主连接。
 - `lib/db/drizzle.ts` 与 `lib/db/auth-db.ts` 都通过 `getServerConfig()` 读取连接串；测试与脚本在首次查询前设置环境变量即可。
-- 单元测试可使用 `resetServerConfig()` 清除缓存后重新校验。
+- 校验结果在进程内只算一次：进程起来之后再改 `process.env` 不会生效，需要另一套配置的测试应起独立进程（没有清除缓存的测试钩子）。
 
 ### 3.3 数据库驱动与连接池
 
@@ -437,8 +437,8 @@ E2E 1 个文件 2 条用例（`tests/e2e/critical-path.spec.ts`）：
 
 - 采集范围：`lib/**/*.ts`、`app/api/**/route.ts`、`components/lineage` 的纯逻辑模块与 `canvas/layout/**`。
 - 排除：`lib/db/schema/**`、`lib/db/migrations/**`、`lib/db/seed.ts`、`lib/db/drizzle.ts` 与类型声明文件（`**/*.d.ts`）。
-- 全局门槛：lines/statements 60、functions 55、branches 50。
-- 关键服务层门槛：`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts` 为 lines 70、functions 60。
+- 全局门槛：lines/statements 76、functions 84、branches 65。
+- 关键服务层门槛：`lib/db/queries/**` lines/functions 98、`lib/project/services.ts` lines 92 / functions 98、`lib/lineage/node-services.ts` lines 84 / functions 94。
 - 当前基线显著高于门槛；门槛按基线下方安全垫设定，不以 `skip` 凑数。
 
 ---

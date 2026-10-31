@@ -40,7 +40,9 @@ describe('withOrgWrite', () => {
   it('runs the callback when the caller has the permission', async () => {
     const { user, organization } = await ownerScope();
     const result = await withOrgWrite(
-      { userId: user.id, orgId: organization.id, permission: 'lineage.write' },
+      user.id,
+      organization.id,
+      'lineage.write',
       async (tx) =>
         (await queryRows<{ ok: number }>(tx, sql`select 1 as ok`))[0]
     );
@@ -51,11 +53,9 @@ describe('withOrgWrite', () => {
     const { viewer, organization } = await viewerScope();
     const spy = vi.fn();
     const result = await withOrgWrite(
-      {
-        userId: viewer.id,
-        orgId: organization.id,
-        permission: 'lineage.write',
-      },
+      viewer.id,
+      organization.id,
+      'lineage.write',
       spy
     );
     expect(result).toEqual({ ok: false, reason: 'forbidden' });
@@ -69,11 +69,9 @@ describe('withOrgWrite', () => {
   it('leaves no role or claims residue after an early refusal', async () => {
     const { viewer, organization } = await viewerScope();
     await withOrgWrite(
-      {
-        userId: viewer.id,
-        orgId: organization.id,
-        permission: 'lineage.write',
-      },
+      viewer.id,
+      organization.id,
+      'lineage.write',
       async () => 'unreachable'
     );
 

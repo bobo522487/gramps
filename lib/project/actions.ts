@@ -9,13 +9,13 @@ import {
   deleteProjectSchema,
   updateProjectSchema,
 } from '@/lib/auth/schemas';
+import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 import {
   createProjectInTransaction,
   deleteProjectInTransaction,
   type ProjectUpdates,
   updateProjectInTransaction,
-} from '@/lib/db/services';
-import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
+} from '@/lib/project/services';
 
 const PROJECT_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',

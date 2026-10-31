@@ -5,7 +5,7 @@ import {
   createProjectInTransaction,
   type ProjectUpdates,
   updateProjectInTransaction,
-} from '@/lib/db/services';
+} from '@/lib/project/services';
 import { getTestDb, getTestSql } from '../helpers/db';
 import {
   createProject,

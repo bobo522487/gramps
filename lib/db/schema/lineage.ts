@@ -60,17 +60,19 @@ export const nodes = pgTable(
     parentId: uuid('parent_id'),
     spouseOfId: uuid('spouse_of_id'),
     role: text('role').notNull().default('blood'),
-    path: ltree('path'),
-    depth: integer('depth').notNull().default(0),
-    generation: integer('generation').notNull(),
     /**
-     * Derived from path, so a writer cannot disagree with the tree it lives in.
-     * Spouses have no path and sit at level 0. Read-only: the database rejects
-     * any INSERT/UPDATE that names this column.
+     * The whole tree position. Depth is `nlevel(path) - 1` and is not stored:
+     * a stored copy would be a second answer to the same question, and the only
+     * reader that ever wanted depth (ordering inside one generation) already has
+     * `generation`, which is constant across a generation.
      */
-    level: integer('level').generatedAlwaysAs(
-      sql`case when ${sql.identifier('path')} is null then 0 else nlevel(${sql.identifier('path')}) - 1 end`
-    ),
+    path: ltree('path'),
+    /**
+     * 世次. Deliberately not derived from path: `ck_node_generation_gte_tree_depth`
+     * allows a generation deeper than the tree position (a person recorded a
+     * generation below where they hang), so this one is stored.
+     */
+    generation: integer('generation').notNull(),
     sort: integer('sort').notNull().default(0),
     name: text('name').notNull(),
     surname: text('surname').notNull(),
@@ -118,23 +120,12 @@ export const nodes = pgTable(
       'ck_node_spouse_has_no_path',
       sql`(${t.role} = 'spouse' and ${t.path} is null and ${t.spouseOfId} is not null) or (${t.role} = 'blood' and ${t.path} is not null)`
     ),
-    /**
-     * A CHECK cannot reference a generated column, so this repeats the level
-     * expression rather than comparing against "level" (which PostgreSQL
-     * rejects at ALTER TABLE time).
-     */
+    // 世次 may exceed tree depth on purpose (see the `generation` comment), but
+    // it may never be shallower than the position the path proves.
     check(
-      'ck_node_generation_lte_level',
+      'ck_node_generation_gte_tree_depth',
       sql`${t.generation} >= case when ${t.path} is null then 1 else nlevel(${t.path}) end`
     ),
-    // Depth must agree with the same ltree path that level is derived from.
-    // CHECK cannot reference the generated `level` column, so the expression
-    // is repeated; spouses (path IS NULL) keep their app-managed depth.
-    check(
-      'ck_node_depth_eq_level',
-      sql`${t.path} is null or ${t.depth} = nlevel(${t.path}) - 1`
-    ),
-    index('idx_node_lineage_depth').on(t.orgId, t.lineageId, t.depth),
     index('idx_node_parent').on(t.orgId, t.parentId),
     index('idx_node_alive')
       .on(t.orgId, t.lineageId)

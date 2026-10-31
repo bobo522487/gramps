@@ -1,7 +1,7 @@
 # 实现状态
 
 > **文档状态：当前实现说明** · 最后更新：2026-10-30
-> 目标定义来自 [PRD](./prd.md)、[架构](./architecture/00-overview.md)、[数据模型](./data-model.md)、[接口](./api.md)。
+> 需求目标来自 [PRD](./prd.md)；当前代码结构见 [01-架构总览](./architecture/01-架构总览.md)；目标数据模型与接口契约见 [数据模型](./data-model.md)、[接口](./api.md)。
 > 本文件只描述**代码里真实存在什么**，不描述计划。
 
 | 项 | 值 |
@@ -101,7 +101,7 @@
 
 - `pnpm test:unit`（`pnpm test`）：不连接数据库；文件数/用例数以命令输出为准。
 - `pnpm test:integration`：连接名称以 `_test` 结尾的独立 PostgreSQL（数量以输出为准）；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
-- `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
+- `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/project/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
 - `pnpm test:e2e`：Playwright + Chromium 两条串行关键路径（注册 → 建项目 → 文件夹/谱系 → 始祖 → 子女 → 检查器持久化 → 侧栏搜索/折叠；邀请 → 登出 → 登录 → 接受邀请）；本地模式会重置 `_test` 库，外部模式需 `E2E_EXTERNAL_SERVER=1` + `E2E_ALLOW_EXTERNAL=1`。
 - `pnpm verify:deploy`：HTTP 健康/安全头/鉴权与数据库结构/RLS/角色检查；本地生产模式全项 PASS。
 - 集成测试覆盖：迁移结构/RLS/授权、约束、公开 ID 成员过滤、RLS 无 claims 与跨组织拒绝、注册/邀请/建组织/成员变更/删号事务、Server Action 行为、API 契约、项目 `ref` 冲突重试、健康检查、分类/谱系/人丁树语义（四种录入模式、同录配偶与详情、移动子树、软删、始祖删除保护、`node_count`、搜索）、组织级查询的软删/排序/搜索转义。
@@ -111,7 +111,7 @@
 
 ### 1.5 当前代码结构
 
-顶层就是 `app/` + `components/` + `lib/`，没有 `src/modules`，也没有 `*.service.ts` / `*.repo.ts`。依赖方向见 [03-components §4.3](./architecture/03-components.md)。
+顶层就是 `app/` + `components/` + `lib/`，没有 `src/modules`，也没有 `*.service.ts` / `*.repo.ts`。依赖方向见 [03-逻辑视图-模块设计](./architecture/03-逻辑视图-模块设计.md)。
 
 ```
 app/
@@ -241,7 +241,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 | `FR-LIN-5` 添加子女 | ✅ | 世次 +1，可连续添加；只有血亲节点能作为父辈；录入表单按父辈预填世次/排行/字辈 |
 | `FR-LIN-6` 编辑人丁信息 | 🟡 | 姓名、前缀、字号、性别、生卒、葬地、行传、在世状态；自定义 `attributes` 尚未提供 UI |
 | `FR-LIN-7` 删除人丁 | ✅ | 子树与配偶一次软删，`node_count` 同步；始祖不可删除；无回收站 |
-| `FR-LIN-8` 移动人丁 | ✅ | 事务内重算子树 `path`/`depth`/`generation`，拒绝移动始祖与成环；画布可拖拽连线改父 |
+| `FR-LIN-8` 移动人丁 | ✅ | 事务内重算子树 `path`/`generation`，拒绝移动始祖与成环；画布可拖拽连线改父 |
 | `FR-LIN-9` 谱系图交互 | ✅ | 单一 `book_ltr` 欧式书本布局：世代列/表头、折叠展开、平移缩放、点选/双击编辑、搜索定位、居中、小地图、拖拽录入、连线改父 |
 | `FR-LIN-10` 按代加载 | ✅ | 页面仍一次读取全部节点；超过 500 人时画布首屏渲染 5 世，向右平移或按钮每次追加 5 世，并开启 `onlyRenderVisibleElements` |
 | `FR-LIN-11` 人丁搜索 | ✅ | 画布搜索匹配姓名/字号/前缀/生卒/葬地/行传/配偶并定位节点（配偶命中定位其血亲）；世系表保留过滤 |
@@ -275,7 +275,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 11. **谱系画布一次加载全部节点**：详情页仍读取整棵谱系，画布只按世代窗口渲染；超过 500 人时首屏 5 世、每次追加 5 世，但没有服务端分页或虚拟滚动。极大人丁量下传输与索引仍有成本，后续需补按代查询。
 12. **活动日志语义不一致**：谱系写入在业务事务内（日志失败会回滚业务），组织写入在提交后（失败只告警）。目标语义是“日志尽力而为、不回滚业务”；差异见 2026-10-24 评审 P1-10。
 13. **根布局读取会话与组织**：`app/layout.tsx` 对每个请求查会话与组织，营销页因此动态渲染；这是营销页无法静态化的直接原因，见评审 P1-9。
-14. **缓存失效范围过宽**：25 处写入 Action 全部调用 `revalidateWholeConsole()`（整棵 `/dashboard` 树 + `layout`）；`lib/lineage/revalidate.ts` 里按子树收窄的 `revalidateProject(orgSlug, projectRef)` / `revalidateOrg(orgSlug)` **已实现但零调用者**，前提是 Action 能拿到公开 `orgSlug` / `projectRef`（现在只有 UUID）。见评审 P1-8 与 [ADR 0013](./decisions/0013-next-react-runtime-layer.md)。
+14. **缓存失效范围过宽**：所有写入 Action 都调用 `revalidateWholeConsole()`（整棵 `/dashboard` 树 + `layout`）；`lib/lineage/revalidate.ts` 里按子树收窄的 `revalidateProject(orgSlug, projectRef)` / `revalidateOrg(orgSlug)` **已实现但零调用者**，前提是 Action 能拿到公开 `orgSlug` / `projectRef`（现在只有 UUID）。见评审 P1-8 与 [ADR 0013](./decisions/0013-next-react-runtime-layer.md)。
 
 > `getSessionUser()` 只返回 `SessionUser`（`{ id, name, email }`），不再返回完整用户行；新增对外出口必须显式挑字段，不能直接序列化任何认证记录。
 

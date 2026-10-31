@@ -285,9 +285,3 @@ export const moveNodeSchema = z.object({
   nodeId,
   newParentId: nodeId,
 });
-
-export type CreateFolderInput = z.infer<typeof createFolderSchema>;
-export type CreateLineageInput = z.infer<typeof createLineageSchema>;
-export type UpdateLineageInput = z.infer<typeof updateLineageSchema>;
-export type NodeNameInput = z.infer<typeof addChildSchema>;
-export type UpdateNodeInput = z.infer<typeof updateNodeSchema>;

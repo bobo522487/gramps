@@ -171,9 +171,7 @@ export function NodeCreateDialog({
         .slice()
         .sort(
           (left, right) =>
-            left.generation - right.generation ||
-            left.depth - right.depth ||
-            left.sort - right.sort
+            left.generation - right.generation || left.sort - right.sort
         ),
     [index.blood]
   );

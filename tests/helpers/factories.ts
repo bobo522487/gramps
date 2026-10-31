@@ -188,7 +188,6 @@ export async function createNode(params: {
   spouseOfId?: string | null;
   role?: 'blood' | 'spouse';
   path?: string | null;
-  depth?: number;
   generation: number;
   sort?: number;
   name?: string;
@@ -211,12 +210,8 @@ export async function createNode(params: {
   const role = params.role ?? 'blood';
   const name = params.name ?? '测试人丁';
   const surname = params.surname ?? '陈';
-  // ck_node_depth_eq_level pins depth to the path; writers that pass an
-  // explicit inconsistent depth still hit the constraint (deliberate:
-  // tests/integration/constraints.test.ts proves the database rejects it).
   const path =
     role === 'spouse' ? null : (params.path ?? id.replaceAll('-', ''));
-  const derivedDepth = path === null ? 0 : path.split('.').length - 1;
   const [node] = await getTestDb()
     .insert(nodes)
     .values({
@@ -228,7 +223,6 @@ export async function createNode(params: {
       spouseOfId: params.spouseOfId ?? null,
       role,
       path,
-      depth: params.depth ?? derivedDepth,
       generation: params.generation,
       sort: params.sort ?? 0,
       name,

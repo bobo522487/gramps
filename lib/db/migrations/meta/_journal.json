@@ -169,6 +169,13 @@
       "when": 1793320093575,
       "tag": "0023_public_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793373751208,
+      "tag": "0024_certain_tinkerer",
+      "breakpoints": true
     }
   ]
 }

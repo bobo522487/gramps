@@ -9,7 +9,8 @@
 | 部署 | Vercel + 自定义域名 + Neon；本地 Docker 只跑 PostgreSQL + `next dev` |
 | 字符集 / 时区 | UTF-8 / 所有时间列 `timestamptz` |
 | 表数量 | 17 张组织级业务表（16 张业务表 + `activity_logs`）+ 4 张 `auth.*` 表 |
-| 相关文档 | [架构](./architecture/00-overview.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
+| 时态 | 当前实现（as-is）：已建表的逐列定义。未来表只在 §2.2 与 §13.2 用「M2 会增加」这类明确措辞标注，不混入正文 |
+| 相关文档 | [架构](./architecture/01-架构总览.md) · [PRD](./prd.md) · [接口](./api.md) · [部署](./ops-target.md) · [实现状态](./implementation-status.md) |
 
 ---
 
@@ -463,12 +464,10 @@ CREATE TABLE node (
 
   -- 关系
   parent_id       uuid REFERENCES node(id) ON DELETE RESTRICT,
-  mother_id       uuid REFERENCES node(id) ON DELETE RESTRICT,
   spouse_of_id    uuid REFERENCES node(id) ON DELETE RESTRICT,
   role            text NOT NULL DEFAULT 'blood' CHECK (role IN ('blood','spouse')),
-  path            ltree,
-  depth           int NOT NULL DEFAULT 0,
-  generation      int NOT NULL,
+  path            ltree,          -- 深度 = nlevel(path) - 1，不另存列
+  generation      int NOT NULL,   -- 世次，存列：允许 世次 ≥ 树深
   sort            int NOT NULL DEFAULT 0,
 
   -- 姓名
@@ -487,7 +486,6 @@ CREATE TABLE node (
   death_year      int,
   burial_place    text,
   biography       text,
-  attributes      jsonb NOT NULL DEFAULT '{}',
 
   created_at      timestamptz NOT NULL DEFAULT now(),
   created_by      uuid NOT NULL,
@@ -503,7 +501,6 @@ CREATE TABLE node (
 );
 
 CREATE INDEX idx_node_lineage_path  ON node USING gist (organization_id, lineage_id, path);
-CREATE INDEX idx_node_lineage_depth ON node (organization_id, lineage_id, depth);
 CREATE INDEX idx_node_parent        ON node (organization_id, parent_id);
 -- no trigram index on node: person search matches in memory, see ADR 0011
 CREATE INDEX idx_node_alive         ON node (organization_id, lineage_id)
@@ -1049,7 +1046,6 @@ M1 **不建独立审计表**。写操作的可追溯性由三部分组成：
 | `folder` | `idx_folder_project` | B-tree（部分） | 分类树加载 |
 | `lineage` | `uk_lineage_name` | 唯一部分 | 同名检查 |
 | `node` | `idx_node_lineage_path` | **GiST** | 祖先 / 后代 / 子树 |
-| `node` | `idx_node_lineage_depth` | B-tree | 按代加载（视口分段） |
 | `node` | `idx_node_parent` | B-tree | 父节点查找 |
 | `node` | `idx_node_alive` | B-tree（部分） | 未删除节点列表 |
 | `node` | `idx_node_spouse_sort` | B-tree `(organization_id, spouse_of_id)`，部分（`deleted_at IS NULL`）（`0014`） | 配偶排序 `max(sort)` 查询，避免谱系内扫描 |

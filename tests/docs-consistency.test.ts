@@ -213,8 +213,8 @@ describe('documented stack versions', () => {
   });
 
   test('fitness functions without an executor are deleted, not promised', () => {
-    const quality = read('docs/architecture/07-quality.md');
-    const components = read('docs/architecture/03-components.md');
+    const quality = read('docs/architecture/08-非功能性设计.md');
+    const components = read('docs/architecture/03-逻辑视图-模块设计.md');
 
     // F1/F2 describe a `*.service.ts` / `src/server/db` layout this repo does
     // not have, and F4 was never defined anywhere. A constraint nobody can

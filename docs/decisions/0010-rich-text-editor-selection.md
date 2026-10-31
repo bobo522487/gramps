@@ -4,7 +4,7 @@
 - **日期**：2026-10-27
 - **可逆性**：单向门——文档格式一旦进了库、进了已排版的谱书，换编辑器要重排数据（同 [ADR 0003](./0003-tree-storage-ltree.md) 那类门）
 - **取代**：[决策索引](./README.md) 待决策 **D-9**（富文本选型）——D-9 自此转为本 ADR 并从待决策表移除，由 `scripts/check-docs.mjs` 的已解决清单执行
-- **相关**：[ADR-12（边界是 ProseMirror JSON）](./README.md) · [ADR 0009 §1/§5（依赖只减不增、选型三问）](./0009-dependency-and-runtime-stance.md) · [ADR 0011（`article.plain_text` 的 trigram 检索）](./0011-search-boundary-node-client-article-trgm.md) · [PRD FR-ART-1…5](../prd.md) · [05-data](../architecture/05-data.md) · [技术栈评审 S1-1](../reviews/2026-10-25-linus-stack-review.md)
+- **相关**：[ADR-12（边界是 ProseMirror JSON）](./README.md) · [ADR 0009 §1/§5（依赖只减不增、选型三问）](./0009-dependency-and-runtime-stance.md) · [ADR 0011（`article.plain_text` 的 trigram 检索）](./0011-search-boundary-node-client-article-trgm.md) · [PRD FR-ART-1…5](../prd.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [技术栈评审 S1-1](../reviews/2026-10-25-linus-stack-review.md)
 
 ## 背景
 
@@ -84,7 +84,7 @@ M1 的 5 种块级排版 + 1 种行内格式确实**用 60 行渲染器也能做
 
 | 方案 | 为什么不够好 |
 |---|---|
-| 现在就把 TipTap 装上"打底" | 没有消费者就付传递依赖与安全公告的税（ADR 0009 §1）；且装上一个没人用的依赖，会让文档与 `package.json` 的漂移变成常态——正是 04-runtime 里 RHF 那类事故 |
+| 现在就把 TipTap 装上"打底" | 没有消费者就付传递依赖与安全公告的税（ADR 0009 §1）；且装上一个没人用的依赖，会让文档与 `package.json` 的漂移变成常态——正是旧架构文档里 RHF 那类事故 |
 | 自写受限结构化模型（段落数组 + 块类型，评审 S1-1 方案 A） | 渲染 60 行能做，**编辑**不能：中文输入法、选区、表格合并、粘贴清洗四条特殊分支要自己写；只要 M1 的 5 种块不变它就是够的，但 M2 的谱书排版一旦要更多行内格式就要推翻 |
 | 选 Lexical | 结构化程度更高，但生态更小、文档更少；1–3 人团队的学习成本是真金白银，而它的主要优势（更强的节点模型、Meta 的工程投入）不在我们 5 种块的需求里 |
 | 存 HTML（放弃 ADR-12 的格式边界） | 结构不可校验、不可迁移、不能服务端安全渲染；`plain_text` 的派生失去单一事实源。注意 ADR-12 目前只是文档层面的边界：没有读者、没有写者、也没有迁移需要回退 |

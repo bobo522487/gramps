@@ -15,7 +15,7 @@ import {
   createProjectInTransaction,
   deleteProjectInTransaction,
   updateProjectInTransaction,
-} from '@/lib/db/services';
+} from '@/lib/project/services';
 import {
   getTestDb,
   getTestSql,

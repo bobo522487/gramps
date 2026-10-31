@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-21（原始决策）· 2026-10-22（补记为 ADR）
 - **可逆性**：**单向门**（有真实数据后改动 = 跨全表迁移 + 已排版版本重排）
-- **相关**：[data-model §6.2](../data-model.md) · [05-data](../architecture/05-data.md) · [08-evolution R9](../architecture/08-evolution.md) · [待决策 D-4](../architecture/08-evolution.md#15-待决策项)
+- **相关**：[data-model §6.2](../data-model.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [13-风险与演进规划 R9](../architecture/13-风险与演进规划.md) · [待决策 D-4](./README.md)
 
 ## 背景
 

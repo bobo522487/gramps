@@ -111,7 +111,6 @@ describe('node tree semantics', () => {
     const founder = await root(user.id, organization.id, lineage.id);
     expect(founder.role).toBe('blood');
     expect(founder.generation).toBe(1);
-    expect(founder.depth).toBe(0);
     expect(founder.path).toBe(founder.id.replaceAll('-', ''));
 
     const son = await child(
@@ -122,7 +121,6 @@ describe('node tree semantics', () => {
       '元英'
     );
     expect(son.generation).toBe(2);
-    expect(son.depth).toBe(1);
     expect(son.parentId).toBe(founder.id);
     expect(son.path?.startsWith(`${founder.path}.`)).toBe(true);
 
@@ -213,7 +211,6 @@ describe('node tree semantics', () => {
       parentId: null,
       path: null,
       generation: 2,
-      depth: 1,
       sort: 0,
       surname: '王',
       name: '氏',
@@ -264,7 +261,6 @@ describe('node tree semantics', () => {
 
     expect(result.node).toMatchObject({
       generation: 1,
-      depth: 0,
       birthYear: 1860,
       burialPlace: '村东祖坟',
       biography: '始迁于此。',
@@ -274,7 +270,6 @@ describe('node tree semantics', () => {
       spouseOfId: result.node.id,
       path: null,
       generation: 1,
-      depth: 0,
       surname: '林',
       fullName: '林氏',
       sex: 1,
@@ -444,7 +439,7 @@ describe('node tree semantics', () => {
     expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
   });
 
-  it('moves a subtree and recomputes path, depth and generation', async () => {
+  it('moves a subtree and recomputes path and generation', async () => {
     const { user, organization, lineage } = await setup();
     const founder = await root(user.id, organization.id, lineage.id);
     const branchA = await child(
@@ -491,14 +486,12 @@ describe('node tree semantics', () => {
     if (!moved.ok) return;
     expect(moved.node.parentId).toBe(branchB.id);
     expect(moved.node.generation).toBe(3);
-    expect(moved.node.depth).toBe(2);
 
     const [movedGrandchild] = await getTestDb()
       .select()
       .from(nodes)
       .where(eq(nodes.id, grandchild.id));
     expect(movedGrandchild?.generation).toBe(4);
-    expect(movedGrandchild?.depth).toBe(3);
     expect(movedGrandchild?.path?.startsWith(`${branchB.path}.`)).toBe(true);
 
     const [movedSpouse] = await getTestDb()
@@ -506,7 +499,6 @@ describe('node tree semantics', () => {
       .from(nodes)
       .where(eq(nodes.id, branchSpouse.node.id));
     expect(movedSpouse?.generation).toBe(3);
-    expect(movedSpouse?.depth).toBe(2);
     expect(movedSpouse?.path).toBeNull();
 
     const cycle = await moveNodeInTransaction({
