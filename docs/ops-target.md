@@ -1,17 +1,17 @@
 # 目标环境与部署蓝图
 
-> **文档状态：M1 目标设计（基础层已实现，部署未验证）** · 最后更新：2026-10-25
+> **文档状态：M1 目标设计（基础层已实现，生产已部署）** · 最后更新：2026-10-31
 > 本文件描述家谱目标架构的部署与运维蓝图，**不是当前仓库的操作指南**。
 > 当前仓库请读 [环境与部署（当前实现）](./setup.md)；实现差异见 [实现状态](./implementation-status.md) 与 [ADR 0001](./decisions/0001-foundation-reset.md)。
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 1.5 |
-| 文档状态 | M1 目标设计（基础层已实现，部署未验证） |
-| 最后更新 | 2026-10-25 |
+| 文档版本 | 1.6 |
+| 文档状态 | M1 目标设计（基础层已实现，生产已部署） |
+| 最后更新 | 2026-10-31 |
 | 部署单元 | Vercel（Next.js）+ Neon PostgreSQL 18+；本地 Docker 只跑 PostgreSQL |
 | 本地开发 | `docker compose up -d db` + `pnpm dev`（`next dev`，不用应用容器） |
-| 迁移 | Drizzle Kit，对直连 URL 执行，与应用部署分离 |
+| 迁移 | Drizzle Kit，对直连 URL 执行，与应用部署分离；生产由 GitHub Actions 的独立 job 执行（§5.3） |
 | 相关文档 | [架构](./architecture/01-架构总览.md) · [数据模型](./data-model.md) · [接口](./api.md) |
 
 ---
@@ -150,7 +150,7 @@ pnpm db:migrate
 | `POSTGRES_URL` | ✅ | 本地 `localhost:54322` | Neon **pooled** endpoint | 业务运行期连接串；本地用 postgres.js 直连，生产用 pg Pool 并以 `app` 登录角色连接 |
 | `APP_POSTGRES_URL` | 生产必填 | 可省略，回退 `POSTGRES_URL` | Neon pooled endpoint（`app` 角色） | 业务查询连接；经 `withOrg` 在事务内 `SET LOCAL ROLE app_rw` |
 | `AUTH_POSTGRES_URL` | 生产必填 | 可省略，回退 `POSTGRES_URL` | Neon **direct（unpooled）** endpoint（`auth_runtime` 角色） | Better Auth 连接；连接初始化固定 `role=auth_service`，pooler 不支持该启动参数 |
-| `POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` | — | 可省略，回落到 `POSTGRES_URL` | **只放 CI / 运维环境，不进 Vercel** | 迁移、备份、DDL；Neon direct endpoint |
+| `POSTGRES_URL_DIRECT` / `POSTGRES_URL_NON_POOLING` | — | 可省略，回落到 `POSTGRES_URL` | **只放 CI / 运维环境（GitHub Actions secret），不进 Vercel** | 迁移、备份、DDL；Neon direct endpoint |
 | `BETTER_AUTH_SECRET` | ✅ | 本地随机值 | 随机生成，**≥ 32 字符** | Better Auth Cookie 签名密钥 |
 | `BETTER_AUTH_URL` | ✅ | `http://localhost:3000` | 自定义域名，如 `https://family.example.com` | Better Auth 基地址；生成邀请链接与回调 URL |
 | `LOG_LEVEL` | — | `debug` | `info` | 默认 `info`，生产不要设 `debug` |
@@ -483,7 +483,7 @@ pnpm db:migrate
 
 ```text
 1. CI：pnpm check → pnpm typecheck → pnpm test:coverage → 迁移漂移检查 → pnpm build → pnpm test:e2e → pnpm verify:deploy
-2. 对 Neon 生产分支执行迁移（POSTGRES_URL_DIRECT，独立受保护步骤）
+2. 对 Neon 生产分支执行迁移：.github/workflows/migrate-production.yml（POSTGRES_URL_DIRECT 来自仓库 secret）
 3. 部署 / Promote Vercel 生产部署
 4. 外部验证：BETTER_AUTH_URL=https://<staging> POSTGRES_URL_DIRECT=<direct> APP_POSTGRES_URL=<app-login> pnpm verify:deploy
 5. 外部 E2E（仅 staging）：E2E_ALLOW_EXTERNAL=1 E2E_EXTERNAL_SERVER=1 E2E_BASE_URL=https://<staging> pnpm test:e2e
@@ -491,6 +491,8 @@ pnpm db:migrate
 ```
 
 **迁移先于应用启动**。顺序反了会出现“新代码访问旧表”的窗口期；反过来把迁移塞进构建，则可能在多次构建或预览部署中重复执行 DDL。
+
+第 2 步是这条顺序里唯一必须有人记住的环节，而它曾经就这样被跳过：生产库停在 `0003_better_auth`，代码却在读 `0004` 之后才有的列，于是每个 Server Component 都抛错，页面只剩 React #441 与 digest。现在改由 `.github/workflows/migrate-production.yml` 承担——`push` 到 `main` 且改到 `lib/db/migrations/**` 时自动执行，也可手动 `workflow_dispatch`；跑完立刻用同一份 journal 校验生产库，失败即红。仍然**不**把迁移放进 Vercel 构建（理由见上一段）。
 
 ### 5.4 Preview 部署与 Neon 分支
 
@@ -516,7 +518,7 @@ pnpm test:e2e          # CI=1，production server（pnpm start -p 3100）
 pnpm verify:deploy -- --base-url http://127.0.0.1:3100
 ```
 
-E2E 使用本地 Docker PostgreSQL 或 Neon 预览分支，不使用生产库。迁移作为独立任务，放在受保护环境（需要人工批准）中执行。外部/云端验证模板见 §5.3；本轮仅本地生产模式已执行，云端未执行（无凭据）。
+E2E 使用本地 Docker PostgreSQL 或 Neon 预览分支，不使用生产库。迁移作为独立任务，由 `.github/workflows/migrate-production.yml` 执行（见 §5.3）。外部/云端验证模板见 §5.3；本轮仅本地生产模式已执行，云端未执行（无凭据）。
 
 ---
 

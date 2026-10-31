@@ -1,15 +1,15 @@
 # 实现状态
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-30
+> **文档状态：当前实现说明** · 最后更新：2026-10-31
 > 需求目标来自 [PRD](./prd.md)；当前代码结构见 [01-架构总览](./architecture/01-架构总览.md)；目标数据模型与接口契约见 [数据模型](./data-model.md)、[接口](./api.md)。
 > 本文件只描述**代码里真实存在什么**，不描述计划。
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | 2.2 |
+| 文档版本 | 2.3 |
 | 文档状态 | 当前实现说明 |
-| 最后更新 | 2026-10-30 |
-| 部署状态 | 目标为 Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`VERCEL` 环境用 `pg` + `attachDatabasePool`），本地/CI 用 `postgres.js`。**本地生产模式已用 `verify:deploy` 全项验证**；真实 Vercel/Neon 未部署（无凭据），云端入口已就绪 |
+| 最后更新 | 2026-10-31 |
+| 部署状态 | 已部署到 Vercel + Neon PostgreSQL 18+（`https://gramps-kappa.vercel.app`），生产驱动用 `pg` + `attachDatabasePool`，本地/CI 用 `postgres.js`。**本地生产模式与真实生产环境都用 `verify:deploy` 验证过**：迁移与 journal 一致、17 张业务表与 `auth` 4 张表齐全、RLS 全部 enabled+forced、`app`→`app_rw` 与 `auth_runtime`→`auth_service` 成员关系成立、认证态页面 200。生产库迁移由 `.github/workflows/migrate-production.yml` 执行（见 [部署蓝图 §5.3](./ops-target.md)） |
 
 ---
 
@@ -263,7 +263,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 ## 5. 已知实现风险
 
 1. **最后一个 owner 保护有数据库触发器兜底**：`trg_org_member_last_owner_delete` / `trg_org_member_last_owner_update` 阻止通过 Better Auth 删除或降级最后一个 owner；但直接以迁移角色写库仍可绕过，应用层也做预检。
-2. **RLS 依赖运行期角色分离**：生产业务连接必须使用非表属主的 `app` 角色（`GRANT app_rw`），认证连接必须使用 `auth_runtime`（连 `auth_service`），否则 `FORCE RLS` 的兜底语义会被削弱。本地/CI 用超级用户迁移后 `SET LOCAL ROLE app_rw`，这一点已在集成测试中覆盖，但真实 Neon/Vercel 部署尚未验证。
+2. **RLS 依赖运行期角色分离**：生产业务连接必须使用非表属主的 `app` 角色（`GRANT app_rw`），认证连接必须使用 `auth_runtime`（连 `auth_service`），否则 `FORCE RLS` 的兜底语义会被削弱。本地/CI 用超级用户迁移后 `SET LOCAL ROLE app_rw`；真实 Vercel/Neon 上已用 `verify:deploy` 确认两条成员关系成立、RLS 全部 enabled+forced。
 3. **限流是进程内内存实现**：重启清零，多实例不共享；目标设计接受这一 best-effort 限制，不把它当作安全边界。
 4. **邀请不发送邮件**：链接需要人工复制转发；这是目标设计允许的 M1 形态。
 5. **无自助密码找回**：目标设计与当前实现都没有邮件通道；忘记密码只能由运维人工重置（更新 `auth.account.password` 并删除会话）。
@@ -271,7 +271,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 7. **软删没有回收站 UI**：数据仍在库内，但用户无法恢复；生产清库前必须确认备份。
 8. **注册触发器会为每个用户创建个人组织**：被邀请注册的用户同时拥有个人组织与邀请方组织；组织切换器需要覆盖这一情形。
 9. **E2E 只覆盖两条关键路径**：Playwright 覆盖注册→建项目→谱系→录入→检查器→侧栏，以及邀请→登出→登录→接受邀请；没有全量 CRUD 矩阵与视觉回归。控件文案变化会直接破坏测试，选择器因此优先使用 role/aria-label。
-10. **云端部署验证未执行**：`verify:deploy` 与 external E2E 已就绪，但本机无 Vercel/Neon 凭据；本地生产模式已验证，真实 Vercel/Neon 行为（尤其 `pg` + `attachDatabasePool`、`auth_service` 连接与 pooled/direct 连接分离）仍待 staging 验证。
+10. **没有 staging，也没有 external E2E 跑过的记录**：`verify:deploy` 已在生产上跑通（迁移、表、RLS、角色、触发器全项 PASS，仅 `/api/auth/*` 探测因 Vercel 对未匹配 POST 返回 200 而报 FAIL，与业务无关），但 external E2E（`E2E_EXTERNAL_SERVER` + `E2E_ALLOW_EXTERNAL`）从未执行，也没有 staging 环境可跑。生产库的迁移曾经只靠人工、实际从未执行，导致线上停在 `0003` 并整站报 React #441；现已改由 `.github/workflows/migrate-production.yml` 执行。
 11. **谱系画布一次加载全部节点**：详情页仍读取整棵谱系，画布只按世代窗口渲染；超过 500 人时首屏 5 世、每次追加 5 世，但没有服务端分页或虚拟滚动。极大人丁量下传输与索引仍有成本，后续需补按代查询。
 12. **活动日志语义不一致**：谱系写入在业务事务内（日志失败会回滚业务），组织写入在提交后（失败只告警）。目标语义是“日志尽力而为、不回滚业务”；差异见 2026-10-24 评审 P1-10。
 13. **根布局读取会话与组织**：`app/layout.tsx` 对每个请求查会话与组织，营销页因此动态渲染；这是营销页无法静态化的直接原因，见评审 P1-9。
