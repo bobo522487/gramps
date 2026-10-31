@@ -101,7 +101,7 @@
 
 - `pnpm test:unit`（`pnpm test`）：不连接数据库；文件数/用例数以命令输出为准。
 - `pnpm test:integration`：连接名称以 `_test` 结尾的独立 PostgreSQL（数量以输出为准）；`globalSetup` 先丢弃旧 schema/扩展，再从空库执行全部迁移；每个测试用例开始前清空业务表与 `auth.users`。
-- `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/db/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
+- `pnpm test:coverage`：单测 + 集成的合并 V8 覆盖率，输出 `text`/`json-summary`/`lcov`；全局门槛 lines/statements 60、functions 55、branches 50，关键服务层（`lib/db/queries/**`、`lib/project/services.ts`、`lib/lineage/node-services.ts`）lines 70、functions 60。
 - `pnpm test:e2e`：Playwright + Chromium 两条串行关键路径（注册 → 建项目 → 文件夹/谱系 → 始祖 → 子女 → 检查器持久化 → 侧栏搜索/折叠；邀请 → 登出 → 登录 → 接受邀请）；本地模式会重置 `_test` 库，外部模式需 `E2E_EXTERNAL_SERVER=1` + `E2E_ALLOW_EXTERNAL=1`。
 - `pnpm verify:deploy`：HTTP 健康/安全头/鉴权与数据库结构/RLS/角色检查；本地生产模式全项 PASS。
 - 集成测试覆盖：迁移结构/RLS/授权、约束、公开 ID 成员过滤、RLS 无 claims 与跨组织拒绝、注册/邀请/建组织/成员变更/删号事务、Server Action 行为、API 契约、项目 `ref` 冲突重试、健康检查、分类/谱系/人丁树语义（四种录入模式、同录配偶与详情、移动子树、软删、始祖删除保护、`node_count`、搜索）、组织级查询的软删/排序/搜索转义。

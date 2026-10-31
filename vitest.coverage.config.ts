@@ -37,7 +37,7 @@ export default defineConfig({
         functions: 55,
         branches: 50,
         'lib/db/queries/**': { lines: 70, functions: 60 },
-        'lib/db/services.ts': { lines: 70, functions: 60 },
+        'lib/project/services.ts': { lines: 70, functions: 60 },
         'lib/lineage/node-services.ts': { lines: 70, functions: 60 },
       },
     },

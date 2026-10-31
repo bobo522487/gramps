@@ -118,7 +118,7 @@ describe('thing 隔离', () => {
 |---|---:|---:|---:|---:|
 | 全局 | 60 | 55 | 50 | 60 |
 | `lib/db/queries/**` | 70 | 60 | — | — |
-| `lib/db/services.ts` | 70 | 60 | — | — |
+| `lib/project/services.ts` | 70 | 60 | — | — |
 | `lib/lineage/node-services.ts` | 70 | 60 | — | — |
 
 不统计：`lib/db/schema/**`、`lib/db/migrations/**`、`lib/db/seed.ts`、`lib/db/drizzle.ts`（驱动工厂）与类型声明。

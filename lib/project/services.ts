@@ -1,12 +1,17 @@
 import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
+import { withOrg } from '@/lib/db/drizzle';
+import { requireOrgPermission } from '@/lib/db/guards';
+import { logActivityInTx } from '@/lib/db/queries/activity';
+import {
+  ActivityType,
+  organizations,
+  type Project,
+  projects,
+} from '@/lib/db/schema';
 import { generatePublicId } from '@/lib/ids';
-import type { ProjectStatus } from '@/lib/project/constants';
-import { withOrg } from './drizzle';
-import { requireOrgPermission } from './guards';
-import { logActivityInTx } from './queries/activity';
-import { ActivityType, organizations, type Project, projects } from './schema';
+import type { ProjectStatus } from './constants';
 
 export type ProjectCreateInput = {
   name: string;
