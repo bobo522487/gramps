@@ -315,6 +315,43 @@ RPO ≤ 1 天、RTO ≤ 4 小时是 [PRD](../prd.md) 的目标值，**尚未实�
 
 ---
 
+## RB-7 所有页面报错（React #441 + digest）
+
+### 症状
+
+浏览器 console 出现 `Minified React error #441`，紧跟一条 `{"level":"error","message":"Unhandled route error","digest":"..."}`；页面只剩错误边界。匿名访问 `/` 与 `/sign-in` 正常，`/api/health` 也返回 `{"status":"ok","database":"up"}`。
+
+### 判断
+
+`#441` 只说明**某个 Server Component 渲染时抛了错**，生产构建把具体消息换成了 digest。`/api/health` 只跑 `select 1`，**不碰业务表**，所以它绿不能证明 schema 对得上。
+
+先对比生产库与 journal：
+
+```sql
+SELECT count(*) FROM drizzle._drizzle_migrations;   -- 已应用条数
+```
+
+```bash
+node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.length)"  # journal 条数
+```
+
+两个数字不等 → 库落后于代码，代码在查还不存在的列/表。
+
+### 修复
+
+```bash
+POSTGRES_URL_DIRECT=<Neon direct 连接串> pnpm db:migrate
+node scripts/verify-deployment.mjs --skip-http    # 迁移与表/RLS/角色逐项 PASS
+```
+
+然后带真实会话重试出错的页面，确认返回 200 且 HTML 里没有 digest。
+
+### 根治
+
+迁移由 `.github/workflows/migrate-production.yml` 在 `lib/db/migrations/**` 变更时执行，**不要**把迁移塞进 Vercel 构建（多次构建与 preview 会重复执行 DDL）。改 schema 的 PR 合进 `main` 后必须确认这个 job 绿了。
+
+---
+
 ## 附：常用巡检 SQL
 
 ```sql

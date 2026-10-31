@@ -1,0 +1,59 @@
+name: Migrate production database
+
+# 生产库迁移曾经靠人工执行，实际从未执行，导致 2026-10-31 线上只跑到 0003：
+# 新代码访问旧表，Server Component 抛错，页面只剩 React #441 与 digest。
+# 这个 job 就是 ops-target §5.3 说的「独立受保护步骤」，只是改成由 push 触发，
+# 不再依赖有人记得去点。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/db/migrations/**'
+  workflow_dispatch:
+
+# 迁移不能并发，也不能被新提交取消：一个只跑到一半的迁移比没跑更糟。
+concurrency:
+  group: production-migration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Apply migrations to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refuse to run without the direct database URL
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: |
+          if [ -z "$POSTGRES_URL_DIRECT" ]; then
+            echo "::error::POSTGRES_URL_DIRECT secret is missing; production migrations cannot run."
+            exit 1
+          fi
+
+      - name: Apply migrations
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: pnpm db:migrate
+
+      # 迁移完立刻用同一份 journal 校验生产库，失败即红：不留下「迁移跑了一半」的静默状态。
+      - name: Verify production schema
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: node scripts/verify-deployment.mjs --skip-http
