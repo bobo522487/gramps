@@ -1,6 +1,6 @@
 # Person + Family 关系模型（A1 期）设计
 
-> **状态**：已定稿，待批准实施 · 2026-10-29
+> **状态**：已定稿，待批准实施 · 2026-10-29（2026-11-01 补注：文中的「GEDCOM 5.5.1」格式判断已被 [ADR 0017](../../decisions/0017-single-branch-export-gedcom7.md) 取代——导出格式定为 GEDCOM 7；本文其余内容不受影响）
 > **范围**：项目级改造（数据模型 + 谱系域读写重写 + 数据迁移），不是一次功能改造
 > **相关**：ADR [0003](../../decisions/0003-tree-storage-ltree.md)（被本文取代）· [data-model.md](../../data-model.md) §7 · [05-data.md](../../architecture/05-data.md) §8.4 §8.5 · [08-evolution.md](../../architecture/08-evolution.md) · [decisions/README.md](../../decisions/README.md) D-4
 

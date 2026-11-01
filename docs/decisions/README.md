@@ -39,6 +39,7 @@
 | ADR-24 | 约束执行 | 架构规则必须有执行者（lint / 迁移 / 部署自检 / 测试 / CI），否则视为未决策 | 双向门 | [0009](./0009-dependency-and-runtime-stance.md) |
 | ADR-25 | TypeScript 编译器开关 | 只开 4 条实测 0 报错的检查；贵开关全部拒绝并留下报错数 | 双向门 | [0012](./0012-typescript7-compiler-flags.md) |
 | ADR-26 | 首屏数据来源 | RSC `dehydrate` 是唯一首屏来源；hook 不得用 `refetchOnMount` 作废它。P1-8/P1-9 判为「前提不存在」 | 双向门 | [0013](./0013-next-react-runtime-layer.md) |
+| ADR-27 | 单支世系导出 | M2 做单支世系导出，格式 GEDCOM 7（不是 5.5.1）；不做导入、不做整库导出 | 双向门 | [0017](./0017-single-branch-export-gedcom7.md) |
 
 **单向门的含义**：不是「不能改」，而是「改的时候要付数据迁移或全量重排的代价」。这类决策一旦有真实客户数据，讨论成本会上升一个数量级，所以**在有数据之前**就要想清楚。
 
@@ -64,6 +65,7 @@
 | [0012](./0012-typescript7-compiler-flags.md) | TypeScript 7 编译器开关：只开实测 0 报错的 4 条，其余全部拒绝 | 推翻了一个从未实测的假设（检查冷跑仅 1.36s，无性能问题）；并记录 `strict` 删不得的框架陷阱——Next 会在键缺失时写回 `strict: false` |
 | [0013](./0013-next-react-runtime-layer.md) | 首屏只查一遍：RSC `dehydrate` 为唯一来源，`refetchOnMount:'always'` 移除 | 实测出控制台每次硬加载重复打 `/api/user` + `/api/orgs`；同时把 P1-8（整树失效）与 P1-9（营销页静态化）判为「前提不存在」——21 条路由全动态、零预渲染 |
 | [0016](./0016-tenant-columns-immutable.md) | 租户列不可变：`UPDATE` 不得改归属列，10 张表各挂 `trg_<table>_tenant_immutable` | 修的是已发布代码里的真实越权路径（RLS `WITH CHECK` 只看新值，双组织用户能把行搬走）；并记录 `folder_id` 属结构列、必须保持可写，否则删文件夹会失败 |
+| [0017](./0017-single-branch-export-gedcom7.md) | 单支世系导出用 GEDCOM 7，且提前到 M2 | 推翻了 §6.2「用户量不足」的判断，格式选择会被第三方兼容性挑战 |
 
 ### ADR 模板
 

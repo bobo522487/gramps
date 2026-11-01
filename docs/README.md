@@ -11,7 +11,7 @@
 | 层 | 回答什么 | 在哪 |
 |---|---|---|
 | **事实层**（as-is） | 代码现在怎么搭的、表有哪些列、接口长什么样、哪个功能做到哪一步 | [`architecture/`](./architecture/00-文档说明.md)（结构）· [`data-model.md`](./data-model.md)（表与列）· [`api.md`](./api.md)（现有契约）· [`implementation-status.md`](./implementation-status.md)（状态）· [`setup.md`](./setup.md) · [`guides/`](./guides/) |
-| **差异层**（to-be） | 还没做的、为什么这么定、未来的部署形态 | [`prd.md`](./prd.md)（范围与里程碑）· [`ops-target.md`](./ops-target.md)（部署蓝图）· [`decisions/`](./decisions/README.md)（决策与理由）· [`data-model.md`](./data-model.md) §13.2 与 [`api.md`](./api.md) 里标为 M2 的段落 |
+| **差异层**（to-be） | 还没做的、为什么这么定、未来的部署形态 | [`prd.md`](./prd.md)（范围与里程碑）· [`specs/001-lineage-edit-preview/spec.md`](../specs/001-lineage-edit-preview/spec.md)（M2 专项需求，现行） · [`prd-lineage-editing-preview.md`](./prd-lineage-editing-preview.md)（历史底稿）· [`ops-target.md`](./ops-target.md)（部署蓝图）· [`decisions/`](./decisions/README.md)（决策与理由）· [`data-model.md`](./data-model.md) §13.2 与 [`api.md`](./api.md) 里标为 M2 的段落 |
 
 **两条规则：**
 
@@ -35,6 +35,7 @@ docs/
 ├── README.md                    ← 你在这里
 │
 ├── prd.md                       产品需求：范围、角色、功能需求、验收标准
+├── prd-lineage-editing-preview.md  专项需求（M2）历史底稿，现行见 specs/001-lineage-edit-preview/spec.md
 │
 ├── architecture/                现在怎么搭的（as-is，15 份）
 │   ├── 00-文档说明.md           ★ 文档集导航、阅读路径、术语表
@@ -63,7 +64,7 @@ docs/
 │   ├── 0006-rls-isolation.md    RLS 三层隔离
 │   ├── 0007-self-hosted-better-auth.md 自托管 Better Auth
 │   ├── 0008-read-only-route-handlers.md 保留只读 Route Handler
-│   └── 0009…0013、0016-*.md     其余正式 ADR（编号不连续，以索引为准）
+│   └── 0009…0013、0016、0017-*.md  其余正式 ADR（编号不连续，以索引为准）
 │
 ├── guides/                      怎么用
 │   ├── add-a-feature.md         ★ 新增一个实体的 10 步清单
