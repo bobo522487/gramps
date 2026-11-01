@@ -156,10 +156,36 @@ test('critical path: sign up, create project, record founder, add child, edit in
   await page.getByRole('button', { name: '保存档案' }).click();
   await expect(page.getByText('已保存')).toBeVisible();
 
+  // 选中人丁后底部出现快捷条，卡片上不再有操作菜单。
+  const actionBar = page.getByTestId('node-action-bar');
+  await expect(actionBar).toBeVisible();
+  await expect(actionBar).toContainText('当前选中');
+  await expect(actionBar.getByRole('button', { name: '加子女' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '人丁操作' })).toHaveCount(0);
+
+  // 右键人丁拿到同一组命令。
+  await childNode.click({ button: 'right' });
+  const contextMenu = page.getByRole('menu');
+  await expect(contextMenu).toBeVisible();
+  await expect(
+    contextMenu.getByRole('menuitem', { name: '加子女' })
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(contextMenu).toBeHidden();
+
+  // 始祖只能加子女与配偶：快捷条里没有删除。
+  await rootNode.click();
+  await expect(actionBar).not.toContainText('删除');
+
   await page.reload();
   await expect(personNodes).toHaveCount(2);
+  // 刷新后没有选中人丁：右侧不留空占位。
+  await expect(page.getByText('未选择族人')).toHaveCount(0);
   await personNodes.filter({ hasText: '二世' }).click();
   await expect(page.locator('#inspector-courtesy')).toHaveValue('伯');
+  // 抽屉可用 Esc 关闭，关闭后不留残影。
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#inspector-courtesy')).toBeHidden();
 
   const search = page.getByLabel('搜索谱系或文件夹');
   await search.fill('E2E 谱系');

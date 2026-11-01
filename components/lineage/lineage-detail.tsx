@@ -3,14 +3,11 @@
 import {
   BookOpen,
   Heart,
-  MoreHorizontal,
-  Move,
   Network,
   Pencil,
   Printer,
   Search,
   Table2,
-  Trash2,
   UserPlus,
   Users,
   X,
@@ -37,11 +34,13 @@ import {
   LineageIndexProvider,
   useLineageIndex,
 } from '@/components/lineage/lineage-index-context';
+import { useLineageStore } from '@/components/lineage/lineage-store';
+import { NodeActionBar } from '@/components/lineage/node-action-bar';
+import type { NodeCommandId } from '@/components/lineage/node-commands';
 import {
-  INSPECTOR_MAX_WIDTH,
-  INSPECTOR_MIN_WIDTH,
-  useLineageStore,
-} from '@/components/lineage/lineage-store';
+  NodeContextMenu,
+  type NodeContextMenuState,
+} from '@/components/lineage/node-context-menu';
 import {
   NodeCreateDialog,
   type NodeCreateMode,
@@ -52,14 +51,13 @@ import type { FolderOption, NodeView } from '@/components/lineage/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import {
   Table,
   TableBody,
@@ -68,7 +66,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useResizable } from '@/hooks/use-resizable';
 import { deleteNodeAction, moveNodeAction } from '@/lib/lineage/actions';
 import { shouldAutoOpenRoot } from '@/lib/lineage/auto-root';
 import {
@@ -116,105 +113,20 @@ function SpouseChip({
   );
 }
 
-function NodeActions({
-  node,
-  canWrite,
-  isDeleting,
-  onSelect,
-  onCreate,
-  onMove,
-  onDelete,
-}: {
-  node: NodeView;
-  canWrite: boolean;
-  isDeleting: boolean;
-  onSelect: (nodeId: string) => void;
-  onCreate: (mode: 'child' | 'sibling' | 'spouse', node: NodeView) => void;
-  onMove: (node: NodeView) => void;
-  onDelete: (node: NodeView) => void;
-}) {
-  if (!canWrite) {
-    return null;
-  }
-  const isRoot = !node.parentId;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          disabled={isDeleting}
-          title="人丁操作"
-          aria-label={`${node.fullName} 的操作`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <MoreHorizontal />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" size="sm">
-        <DropdownMenuItem onSelect={() => onSelect(node.id)}>
-          <BookOpen />
-          查看档案
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => onCreate('child', node)}>
-          <UserPlus />
-          添加子女
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={isRoot}
-          onSelect={() => onCreate('sibling', node)}
-        >
-          <Users />
-          添加兄弟
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onCreate('spouse', node)}>
-          <Heart />
-          添加配偶
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={isRoot} onSelect={() => onMove(node)}>
-          <Move />
-          移动
-        </DropdownMenuItem>
-        {isRoot ? null : (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => onDelete(node)}
-            >
-              <Trash2 />
-              删除
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 function NodeRows({
   bloodNodes,
   spousesByBlood,
-  canWrite,
-  isDeleting,
   showGeneration,
   selectedNodeId,
   onSelect,
-  onCreate,
-  onMove,
-  onDelete,
+  onContextMenu,
 }: {
   bloodNodes: NodeView[];
   spousesByBlood: Map<string, NodeView[]>;
-  canWrite: boolean;
-  isDeleting: boolean;
   showGeneration: boolean;
   selectedNodeId: string | null;
   onSelect: (nodeId: string) => void;
-  onCreate: (mode: 'child' | 'sibling' | 'spouse', node: NodeView) => void;
-  onMove: (node: NodeView) => void;
-  onDelete: (node: NodeView) => void;
+  onContextMenu: (node: NodeView, x: number, y: number) => void;
 }) {
   return (
     <TableBody>
@@ -227,6 +139,10 @@ function NodeRows({
           <TableRow
             key={node.id}
             onClick={() => onSelect(node.id)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onContextMenu(node, event.clientX, event.clientY);
+            }}
             className={cn('cursor-pointer', isSelected && 'bg-accent/60')}
           >
             {showGeneration ? (
@@ -271,20 +187,6 @@ function NodeRows({
             </TableCell>
             <TableCell className="text-muted-foreground">
               {lifeSpan(node)}
-            </TableCell>
-            <TableCell
-              className="text-right print:hidden"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <NodeActions
-                node={node}
-                canWrite={canWrite}
-                isDeleting={isDeleting}
-                onSelect={onSelect}
-                onCreate={onCreate}
-                onMove={onMove}
-                onDelete={onDelete}
-              />
             </TableCell>
           </TableRow>
         );
@@ -335,21 +237,13 @@ function LineageDetailInner({
   const initializeForLineage = useLineageStore(
     (state) => state.initializeForLineage
   );
-  const inspectorWidth = useLineageStore((state) => state.inspectorWidth);
-  const setInspectorWidth = useLineageStore((state) => state.setInspectorWidth);
-
-  const inspectorResize = useResizable({
-    value: inspectorWidth,
-    minWidth: INSPECTOR_MIN_WIDTH,
-    maxWidth: INSPECTOR_MAX_WIDTH,
-    edge: 'right',
-    onChange: setInspectorWidth,
-  });
-
   const [createDialog, setCreateDialog] = useState<CreateState>(null);
   const [moveNode, setMoveNode] = useState<NodeView | null>(null);
+  const [contextMenu, setContextMenu] = useState<NodeContextMenuState | null>(
+    null
+  );
   const [editLineage, setEditLineage] = useState(false);
-  const [isDeleting, startDelete] = useTransition();
+  const [, startDelete] = useTransition();
   const autoRootOpened = useRef(false);
 
   useEffect(() => {
@@ -480,6 +374,35 @@ function LineageDetailInner({
     setCreateDialog({ mode, target: node });
   }
 
+  function openContextMenu(node: NodeView, x: number, y: number) {
+    setSelectedNode(node.id);
+    setContextMenu({ node, x, y });
+  }
+
+  // 底部快捷条与右键菜单共用同一张命令表，这里只做一次分派。
+  function runCommand(id: NodeCommandId) {
+    const node = selectedNode;
+    if (!node) {
+      return;
+    }
+    if (id === 'add-child' || id === 'add-sibling' || id === 'add-spouse') {
+      openCreate(
+        id === 'add-child'
+          ? 'child'
+          : id === 'add-sibling'
+            ? 'sibling'
+            : 'spouse',
+        node
+      );
+      return;
+    }
+    if (id === 'move') {
+      setMoveNode(node);
+      return;
+    }
+    handleDelete(node);
+  }
+
   function handleCreated(nodeId: string) {
     setSelectedNode(nodeId);
     requestFocus(nodeId);
@@ -487,33 +410,52 @@ function LineageDetailInner({
     setCreateDialog(null);
   }
 
-  const inspector = (
-    <PersonInspector
-      orgId={orgId}
-      lineageId={lineage.id}
-      generationWords={lineage.generationWords}
-      node={selectedNode}
-      canWrite={canWrite}
-      width={inspectorWidth}
-      isResizing={inspectorResize.isResizing}
-      onResizeStart={inspectorResize.startResizing}
-      onClose={() => setSelectedNode(null)}
-      onSelectNode={setSelectedNode}
-      onAddChild={(nodeId) => {
-        const target = index.byId.get(nodeId);
-        if (target) {
-          openCreate('child', target);
+  // 未选中人丁时不渲染任何东西；选中后从右侧滑出抽屉（FR-012）。
+  const inspector = selectedNode ? (
+    <Sheet
+      open
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) {
+          setSelectedNode(null);
         }
       }}
-      onAddSpouse={(nodeId) => {
-        const target = index.byId.get(nodeId);
-        if (target) {
-          openCreate('spouse', target);
-        }
-      }}
-      onDelete={handleDelete}
-    />
-  );
+    >
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        showOverlay={false}
+        onInteractOutside={(event) => event.preventDefault()}
+        className="w-full gap-0 p-0 sm:max-w-md"
+      >
+        <SheetHeader className="sr-only">
+          <SheetTitle>{selectedNode.fullName} 的族人档案</SheetTitle>
+        </SheetHeader>
+        <PersonInspector
+          orgId={orgId}
+          lineageId={lineage.id}
+          generationWords={lineage.generationWords}
+          node={selectedNode}
+          canWrite={canWrite}
+          onClose={() => setSelectedNode(null)}
+          onSelectNode={setSelectedNode}
+          onAddChild={(nodeId) => {
+            const target = index.byId.get(nodeId);
+            if (target) {
+              openCreate('child', target);
+            }
+          }}
+          onAddSpouse={(nodeId) => {
+            const target = index.byId.get(nodeId);
+            if (target) {
+              openCreate('spouse', target);
+            }
+          }}
+          onDelete={handleDelete}
+        />
+      </SheetContent>
+    </Sheet>
+  ) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col print:block">
@@ -621,7 +563,23 @@ function LineageDetailInner({
         </div>
       ) : view === 'canvas' ? (
         <div className="flex min-h-0 flex-1 print:hidden">
-          <div className="min-h-0 min-w-0 flex-1">
+          {/* React Flow 节点带 data-id，右键时从 DOM 反查人丁，避免改动画布组件 */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: 右键菜单由画布节点承担，容器只做事件代理 */}
+          <div
+            className="min-h-0 min-w-0 flex-1"
+            onContextMenu={(event) => {
+              const card = (event.target as HTMLElement).closest(
+                '.react-flow__node-bookPerson'
+              );
+              const id = card?.getAttribute('data-id');
+              const target = id ? index.byId.get(id) : undefined;
+              if (!target) {
+                return;
+              }
+              event.preventDefault();
+              openContextMenu(target, event.clientX, event.clientY);
+            }}
+          >
             <GenealogyCanvas
               lineageId={lineage.id}
               generationWords={lineage.generationWords}
@@ -716,22 +674,15 @@ function LineageDetailInner({
                         <TableHead>姓名</TableHead>
                         <TableHead>性别</TableHead>
                         <TableHead>生卒</TableHead>
-                        <TableHead className="text-right print:hidden">
-                          操作
-                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <NodeRows
                       bloodNodes={visibleBlood}
                       spousesByBlood={spousesByBlood}
-                      canWrite={canWrite}
-                      isDeleting={isDeleting}
                       showGeneration
                       selectedNodeId={selectedNodeId}
                       onSelect={setSelectedNode}
-                      onCreate={openCreate}
-                      onMove={setMoveNode}
-                      onDelete={handleDelete}
+                      onContextMenu={openContextMenu}
                     />
                   </Table>
                 </Card>
@@ -764,22 +715,15 @@ function LineageDetailInner({
                             <TableHead>姓名</TableHead>
                             <TableHead>性别</TableHead>
                             <TableHead>生卒</TableHead>
-                            <TableHead className="text-right print:hidden">
-                              操作
-                            </TableHead>
                           </TableRow>
                         </TableHeader>
                         <NodeRows
                           bloodNodes={generationNodes}
                           spousesByBlood={spousesByBlood}
-                          canWrite={canWrite}
-                          isDeleting={isDeleting}
                           showGeneration={false}
                           selectedNodeId={selectedNodeId}
                           onSelect={setSelectedNode}
-                          onCreate={openCreate}
-                          onMove={setMoveNode}
-                          onDelete={handleDelete}
+                          onContextMenu={openContextMenu}
                         />
                       </Table>
                     </Card>
@@ -829,6 +773,21 @@ function LineageDetailInner({
           onClose={() => setEditLineage(false)}
         />
       ) : null}
+
+      <div className="print:hidden">
+        <NodeActionBar
+          node={selectedNode}
+          canWrite={canWrite}
+          onCommand={runCommand}
+        />
+      </div>
+
+      <NodeContextMenu
+        state={contextMenu}
+        canWrite={canWrite}
+        onCommand={runCommand}
+        onDismiss={() => setContextMenu(null)}
+      />
     </div>
   );
 }

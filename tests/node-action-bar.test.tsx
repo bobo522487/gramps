@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { NodeActionBar } from '@/components/lineage/node-action-bar';
 import type { NodeView } from '@/components/lineage/types';
 
