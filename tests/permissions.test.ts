@@ -12,6 +12,7 @@ const expected: Record<OrgRole, OrgPermission[]> = {
   admin: [
     'content.read',
     'lineage.write',
+    'lineage.delete',
     'article.write',
     'book.write',
     'project.write',
@@ -31,6 +32,13 @@ describe('role permission matrix', () => {
         );
       }
     }
+  });
+
+  it('只允许 owner/admin 删除谱系', () => {
+    expect(hasPermission('owner', 'lineage.delete')).toBe(true);
+    expect(hasPermission('admin', 'lineage.delete')).toBe(true);
+    expect(hasPermission('editor', 'lineage.delete')).toBe(false);
+    expect(hasPermission('viewer', 'lineage.delete')).toBe(false);
   });
 
   it('reserves organization settings and transfer for the owner', () => {

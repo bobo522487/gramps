@@ -287,7 +287,7 @@ export async function deleteLineageInTransaction(params: {
 }): Promise<DeleteLineageResult> {
   const { userId, orgId, lineageId, ipAddress } = params;
 
-  return withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
+  return withOrgWrite(userId, orgId, 'lineage.delete', async (tx) => {
     const [lineage] = await tx
       .select({ id: lineages.id })
       .from(lineages)

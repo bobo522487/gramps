@@ -26,6 +26,7 @@ export function hasPermission(
 export const PERMISSION_DENIED_MESSAGES: Record<OrgPermission, string> = {
   'content.read': '你不是该组织的成员',
   'lineage.write': '你没有编辑谱系的权限',
+  'lineage.delete': '只有所有者或管理员可以删除谱系',
   'article.write': '你没有撰写谱文的权限',
   'book.write': '你没有编排谱书的权限',
   'project.write': '只有所有者或管理员可以管理云谱空间',

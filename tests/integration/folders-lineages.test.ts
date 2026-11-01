@@ -491,6 +491,34 @@ describe('lineage service', () => {
     expect(active?.value).toBe(0);
   });
 
+  it('只允许所有者与管理员删除谱系：编辑者被拒且数据不动', async () => {
+    const { user, organization, project } = await setup();
+    const lineage = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+    const editor = await createUser();
+    await addMember({
+      userId: editor.id,
+      organizationId: organization.id,
+      role: 'editor',
+    });
+
+    const result = await deleteLineageInTransaction({
+      userId: editor.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+    });
+    expect(result).toEqual({ ok: false, reason: 'forbidden' });
+
+    const [stillThere] = await getTestDb()
+      .select({ id: lineages.id })
+      .from(lineages)
+      .where(and(eq(lineages.id, lineage.id), isNull(lineages.deletedAt)));
+    expect(stillThere?.id).toBe(lineage.id);
+  });
+
   it('does not let a member of another org touch a lineage', async () => {
     const { user, organization } = await setup();
     const otherOrg = await createOrganization({ name: '另一个组织' });

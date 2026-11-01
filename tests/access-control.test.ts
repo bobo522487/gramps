@@ -18,6 +18,7 @@ const expected: Record<OrgRole, OrgPermission[]> = {
   admin: [
     'content.read',
     'lineage.write',
+    'lineage.delete',
     'article.write',
     'book.write',
     'project.write',
@@ -36,7 +37,7 @@ describe('Better Auth access control statements', () => {
     expect(statement.member).toEqual(['create', 'update', 'delete']);
     expect(statement.invitation).toEqual(['create', 'cancel']);
     expect(statement.content).toEqual(['read']);
-    expect(statement.lineage).toEqual(['write']);
+    expect(statement.lineage).toEqual(['write', 'delete']);
     expect(statement.article).toEqual(['write']);
     expect(statement.book).toEqual(['write']);
     expect(statement.project).toEqual(['write']);
