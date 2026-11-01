@@ -22,6 +22,9 @@
 .DS_Store
 *.pem
 
+# local-only native libs extracted for Playwright (see ledger)
+/.local-libs/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
