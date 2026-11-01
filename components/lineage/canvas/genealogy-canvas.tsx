@@ -80,7 +80,7 @@ export type GenealogyCanvasProps = {
   onCreateSpouse: (bloodId: string) => void;
   onCreatePerson: () => void;
   onEditNode: (nodeId: string) => void;
-  onDeleteNode: (nodeId: string) => void;
+  onNodeContextMenu: (nodeId: string, x: number, y: number) => boolean;
   onMoveNode: (nodeId: string, newParentId: string) => void;
   onPrint: () => void;
 };
@@ -93,7 +93,7 @@ function CanvasInner({
   onCreateSpouse,
   onCreatePerson,
   onEditNode,
-  onDeleteNode,
+  onNodeContextMenu,
   onMoveNode,
   onPrint,
 }: GenealogyCanvasProps) {
@@ -216,13 +216,9 @@ function CanvasInner({
         hasChildren: person.hasChildren,
         isCollapsed: person.isCollapsed,
         isSelected: person.id === selectedNodeId,
-        canWrite,
         onSelect: handleSelect,
         onSelectSpouse: handleSelectSpouse,
-        onAddChild: onCreateChild,
-        onAddSpouse: onCreateSpouse,
-        onEdit: onEditNode,
-        onDelete: onDeleteNode,
+        onContextMenu: onNodeContextMenu,
         onToggleCollapse: handleToggleCollapse,
       },
     }));
@@ -244,13 +240,9 @@ function CanvasInner({
   }, [
     layout,
     selectedNodeId,
-    canWrite,
     handleSelect,
     handleSelectSpouse,
-    onCreateChild,
-    onCreateSpouse,
-    onEditNode,
-    onDeleteNode,
+    onNodeContextMenu,
     handleToggleCollapse,
   ]);
 

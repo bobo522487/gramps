@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  INSPECTOR_MAX_WIDTH,
-  INSPECTOR_MIN_WIDTH,
   initialLineageState,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -81,11 +79,6 @@ describe('lineage workspace store', () => {
     expect(useLineageStore.getState().sidebarWidth).toBe(SIDEBAR_MAX_WIDTH);
     store.setSidebarWidth(300);
     expect(useLineageStore.getState().sidebarWidth).toBe(300);
-
-    store.setInspectorWidth(10);
-    expect(useLineageStore.getState().inspectorWidth).toBe(INSPECTOR_MIN_WIDTH);
-    store.setInspectorWidth(9999);
-    expect(useLineageStore.getState().inspectorWidth).toBe(INSPECTOR_MAX_WIDTH);
   });
 
   it('requests focus with an increasing nonce', () => {

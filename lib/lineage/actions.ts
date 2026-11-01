@@ -16,6 +16,7 @@ import {
   updateLineageSchema,
   updateNodeSchema,
 } from '@/lib/genealogy/schemas';
+import { deleteLineageError, lineageError } from '@/lib/lineage/lineage-errors';
 import {
   addChildInTransaction,
   addSiblingInTransaction,
@@ -35,26 +36,6 @@ import {
   type LineageUpdates,
   updateLineageInTransaction,
 } from '@/lib/lineage/services';
-
-const LINEAGE_ERRORS = {
-  forbidden: '你没有编辑谱系的权限',
-  not_found: '谱系不存在或已删除',
-  invalid_folder: '分类不存在或类型不匹配',
-  conflict: '谱系名称已存在',
-  referenced: '该谱系已被谱书编目引用，请先移除编目',
-  root_exists: '该谱系已经有始祖了',
-  root_sibling: '始祖没有父辈，不能添加兄弟',
-  root_forbidden: '始祖不可删除，请删除整个谱系',
-  invalid_target: '目标人丁无效',
-  invalid_parent: '父节点无效',
-  cycle: '不能把节点移动到自己的子孙下面',
-  invalid_order: '排序数据无效',
-  project_surname_missing: '项目未填写姓氏，请先完善项目基本信息',
-} as const;
-
-function lineageError(reason: keyof typeof LINEAGE_ERRORS) {
-  return { error: LINEAGE_ERRORS[reason] };
-}
 
 function nodeDetails(data: {
   courtesy?: string;
@@ -165,7 +146,7 @@ export const deleteLineageAction = validatedActionWithUser(
     });
 
     if (!result.ok) {
-      return lineageError(result.reason);
+      return deleteLineageError(result.reason);
     }
 
     revalidateWholeConsole();

@@ -32,6 +32,7 @@ export default async function LineagesLayout({
       folders={folders.map(toFolderOption)}
       lineages={lineages.map(toLineageListItem)}
       canWrite={hasPermission(role, 'lineage.write')}
+      canDeleteLineage={hasPermission(role, 'lineage.delete')}
       canManageFolders={hasPermission(role, 'project.write')}
     >
       {children}

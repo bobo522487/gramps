@@ -16,11 +16,11 @@
 
 | id | 文案 | 启用条件 | 所需权限 | 动作 |
 |---|---|---|---|---|
-| `add-child` | 加子女 | 任意人丁 | `lineage.write` | 打开添加子女弹窗（既有 `openCreate('child')`） |
+| `add-child` | 加子女 | 血亲（`node.role === 'blood'`；配偶不能当父级） | `lineage.write` | 打开添加子女弹窗（既有 `openCreate('child')`） |
 | `add-sibling` | 加兄弟 | 非始祖（`node.parentId != null`） | `lineage.write` | 打开添加兄弟弹窗 |
 | `add-spouse` | 加配偶 | 血亲（`node.role === 'blood'`） | `lineage.write` | 打开添加配偶弹窗 |
 | `move` | 移动 | 非始祖 | `lineage.write` | 打开既有 `node-move-dialog` |
-| `delete` | 删除 | 非始祖 | `lineage.write` | 二次确认 → `deleteNodeAction` |
+| `delete` | 删除 | 非始祖（血亲与配偶都可删） | `lineage.write` | 二次确认 → `deleteNodeAction` |
 
 - 无 `lineage.write` 时**整条命令表不渲染**（底部条与右键菜单都不出现），与既有 `canWrite` 判断一致。
 - 「查看档案」不在表内：选中节点即打开抽屉，该命令被选中动作吸收。

@@ -18,6 +18,7 @@ import {
 import { usePathname, useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
 import { CreateLineageDialog } from '@/components/lineage/create-lineage-dialog';
+import { LineageRowMenu } from '@/components/lineage/lineage-row-menu';
 import { useLineageStore } from '@/components/lineage/lineage-store';
 import {
   buildLineageTree,
@@ -58,6 +59,7 @@ export type LineageSidebarProps = {
   folders: TreeFolderInput[];
   lineages: TreeLineageInput[];
   canWrite: boolean;
+  canDeleteLineage: boolean;
   canManageFolders: boolean;
   onNavigate?: () => void;
   onDismiss?: () => void;
@@ -83,6 +85,7 @@ export function LineageSidebar({
   folders,
   lineages,
   canWrite,
+  canDeleteLineage,
   canManageFolders,
   onNavigate,
   onDismiss,
@@ -223,7 +226,9 @@ export function LineageSidebar({
   async function handleDeleteLineage(lineage: TreeLineageInput) {
     if (
       !window.confirm(
-        `删除谱系「${lineage.name}」？谱系中的人丁会一并归档，且没有恢复界面。`
+        lineage.nodeCount > 0
+          ? `删除谱系「${lineage.name}」？谱系中的 ${lineage.nodeCount} 位人丁会一并归档，且没有恢复界面。`
+          : `删除谱系「${lineage.name}」？该谱系还没有人丁，且没有恢复界面。`
       )
     ) {
       return;
@@ -374,39 +379,19 @@ export function LineageSidebar({
             </button>
           )}
           {canWrite && !isEditing ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  title="谱系操作"
-                  aria-label="谱系操作"
-                  className="rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100"
-                >
-                  <MoreVertical size={12} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" size="sm">
-                <DropdownMenuItem
-                  onSelect={() =>
-                    setEditing({
-                      kind: 'lineage',
-                      id: lineage.id,
-                      value: lineage.name,
-                      original: lineage.name,
-                    })
-                  }
-                >
-                  <Pencil size={12} /> 重命名
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={() => void handleDeleteLineage(lineage)}
-                >
-                  <Trash2 size={12} /> 删除谱系
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <LineageRowMenu
+              lineage={lineage}
+              canDelete={canDeleteLineage}
+              onRename={(item) =>
+                setEditing({
+                  kind: 'lineage',
+                  id: item.id,
+                  value: item.name,
+                  original: item.name,
+                })
+              }
+              onDelete={handleDeleteLineage}
+            />
           ) : null}
         </div>
         {tooLong ? (

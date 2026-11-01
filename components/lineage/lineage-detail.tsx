@@ -95,9 +95,11 @@ function SexLabel({ sex }: { sex: number }) {
 function SpouseChip({
   spouse,
   onSelect,
+  onContextMenu,
 }: {
   spouse: NodeView;
   onSelect: (nodeId: string) => void;
+  onContextMenu: (node: NodeView, x: number, y: number) => boolean;
 }) {
   return (
     <button
@@ -105,6 +107,12 @@ function SpouseChip({
       onClick={(event) => {
         event.stopPropagation();
         onSelect(spouse.id);
+      }}
+      onContextMenu={(event) => {
+        event.stopPropagation();
+        if (onContextMenu(spouse, event.clientX, event.clientY)) {
+          event.preventDefault();
+        }
       }}
       className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
     >
@@ -126,7 +134,7 @@ function NodeRows({
   showGeneration: boolean;
   selectedNodeId: string | null;
   onSelect: (nodeId: string) => void;
-  onContextMenu: (node: NodeView, x: number, y: number) => void;
+  onContextMenu: (node: NodeView, x: number, y: number) => boolean;
 }) {
   return (
     <TableBody>
@@ -140,8 +148,9 @@ function NodeRows({
             key={node.id}
             onClick={() => onSelect(node.id)}
             onContextMenu={(event) => {
-              event.preventDefault();
-              onContextMenu(node, event.clientX, event.clientY);
+              if (onContextMenu(node, event.clientX, event.clientY)) {
+                event.preventDefault();
+              }
             }}
             className={cn('cursor-pointer', isSelected && 'bg-accent/60')}
           >
@@ -171,6 +180,7 @@ function NodeRows({
                       key={spouse.id}
                       spouse={spouse}
                       onSelect={onSelect}
+                      onContextMenu={onContextMenu}
                     />
                   ))}
                 </div>
@@ -374,9 +384,14 @@ function LineageDetailInner({
     setCreateDialog({ mode, target: node });
   }
 
-  function openContextMenu(node: NodeView, x: number, y: number) {
+  function openContextMenu(node: NodeView, x: number, y: number): boolean {
+    // 只读角色右键不接管浏览器原生菜单：没有可执行命令时什么都不发生。
+    if (!canWrite) {
+      return false;
+    }
     setSelectedNode(node.id);
     setContextMenu({ node, x, y });
+    return true;
   }
 
   // 底部快捷条与右键菜单共用同一张命令表，这里只做一次分派。
@@ -426,7 +441,7 @@ function LineageDetailInner({
         showCloseButton={false}
         showOverlay={false}
         onInteractOutside={(event) => event.preventDefault()}
-        className="w-full gap-0 p-0 sm:max-w-md"
+        className="w-full gap-0 p-0 print:hidden sm:max-w-md"
       >
         <SheetHeader className="sr-only">
           <SheetTitle>{selectedNode.fullName} 的族人档案</SheetTitle>
@@ -563,23 +578,7 @@ function LineageDetailInner({
         </div>
       ) : view === 'canvas' ? (
         <div className="flex min-h-0 flex-1 print:hidden">
-          {/* React Flow 节点带 data-id，右键时从 DOM 反查人丁，避免改动画布组件 */}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: 右键菜单由画布节点承担，容器只做事件代理 */}
-          <div
-            className="min-h-0 min-w-0 flex-1"
-            onContextMenu={(event) => {
-              const card = (event.target as HTMLElement).closest(
-                '.react-flow__node-bookPerson'
-              );
-              const id = card?.getAttribute('data-id');
-              const target = id ? index.byId.get(id) : undefined;
-              if (!target) {
-                return;
-              }
-              event.preventDefault();
-              openContextMenu(target, event.clientX, event.clientY);
-            }}
-          >
+          <div className="min-h-0 min-w-0 flex-1">
             <GenealogyCanvas
               lineageId={lineage.id}
               generationWords={lineage.generationWords}
@@ -598,11 +597,9 @@ function LineageDetailInner({
               }}
               onCreatePerson={() => setCreateDialog({ mode: 'person' })}
               onEditNode={(nodeId) => setSelectedNode(nodeId)}
-              onDeleteNode={(nodeId) => {
+              onNodeContextMenu={(nodeId, x, y) => {
                 const target = index.byId.get(nodeId);
-                if (target) {
-                  handleDelete(target);
-                }
+                return target ? openContextMenu(target, x, y) : false;
               }}
               onMoveNode={handleMove}
               onPrint={handlePrint}
@@ -774,7 +771,8 @@ function LineageDetailInner({
         />
       ) : null}
 
-      <div className="print:hidden">
+      {/* 抽屉覆盖右侧固定宽度，给底部快捷条让位，否则按钮点不到（E2E 实测被拦截）。 */}
+      <div className={cn('print:hidden', selectedNode && 'sm:pr-[28rem]')}>
         <NodeActionBar
           node={selectedNode}
           canWrite={canWrite}

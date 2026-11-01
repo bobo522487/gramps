@@ -346,7 +346,7 @@ M1 **不写审计表**：关键动作写结构化日志（[data-model §9](./dat
 |---|---|---|---|
 | `createLineage` | `{ orgId, projectId, name, surname, hallCode?, generationWords? }` | `Lineage` | `lineage.write` |
 | `updateLineage` | `{ orgId, lineageId, ...可选 }` | `Lineage` | `lineage.write` |
-| `deleteLineage` | `{ orgId, lineageId }` | `void` | `lineage.write` |
+| `deleteLineage` | `{ orgId, lineageId }` | `void` | `lineage.delete` |
 | `createRootNode` | `{ orgId, lineageId, name, surname, sex }` | `Node` | `lineage.write` |
 | `addSpouse` | `{ orgId, lineageId, spouseOfId, name, sex }` | `Node` | `lineage.write` |
 | `addSibling` | `{ orgId, lineageId, siblingOfId, name, sex }` | `Node` | `lineage.write` |

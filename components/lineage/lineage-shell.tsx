@@ -33,6 +33,7 @@ type LineageShellProps = {
   folders: TreeFolderInput[];
   lineages: TreeLineageInput[];
   canWrite: boolean;
+  canDeleteLineage: boolean;
   canManageFolders: boolean;
   children: React.ReactNode;
 };
@@ -48,6 +49,7 @@ export function LineageShell({
   folders,
   lineages,
   canWrite,
+  canDeleteLineage,
   canManageFolders,
   children,
 }: LineageShellProps) {
@@ -76,6 +78,7 @@ export function LineageShell({
     folders,
     lineages,
     canWrite,
+    canDeleteLineage,
     canManageFolders,
   };
 

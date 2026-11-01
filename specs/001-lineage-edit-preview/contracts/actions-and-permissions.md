@@ -7,11 +7,11 @@
 | 项 | 契约 |
 |---|---|
 | 导出 | `NODE_COMMANDS: readonly NodeCommand[]` + `enabledCommands(node, canWrite)` |
-| 形状 | `{ id: 'add-child' \| 'add-sibling' \| 'add-spouse' \| 'move' \| 'delete'; label: string; icon: LucideIcon; isEnabled(node): boolean; isDestructive?: boolean }` |
+| 形状 | `{ id: 'add-child' \| 'add-sibling' \| 'add-spouse' \| 'move' \| 'delete'; label: string; isEnabled(node: NodeView): boolean; isDestructive?: boolean }`（不含 `icon`：图标由渲染器决定） |
 | 触发面 | 底部快捷按钮条（`node-action-bar.tsx`）、节点右键菜单（`node-context-menu.tsx`） |
 | 渲染前置 | `canWrite === false` 时两处都**不渲染**（不是渲染成禁用） |
-| 始祖 | `add-sibling` / `move` / `delete` 三项禁用（`parentId == null`） |
-| 身份提示 | 底部条显示「当前选中：<谱名> · 第 N 代」，随选中变化 |
+| 始祖 | `add-sibling` / `move` / `delete` 三项不渲染（`parentId == null`） |
+| 身份提示 | 底部条与右键菜单**都**显示「<谱名> · 第 N 代」，随选中变化 |
 
 ## 2. 信息卡抽屉（`components/lineage/person-inspector.tsx`）
 
@@ -20,7 +20,8 @@
 | 打开条件 | `selectedNodeId != null` 才挂载 `Sheet`；否则不渲染任何右侧内容（无空占位） |
 | 关闭 | 抽屉关闭按钮 / `Esc` / 关闭后 `setSelectedNode(null)` |
 | 打开期间 | 画布仍可选中其他人丁，抽屉内容切换（不关闭重开） |
-| 宽度 | 固定宽度（约 420px），**不再支持拖拽调宽**；`onResizeStart` / `isResizing` / `width` 三个 props 移除 |
+| 宽度 | 固定宽度（`sm:max-w-md`，约 448px），**不再支持拖拽调宽**；`onResizeStart` / `isResizing` / `width` 三个 props 移除 |
+| 打印 | 抽屉走 Portal，`SheetContent` 带 `print:hidden`，打印时不会盖住世系表 |
 | 写权限 | `canWrite === false` 时字段只读、保存按钮不出现（沿用既有行为） |
 
 ## 3. `deleteNodeAction` —— 契约不变，客户端确认口径要对齐

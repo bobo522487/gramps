@@ -11,13 +11,9 @@ export type BookPersonNodeData = {
   hasChildren: boolean;
   isCollapsed: boolean;
   isSelected: boolean;
-  canWrite: boolean;
   onSelect: (nodeId: string) => void;
   onSelectSpouse: (spouseId: string) => void;
-  onAddChild: (nodeId: string) => void;
-  onAddSpouse: (nodeId: string) => void;
-  onEdit: (nodeId: string) => void;
-  onDelete: (nodeId: string) => void;
+  onContextMenu: (nodeId: string, x: number, y: number) => boolean;
   onToggleCollapse: (nodeId: string) => void;
 };
 

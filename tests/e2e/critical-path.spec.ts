@@ -140,8 +140,11 @@ test('critical path: sign up, create project, record founder, add child, edit in
   ).toBeVisible();
 
   const rootNode = personNodes.filter({ hasText: '太公' });
-  await rootNode.hover();
-  await rootNode.getByRole('button', { name: '添子女', exact: true }).click();
+  const actionBar = page.getByTestId('node-action-bar');
+  // 卡片上不再有悬浮操作按钮：选中人丁后从底部快捷条发起。
+  await rootNode.click();
+  await expect(rootNode.getByRole('button', { name: '添子女' })).toHaveCount(0);
+  await actionBar.getByRole('button', { name: '加子女' }).click();
   const childDialog = page.getByRole('dialog', { name: '添加子女' });
   await expect(childDialog).toBeVisible();
   await page.locator('#create-node-name').fill('二世');
@@ -157,11 +160,25 @@ test('critical path: sign up, create project, record founder, add child, edit in
   await expect(page.getByText('已保存')).toBeVisible();
 
   // 选中人丁后底部出现快捷条，卡片上不再有操作菜单。
-  const actionBar = page.getByTestId('node-action-bar');
   await expect(actionBar).toBeVisible();
   await expect(actionBar).toContainText('当前选中');
   await expect(actionBar.getByRole('button', { name: '加子女' })).toBeVisible();
+
+  // 抽屉覆盖右侧工具区，先关掉再切视图。
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#inspector-courtesy')).toBeHidden();
+
+  // 表格视图也不再有人丁操作入口（旧的「⋯」菜单只存在于这里的「操作」列）。
+  await page
+    .getByRole('button', { name: '世系表', exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole('columnheader', { name: '操作' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '人丁操作' })).toHaveCount(0);
+  await page
+    .getByRole('button', { name: '谱系图', exact: true })
+    .first()
+    .click();
 
   // 右键人丁拿到同一组命令。
   await childNode.click({ button: 'right' });
@@ -181,6 +198,11 @@ test('critical path: sign up, create project, record founder, add child, edit in
   await expect(personNodes).toHaveCount(2);
   // 刷新后没有选中人丁：右侧不留空占位。
   await expect(page.getByText('未选择族人')).toHaveCount(0);
+  await personNodes.filter({ hasText: '二世' }).click();
+  await expect(page.locator('#inspector-courtesy')).toHaveValue('伯');
+  // 换人丁时抽屉整体换内容，不串上一个人的字段值。
+  await personNodes.filter({ hasText: '太公' }).click();
+  await expect(page.locator('#inspector-courtesy')).toHaveValue('');
   await personNodes.filter({ hasText: '二世' }).click();
   await expect(page.locator('#inspector-courtesy')).toHaveValue('伯');
   // 抽屉可用 Esc 关闭，关闭后不留残影。

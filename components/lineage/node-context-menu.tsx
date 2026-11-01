@@ -5,6 +5,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -50,6 +51,11 @@ export function NodeContextMenu({
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" size="sm" className="min-w-40">
+        {state ? (
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            {state.node.fullName} · 第 {state.node.generation} 代
+          </DropdownMenuLabel>
+        ) : null}
         {commands.map((command, index) => (
           <Fragment key={command.id}>
             {command.isDestructive && index > 0 ? (

@@ -4,8 +4,6 @@ import { create } from 'zustand';
 
 export const SIDEBAR_MIN_WIDTH = 220;
 export const SIDEBAR_MAX_WIDTH = 420;
-export const INSPECTOR_MIN_WIDTH = 320;
-export const INSPECTOR_MAX_WIDTH = 520;
 
 export type LineageWorkspaceView = 'canvas' | 'table';
 
@@ -23,7 +21,6 @@ export type LineageStore = {
   focus: { nodeId: string; nonce: number } | null;
   collapsedFolderIds: string[];
   sidebarWidth: number;
-  inspectorWidth: number;
   initializeForLineage: (id: string) => void;
   setView: (view: LineageWorkspaceView) => void;
   setSelectedNode: (id: string | null) => void;
@@ -39,7 +36,6 @@ export type LineageStore = {
   requestFocus: (nodeId: string) => void;
   toggleFolder: (id: string) => void;
   setSidebarWidth: (width: number) => void;
-  setInspectorWidth: (width: number) => void;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -60,7 +56,6 @@ export const initialLineageState = {
   focus: null as { nodeId: string; nonce: number } | null,
   collapsedFolderIds: [] as string[],
   sidebarWidth: 260,
-  inspectorWidth: 360,
 };
 
 export const useLineageStore = create<LineageStore>((set) => ({
@@ -117,8 +112,4 @@ export const useLineageStore = create<LineageStore>((set) => ({
     })),
   setSidebarWidth: (width) =>
     set({ sidebarWidth: clamp(width, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH) }),
-  setInspectorWidth: (width) =>
-    set({
-      inspectorWidth: clamp(width, INSPECTOR_MIN_WIDTH, INSPECTOR_MAX_WIDTH),
-    }),
 }));

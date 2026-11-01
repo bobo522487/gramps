@@ -110,7 +110,8 @@ function PersonInspectorForm({
       window.clearTimeout(savedTimer.current);
     }
     savedTimer.current = window.setTimeout(() => setSaved(false), 2200);
-  }, [state.nodeId, router]);
+    // `state` 每次提交都是新对象：同一人丁连续保存两次也要重新提示「已保存」。
+  }, [state, router]);
 
   useEffect(
     () => () => {
