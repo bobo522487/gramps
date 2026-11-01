@@ -25,7 +25,7 @@
 | 认证 | 自托管 Better Auth 1.7.12：邮箱 + 密码，scrypt；BETTER_AUTH_SECRET；不暴露 `/api/auth/*` | `lib/auth/better-auth.ts`、`lib/db/migrations/0003_better_auth.sql` |
 | 会话 | 数据库会话，Cookie `better-auth.session_token`，7 天有效、`updateAge` 1 天 | `lib/auth/better-auth.ts`、`proxy.ts` |
 | 会话撤销 | `auth.api.getSession` 查库；`getSessionUser()` 按请求缓存；改密/删号/删会话即时生效 | `lib/auth/context.ts` |
-| 角色 | `owner` / `admin` / `editor` / `viewer` + 9 个权限字符串 | `lib/auth/permissions.ts` |
+| 角色 | `owner` / `admin` / `editor` / `viewer` + 10 个权限字符串（含 `lineage.delete`：只有 owner/admin 能删谱系） | `lib/auth/permissions.ts`、`lib/auth/access-control.ts` |
 | 数据隔离 | 应用层成员过滤 + `withOrg` 事务内 RLS（`app_rw`）+ 复合外键 | `lib/db/drizzle.ts`、`0001_auth_rls.sql` |
 | 界面 | 简体中文，品牌“云谱”；无 i18n 框架 | `app/layout.tsx`、各页面组件 |
 | 客户端数据 | TanStack Query 5；RSC 首屏 `dehydrate` / `HydrationBoundary` 注入，客户端 `useQuery` 调用只读 API，写后 `invalidateQueries`；首屏数据以 RSC 为唯一来源，单个 hook 不设 `refetchOnMount`，新鲜度统一由 `createQueryClient` 的 `staleTime` 决定 | `components/query-provider.tsx`、`lib/query-keys.ts`、`hooks/use-session-user.ts`、`tests/first-paint-data.test.ts`、[ADR 0013](./decisions/0013-next-react-runtime-layer.md) |
@@ -51,7 +51,7 @@
 | `invite` | Better Auth organization 插件的邀请；7 天过期、一次性、禁止邀请 `owner`；**硬删除** |
 | `project` | 云谱空间；`ref` 为 20 位公开 ID；字段为 `name`/`surname`/`theme_name`/`hall_code`/`countries_regions`/`status`/`importance`/`notes` |
 | `folder` | 分类树（`kind` 0/1/2）；谱系分类已有 UI/Action，谱文/谱书分类待接入 |
-| `lineage` / `node` | 谱系与人丁；欧式书本画布、世系表、左侧谱系管理、搜索定位、字辈提示、增删改移、检查器、按代渲染窗口已实现 |
+| `lineage` / `node` | 谱系与人丁；欧式书本画布、世系表、左侧谱系管理、搜索定位、字辈提示、增删改移、按代渲染窗口已实现；人丁操作走「底部快捷条 / 右键菜单」两条入口，档案以右侧非模态抽屉呈现（未选中不占位） |
 | `person` / `person_name` | 人丁事实层：人丁与多姓名（谱名、字、号、讳……）；`primary_name_id` 是不可延迟的复合外键，所以带主名的人丁要三步写入；无查询层、无 UI |
 | `family` / `family_partner` / `family_child` | 事实层：家庭、配偶（`blood`/`spouse`）、子女（`parentage_type`）；「至多一个 `blood` 配偶」由 `app.check_family_blood_side()` 触发器执行；无查询层、无 UI |
 | `event` | 事实层：事件（生、卒、葬、婚、迁、职业……）与属性；日期七列语义见[数据模型 §6.8](./data-model.md#68-event事件)；无查询层、无 UI |
@@ -240,7 +240,7 @@ proxy.ts                      # Next 16 路由门禁（乐观，不是授权边�
 | `FR-LIN-4` 添加兄弟 | ✅ | 继承父节点，世次与兄弟一致；始祖不能添加兄弟 |
 | `FR-LIN-5` 添加子女 | ✅ | 世次 +1，可连续添加；只有血亲节点能作为父辈；录入表单按父辈预填世次/排行/字辈 |
 | `FR-LIN-6` 编辑人丁信息 | 🟡 | 姓名、前缀、字号、性别、生卒、葬地、行传、在世状态；自定义 `attributes` 尚未提供 UI |
-| `FR-LIN-7` 删除人丁 | ✅ | 子树与配偶一次软删，`node_count` 同步；始祖不可删除；无回收站 |
+| `FR-LIN-7` 删除人丁 | ✅ | 子树与配偶一次软删，`node_count` 同步；确认框给出血亲与配偶合计人数；始祖不可删除；无回收站 |
 | `FR-LIN-8` 移动人丁 | ✅ | 事务内重算子树 `path`/`generation`，拒绝移动始祖与成环；画布可拖拽连线改父 |
 | `FR-LIN-9` 谱系图交互 | ✅ | 单一 `book_ltr` 欧式书本布局：世代列/表头、折叠展开、平移缩放、点选/双击编辑、搜索定位、居中、小地图、拖拽录入、连线改父 |
 | `FR-LIN-10` 按代加载 | ✅ | 页面仍一次读取全部节点；超过 500 人时画布首屏渲染 5 世，向右平移或按钮每次追加 5 世，并开启 `onlyRenderVisibleElements` |

@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +51,7 @@ export function NodeContextMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" size="sm" className="min-w-40">
         {commands.map((command, index) => (
-          <div key={command.id}>
+          <Fragment key={command.id}>
             {command.isDestructive && index > 0 ? (
               <DropdownMenuSeparator />
             ) : null}
@@ -63,7 +64,7 @@ export function NodeContextMenu({
             >
               {command.label}
             </DropdownMenuItem>
-          </div>
+          </Fragment>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
