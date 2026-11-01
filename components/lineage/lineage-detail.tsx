@@ -71,6 +71,10 @@ import {
 import { useResizable } from '@/hooks/use-resizable';
 import { deleteNodeAction, moveNodeAction } from '@/lib/lineage/actions';
 import { shouldAutoOpenRoot } from '@/lib/lineage/auto-root';
+import {
+  buildDeleteConfirmMessage,
+  collectSubtreeIds,
+} from '@/lib/lineage/subtree';
 import { cn } from '@/lib/utils';
 
 type LineageInfo = {
@@ -86,37 +90,6 @@ type LineageInfo = {
 };
 
 type CreateState = { mode: NodeCreateMode; target?: NodeView } | null;
-
-function subtreeIds(node: NodeView, nodes: NodeView[]): Set<string> {
-  const ids = new Set<string>([node.id]);
-  const queue = [node.id];
-  while (queue.length > 0) {
-    const parentId = queue.shift();
-    if (!parentId) {
-      break;
-    }
-    for (const candidate of nodes) {
-      if (
-        candidate.role === 'blood' &&
-        candidate.parentId === parentId &&
-        !ids.has(candidate.id)
-      ) {
-        ids.add(candidate.id);
-        queue.push(candidate.id);
-      }
-    }
-  }
-  for (const candidate of nodes) {
-    if (
-      candidate.role === 'spouse' &&
-      candidate.spouseOfId &&
-      ids.has(candidate.spouseOfId)
-    ) {
-      ids.add(candidate.id);
-    }
-  }
-  return ids;
-}
 
 function SexLabel({ sex }: { sex: number }) {
   return sex === 1 ? '女' : '男';
@@ -452,12 +425,8 @@ function LineageDetailInner({
         setNotice('始祖不可删除，请删除整个谱系');
         return;
       }
-      const ids = subtreeIds(node, nodes);
-      const count = ids.size;
-      const message =
-        count > 1
-          ? `删除「${node.fullName}」及其子孙？共 ${count} 位人丁会归档。`
-          : `删除「${node.fullName}」？该人丁会归档。`;
+      const ids = collectSubtreeIds(node, nodes);
+      const message = buildDeleteConfirmMessage(node, ids.size);
       if (!window.confirm(message)) {
         return;
       }
