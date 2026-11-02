@@ -4,6 +4,7 @@ import {
   ARTICLE_FONT_FAMILIES,
   ARTICLE_FONT_SIZES,
 } from '@/lib/article/constants';
+import { normalizePageDoc } from '@/lib/article/doc';
 import {
   articleContentSchema,
   articlePageDocSchema,
@@ -108,6 +109,74 @@ describe('articlePageDocSchema（节点与 mark 白名单）', () => {
     );
 
     expect(result.success).toBe(true);
+  });
+
+  it('接受 ProseMirror 真实序列化的 textStyle（未设的那项是 null）', () => {
+    // `Mark.toJSON()` 会把整个 attrs 连 null 一起写出来（prosemirror-model
+    // 的 attrsToJSON），只设了字体的载荷长这样：{fontFamily:'KaiTi', fontSize:null}。
+    // 这里必须认得下，否则一用字体这一页就再也保存不上。
+    const result = articlePageDocSchema.safeParse(
+      doc([
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '楷体正文',
+              marks: [
+                {
+                  type: 'textStyle',
+                  attrs: { fontFamily: 'KaiTi', fontSize: null },
+                },
+              ],
+            },
+          ],
+        },
+      ])
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('两项都为 null 的 textStyle 不进入存储（sanitize 后只剩段落文字）', () => {
+    const normalized = normalizePageDoc(
+      doc([
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '没有格式',
+              marks: [
+                {
+                  type: 'textStyle',
+                  attrs: { fontFamily: null, fontSize: null },
+                },
+              ],
+            },
+          ],
+        },
+      ])
+    );
+    const block = normalized.content[0];
+
+    expect(block?.content?.[0]?.marks).toBeUndefined();
+    expect(articlePageDocSchema.safeParse(normalized).success).toBe(true);
+  });
+
+  it('没有 pathname 的图片节点整节点丢弃，不会毒死整页', () => {
+    const normalized = normalizePageDoc(
+      doc([
+        {
+          type: 'articleImage',
+          attrs: { pathname: null, width: 'full' },
+        },
+        { type: 'paragraph', content: [{ type: 'text', text: '正文' }] },
+      ])
+    );
+
+    expect(normalized.content.map((node) => node.type)).toEqual(['paragraph']);
+    expect(articlePageDocSchema.safeParse(normalized).success).toBe(true);
   });
 
   // 规格只放行系统自带的三种字体与三个档位（FR-030）；清单本身在
@@ -252,6 +321,17 @@ describe('articlePageDocSchema（节点与 mark 白名单）', () => {
     const result = articlePageDocSchema.safeParse(
       doc([image(undefined, 'huge')])
     );
+
+    expect(result.success).toBe(false);
+  });
+
+  it('拒绝 doc 顶层的裸文字节点', () => {
+    // ProseMirror 的 doc 只接受块级子节点；顶层裸文字是畸形载荷，
+    // 不该被服务端默默收下（data-model.md §2 不变量 5）。
+    const result = articlePageDocSchema.safeParse({
+      type: 'doc',
+      content: [{ type: 'text', text: '裸文字' }],
+    });
 
     expect(result.success).toBe(false);
   });

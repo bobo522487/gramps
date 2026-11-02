@@ -19,8 +19,20 @@ export type SaveState = {
   readonly lastSavedAt: string | null;
 };
 
-/** 还没落库的页：待提交或待重试。`saving` 不算——它已经在路上了。 */
+/** 还没落库的页：待提交或待重试。`saving` 不算——它已经在路上了，重试队列不重复发。 */
 const PENDING: ReadonlySet<PageSaveStatus> = new Set(['dirty', 'error']);
+
+/**
+ * 还没尘埃落定的页：待提交、待重试，**以及在途**。
+ *
+ * 离开保护（FR-016）看这个而不是看 `PENDING`：请求已经发出去但还没回来的那一页
+ * 同样没有落库，此刻导航走人就等于丢内容。
+ */
+const UNSETTLED: ReadonlySet<PageSaveStatus> = new Set([
+  'dirty',
+  'error',
+  'saving',
+]);
 
 export function createSaveState(
   pageIds: readonly string[],
@@ -76,6 +88,16 @@ export function markSaved(state: SaveState, pageId: string, savedAt: string) {
 /** 按建谱文时的页序返回待提交/待重试的页。 */
 export function pendingPageIds(state: SaveState): string[] {
   return Object.keys(state.pages).filter((id) => PENDING.has(state.pages[id]!));
+}
+
+/** 在途的页（已发出、还没收到结果）。 */
+export function inFlightPageIds(state: SaveState): string[] {
+  return Object.keys(state.pages).filter((id) => state.pages[id] === 'saving');
+}
+
+/** 整篇是否还有任何一页没落库（含在途）——离开与关闭门禁的判据（FR-016）。 */
+export function hasUnsettled(state: SaveState): boolean {
+  return Object.values(state.pages).some((status) => UNSETTLED.has(status));
 }
 
 export function topBarStatus(state: SaveState): TopBarStatus {

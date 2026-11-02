@@ -46,8 +46,6 @@ export function refused(
 }
 
 /** 云谱空间必须属于本组织；公开 ID 与 UUID 都算不得授权凭证（AGENTS §5.4）。 */
-
-/** 云谱空间必须属于本组织；公开 ID 与 UUID 都算不得授权凭证（AGENTS §5.4）。 */
 export async function projectExists(
   tx: DbTransaction,
   orgId: string,
@@ -66,8 +64,6 @@ export async function projectExists(
     .limit(1);
   return rows.length > 0;
 }
-
-/** 分类必须是本组织、本云谱空间、未删除的**谱文**分类（kind = 1）。 */
 
 /** 分类必须是本组织、本云谱空间、未删除的**谱文**分类（kind = 1）。 */
 export async function articleFolderIdOrNull(
@@ -147,8 +143,6 @@ export async function ensureDefaultFolder(
 }
 
 /** 锁定谱文行；返回 `null` 表示不存在、已删除或不属于本组织。 */
-
-/** 锁定谱文行；返回 `null` 表示不存在、已删除或不属于本组织。 */
 export async function lockArticle(
   tx: DbTransaction,
   orgId: string,
@@ -168,8 +162,6 @@ export async function lockArticle(
     .for('update');
   return rows[0] ?? null;
 }
-
-/** 活动编目 + 活动谱书都算引用（FR-006、软删语义）。 */
 
 /** 活动编目 + 活动谱书都算引用（FR-006、软删语义）。 */
 export async function hasCatalogReferenceInTx(
@@ -194,8 +186,6 @@ export async function hasCatalogReferenceInTx(
     .limit(1);
   return rows.length > 0;
 }
-
-/** 整篇（含未提交的其他页）再过一次白名单：单页图片数与 pathname 前缀。 */
 
 /** 整篇（含未提交的其他页）再过一次白名单：单页图片数与 pathname 前缀。 */
 export function validateContent(

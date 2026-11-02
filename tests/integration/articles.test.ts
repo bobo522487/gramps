@@ -669,6 +669,58 @@ describe('saveArticlePageAction', () => {
   });
 });
 
+describe('字体与字号的真实序列化（FR-030）', () => {
+  it('只设字体、字号为 null 的一页能保存成功，且落库不带 null', async () => {
+    await as(fixture.editorId);
+    const pageId = '33333333-3333-4333-8333-333333333333';
+    const [inserted] = await getTestDb()
+      .insert(articles)
+      .values({
+        orgId: fixture.orgId,
+        projectId: fixture.projectId,
+        createdBy: fixture.editorId,
+        title: '字体测试',
+        content: contentOf({ id: pageId, text: '原来的正文' }),
+        plainText: '原来的正文',
+      })
+      .returning({ id: articles.id });
+
+    const result = await saveArticlePageAction({
+      orgId: fixture.orgId,
+      articleId: inserted.id,
+      pageId,
+      doc: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '楷体正文',
+                // 真实 `Mark.toJSON()` 的形状：没设的那一项是 null，不是缺席。
+                marks: [
+                  {
+                    type: 'textStyle',
+                    attrs: { fontFamily: 'KaiTi', fontSize: null },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({ success: '已保存' });
+    const row = await readContent(inserted.id);
+    const stored = JSON.stringify(row?.content);
+    expect(stored).toContain('KaiTi');
+    expect(stored).not.toContain('null');
+    expect(row?.plainText).toBe('楷体正文');
+  });
+});
+
 describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
   const P1 = '11111111-1111-4111-8111-111111111111';
   const P2 = '22222222-2222-4222-8222-222222222222';

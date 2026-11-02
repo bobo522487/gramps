@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createSaveState,
+  hasUnsettled,
+  inFlightPageIds,
   markSaved,
   pendingPageIds,
   type SaveState,
@@ -98,5 +100,30 @@ describe('topBarStatus 的整篇汇总', () => {
     state = createSaveState([P2, P3], state);
     expect(topBarStatus(state)).toBe('idle');
     expect(state.pages[P1]).toBeUndefined();
+  });
+});
+describe('在途与未落定（FR-016 离开门禁的判据）', () => {
+  it('在途的页算「还没落定」，但重试队列里不重复排队', () => {
+    let state = createSaveState(['a', 'b']);
+    state = setPageStatus(state, 'a', 'saving');
+    state = setPageStatus(state, 'b', 'dirty');
+
+    expect(inFlightPageIds(state)).toEqual(['a']);
+    expect(hasUnsettled(state)).toBe(true);
+    // 重试队列只要没发出的那几页，在途的交给原来的请求。
+    expect(pendingPageIds(state)).toEqual(['b']);
+  });
+
+  it('全部落库之后不再拦人离开', () => {
+    let state = createSaveState(['a']);
+    state = setPageStatus(state, 'a', 'saving');
+    state = markSaved(state, 'a', '2026-11-02T10:00:00.000Z');
+
+    expect(inFlightPageIds(state)).toEqual([]);
+    expect(hasUnsettled(state)).toBe(false);
+  });
+
+  it('刚进页面（clean）不该拦住返回', () => {
+    expect(hasUnsettled(createSaveState(['a', 'b']))).toBe(false);
   });
 });

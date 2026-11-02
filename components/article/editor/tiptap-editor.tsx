@@ -3,7 +3,6 @@
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useRef } from 'react';
-
 import { articleImage } from '@/components/article/editor/article-image-node';
 import { sanitizePasteHtml } from '@/components/article/editor/paste-filter';
 import {
@@ -12,7 +11,12 @@ import {
   articleTextStyle,
 } from '@/components/article/editor/text-style';
 import { EditorToolbar } from '@/components/article/editor/toolbar';
-import { type ArticlePageDoc, normalizePageDoc } from '@/lib/article/doc';
+import {
+  type ArticlePageDoc,
+  normalizePageDoc,
+  pageHasImage,
+  pagePlainText,
+} from '@/lib/article/doc';
 
 /**
  * 谱文正文编辑器（FR-012..FR-014、FR-025..FR-031）。
@@ -53,6 +57,9 @@ export function TipTapEditor({
         heading: { levels: [1, 2] },
         bold: false,
         italic: false,
+        // TipTap 3 的 StarterKit 默认带 Underline，且绑了 Ctrl+U：
+        // 不关掉就会被快捷键触发，做出服务端白名单存不住的 mark（FR-031）。
+        underline: false,
         strike: false,
         code: false,
         codeBlock: false,
@@ -76,8 +83,7 @@ export function TipTapEditor({
     },
     editorProps: {
       attributes: {
-        class:
-          'article-canvas prose prose-neutral dark:prose-invert max-w-none focus:outline-none',
+        class: 'article-canvas max-w-none min-h-full focus:outline-none',
       },
       transformPastedHTML: (html) => sanitizePasteHtml(html),
     },
@@ -106,6 +112,11 @@ export function TipTapEditor({
     return null;
   }
 
+  // 空白页要给引导（FR-018）。用覆盖层而不是 Placeholder 扩展：
+  // Placeholder 会往文档里塞装饰节点，中文输入法组合期会被它打断。
+  const showGuidance =
+    editable && pagePlainText(value).trim() === '' && !pageHasImage(value);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <EditorToolbar
@@ -116,7 +127,15 @@ export function TipTapEditor({
         disabled={!editable}
         onNotice={onNotice}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {showGuidance ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 text-muted-foreground"
+          >
+            输入文字
+          </span>
+        ) : null}
         <EditorContent editor={editor} />
       </div>
     </div>

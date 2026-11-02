@@ -504,6 +504,14 @@ export async function createArticle(params: {
   return article;
 }
 
+/** 软删一篇谱文（业务删除就是这个形状：只写 `deleted_at`）。 */
+export async function softDeleteArticle(articleId: string): Promise<void> {
+  await getTestDb()
+    .update(articles)
+    .set({ deletedAt: new Date() })
+    .where(eq(articles.id, articleId));
+}
+
 export async function createCatalogItem(params: {
   orgId: string;
   bookId: string;

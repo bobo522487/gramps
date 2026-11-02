@@ -10,6 +10,8 @@ import {
 import type { ArticleContent, ArticlePageDoc } from '@/lib/article/doc';
 import {
   createSaveState,
+  hasUnsettled,
+  inFlightPageIds,
   markSaved,
   pendingPageIds,
   type SaveState,
@@ -32,6 +34,16 @@ import {
 
 const AUTOSAVE_DELAY_MS = 2000;
 
+/**
+ * 一次保存请求的等待上限（FR-014：发起后不迟于 3 秒给出「已保存」或「保存失败」，
+ * 不许长期停在「保存中」）。超时只改状态，不取消请求——真回来的那份结果
+ * 会因为「已经不是发出去的那一版」而被丢弃。
+ */
+const SAVE_DEADLINE_MS = 3000;
+
+/** `saveNow` 最多补几轮：防止用户一直在打字导致永远走不完。 */
+const SAVE_ROUNDS = 3;
+
 export type ArticleWorkspaceState = {
   pageIds: string[];
   currentPageId: string;
@@ -46,7 +58,10 @@ export type ArticleWorkspaceState = {
   state: SaveState;
   status: ReturnType<typeof topBarStatus>;
   statusText: string;
+  /** 还有没落定的页吗（含在途）——离开保护与「立即保存」按钮的判据。 */
   hasPending: boolean;
+  /** 此刻在途的页数（>0 时顶栏显示「保存中」）。 */
+  inFlightCount: number;
   /** 加页 / 删页 / 排序被服务端拒绝时的中文提示（FR-021、FR-022）。 */
   notice: string | null;
   /** 工具栏（插图、超限）也往同一条提示通道里写中文（FR-037）。 */
@@ -80,6 +95,11 @@ export function useArticleAutosave({
   const timers = useRef(new Map<string, number>());
   const docsRef = useRef(pages);
   docsRef.current = pages;
+  // 在途请求：pageId → 那次提交。`saveNow` 要等它，不能只看有没有「待提交」。
+  const inFlight = useRef(new Map<string, Promise<boolean>>());
+  // `saveNow` 是 async 的，不能读渲染期的 `state` 闭包（那会是在途请求之前的旧值）。
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const clearTimer = useCallback((pageId: string) => {
     const timer = timers.current.get(pageId);
@@ -99,25 +119,30 @@ export function useArticleAutosave({
     };
   }, []);
 
-  const submitPage = useCallback(
-    async (pageId: string): Promise<boolean> => {
-      const doc = docsRef.current[pageId];
-      if (!doc) {
+  const runSubmit = useCallback(
+    async (pageId: string, doc: ArticlePageDoc): Promise<boolean> => {
+      const result = await withDeadline(
+        saveArticlePageAction({ orgId, articleId, pageId, doc }),
+        SAVE_DEADLINE_MS
+      );
+      if (result === TIMED_OUT) {
+        // 顶栏不许卡在「保存中」（FR-014）：到点就翻成失败，用户可重试（FR-015）。
+        setNotice('这一页的保存没有及时响应，可以点「立即保存」重试。');
+        setState((current) => setPageStatus(current, pageId, 'error'));
         return false;
       }
-      setState((current) => setPageStatus(current, pageId, 'saving'));
-      const result = await saveArticlePageAction({
-        orgId,
-        articleId,
-        pageId,
-        doc,
-      });
       const saved = 'data' in result ? result.data : undefined;
       if (!saved) {
         // 失败要带原因（FR-015）：服务端返回的就是中文文案，直接冒到顶栏。
         setNotice(errorMessage(result));
         setState((current) => setPageStatus(current, pageId, 'error'));
         return false;
+      }
+      if (docsRef.current[pageId] !== doc) {
+        // 请求在途时用户又敲了字：这份回显是旧版本，盖上去就是吞输入。
+        // 保持「待提交」，下一轮把新的发出去（FR-014、FR-017）。
+        setState((current) => setPageStatus(current, pageId, 'dirty'));
+        return true;
       }
       // 只对齐这一页：服务端可能因白名单清洗改过节点，其余页保持用户手里的版本。
       setPages((current) => ({ ...current, [pageId]: saved.page.doc }));
@@ -127,33 +152,67 @@ export function useArticleAutosave({
     [articleId, orgId]
   );
 
+  const submitPage = useCallback(
+    async (pageId: string): Promise<boolean> => {
+      const running = inFlight.current.get(pageId);
+      if (running) {
+        return running;
+      }
+      const doc = docsRef.current[pageId];
+      if (!doc) {
+        return false;
+      }
+      setState((current) => setPageStatus(current, pageId, 'saving'));
+      const task = runSubmit(pageId, doc).finally(() => {
+        if (inFlight.current.get(pageId) === settled) {
+          inFlight.current.delete(pageId);
+        }
+      });
+      const settled = task;
+      inFlight.current.set(pageId, settled);
+      return settled;
+    },
+    [runSubmit]
+  );
+
   const saveCurrentPage = useCallback(async () => {
     clearTimer(currentPageId);
     setState((current) => setPageStatus(current, currentPageId, 'dirty'));
     return submitPage(currentPageId);
   }, [clearTimer, currentPageId, submitPage]);
 
-  const saveNow = useCallback(async () => {
+  const saveNow = useCallback(async (): Promise<boolean> => {
     for (const [pageId, timer] of timers.current) {
       window.clearTimeout(timer);
       timers.current.delete(pageId);
       setState((current) => setPageStatus(current, pageId, 'dirty'));
+      stateRef.current = setPageStatus(stateRef.current, pageId, 'dirty');
     }
-    const queue = pendingPageIds(state);
-    if (queue.length === 0) {
-      return true;
+    for (let round = 0; round < SAVE_ROUNDS; round += 1) {
+      const running = [...inFlight.current.values()];
+      if (running.length > 0) {
+        // 在途的先等回来（FR-016：应用内切换必须等保存结果）。
+        await Promise.all(running);
+      }
+      const queue = pendingPageIds(stateRef.current);
+      if (queue.length === 0) {
+        break;
+      }
+      for (const pageId of queue) {
+        await submitPage(pageId);
+      }
     }
-    let allOk = true;
-    for (const pageId of queue) {
-      allOk = (await submitPage(pageId)) && allOk;
-    }
-    return allOk;
-  }, [state, submitPage]);
+    return (
+      inFlight.current.size === 0 &&
+      pendingPageIds(stateRef.current).length === 0
+    );
+  }, [submitPage]);
 
   const setDoc = useCallback(
     (pageId: string, doc: ArticlePageDoc) => {
       setPages((current) => ({ ...current, [pageId]: doc }));
       setState((current) => setPageStatus(current, pageId, 'dirty'));
+      stateRef.current = setPageStatus(stateRef.current, pageId, 'dirty');
       clearTimer(pageId);
       timers.current.set(
         pageId,
@@ -220,6 +279,7 @@ export function useArticleAutosave({
       if (next.join('|') === pageIds.join('|')) {
         return;
       }
+      const previous = pageIds;
       setPageIds(next);
       const result = await reorderArticlePagesAction({
         orgId,
@@ -230,8 +290,14 @@ export function useArticleAutosave({
       if (moved) {
         setPageIds(moved.pageOrder);
         setState((current) => createSaveState(moved.pageOrder, current));
+        stateRef.current = createSaveState(moved.pageOrder, stateRef.current);
         setNotice(null);
       } else {
+        // 失败要把顺序还回去：屏幕上的次序必须等于库里的次序，
+        // 否则下一次保存/加页会以错的顺序提交（FR-023）。
+        setPageIds(previous);
+        setState((current) => createSaveState(previous, current));
+        stateRef.current = createSaveState(previous, stateRef.current);
         setNotice(errorMessage(result));
       }
     },
@@ -246,7 +312,9 @@ export function useArticleAutosave({
 
   const status = useMemo(() => topBarStatus(state), [state]);
   const statusText = useMemo(() => topBarText(state), [state]);
-  const hasPending = useMemo(() => pendingPageIds(state).length > 0, [state]);
+  // 离开门禁看「有没有还没落定的页」，包含在途的那几页（FR-016）。
+  const hasPending = useMemo(() => hasUnsettled(state), [state]);
+  const inFlightCount = useMemo(() => inFlightPageIds(state).length, [state]);
 
   return {
     pageIds,
@@ -263,9 +331,30 @@ export function useArticleAutosave({
     status,
     statusText,
     hasPending,
+    inFlightCount,
     notice,
     setNotice,
   };
+}
+
+/** 超时哨兵：与 Action 的返回值区分开，不需要额外的异常类型。 */
+const TIMED_OUT = Symbol('save-timeout');
+type Timeout = typeof TIMED_OUT;
+
+function withDeadline<T>(task: Promise<T>, ms: number): Promise<T | Timeout> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(TIMED_OUT), ms);
+    task.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        window.clearTimeout(timer);
+        resolve(TIMED_OUT);
+      }
+    );
+  });
 }
 
 function errorMessage(result: unknown): string {

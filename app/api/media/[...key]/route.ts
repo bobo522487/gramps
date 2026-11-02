@@ -6,6 +6,7 @@ import {
 import { getMediaStore } from '@/lib/article/media/store';
 import { getSessionUser } from '@/lib/auth/context';
 import { getOrgRole } from '@/lib/auth/permissions';
+import { getArticleScope } from '@/lib/db/queries/articles';
 
 /**
  * The read proxy (ADR 0019): private image bytes never have a public URL, so
@@ -38,6 +39,12 @@ async function readMedia(
   if (!role) {
     return notFound();
   }
+  // 谱文行不存在或已软删 → 图片也不给。删字节是提交后的尽力而为（ADR 0019），
+  // 万一没删成，这条判断仍然兑现「删除成功后新请求取不到」（FR-029）。
+  const article = await getArticleScope(user.id, parts.orgId, parts.articleId);
+  if (!article) {
+    return notFound();
+  }
 
   const media = await getMediaStore().read(
     buildMediaPathname(parts.orgId, parts.articleId, parts.filename)
@@ -50,6 +57,8 @@ async function readMedia(
     headers: {
       'Content-Type': media.contentType,
       'Cache-Control': 'private, max-age=300',
+      // 字节来自用户上传，禁止浏览器嗅探出图片以外的类型（ADR 0019）。
+      'X-Content-Type-Options': 'nosniff',
     },
   });
 }

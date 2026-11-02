@@ -45,10 +45,12 @@ export function EditorToolbar({
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const imageSelected = editor.isActive('articleImage');
-  const textStyle = editor.getAttributes('textStyle') as {
-    fontFamily?: string;
-    fontSize?: string;
-  };
+  // getAttributes 返回 Record<string, unknown>：按字符串读，不对未知数据硬转（AGENTS §6）。
+  const styleAttrs: Record<string, unknown> = editor.getAttributes('textStyle');
+  const fontFamily =
+    typeof styleAttrs.fontFamily === 'string' ? styleAttrs.fontFamily : '';
+  const fontSize =
+    typeof styleAttrs.fontSize === 'string' ? styleAttrs.fontSize : '';
 
   function imageCountOnPage(): number {
     let count = 0;
@@ -169,7 +171,7 @@ export function EditorToolbar({
         id="article-font-family"
         disabled={disabled}
         className="rounded border border-border bg-background px-1 py-0.5"
-        value={textStyle.fontFamily ?? ''}
+        value={fontFamily}
         onChange={(event) => {
           const family = event.target.value || null;
           // 用扩展自带的命令：清掉字体时顺带删掉空的 textStyle span，
@@ -197,7 +199,7 @@ export function EditorToolbar({
         id="article-font-size"
         disabled={disabled}
         className="rounded border border-border bg-background px-1 py-0.5"
-        value={textStyle.fontSize ?? ''}
+        value={fontSize}
         onChange={(event) => {
           const size = event.target.value || null;
           const chain = editor.chain().focus();

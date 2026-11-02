@@ -13,6 +13,7 @@ import {
   createOrganization,
   createProject,
   createUser,
+  softDeleteArticle,
 } from '../helpers/factories';
 
 const session = vi.hoisted(() => ({
@@ -260,6 +261,25 @@ describe('GET /api/media/[...key]（读取代理）', () => {
     );
 
     expect(response.status).toBe(404);
+  });
+
+  it('谱文软删之后新的读取一律 404（FR-029 的第二条腿）', async () => {
+    // 删字节只是第一半：清理失败过、或历史上没走到清理，谱文一旦删掉
+    // 就不许再有请求能把图取出来。
+    await signIn({ email: fixture.ownerEmail });
+    await fsMediaStore.put(fixture.pathname, PNG_BYTES, 'image/png');
+    await expect(
+      mediaReadRoute(readUrl(fixture.pathname), readContext(fixture.pathname))
+    ).resolves.toMatchObject({ status: 200 });
+
+    await softDeleteArticle(fixture.articleId);
+
+    const response = await mediaReadRoute(
+      readUrl(fixture.pathname),
+      readContext(fixture.pathname)
+    );
+    expect(response.status).toBe(404);
+    await fsMediaStore.delete(fixture.pathname);
   });
 });
 

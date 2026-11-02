@@ -70,6 +70,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * 只设了字体没设字号时，ProseMirror 的 `Mark.toJSON()` 会把没设的那项写成
+ * `null`（`attrsToJSON` 连默认值一起序列化）。白名单按「有值才算设置」判定，
+ * 所以 null 在这里就剥掉——否则一用字体这一页就再也保存不上（FR-030）。
+ */
+function dropNullAttrs(
+  attrs: Record<string, unknown>
+): Record<string, unknown> {
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value !== null && value !== undefined) {
+      kept[key] = value;
+    }
+  }
+  return kept;
+}
+
+function keysOf(value: Record<string, unknown>): string[] {
+  return Object.keys(value);
+}
+
 function sanitizeNode(value: unknown): ArticleNode | null {
   if (!isRecord(value) || typeof value.type !== 'string') {
     return null;
@@ -78,12 +99,20 @@ function sanitizeNode(value: unknown): ArticleNode | null {
     // 白名单外的节点（表格、列表、脚注…）整节点丢弃，不保留空壳。
     return null;
   }
+  if (value.type === 'articleImage') {
+    const attrs = value.attrs;
+    if (!isRecord(attrs) || typeof attrs.pathname !== 'string') {
+      // 没有图片来源的图片节点渲染不出东西，也过不了白名单校验。整节点丢掉，
+      // 别让它把这一页的保存请求毒死（FR-025、FR-031）。
+      return null;
+    }
+  }
   const node: ArticleNode = { type: value.type };
   if (isRecord(value.attrs)) {
     // 必须重新装进普通对象：ProseMirror 的 attrsToJSON 用 Object.create(null)，
     // 而 React 的 Server Action 序列化只认带原型的普通对象——直接透传会让服务端
     // 收到一个没有 attrs 的节点（图片路径、标题层级就此丢失）。
-    node.attrs = { ...value.attrs };
+    node.attrs = dropNullAttrs(value.attrs);
   }
   if (typeof value.text === 'string') {
     node.text = value.text;
@@ -96,8 +125,11 @@ function sanitizeNode(value: unknown): ArticleNode | null {
       )
       .map((mark) =>
         isRecord(mark.attrs)
-          ? { type: mark.type, attrs: { ...mark.attrs } }
+          ? { type: mark.type, attrs: dropNullAttrs(mark.attrs) }
           : { type: mark.type }
+      )
+      .filter(
+        (mark) => mark.attrs === undefined || keysOf(mark.attrs).length > 0
       );
     if (marks.length > 0) {
       node.marks = marks;
@@ -214,6 +246,14 @@ function collectBlockTexts(doc: ArticlePageDoc): string[] {
  * 与 `derivePlainText` 同一套块级规则，只是范围限于一页：图片不贡献文本，
  * 所以新加的页摘要是空串，缩略图上就显示「空页」。
  */
+export function pageHasImage(doc: ArticlePageDoc): boolean {
+  return doc.content.some(
+    (block) =>
+      block.type === 'articleImage' ||
+      (block.content ?? []).some((child) => child.type === 'articleImage')
+  );
+}
+
 export function pagePlainText(doc: ArticlePageDoc): string {
   return collectBlockTexts(doc).join('\n\n');
 }

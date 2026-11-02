@@ -87,7 +87,13 @@ async function issueUploadToken(request: Request): Promise<Response> {
     return Response.json(result);
   } catch (error) {
     if (error instanceof UploadRefused) {
-      return Response.json({ error: error.message }, { status: 403 });
+      // 拒绝原因只进日志：状态码与响应体一律「不存在」，否则查看者可以
+      // 靠轮换 articleId 分辨某篇谱文在不在（FR-034、contracts §2）。
+      logger.info('blob upload refused', {
+        reason: error.message,
+        userId: user.id,
+      });
+      return Response.json({ error: 'not_found' }, { status: 404 });
     }
     throw error;
   }

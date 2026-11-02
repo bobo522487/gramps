@@ -157,8 +157,6 @@ export async function addArticlePageInTransaction(params: {
 }
 
 /** 删页。返回该页独有（其他页不再引用）的图片，交给 Action 在提交后清字节。 */
-
-/** 删页。返回该页独有（其他页不再引用）的图片，交给 Action 在提交后清字节。 */
 export async function deleteArticlePageInTransaction(params: {
   userId: string;
   orgId: string;

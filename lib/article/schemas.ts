@@ -23,8 +23,11 @@ const textStyleMarkSchema = z.object({
   type: z.literal('textStyle'),
   attrs: z
     .object({
-      fontFamily: z.enum(ARTICLE_FONT_FAMILIES).optional(),
-      fontSize: z.enum(ARTICLE_FONT_SIZES).optional(),
+      // `.nullish()` 而不是 `.optional()`：ProseMirror 的 `Mark.toJSON()`
+      // 会把没设的那一项写成 null，Action 的 Zod 在清洗之前就跑到，
+      // 只认 undefined 会让「设了字体」这一页直接保存失败（FR-030）。
+      fontFamily: z.enum(ARTICLE_FONT_FAMILIES).nullish(),
+      fontSize: z.enum(ARTICLE_FONT_SIZES).nullish(),
     })
     .optional(),
 });
@@ -59,19 +62,13 @@ const imageNodeSchema = z.object({
 
 /**
  * 一页的正文文档：只允许 doc / paragraph / heading(1|2) / text / articleImage
- * 五种节点，mark 只允许 `textStyle` 里的字体与字号（FR-031）。
+ * 五种节点，且 doc 顶层只挂块级节点（`text` 只能出现在段落与标题里），mark 只
+ * 允许 `textStyle` 里的字体与字号（FR-031、data-model.md §2 不变量 5）。
  */
 export const articlePageDocSchema = z.object({
   type: z.literal('doc'),
   content: z
-    .array(
-      z.union([
-        headingNodeSchema,
-        paragraphNodeSchema,
-        imageNodeSchema,
-        textNodeSchema,
-      ])
-    )
+    .array(z.union([headingNodeSchema, paragraphNodeSchema, imageNodeSchema]))
     .optional(),
 });
 
