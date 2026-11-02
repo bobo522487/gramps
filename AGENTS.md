@@ -32,7 +32,7 @@
 
 Next.js 组织/项目控制台 + 家谱业务第一版：组织 → 项目两层控制台，组织与项目用 20 位公开 ID（`organization.slug`、`project.ref`）作 URL，UUIDv7 主键仅内部使用；登录、组织成员（4 角色）、邀请链接、活动日志；注册/建组织/接受邀请/成员变更/删号等多步写在单个事务内完成，失败不留半成品。谱系与人丁已有第一版（左侧谱系管理、分类树、欧式书本画布、世系表、检查器、搜索定位、字辈、始祖/子女/兄弟/配偶、拖拽录入、移动/删除、打印视图、按代渲染窗口）。界面全简体中文，品牌「云谱」，不引入 i18n 框架。
 
-**尚未实现**：谱文与富文本编辑/自动保存、谱书与编目编辑器、谱文/谱书分类页面接入、人丁自定义字段 UI、回收站、编辑锁、分享。任务要求实现这些时，先读 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)、[架构现状](docs/architecture/00-文档说明.md)、[04-数据视图-数据架构](docs/architecture/04-数据视图-数据架构.md)、[05-接口与集成设计](docs/architecture/05-接口与集成设计.md)，先写实现计划；**不要把目标文档里的 `src/modules` 目录当成现状**。已明确不做：邮箱验证、找回密码、改邮箱、邮件发送、`/api/auth/*`。
+**尚未实现**：谱书与编目编辑器、谱书分类页面接入、人丁自定义字段 UI、回收站、编辑锁、分享、谱书成品排版。谱文这条线已有第一版（列表 + 分类树 + 三区编辑器 + 按页自动保存 + 正文插图，见 [specs/002-article-authoring](specs/002-article-authoring/spec.md)），但「版式模板套用」被整体移出本期、尚未立项。任务要求实现这些时，先读 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)、[架构现状](docs/architecture/00-文档说明.md)、[04-数据视图-数据架构](docs/architecture/04-数据视图-数据架构.md)、[05-接口与集成设计](docs/architecture/05-接口与集成设计.md)，先写实现计划；**不要把目标文档里的 `src/modules` 目录当成现状**。已明确不做：邮箱验证、找回密码、改邮箱、邮件发送、`/api/auth/*`。
 
 | 项 | 当前值 |
 |---|---|
@@ -103,7 +103,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 - 需要 scope 时用 `requireOrgContext(orgSlug)` / `requireProjectContext(projectRef)`（内部已含 `getSessionUser()` + 成员校验，失败 `notFound()`）或 `getOrgContext` / `getProjectContext`（返回 `null`）。**不要再自行 `getSessionUser()` + 查询 scope**，也不要在页面里重复解析。
 - 页面数据查询仍按 UUID `orgId` 过滤；scope 里的 `id` 来自服务端校验过的成员关系。
 - 首屏数据由 RSC 通过 `dehydrate` / `components/query-provider.tsx` 注入，客户端用 `useQuery` 读取只读路由；`queryKey` 一律从 `lib/query-keys.ts` 的工厂取，**不要在组件里手写 `fetch` 或拼字符串 key**。**不要在单个 hook 上设 `refetchOnMount`**（`'always'` 会绕过新鲜度判断，把服务端刚查过的同一份数据再打一遍；新鲜度只由 `createQueryClient` 的 `staleTime` 统一决定，见 [ADR 0013](docs/decisions/0013-next-react-runtime-layer.md)）。写成功后除 `revalidatePath` 外按需 `invalidateQueries`。不要引入 SWR。
-- 谱系列表/文件夹走 `lib/lineage/nav.ts`（React `cache()` 请求级共享）；新增导航数据也走这里。
+- 谱系列表/文件夹走 `lib/lineage/nav.ts`（React `cache()` 请求级共享）；谱文列表/分类走 `lib/article/nav.ts`（同一模式）。**导航数据按域各开一个 `nav.ts`，不要让 `lineage` 拥有 article 的查询。**
 
 ### 5.2 写
 
@@ -146,7 +146,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 ### 5.6 API Route
 
-当前 4 个只读 Route Handler（`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`）与 DTO/状态码契约见 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)；它们是过渡形态，见 [ADR 0008](docs/decisions/0008-read-only-route-handlers.md)。
+当前 4 个只读 Route Handler（`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`）与 DTO/状态码契约见 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)；它们是过渡形态，见 [ADR 0008](docs/decisions/0008-read-only-route-handlers.md)。谱文另有 3 条图片通道（`GET /api/media/[...key]` 读取代理、`POST /api/blob/upload`、`POST /api/media/upload`）：唯一的例外，因为 10MB 图片字节装不进 Server Action 的请求体上限（1MB）与 Vercel 函数体上限（4.5MB），授权与状态码见 [05 §7](docs/architecture/05-接口与集成设计.md)、存储见 [ADR 0019](docs/decisions/0019-media-storage.md)。
 
 新增 API Route 的顺序：`withApiLogging('<route-name>', handler)` 导出 → `getSessionUser()`，未登录 401 → Zod 校验路径参数与 body → 组织资源先 `getOrgRole`，非成员 403/404 → 查询带 `orgId` → 返回显式 DTO（不给整行）→ 补 Vitest（401/403/404/成功）。**不要复制 Server Action 的逻辑**，能复用 query 就复用；认证类 handler 数量为 0，不要新增 `/api/auth/*`。
 

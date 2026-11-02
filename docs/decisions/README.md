@@ -24,7 +24,7 @@
 | ADR-09 | 删除 | 软删，但 M1 无回收站界面 | 单向门 | [0004](./0004-soft-delete-forever.md) |
 | ADR-10 | 并发 | **M1 不做锁**，last-write-wins | 双向门 | [0002](./0002-no-edit-lock.md) |
 | ADR-11 | 邮件与邀请 | **M1 无邮件通道**，邀请走手动复制的一次性链接 | 双向门 | — |
-| ADR-12 | 富文本 | 边界是 ProseMirror JSON，不存 HTML；编辑器选 TipTap，依赖**尚未安装**（决策 ≠ 现在安装） | 单向门 | [0010](./0010-rich-text-editor-selection.md) |
+| ADR-12 | 富文本 | 边界是 ProseMirror JSON，不存 HTML；编辑器选 TipTap，依赖已随 2026-11-02 谱文立项安装（原则句保留：决策 ≠ 现在安装） | 单向门 | [0010](./0010-rich-text-editor-selection.md) |
 | ADR-13 | 检索 | 人丁搜索在客户端（全量载入 + 内存匹配）；`pg_trgm` 只保留给谱文 | 双向门 | [0011](./0011-search-boundary-node-client-article-trgm.md) |
 | ADR-14 | 主键 | UUIDv7，PostgreSQL 18 原生 `uuidv7()` | 单向门 | — |
 | ADR-15 | 后台任务 | M1 零个；边界见 ADR-23 | 双向门 | [0005](./0005-zero-background-jobs.md) · [0009](./0009-dependency-and-runtime-stance.md) |
@@ -41,6 +41,7 @@
 | ADR-26 | 首屏数据来源 | RSC `dehydrate` 是唯一首屏来源；hook 不得用 `refetchOnMount` 作废它。P1-8/P1-9 判为「前提不存在」 | 双向门 | [0013](./0013-next-react-runtime-layer.md) |
 | ADR-27 | 单支世系导出 | M2 做单支世系导出，格式 GEDCOM 7（不是 5.5.1）；不做导入、不做整库导出 | 双向门 | [0017](./0017-single-branch-export-gedcom7.md) |
 | ADR-28 | 文档结构 | `docs/` 只有一层文档集：根级文档并入 `architecture/`，as-is / to-be 改成段落级 `[现状]`/`[目标]` 标注 | 双向门 | [0018](./0018-single-doc-set.md) |
+| ADR-29 | 谱文图片存储 | Vercel Blob 私有桶 + 服务端代理读取；上传客户端直传；本地文件系统兜底；不引入后台清理 | 单向门 | [0019](./0019-media-storage.md) |
 
 **单向门的含义**：不是「不能改」，而是「改的时候要付数据迁移或全量重排的代价」。这类决策一旦有真实客户数据，讨论成本会上升一个数量级，所以**在有数据之前**就要想清楚。
 
@@ -63,13 +64,14 @@
 | [0007](./0007-self-hosted-better-auth.md) | 自托管 Better Auth + Neon PostgreSQL | 替换自建认证与邀请；引入 `auth_service` 角色边界与数据库会话 |
 | [0008](./0008-read-only-route-handlers.md) | 保留只读 Route Handler | 读缓存、预取与路由级可观测；写仍只走 Server Action |
 | [0009](./0009-dependency-and-runtime-stance.md) | 依赖与运行时立场（依赖只减不增 / 钉死 ORM 版本 / 约束必须有执行者 / 零常驻进程） | 决策地图此前缺这一类；`drizzle-orm` 1.0 与 M3 排版都依赖它 |
-| [0010](./0010-rich-text-editor-selection.md) | 富文本编辑器选 TipTap，正文存 ProseMirror JSON；编辑器**尚未安装** | 闭合 D-9；ADR-12 定了格式却没定引擎，而 TipTap 的传递依赖现在没有消费者 |
+| [0010](./0010-rich-text-editor-selection.md) | 富文本编辑器选 TipTap，正文存 ProseMirror JSON；依赖随谱文立项（002）安装 | 闭合 D-9；ADR-12 定了格式却没定引擎，而 TipTap 的传递依赖在安装前没有消费者 |
 | [0011](./0011-search-boundary-node-client-article-trgm.md) | 检索边界：人丁搜索在客户端，trigram 只给谱文 | 取代 ADR-13 的一行结论；删掉零消费者的 `idx_node_search`，边界由集成测试守住 |
 | [0012](./0012-typescript7-compiler-flags.md) | TypeScript 7 编译器开关：只开实测 0 报错的 4 条，其余全部拒绝 | 推翻了一个从未实测的假设（检查冷跑仅 1.36s，无性能问题）；并记录 `strict` 删不得的框架陷阱——Next 会在键缺失时写回 `strict: false` |
 | [0013](./0013-next-react-runtime-layer.md) | 首屏只查一遍：RSC `dehydrate` 为唯一来源，`refetchOnMount:'always'` 移除 | 实测出控制台每次硬加载重复打 `/api/user` + `/api/orgs`；同时把 P1-8（整树失效）与 P1-9（营销页静态化）判为「前提不存在」——21 条路由全动态、零预渲染 |
 | [0016](./0016-tenant-columns-immutable.md) | 租户列不可变：`UPDATE` 不得改归属列，10 张表各挂 `trg_<table>_tenant_immutable` | 修的是已发布代码里的真实越权路径（RLS `WITH CHECK` 只看新值，双组织用户能把行搬走）；并记录 `folder_id` 属结构列、必须保持可写，否则删文件夹会失败 |
 | [0017](./0017-single-branch-export-gedcom7.md) | 单支世系导出用 GEDCOM 7，且提前到 M2 | 推翻了 §6.2「用户量不足」的判断，格式选择会被第三方兼容性挑战 |
 | [0018](./0018-single-doc-set.md) | 文档只保留一层：根级事实层并入 `architecture/` | 删的是重复副本而不是内容；链接改动面大且不可机械修复锚点，需要留档说明取舍 |
+| [0019](./0019-media-storage.md) | 谱文图片走 Blob 私有桶 + 服务端代理读取，本地文件系统兜底 | 读取形态（代理 vs 签名 URL）在「一屏几十张图」与「最小权限」之间不可兼得，且孤儿字节没有回收器，两条都需要留档 |
 
 ### ADR 模板
 

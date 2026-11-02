@@ -1,6 +1,6 @@
 # 0010. 富文本编辑器选型：TipTap（ProseMirror 封装），正文存 ProseMirror JSON
 
-- **状态**：已接受（**决策**；依赖尚未安装，见§决策 1）
+- **状态**：已接受（**决策**；2026-11-02 随谱文立项 [specs/002-article-authoring](../../specs/002-article-authoring/spec.md) 执行，依赖已安装，见§决策 1）
 - **日期**：2026-10-27
 - **可逆性**：单向门——文档格式一旦进了库、进了已排版的谱书，换编辑器要重排数据（同 [ADR 0003](./0003-tree-storage-ltree.md) 那类门）
 - **取代**：[决策索引](./README.md) 待决策 **D-9**（富文本选型）——D-9 自此转为本 ADR 并从待决策表移除，由 `scripts/check-docs.mjs` 的已解决清单执行
@@ -20,7 +20,7 @@
 
 `article.content` 存 **ProseMirror 文档 JSON**（承接 ADR-12），渲染、校验、检索都只认这一种形状，不存 HTML 字符串。
 
-**决策 ≠ 现在安装。** 谱文功能立项（有真实的编辑需求、有消费者）之前，`package.json` 里**不得**出现 `tiptap` / `@tiptap/*` / `prosemirror-*` / `lexical` 等编辑器依赖。**编辑器目前尚未安装**，`package.json` 依赖表里没有它们中的任何一个，本 ADR 不新增依赖、不改变任何运行期行为。
+**决策 ≠ 现在安装。** 这条禁令在谱文功能立项（有真实的编辑需求、有消费者）之前一直有效：`package.json` 里**不得**出现 `tiptap` / `@tiptap/*` / `prosemirror-*` / `lexical` 等编辑器依赖。2026-11-02 谱文立项后禁令解除，六个 `@tiptap/*` 3.32.2 包随执行计划的 Task 1 进入 `dependencies`——本 ADR 自此从「纯文档决策」变成「有消费者的依赖」，消费者是 `lib/article/**` 与 `components/article/editor/**`（由 `biome.json` 的 `noRestrictedImports` 圈定）。
 
 理由直接引 [ADR 0009 §1](./0009-dependency-and-runtime-stance.md)：新增运行期依赖必须"替换掉一段自己写的代码"，否则就是"付成本、无消费者"的税。现在没有任何代码解析或渲染 `article.content`，装进来就是没有任何调用方的依赖；它的依赖树（含对 React 适配层的版本约束）只有在谱文立项、真正有消费者时才值得扛，提前扛则是纯粹的付成本。
 
@@ -57,7 +57,7 @@ M1 的 5 种块级排版 + 1 种行内格式确实**用 60 行渲染器也能做
 
 ### 3. 没有迁移，也没有下坡路要修
 
-诚实写清楚：因为**尚未安装**任何编辑器依赖，本次决策**不需要**数据迁移、不需要 `pnpm remove`、不需要回滚脚本。`article.content` 列本来就存在（`jsonb`），形状不变。与 [ADR 0011](./0011-search-boundary-node-client-article-trgm.md) 保留 `idx_article_search` 是同一件事的两面：**数据侧已经就绪，编辑器侧留给谱文立项**。
+诚实写清楚：决策当时没有引入任何编辑器依赖，所以本次决策**不需要**数据迁移、不需要 `pnpm remove`、不需要回滚脚本；2026-11-02 安装时同样不需要迁移——`article.content` 列本来就存在（`jsonb`），形状不变。与 [ADR 0011](./0011-search-boundary-node-client-article-trgm.md) 保留 `idx_article_search` 是同一件事的两面：**数据侧已经就绪，编辑器侧留给谱文立项**。
 
 ## 后果
 
@@ -78,7 +78,7 @@ M1 的 5 种块级排版 + 1 种行内格式确实**用 60 行渲染器也能做
 
 - 本 ADR 不修改 ADR-12 的正文（已接受的 ADR 不改），只在其外部把"用哪个编辑器"补齐；ADR-12 的索引行改指向本文。
 - 本 ADR 不新增依赖、不改 `package.json`、不改任何源文件。
-- 依赖禁令由 `tests/docs-consistency.test.ts` 执行：**只要本文写着"尚未安装"，`package.json` 的依赖里就不得出现编辑器包**；谱文立项安装后，同步删掉"尚未安装"这句话，断言随之自然退出（不会拦住真实实现）。
+- 依赖禁令由 `tests/docs-consistency.test.ts` 执行：本文原先写有「编辑器未安装」的表述时，`package.json` 的依赖里就不得出现编辑器包；2026-11-02 谱文立项安装后，该表述已从本文移除，黑名单断言自然退出（不会拦住真实实现）。该测试仍**无条件**校验本文保留 `决策 ≠ 现在安装` 这一原则句，所以本 ADR 不能把这句改掉。
 
 ## 放弃的方案
 

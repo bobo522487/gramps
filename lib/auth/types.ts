@@ -8,7 +8,12 @@ export type SessionUser = {
   email: string;
 };
 
-export type ActionState = {
+/**
+ * Server Action 的返回值。`T` 是成功时携带的结构化载荷（编辑器需要保存时间、
+ * 服务端回显的页等）；默认 `undefined`，所以既有 30 个 Action 与表单组件里
+ * `ActionState` 的写法一个字都不用改（[ADR 0009 §1] 的最小改动口径）。
+ */
+export type ActionState<T = undefined> = {
   error?: string;
   /** Stable machine-readable error code, e.g. `UNAUTHORIZED`. */
   code?: string;
@@ -16,6 +21,8 @@ export type ActionState = {
   email?: string;
   /** Validation messages keyed by form field name (e.g. `email`). */
   fieldErrors?: Record<string, string>;
+  /** 成功时的结构化载荷；只在 `error` 缺失时读取。 */
+  data?: T;
   name?: string;
   orgId?: string;
   orgSlug?: string;

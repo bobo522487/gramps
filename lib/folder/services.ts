@@ -79,7 +79,8 @@ function folderDepth(byId: Map<string, Folder>, folder: Folder): number {
   return depth;
 }
 
-async function nextFolderSort(
+/** 同层下一个 sort 值；谱文侧创建「默认分类」要复用同一个算法。 */
+export async function nextFolderSort(
   tx: DbTransaction,
   orgId: string,
   projectId: string,

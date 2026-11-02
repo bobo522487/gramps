@@ -45,6 +45,9 @@ next-env.d.ts
 postgres_data/
 .env*.local
 
+# 本地媒体兜底驱动的图片落点（生产走 Vercel Blob，见 ADR 0019）
+.data/
+
 # Qoder CLI
 .qoder/
 .env*
