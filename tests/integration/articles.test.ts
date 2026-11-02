@@ -15,6 +15,7 @@ import {
 } from '@/lib/article/actions';
 import { ARTICLE_ERRORS } from '@/lib/article/constants';
 import { parseArticleContent } from '@/lib/article/doc';
+import { fsMediaStore } from '@/lib/article/media/fs-store';
 import { PERMISSION_DENIED_MESSAGES } from '@/lib/auth/permissions';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
 import { articles, books, folders } from '@/lib/db/schema';
@@ -38,6 +39,19 @@ import {
  * 直接调 Action：权限、事务、白名单校验、`page_not_found` 的拒绝路径都只在
  * 「Action → 事务」这条真实链路上才可验证（宪法 IV）。
  */
+
+/** Action 返回 `T | ActionState`：测试里用 `in` 收窄，不做 `as` 断言。 */
+function dataOf<T>(result: T | { data?: T }): T {
+  if (
+    typeof result !== 'object' ||
+    result === null ||
+    !('data' in result) ||
+    result.data === undefined
+  ) {
+    throw new Error(`Action 没有返回数据：${JSON.stringify(result)}`);
+  }
+  return result.data;
+}
 
 const session = vi.hoisted(() => ({
   cookie: undefined as string | undefined,
@@ -177,8 +191,7 @@ describe('createArticleAction', () => {
     });
 
     expect(result).toMatchObject({ success: '谱文已创建' });
-    const articleId = (result as { data?: { articleId?: string } }).data
-      ?.articleId;
+    const articleId = dataOf(result).articleId;
     expect(articleId).toBeTruthy();
 
     const row = await readContent(articleId!);
@@ -254,8 +267,7 @@ describe('updateArticleTitleAction / moveArticleAction', () => {
       projectId: fixture.projectId,
       title: '旧标题',
     });
-    const articleId = (created as { data?: { articleId?: string } }).data!
-      .articleId!;
+    const articleId = dataOf(created).articleId!;
 
     const renamed = await updateArticleTitleAction({
       orgId: fixture.orgId,
@@ -281,8 +293,7 @@ describe('updateArticleTitleAction / moveArticleAction', () => {
       projectId: fixture.projectId,
       title: '要移动的谱文',
     });
-    const articleId = (created as { data?: { articleId?: string } }).data!
-      .articleId!;
+    const articleId = dataOf(created).articleId!;
     const defaultFolderId = (await readContent(articleId))?.folderId;
     expect(defaultFolderId).toBeTruthy();
 
@@ -343,8 +354,7 @@ describe('deleteArticleAction', () => {
       projectId: fixture.projectId,
       title: '待删除谱文',
     });
-    const articleId = (created as { data?: { articleId?: string } }).data!
-      .articleId!;
+    const articleId = dataOf(created).articleId!;
 
     const deleted = await deleteArticleAction({
       orgId: fixture.orgId,
@@ -361,8 +371,7 @@ describe('deleteArticleAction', () => {
       projectId: fixture.projectId,
       title: '被引用的谱文',
     });
-    const articleId = (created as { data?: { articleId?: string } }).data!
-      .articleId!;
+    const articleId = dataOf(created).articleId!;
 
     const book = await createBook({
       orgId: fixture.orgId,
@@ -392,8 +401,7 @@ describe('deleteArticleAction', () => {
       projectId: fixture.projectId,
       title: '查看者删不掉',
     });
-    const articleId = (created as { data?: { articleId?: string } }).data!
-      .articleId!;
+    const articleId = dataOf(created).articleId!;
 
     await as(fixture.viewerId);
     const result = await deleteArticleAction({
@@ -426,6 +434,62 @@ describe('saveArticlePageAction', () => {
       .returning({ id: articles.id });
     return row.id;
   }
+
+  it('删掉带图的页之后，只有这页在用的图片字节被清掉（FR-029、US3-AC5）', async () => {
+    const articleId = await articleWithTwoPages();
+    const keep = `articles/${fixture.orgId}/${articleId}/keep.png`;
+    const gone = `articles/${fixture.orgId}/${articleId}/gone.png`;
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await fsMediaStore.put(keep, bytes, 'image/png');
+    await fsMediaStore.put(gone, bytes, 'image/png');
+
+    const first = '11111111-1111-4111-8111-111111111111';
+    const second = '22222222-2222-4222-8222-222222222222';
+    await saveArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageId: first,
+      doc: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: '第一页的像' }],
+          },
+          { type: 'articleImage', attrs: { pathname: keep, width: 'full' } },
+        ],
+      },
+    });
+    await saveArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageId: second,
+      doc: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: '第二页的像' }],
+          },
+          { type: 'articleImage', attrs: { pathname: gone, width: 'full' } },
+        ],
+      },
+    });
+
+    const result = await deleteArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageId: second,
+    });
+
+    expect(result).toMatchObject({ success: '已删除该页' });
+    // 只有第二页在用的字节被清掉；第一页还在用的那张必须留着。
+    expect(await fsMediaStore.read(gone)).toBeNull();
+    expect(await fsMediaStore.read(keep)).not.toBeNull();
+
+    await fsMediaStore.delete(keep);
+    await fsMediaStore.delete(gone);
+  });
 
   it('只替换提交的那一页，另一页原样保留（FR-017）', async () => {
     const articleId = await articleWithTwoPages();

@@ -203,9 +203,11 @@ export async function deleteArticlePageInTransaction(params: {
         .where(eq(articles.id, articleId));
       await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
-      const pathnames = imagePathsOf(removed.doc).filter(
-        (pathname) => !isReferenced(pathname, content)
-      );
+      // imagePathsOf 认的是「分页文档包」，单页得先包一层再遍历。
+      const pathnames = imagePathsOf({
+        schemaVersion: ARTICLE_SCHEMA_VERSION,
+        pages: [removed],
+      }).filter((pathname) => !isReferenced(pathname, content));
       return { ok: true as const, pageOrder: pageIdsOf(content), pathnames };
     }
   );
