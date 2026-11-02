@@ -8,6 +8,7 @@ const MANAGED_KEYS = [
   'BETTER_AUTH_URL',
   'VERCEL',
   'NEXT_PHASE',
+  'BLOB_READ_WRITE_TOKEN',
 ] as const;
 
 const originalEnv = Object.fromEntries(
@@ -161,5 +162,58 @@ describe('server environment validation', () => {
     process.env.BETTER_AUTH_SECRET = 'b'.repeat(32);
 
     expect(getServerConfig()).toBe(first);
+  });
+});
+
+describe('media mode', () => {
+  it('用 blob：Vercel 上配了 BLOB_READ_WRITE_TOKEN', async () => {
+    setValidEnv();
+    process.env.VERCEL = '1';
+    process.env.APP_POSTGRES_URL = VALID_DATABASE_URL;
+    process.env.AUTH_POSTGRES_URL = VALID_DATABASE_URL;
+    process.env.BLOB_READ_WRITE_TOKEN = 'blob_url_x';
+
+    const { getMediaMode } = await loadConfig();
+
+    expect(getMediaMode()).toBe('blob');
+  });
+
+  it('用 fs：本地或 CI 没有令牌', async () => {
+    setValidEnv();
+
+    const { getMediaMode } = await loadConfig();
+
+    expect(getMediaMode()).toBe('fs');
+  });
+
+  it('用 fs：有令牌但不在 Vercel', async () => {
+    setValidEnv();
+    process.env.BLOB_READ_WRITE_TOKEN = 'blob_url_x';
+
+    const { getMediaMode } = await loadConfig();
+
+    expect(getMediaMode()).toBe('fs');
+  });
+
+  it('用 fs：在 Vercel 但没有令牌', async () => {
+    setValidEnv();
+    process.env.VERCEL = '1';
+    process.env.APP_POSTGRES_URL = VALID_DATABASE_URL;
+    process.env.AUTH_POSTGRES_URL = VALID_DATABASE_URL;
+
+    const { getMediaMode } = await loadConfig();
+
+    expect(getMediaMode()).toBe('fs');
+  });
+
+  it('缺少令牌不阻塞环境校验', async () => {
+    setValidEnv();
+    process.env.VERCEL = '1';
+    process.env.APP_POSTGRES_URL = VALID_DATABASE_URL;
+    process.env.AUTH_POSTGRES_URL = VALID_DATABASE_URL;
+
+    const { getServerConfig } = await loadConfig();
+
+    expect(getServerConfig().BLOB_READ_WRITE_TOKEN).toBeUndefined();
   });
 });
