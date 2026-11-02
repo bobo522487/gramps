@@ -29,11 +29,6 @@ const allDocs = walk(DOCS).filter(
 
 const contradictionScope = [
   join(DOCS, 'README.md'),
-  join(DOCS, 'architect.md'),
-  join(DOCS, 'data-model.md'),
-  join(DOCS, 'api.md'),
-  join(DOCS, 'prd.md'),
-  join(DOCS, 'implementation-status.md'),
   ARCH_DIR,
   join(DOCS, 'decisions'),
   join(DOCS, 'guides'),
@@ -125,6 +120,19 @@ const stalePaths = [
   'docs/product/glossary.md',
   'src/modules/',
   'src/server/db',
+  // 2026-11-02 起根级文档并入 architecture/（ADR 0018）；这些路径只应出现在归档里
+  'docs/data-model.md',
+  'docs/api.md',
+  'docs/setup.md',
+  'docs/ops-target.md',
+  'docs/prd.md',
+  'docs/implementation-status.md',
+  'docs/architect.md',
+  'docs/prd-lineage-editing-preview.md',
+  'architecture/11-技术选型与决策记录.md',
+  'architecture/12-需求追溯矩阵.md',
+  'architecture/13-风险与演进规划.md',
+  'architecture/14-附录.md',
 ];
 
 for (const file of allDocs) {
@@ -205,6 +213,33 @@ for (const file of allDocs) {
         `forbidden pattern: ${label}`
       );
     }
+  }
+}
+
+// 文档集结构：docs/ 只有一层（根目录只允许 README.md），architecture/ 编号 00 起连续。
+for (const file of allDocs) {
+  if (dirname(file) === DOCS && file !== join(DOCS, 'README.md')) {
+    addIssue(
+      file,
+      1,
+      'doc-set',
+      'docs/ 根目录只允许 README.md，其他文档放进子目录'
+    );
+  }
+}
+
+const archNames = walk(ARCH_DIR)
+  .map((file) => relative(ARCH_DIR, file).split(sep).join('/'))
+  .sort();
+for (const [index, name] of archNames.entries()) {
+  const expected = String(index).padStart(2, '0');
+  if (!name.startsWith(`${expected}-`)) {
+    addIssue(
+      join(ARCH_DIR, name),
+      1,
+      'doc-set',
+      `架构文档编号必须连续：期望 ${expected}-*.md，实际 ${name}`
+    );
   }
 }
 
