@@ -159,19 +159,19 @@ git commit -m "feat(article): 分页文档结构、派生规则与白名单校�
 - Consumes: `getSessionUser()`、`getOrgRole`、`withApiLogging`、`getServerConfig().mediaMode`
 - Produces: `getMediaStore(): MediaStore`（`mode` / `read(pathname)` / `delete(pathname)`）；`GET /api/media/<pathname>` 返回字节流
 
-- [ ] **Step 1: 写失败测试（读取授权）**
+- [x] **Step 1: 写失败测试（读取授权）**
 
 `tests/integration/media.test.ts`：成员读自己的图片 200；非成员 404；跨组织 404；非法 `key` 形状 404。Run 确认失败。
 
-- [ ] **Step 2: 实现存储接口与两个驱动**
+- [x] **Step 2: 实现存储接口与两个驱动**
 
 `store.ts` 定接口与 `getMediaStore()`（模式由 `lib/config.ts` 决定）；`fs-store.ts` 读写 `.data/media`；`blob-store.ts` 用 `get(pathname, { access: 'private' })` 与 `del()`。
 
-- [ ] **Step 3: 实现读取代理**
+- [x] **Step 3: 实现读取代理**
 
 `app/api/media/[...key]/route.ts`：`withApiLogging` → `getSessionUser()`（无则 404）→ 解析 `key` 为 `articles/<orgId>/<articleId>/<file>` → `getOrgRole` 校验成员 → `getMediaStore().read()` → 返回 `Content-Type` 与 `Cache-Control: private, max-age=300`；任何失败 404。
 
-- [ ] **Step 4: 实现两个上传通道**
+- [x] **Step 4: 实现两个上传通道**
 
 `app/api/blob/upload/route.ts`：`handleUpload({ onBeforeGenerateToken, onUploadCompleted })`，回调里反查 `article` 拿 `projectId`、校验成员 + `article.write` + 前缀 + MIME + 10MB，返回 `allowedContentTypes` / `maximumSizeInBytes` / `addRandomSuffix: false` / `tokenPayload`；`mediaMode !== 'blob'` 直接 404。`app/api/media/upload/route.ts`：fs 模式 multipart，校验魔数、体积、前缀，落盘 `.data/media/`。
 
