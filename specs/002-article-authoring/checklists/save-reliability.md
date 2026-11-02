@@ -73,7 +73,7 @@
 
 ## Notes
 
-- **A 组 CHK001–CHK007 已于 2026-11-02 消解（执行方裁决，待用户复核）**：勾选由执行方按「口径已在规格里写死」判定；裁决文本写进 [spec.md](../spec.md) 的 `### Session 2026-11-02（checklist 评审轮：保存链路口径，人工确认）`，并落到 FR-014 / FR-016 / FR-017 / FR-021 / FR-029 / FR-037 与 SC-002；[research.md](../research.md) §3/§6 与 [contracts](../contracts/actions-and-permissions.md) §1.5/§5 同步口径。勾选含义仅限「该需求质量判据已满足」，不授权代码改动。
+- **A 组 CHK001–CHK007 已于 2026-11-02 消解并经用户确认（「照这 4 条执行」）**：勾选含义仅限「该需求质量判据已在规格文本中满足」，不授权代码改动。裁决文本写进 [spec.md](../spec.md) 的 `### Session 2026-11-02（checklist 评审轮：保存链路口径，人工确认）`，并落到 FR-014 / FR-016 / FR-017 / FR-021 / FR-029 / FR-037 与 SC-002；[research.md](../research.md) §3/§6 与 [contracts](../contracts/actions-and-permissions.md) §1.5/§5 同步口径。勾选含义仅限「该需求质量判据已满足」，不授权代码改动。
 - 其余条目（B–H）由 `/speckit-checklist` 生成，保持**未勾选**状态；勾选权归评审人（本会话的评审提示：A 组 7 条建议进实现前先处理）。
 - 条目只评估需求文本质量，不检查代码或运行行为。
 - 需要把某条差异「改写进规格」时，走 `/speckit-clarify` 或 `/speckit-specify` 的更新流程，不要在本清单里勾了就算改过。
