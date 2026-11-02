@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createArticleAction,
   deleteArticleAction,
+  getArticleDeletePreviewAction,
+  getFolderDeletePreviewAction,
   moveArticleAction,
   saveArticlePageAction,
   updateArticleTitleAction,
@@ -11,7 +13,7 @@ import {
 import { ARTICLE_ERRORS } from '@/lib/article/constants';
 import { PERMISSION_DENIED_MESSAGES } from '@/lib/auth/permissions';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
-import { articles, folders } from '@/lib/db/schema';
+import { articles, books, folders } from '@/lib/db/schema';
 import { signSessionFor } from '../helpers/auth';
 import { getTestDb } from '../helpers/db';
 import {
@@ -19,6 +21,7 @@ import {
   createArticle,
   createBook,
   createCatalogItem,
+  createFolder,
   createOrganization,
   createProject,
   createUser,
@@ -546,5 +549,188 @@ describe('saveArticlePageAction', () => {
     const row = await readContent(articleId);
     expect(JSON.stringify(row?.content ?? '')).toContain('第一页原文');
     expect(JSON.stringify(row?.content ?? '')).not.toContain('查看者写不进去');
+  });
+});
+
+describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
+  const P1 = '11111111-1111-4111-8111-111111111111';
+  const P2 = '22222222-2222-4222-8222-222222222222';
+
+  function image(pathname: string) {
+    return {
+      type: 'articleImage' as const,
+      attrs: { pathname, width: 'full' as const },
+    };
+  }
+
+  function docWith(...nodes: Record<string, unknown>[]) {
+    return { type: 'doc' as const, content: nodes };
+  }
+
+  it('给出页数、图片数，并标记是否被谱书编目引用', async () => {
+    await as(fixture.editorId);
+    const article = await createArticle({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.editorId,
+      title: '待删谱文',
+      content: {
+        schemaVersion: 1,
+        pages: [
+          {
+            id: P1,
+            doc: docWith(
+              { type: 'paragraph', content: [{ type: 'text', text: '正文' }] },
+              image(`articles/${fixture.orgId}/a/x1.png`),
+              image(`articles/${fixture.orgId}/a/x2.png`)
+            ),
+          },
+          { id: P2, doc: docWith(image(`articles/${fixture.orgId}/a/x3.png`)) },
+        ],
+      },
+    });
+
+    const preview = await getArticleDeletePreviewAction({
+      orgId: fixture.orgId,
+      articleId: article.id,
+    });
+    expect(preview).toMatchObject({
+      title: '待删谱文',
+      pageCount: 2,
+      imageCount: 3,
+      referencedByCatalog: false,
+    });
+
+    const book = await createBook({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      name: '引用它的谱书',
+    });
+    await createCatalogItem({
+      orgId: fixture.orgId,
+      bookId: book.id,
+      createdBy: fixture.ownerId,
+      articleId: article.id,
+    });
+
+    const after = await getArticleDeletePreviewAction({
+      orgId: fixture.orgId,
+      articleId: article.id,
+    });
+    expect(after).toMatchObject({ referencedByCatalog: true });
+  });
+
+  it('引用它的谱书被软删后，不再算引用', async () => {
+    await as(fixture.ownerId);
+    const article = await createArticle({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      title: '谱书已删的谱文',
+    });
+    const book = await createBook({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      name: '将被删除的谱书',
+    });
+    await createCatalogItem({
+      orgId: fixture.orgId,
+      bookId: book.id,
+      createdBy: fixture.ownerId,
+      articleId: article.id,
+    });
+
+    await getTestDb()
+      .update(books)
+      .set({ deletedAt: new Date() })
+      .where(eq(books.id, book.id));
+
+    const preview = await getArticleDeletePreviewAction({
+      orgId: fixture.orgId,
+      articleId: article.id,
+    });
+    expect(preview).toMatchObject({ referencedByCatalog: false });
+  });
+
+  it('分类预览把子孙分类一并计入（FR-005）', async () => {
+    await as(fixture.ownerId);
+    const root = await createFolder({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      kind: 1,
+      name: '谱序',
+    });
+    const child = await createFolder({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      kind: 1,
+      parentId: root.id,
+      name: '旧谱序',
+    });
+    await createArticle({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      folderId: root.id,
+      title: '根下的一篇',
+    });
+    await createArticle({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      folderId: child.id,
+      title: '子下的一篇',
+    });
+    await createArticle({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      folderId: child.id,
+      title: '子下的又一篇',
+    });
+
+    const preview = await getFolderDeletePreviewAction({
+      orgId: fixture.orgId,
+      folderId: root.id,
+    });
+    expect(preview).toMatchObject({
+      name: '谱序',
+      folderCount: 2,
+      articleCount: 3,
+    });
+  });
+
+  it('别的组织的用户拿不到任何预览，按不存在处理（FR-034）', async () => {
+    await as(fixture.outsiderId);
+    const article = await createArticle({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      title: '别人家的谱文',
+    });
+    const folder = await createFolder({
+      orgId: fixture.orgId,
+      projectId: fixture.projectId,
+      createdBy: fixture.ownerId,
+      kind: 1,
+      name: '别人家的分类',
+    });
+
+    expect(
+      await getArticleDeletePreviewAction({
+        orgId: fixture.outsiderOrgId,
+        articleId: article.id,
+      })
+    ).toEqual({ error: ARTICLE_ERRORS.not_found });
+    expect(
+      await getFolderDeletePreviewAction({
+        orgId: fixture.outsiderOrgId,
+        folderId: folder.id,
+      })
+    ).toEqual({ error: ARTICLE_ERRORS.not_found });
   });
 });

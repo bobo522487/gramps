@@ -1,7 +1,11 @@
 import { Home } from 'lucide-react';
+import { NewArticleEntry } from '@/components/article/new-article-entry';
+import type { ArticleFolderNode } from '@/components/article/types';
 import { PageHeader } from '@/components/console/page-header';
 import { Card } from '@/components/ui/card';
+import { getNavArticleFolders } from '@/lib/article/nav';
 import { requireProjectContext } from '@/lib/auth/context';
+import { hasPermission } from '@/lib/auth/permissions';
 import { projectStatusLabel } from '@/lib/project/constants';
 
 function formatDate(value: Date | null): string {
@@ -17,7 +21,19 @@ export default async function ProjectOverviewPage({
   params: Promise<{ projectRef: string }>;
 }) {
   const { projectRef } = await params;
-  const { project, organization } = await requireProjectContext(projectRef);
+  const { user, project, organization, role } =
+    await requireProjectContext(projectRef);
+  // FR-008：云谱空间总览也要能直接新建谱文，不必先进列表页。
+  const canWrite = hasPermission(role, 'article.write');
+  const folders = canWrite
+    ? await getNavArticleFolders(user.id, organization.id, project.id)
+    : [];
+  const folderNodes: ArticleFolderNode[] = folders.map((folder) => ({
+    id: folder.id,
+    name: folder.name,
+    parentId: folder.parentId,
+    count: 0,
+  }));
   const facts: { label: string; value: string; mono?: boolean }[] = [
     { label: '项目 ID', value: project.ref, mono: true },
     { label: '主题名', value: project.themeName ?? '—' },
@@ -37,6 +53,18 @@ export default async function ProjectOverviewPage({
         icon={Home}
         title="概览"
         description={`${organization.name} / ${project.name}`}
+        actions={
+          canWrite ? (
+            <NewArticleEntry
+              orgId={organization.id}
+              projectId={project.id}
+              projectRef={project.ref}
+              projectRegion={project.countriesRegions ?? '中国'}
+              canProjectWrite={hasPermission(role, 'project.write')}
+              folders={folderNodes}
+            />
+          ) : null
+        }
       />
 
       <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">

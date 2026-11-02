@@ -18,6 +18,8 @@ import {
   deleteArticlePageSchema,
   deleteArticleSchema,
   moveArticleSchema,
+  previewArticleSchema,
+  previewFolderSchema,
   reorderArticlePagesSchema,
   saveArticlePageSchema,
   updateArticleTitleSchema,
@@ -30,6 +32,15 @@ import {
 } from '@/lib/article/services';
 import { validatedActionWithUserObject } from '@/lib/auth/middleware';
 import type { ActionState } from '@/lib/auth/types';
+import type {
+  ArticleDeletePreview,
+  FolderDeletePreview,
+} from '@/lib/db/queries/articles';
+import {
+  getArticleDeletePreview,
+  getFolderDeletePreview,
+  hasCatalogReference,
+} from '@/lib/db/queries/articles';
 import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 import { logger } from '@/lib/logger';
 
@@ -220,5 +231,52 @@ export const reorderArticlePagesAction = validatedActionWithUserObject(
     }
 
     return { success: '页序已保存', data: { pageOrder: result.pageOrder } };
+  }
+);
+
+/**
+ * 删除确认框的预览读取（contracts §1.10、FR-004/005/006、SC-005）。
+ *
+ * 只读：不写库、不失效缓存。数字只有服务端算得准——页数与图片数来自
+ * `article.content` 的分页文档包，引用状态要跨 `book_catalog`/`book` 的软删判断。
+ * 看不见（含跨组织）一律按不存在处理，不泄露存在性（FR-034）。
+ */
+
+export type ArticleDeletePreviewPayload = ArticleDeletePreview & {
+  referencedByCatalog: boolean;
+};
+
+export const getArticleDeletePreviewAction = validatedActionWithUserObject(
+  previewArticleSchema,
+  async (data, user): Promise<ArticleDeletePreviewPayload | ActionState> => {
+    const preview = await getArticleDeletePreview(
+      user.id,
+      data.orgId,
+      data.articleId
+    );
+    if (!preview) {
+      return { error: ARTICLE_ERRORS.not_found };
+    }
+
+    return {
+      ...preview,
+      referencedByCatalog: await hasCatalogReference(
+        user.id,
+        data.orgId,
+        data.articleId
+      ),
+    };
+  }
+);
+
+export const getFolderDeletePreviewAction = validatedActionWithUserObject(
+  previewFolderSchema,
+  async (data, user): Promise<FolderDeletePreview | ActionState> => {
+    const preview = await getFolderDeletePreview(
+      user.id,
+      data.orgId,
+      data.folderId
+    );
+    return preview ?? { error: ARTICLE_ERRORS.not_found };
   }
 );

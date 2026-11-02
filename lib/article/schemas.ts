@@ -207,3 +207,19 @@ export const reorderArticlePagesSchema = z.object({
   articleId: uuidArg,
   pageIds: z.array(pageIdArg).min(1, '页顺序不能为空'),
 });
+
+/**
+ * 删除确认框的预览读取入参（contracts §1.10）。
+ *
+ * 这两个是**只读**通道：确认框要在用户点「删除」之前给出页数、图片数与
+ * 「是否被谱书编目引用」，而这些数字只有服务端算得准（软删语义、跨表引用）。
+ */
+export const previewArticleSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+});
+
+export const previewFolderSchema = z.object({
+  orgId: uuidArg,
+  folderId: uuidArg,
+});
