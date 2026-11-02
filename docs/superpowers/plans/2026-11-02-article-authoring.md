@@ -364,23 +364,23 @@ git commit -m "feat(article): 多页编辑（加页、切页先保存、拖拽�
 - Modify: `components/article/editor/toolbar.tsx`、`lib/article/schemas.ts`、`lib/article/constants.ts`
 - Test: `tests/integration/media.test.ts`、`tests/e2e/article-authoring.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 上传令牌只对成员签发、跨组织读取 404、含图文档保存时前缀不符拒绝、单页 7 图拒绝。Run 确认失败。
 
-- [ ] **Step 2: 图片节点与工具栏**
+- [x] **Step 2: 图片节点与工具栏**
 
 `Image.extend({ name: 'articleImage' })` 加 `width`（`small` / `medium` / `full`，缺省 `full`）；工具栏「插入图片」在光标处插入块级节点；三档宽度切换。
 
-- [ ] **Step 3: 上传接线与预校验**
+- [x] **Step 3: 上传接线与预校验**
 
 blob 模式走 `upload()` 直传、fs 模式走 `POST /api/media/upload`；客户端预校验 MIME/10MB/单页 6 张并给中文提示，服务端权威校验。
 
-- [ ] **Step 4: 粘贴清洗**
+- [x] **Step 4: 粘贴清洗**
 
 `paste-filter.ts`：只留段落/两级标题/文字，丢外链图与所有禁用 mark。
 
-- [ ] **Step 5: E2E US3 段 + 门禁 + 提交**
+- [x] **Step 5: E2E US3 段 + 门禁 + 提交**
 
 ```bash
 pnpm test:integration -- media && pnpm test:e2e -- article-authoring && pnpm typecheck
@@ -389,6 +389,14 @@ git commit -m "feat(article): 正文插图（三档宽度、上传校验、粘�
 ```
 
 ---
+
+> 执行时补的两处（都已进代码与测试）：
+> ① `normalizePageDoc` 必须把 `attrs` 与 `marks` 复制成**普通对象**——ProseMirror 的
+> `attrsToJSON` 用 `Object.create(null)`，而 React 的 Server Action 参数序列化只认带
+> 原型的普通对象，直接透传会让服务端收到 `{"type":"articleImage"}`（无 attrs），
+> 报 `doc.content.1` union 失败却看不出现场。E2E 的 US3 段是唯一抓到这条的门禁。
+> ② `imagePathsOf` 认的是「分页文档包」，删页时传单页 doc 会得到空列表，独占图片
+> 字节永远清不掉（FR-029）；已在 `deleteArticlePageInTransaction` 包一层并补集成测试。
 
 ### Task 11: US4 字体与字号（T042–T044，P2）
 
