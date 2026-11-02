@@ -142,6 +142,10 @@ test('article authoring: create, auto-save, rename, move folder, delete', async 
   const keyword = page.getByPlaceholder('搜索标题');
   await keyword.fill('谱序（改）');
   await expect(row).toBeVisible();
+  // FR-032：命中结果必须能看出所属分类，所以标签就打在行上。
+  await expect(
+    page.locator('li').filter({ hasText: 'E2E 始祖谱序（改）' })
+  ).toContainText('默认分类');
   await keyword.fill('不存在的标题');
   await expect(row).toHaveCount(0);
   await keyword.fill('');

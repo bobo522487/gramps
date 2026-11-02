@@ -55,6 +55,23 @@ export function folderPickerOptions(
   return options;
 }
 
+/**
+ * 列表行上的分类名（FR-032：搜索命中要能看出所属分类，跨分类找文才不费劲）。
+ *
+ * `null` 是服务端的真值「没挂分类」；万一行里的 folderId 在本份分类里查不到
+ * （分类刚被连带删除的极端时序），也按未分类显示，不显示空白。
+ */
+export function folderLabel(
+  options: FolderPickerOption[],
+  folderId: string | null
+): string {
+  if (!folderId || folderId === UNFILED_FOLDER_ID) {
+    return '未分类';
+  }
+  const label = options.find((option) => option.id === folderId)?.label;
+  return label ? label.replace(/\u3000/g, '') : '未分类';
+}
+
 /** 树的先序遍历（同样按名称排），供渲染分类树用。 */
 export function folderTree(
   folders: ArticleFolderNode[]

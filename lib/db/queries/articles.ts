@@ -93,38 +93,6 @@ export async function listArticles(
   );
 }
 
-/** 列表页与搜索用：只按标题找，正文检索本期不做（FR-043）。 */
-export async function searchArticlesByTitle(
-  userId: string,
-  orgId: string,
-  projectId: string,
-  keyword: string
-): Promise<ArticleSummary[]> {
-  const pattern = `%${keyword.replace(/[%_\\]/g, '\\$&')}%`;
-  return withOrg(userId, (tx) =>
-    tx
-      .select({
-        id: articles.id,
-        title: articles.title,
-        folderId: articles.folderId,
-        createdBy: articles.createdBy,
-        createdAt: articles.createdAt,
-        updatedAt: articles.updatedAt,
-        pageCount: pageCountSql,
-      })
-      .from(articles)
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          eq(articles.projectId, projectId),
-          isNull(articles.deletedAt),
-          sql`${articles.title} ILIKE ${pattern}`
-        )
-      )
-      .orderBy(desc(lastTouched), asc(articles.id))
-  );
-}
-
 export async function getArticle(
   userId: string,
   orgId: string,
@@ -153,7 +121,8 @@ export async function countArticlesByFolder(
 ): Promise<ArticleFolderCounts> {
   const grouped = withOrg(userId, (tx) =>
     tx
-      .select({ folderId: articles.folderId, value: sql<number>`count(*)` })
+      // innerJoin 之后 folderId 不可能为 null：取 folders.id，免得留个走不到的分支。
+      .select({ folderId: folders.id, value: sql<number>`count(*)` })
       .from(articles)
       .innerJoin(
         folders,
@@ -170,7 +139,7 @@ export async function countArticlesByFolder(
           isNull(articles.deletedAt)
         )
       )
-      .groupBy(articles.folderId)
+      .groupBy(folders.id)
   );
 
   const totalRows = withOrg(userId, async (tx) => {
@@ -192,9 +161,6 @@ export async function countArticlesByFolder(
   const byFolder = new Map<string, number>();
   let filed = 0;
   for (const row of rows) {
-    if (!row.folderId) {
-      continue;
-    }
     byFolder.set(row.folderId, Number(row.value));
     filed += Number(row.value);
   }
@@ -317,16 +283,15 @@ export async function getFolderDeletePreview(
       }
     }
 
+    // 分类最多 3 层（FR-005），递归到底也不会深；比 while+shift 少一个走不到的分支。
     const subtree: string[] = [];
-    const queue = [root.id];
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current) {
-        continue;
+    const collect = (folderId: string) => {
+      subtree.push(folderId);
+      for (const childId of childrenOf.get(folderId) ?? []) {
+        collect(childId);
       }
-      subtree.push(current);
-      queue.push(...(childrenOf.get(current) ?? []));
-    }
+    };
+    collect(root.id);
 
     const counted = await tx
       .select({ value: sql<number>`count(*)` })

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { EmptyState } from '@/components/console/empty-state';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,13 +19,15 @@ import {
   ArticleRenameDialog,
 } from './article-card-dialogs';
 import type { ArticleRow, FolderPickerOption } from './types';
+import { folderLabel } from './types';
 
 /**
  * 谱文列表（FR-002、FR-003、FR-006、FR-008、FR-010、FR-011）。
  *
  * 列表一次性全量下发、不分页（research §13：单项目按 ≤200 篇设计），
- * 标题搜索在前端过滤同一份数据——服务端 `searchArticlesByTitle` 是
- * 后续「按正文检索」接上时的落点，本期不重复造第二套过滤逻辑。
+ * 标题搜索就在这一份数据上前端过滤（FR-007、FR-032）：数据已经全量在手，
+ * 再造一次服务端查询是第二套过滤逻辑。按正文检索是后置项（FR-044），
+ * 那时才需要服务端 `plain_text` + `pg_trgm` 的查询入口。
  */
 
 export function ArticleList({
@@ -94,6 +97,10 @@ export function ArticleList({
                 >
                   {row.title}
                 </Link>
+                {/* FR-032：命中结果要能看出所属分类，跨分类找文才不费劲。 */}
+                <Badge variant="outline" className="shrink-0 text-xs">
+                  {folderLabel(folderOptions, row.folderId)}
+                </Badge>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {row.pageCount} 页
                 </span>
