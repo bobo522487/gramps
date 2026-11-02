@@ -43,9 +43,9 @@
 **⚠️ CRITICAL**：本阶段完成前不要开始任何用户故事。
 
 - [x] T008 `lib/auth/types.ts` 给 `ActionState` 增加可选 `data`；`lib/auth/middleware.ts` 新增 `validatedActionWithUserObject`（对象入参，契约见 contracts §0.1）
-- [ ] T009 [P] `lib/article/constants.ts`：`ARTICLE_ERRORS` 中文文案表（9 个 code，全小写）、上限常量（100 页 / 6 图 / 10MB）
-- [ ] T010 [P] `lib/article/doc.ts`：`parseArticleContent` / `derivePlainText` / `countImages` / `isReferenced`；测试 `tests/article-doc.test.ts`
-- [ ] T011 [P] `lib/article/schemas.ts`：Zod 入参 + 文档白名单（9 条不变量，data-model §2）；测试 `tests/article-schemas.test.ts`
+- [x] T009 [P] `lib/article/constants.ts`：`ARTICLE_ERRORS` 中文文案表（9 个 code，全小写）、上限常量（100 页 / 6 图 / 10MB）
+- [x] T010 [P] `lib/article/doc.ts`：`parseArticleContent` / `derivePlainText` / `countImages` / `isReferenced`；测试 `tests/article-doc.test.ts`
+- [x] T011 [P] `lib/article/schemas.ts`：Zod 入参 + 文档白名单（9 条不变量，data-model §2）；测试 `tests/article-schemas.test.ts`
 - [ ] T012 [P] `lib/article/media/store.ts`（`MediaStore` 接口 + `getMediaStore()`）、`fs-store.ts`、`blob-store.ts`
 - [ ] T013 `app/api/media/[...key]/route.ts`：双模式读取代理（`withApiLogging` + 会话 + 成员校验 + 404 语义）；测试 `tests/integration/media.test.ts`
 - [ ] T014 [P] `app/api/blob/upload/route.ts`：`handleUpload({ onBeforeGenerateToken })`，模式不匹配 404

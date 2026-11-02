@@ -124,19 +124,19 @@ git commit -m "feat(auth): ActionState 支持 data，新增对象入参 Action �
 **Interfaces:**
 - Produces: `parseArticleContent(value: unknown): ArticleContent`、`derivePlainText(content): string`、`countImages(content): number`、`isReferenced(pathname, content): boolean`；`articlePageDocSchema`、`articleContentSchema`；`ARTICLE_ERRORS`（9 个 code，全小写）
 
-- [ ] **Step 1: 写失败测试（派生）**
+- [x] **Step 1: 写失败测试（派生）**
 
 `tests/article-doc.test.ts`：两页文本 → `derivePlainText` 以 `\n\n` 连接；`articleImage` 不贡献文本；`countImages` 跨页计数；`isReferenced` 命中/不命中；旧形状输入返回一页空文档且不抛错。Run 确认失败。
 
-- [ ] **Step 2: 写失败测试（白名单）**
+- [x] **Step 2: 写失败测试（白名单）**
 
 `tests/article-schemas.test.ts`：`schemaVersion !== 1` 拒绝；页数 0 或 101 拒绝；节点白名单外（`bold`、`table`）拒绝；`textStyle` 里非白名单 `fontFamily` 拒绝；单页 7 张图拒绝；`pathname` 前缀不属于本谱文拒绝；`width` 缺省归一化为 `full`。Run 确认失败。
 
-- [ ] **Step 3: 实现三个模块**
+- [x] **Step 3: 实现三个模块**
 
 `constants.ts`（错误码/文案/上限）、`doc.ts`（四个纯函数，唯一实现处）、`schemas.ts`（Zod + 白名单，9 条不变量见 data-model §2）。
 
-- [ ] **Step 4: 门禁与提交**
+- [x] **Step 4: 门禁与提交**
 
 Run: `pnpm test -- article-doc article-schemas && pnpm typecheck`
 Expected: PASS
