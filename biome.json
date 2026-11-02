@@ -104,6 +104,31 @@
           }
         }
       }
+    },
+    {
+      "includes": [
+        "**/*.ts",
+        "**/*.tsx",
+        "!lib/article/**",
+        "!components/article/editor/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@tiptap/**", "prosemirror-*"],
+                    "message": "编辑器依赖只允许出现在 lib/article/** 与 components/article/editor/**（ADR 0010：依赖必须有消费者）"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "assist": {
