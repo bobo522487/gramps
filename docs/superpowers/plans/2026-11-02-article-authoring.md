@@ -404,19 +404,19 @@ git commit -m "feat(article): 正文插图（三档宽度、上传校验、粘�
 - Modify: `lib/article/schemas.ts`、`lib/article/constants.ts`、`components/article/editor/toolbar.tsx`
 - Test: `tests/article-schemas.test.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 白名单外 `fontFamily`（如「微软雅黑」）与 `fontSize`（如 `28px`）拒绝；白名单内（宋/黑/楷、14/16/19px）接受。Run 确认失败。
 
-- [ ] **Step 2: 实现**
+- [x] **Step 2: 实现**
 
 `textStyle` + `fontFamily` + `fontSize` 两个白名单 mark；工具栏下拉；服务端照样校验。
 
-- [ ] **Step 3: 手工验证替代字体**
+- [x] **Step 3: 手工验证替代字体**
 
 在无楷体环境打开，确认显示为替代字体而非方块（quickstart US4 第 3 条）。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 pnpm test -- article-schemas
@@ -425,7 +425,13 @@ git commit -m "feat(article): 字体与字号（系统字体白名单，P2）"
 ```
 
 ---
-
+>
+> 执行时补的一处（E2E 才抓得到）：`components/article/editor/tiptap-editor.tsx` 原来只挂了裸 `TextStyle`，
+> 它不认识 `fontFamily` / `fontSize`，`setMark('textStyle', { fontFamily })` 的 attrs 会被 ProseMirror 丢掉 ——
+> 字体设置既存不住也不渲染，而工具栏看起来「worked」。改用包里的 `FontFamily` / `FontSize` 扩展
+> （它们通过 `addGlobalAttributes` 把属性挂到 `textStyle` 上，并输出 inline style），工具栏顺带换成
+> `setFontFamily` / `unsetFontFamily` / `setFontSize` / `unsetFontSize`，避免设字号把已设的字体抹掉。
+> 白名单仍然只有服务端一份（`lib/article/constants.ts`），客户端不维护第二份清单。
 ### Task 12: 文档同步、安全回归与全量门禁（T045–T050）
 
 **Files:**

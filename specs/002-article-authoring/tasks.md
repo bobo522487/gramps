@@ -108,12 +108,12 @@
 
 **Independent Test**：插入 JPG → 默认整宽 → 改「中」→ 刷新仍为中 → 选 20MB 文件被拒且内容零变化 → 第 7 张被拒 → 删页后独有文件消失。
 
-- [ ] T036 [P] [US3] 集成测试：上传令牌签发校验、跨组织读取 404、含图文档保存与 pathname 前缀校验 —— `tests/integration/media.test.ts`
-- [ ] T037 [P] [US3] `components/article/editor/article-image-node.tsx`：`Image.extend({ name: 'articleImage' })` + `width` 三档
-- [ ] T038 [US3] `components/article/editor/toolbar.tsx`：插入图片（客户端预校验 MIME/10MB/单页 6 张）+ 上传接线（blob 直传 / fs 上传）
-- [ ] T039 [P] [US3] `components/article/editor/paste-filter.ts`：粘贴清洗（丢格式、丢外链图）
-- [ ] T040 [US3] 服务端权威校验与文案：`lib/article/schemas.ts`（单页 ≤6 图、pathname 前缀）+ `lib/article/constants.ts` 文案
-- [ ] T041 [P] [US3] E2E：`tests/e2e/article-authoring.spec.ts` 的 US3 段（插入 → 改宽度 → 超限 → 删页清理）
+- [x] T036 [P] [US3] 集成测试：上传令牌签发校验、跨组织读取 404、含图文档保存与 pathname 前缀校验 —— `tests/integration/media.test.ts`
+- [x] T037 [P] [US3] `components/article/editor/article-image-node.tsx`：`Image.extend({ name: 'articleImage' })` + `width` 三档
+- [x] T038 [US3] `components/article/editor/toolbar.tsx`：插入图片（客户端预校验 MIME/10MB/单页 6 张）+ 上传接线（blob 直传 / fs 上传）
+- [x] T039 [P] [US3] `components/article/editor/paste-filter.ts`：粘贴清洗（丢格式、丢外链图）
+- [x] T040 [US3] 服务端权威校验与文案：`lib/article/schemas.ts`（单页 ≤6 图、pathname 前缀）+ `lib/article/constants.ts` 文案
+- [x] T041 [P] [US3] E2E：`tests/e2e/article-authoring.spec.ts` 的 US3 段（插入 → 改宽度 → 超限 → 删页清理）
 
 **Checkpoint**：US1–US3 独立可用；媒体路径在本地 fs 模式全流程可验。
 
@@ -125,9 +125,9 @@
 
 **Independent Test**：选中一段设楷体+大 → 保存刷新仍生效 → 复制到另一段随文字带过去。
 
-- [ ] T042 [P] [US4] `lib/article/schemas.ts` + `lib/article/constants.ts`：`fontFamily` / `fontSize` 白名单校验与文案
-- [ ] T043 [US4] `components/article/editor/toolbar.tsx`：字体与字号下拉（`@tiptap/extension-text-style`）
-- [ ] T044 [P] [US4] 单测：白名单外的字体/字号被拒 —— `tests/article-schemas.test.ts`
+- [x] T042 [P] [US4] `lib/article/schemas.ts` + `lib/article/constants.ts`：`fontFamily` / `fontSize` 白名单校验与文案
+- [x] T043 [US4] `components/article/editor/toolbar.tsx`：字体与字号下拉（`@tiptap/extension-text-style`）
+- [x] T044 [P] [US4] 单测：白名单外的字体/字号被拒 —— `tests/article-schemas.test.ts`
 
 **Checkpoint**：P2 未交付时 SC-001…SC-008 仍成立（SC-009）。
 

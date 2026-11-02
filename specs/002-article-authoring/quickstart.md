@@ -83,6 +83,9 @@ pnpm docs:check --strict # 新增 ADR 与架构文档改动
 3. 在一台没有安装楷体的机器（或用系统字体替代的环境）打开。
    **期望**：显示为可用替代字体，不出现方块乱码。
 
+> 自动化覆盖情况：第 1、3 项已由 `tests/e2e/article-authoring.spec.ts` 的 font 用例验证（本机未装楷体，`font-family: KaiTi` 仍生效且无控制台报错，即「替代字体而非方块」成立）；
+> 第 2 项的 inline style 产出由 `tests/article-text-style.test.ts` 锁住，粘到外部富文本编辑器的实际效果仍需人工看一眼。
+
 ### 权限与越权（FR-033–FR-036）
 
 1. 用 `viewer` 账号打开同一篇谱文。
