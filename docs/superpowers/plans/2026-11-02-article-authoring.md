@@ -87,23 +87,23 @@ git commit -m "chore(deps): 安装 TipTap 3 与 @vercel/blob，补 ADR 0019 媒�
 **Interfaces:**
 - Produces: `mediaMode: 'blob' | 'fs'`（来自 `getServerConfig()` 或既有导出风格）；`ActionState<T>` 的可选 `data`；`validatedActionWithUserObject<S, R>(schema, action): (payload: unknown) => Promise<R | ActionState>`
 
-- [ ] **Step 1: 写失败测试（包装器）**
+- [x] **Step 1: 写失败测试（包装器）**
 
 在 `tests/article-schemas.test.ts` 里加一条：对象入参（含嵌套对象与 `null`）能被 `validatedActionWithUserObject` 接受；`FormData` 通道保持原行为。Run 确认失败。
 
-- [ ] **Step 2: 扩展 `ActionState`**
+- [x] **Step 2: 扩展 `ActionState`**
 
 `lib/auth/types.ts`：`{ success: string; data?: T } | { error: string; code?: ActionErrorCode; fieldErrors?: Record<string, string[]> }`；既有调用点零改动。
 
-- [ ] **Step 3: 新增对象入参包装器**
+- [x] **Step 3: 新增对象入参包装器**
 
 `lib/auth/middleware.ts`：与 `validatedActionWithUser` 并列，逻辑相同但直接 `safeParse(payload)`；未登录与校验失败返回中文 `ActionState`。
 
-- [ ] **Step 4: 配置与忽略项**
+- [x] **Step 4: 配置与忽略项**
 
 `lib/config.ts` 加可选 `BLOB_READ_WRITE_TOKEN` 与 `mediaMode` 判定（有令牌且 `isVercel()` → `blob`，否则 `fs`）；`.gitignore` 加 `.data/`；核对 `vitest.coverage.config.ts` 的 include 覆盖 `lib/article/**`。
 
-- [ ] **Step 5: 门禁与提交**
+- [x] **Step 5: 门禁与提交**
 
 Run: `pnpm check && pnpm typecheck && pnpm test && pnpm arch:check`
 Expected: 全绿

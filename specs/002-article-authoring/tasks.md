@@ -28,9 +28,9 @@
 - [x] T002 [P] 在 `biome.json` 增加 `noRestrictedImports`：`@tiptap/*` 只允许 `lib/article/**` 与 `components/article/editor/**`
 - [x] T003 [P] 改 `docs/decisions/0010-rich-text-editor-selection.md` 状态句（删「尚未安装」，**保留 `决策 ≠ 现在安装` 字面串**）并同步 `docs/decisions/README.md` 的 ADR-12 行
 - [x] T004 [P] 新增媒体存储决策 `docs/decisions/0019-media-storage.md`，并在 `docs/decisions/README.md` §1 索引与 §2 表格各加一行
-- [ ] T005 [P] `lib/config.ts` 增加可选 `BLOB_READ_WRITE_TOKEN` 与 `mediaMode: 'blob' | 'fs'` 判定（F7：只在此处读 `process.env`）
-- [ ] T006 [P] `.gitignore` 增加 `.data/`（本地媒体落盘目录）
-- [ ] T007 [P] 核对 `vitest.coverage.config.ts` 的 include/exclude 是否覆盖 `lib/article/**`，按现有规则补齐
+- [x] T005 [P] `lib/config.ts` 增加可选 `BLOB_READ_WRITE_TOKEN` 与 `mediaMode: 'blob' | 'fs'` 判定（F7：只在此处读 `process.env`）
+- [x] T006 [P] `.gitignore` 增加 `.data/`（本地媒体落盘目录）
+- [x] T007 [P] 核对 `vitest.coverage.config.ts` 的 include/exclude 是否覆盖 `lib/article/**`，按现有规则补齐
 
 **Checkpoint**：`pnpm check && pnpm typecheck && pnpm test` 仍全绿（依赖已装但未接线）。
 
@@ -42,7 +42,7 @@
 
 **⚠️ CRITICAL**：本阶段完成前不要开始任何用户故事。
 
-- [ ] T008 `lib/auth/types.ts` 给 `ActionState` 增加可选 `data`；`lib/auth/middleware.ts` 新增 `validatedActionWithUserObject`（对象入参，契约见 contracts §0.1）
+- [x] T008 `lib/auth/types.ts` 给 `ActionState` 增加可选 `data`；`lib/auth/middleware.ts` 新增 `validatedActionWithUserObject`（对象入参，契约见 contracts §0.1）
 - [ ] T009 [P] `lib/article/constants.ts`：`ARTICLE_ERRORS` 中文文案表（9 个 code，全小写）、上限常量（100 页 / 6 图 / 10MB）
 - [ ] T010 [P] `lib/article/doc.ts`：`parseArticleContent` / `derivePlainText` / `countImages` / `isReferenced`；测试 `tests/article-doc.test.ts`
 - [ ] T011 [P] `lib/article/schemas.ts`：Zod 入参 + 文档白名单（9 条不变量，data-model §2）；测试 `tests/article-schemas.test.ts`
