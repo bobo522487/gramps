@@ -1,0 +1,289 @@
+/**
+ * 谱文分页文档的唯一实现处（ADR 0010：`plain_text` 只能由这里派生）。
+ *
+ * `article.content` 的形状是 `{ schemaVersion: 1, pages: [{ id, doc }] }`：
+ * 一篇谱文 = 一串页，每页装一个 ProseMirror 文档。页序就是数组顺序，
+ * 没有独立的 sort 列（data-model.md §2 不变量 4）。
+ *
+ * 这里的函数全是纯函数，不碰数据库、不碰 Next。
+ */
+
+import {
+  ARTICLE_SCHEMA_VERSION,
+  DEFAULT_ARTICLE_IMAGE_WIDTH,
+  MEDIA_PATH_ROOT,
+} from '@/lib/article/constants';
+
+/** 节点上的标记（本期只允许 `textStyle`，白名单在 schemas.ts）。 */
+export type ArticleMark = {
+  type: string;
+  attrs?: Record<string, unknown>;
+};
+
+/** ProseMirror 节点的最小结构描述（不依赖编辑器类型，服务端也要能用）。 */
+export type ArticleNode = {
+  type: string;
+  attrs?: Record<string, unknown>;
+  content?: ArticleNode[];
+  text?: string;
+  marks?: ArticleMark[];
+};
+
+/** 一页的正文文档。 */
+export type ArticlePageDoc = { type: 'doc'; content: ArticleNode[] };
+
+/** 一页：稳定标识 + 正文文档。 */
+export type ArticlePage = { id: string; doc: ArticlePageDoc };
+
+/** `article.content` 的分页文档包。 */
+export type ArticleContent = {
+  schemaVersion: number;
+  pages: ArticlePage[];
+};
+
+/** 正文里允许出现的节点类型（data-model §2 不变量 5）。 */
+const ALLOWED_NODE_TYPES = new Set([
+  'doc',
+  'paragraph',
+  'heading',
+  'text',
+  'articleImage',
+]);
+
+export function newArticlePageId(): string {
+  return crypto.randomUUID();
+}
+
+export function createEmptyPageDoc(): ArticlePageDoc {
+  return { type: 'doc', content: [] };
+}
+
+/** 新建谱文的初始内容：一页空文档。 */
+export function createEmptyArticleContent(): ArticleContent {
+  return {
+    schemaVersion: ARTICLE_SCHEMA_VERSION,
+    pages: [{ id: newArticlePageId(), doc: createEmptyPageDoc() }],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function sanitizeNode(value: unknown): ArticleNode | null {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return null;
+  }
+  if (!ALLOWED_NODE_TYPES.has(value.type)) {
+    // 白名单外的节点（表格、列表、脚注…）整节点丢弃，不保留空壳。
+    return null;
+  }
+  const node: ArticleNode = { type: value.type };
+  if (isRecord(value.attrs)) {
+    node.attrs = value.attrs as Record<string, unknown>;
+  }
+  if (typeof value.text === 'string') {
+    node.text = value.text;
+  }
+  if (Array.isArray(value.marks)) {
+    const marks = value.marks.filter(
+      (mark): mark is ArticleMark =>
+        isRecord(mark) && typeof mark.type === 'string'
+    );
+    if (marks.length > 0) {
+      node.marks = marks;
+    }
+  }
+  if (Array.isArray(value.content)) {
+    const content = value.content
+      .map(sanitizeNode)
+      .filter((child): child is ArticleNode => child !== null);
+    node.content = content;
+  }
+  return node;
+}
+
+function sanitizePageDoc(value: unknown): ArticlePageDoc | null {
+  if (
+    !isRecord(value) ||
+    value.type !== 'doc' ||
+    !Array.isArray(value.content)
+  ) {
+    return null;
+  }
+  return {
+    type: 'doc',
+    content: value.content
+      .map(sanitizeNode)
+      .filter((n): n is ArticleNode => n !== null),
+  };
+}
+
+function sanitizePage(value: unknown): ArticlePage | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.id === '') {
+    return null;
+  }
+  const doc = sanitizePageDoc(value.doc);
+  return doc ? { id: value.id, doc } : null;
+}
+
+/**
+ * 把库里的 `content` 读成分页文档包。
+ *
+ * 读取路径 MUST NOT 抛错：`article` 表若有旧形状的行（本期功能未上线，理论上
+ * 为 0 行），一律兜底成「一页空文档」并记日志，让用户能正常打开、下次保存即写
+ * 成新结构（data-model.md §8）。白名单外的节点在这里被丢弃。
+ */
+export function parseArticleContent(value: unknown): ArticleContent {
+  if (
+    isRecord(value) &&
+    value.schemaVersion === ARTICLE_SCHEMA_VERSION &&
+    Array.isArray(value.pages)
+  ) {
+    const pages = value.pages
+      .map(sanitizePage)
+      .filter((page): page is ArticlePage => page !== null);
+    if (pages.length > 0) {
+      return { schemaVersion: ARTICLE_SCHEMA_VERSION, pages };
+    }
+  }
+
+  const fallback = createEmptyArticleContent();
+  if (value !== null && value !== undefined) {
+    // 只在真的读到过时形状内容时提示，新建谱文的第一次解析不刷屏。
+    console.warn('[article] content 不是分页文档包，已兜底为一页空文档', {
+      shape: typeof value,
+    });
+  }
+  return fallback;
+}
+
+function collectBlockTexts(doc: ArticlePageDoc): string[] {
+  const texts: string[] = [];
+  for (const block of doc.content) {
+    const buffer: string[] = [];
+    const walk = (node: ArticleNode) => {
+      if (node.type === 'text' && typeof node.text === 'string') {
+        buffer.push(node.text);
+        return;
+      }
+      // 图片不贡献文本（data-model §3）。
+      if (node.type === 'articleImage') {
+        return;
+      }
+      for (const child of node.content ?? []) {
+        walk(child);
+      }
+    };
+    walk(block);
+    const joined = buffer.join('');
+    if (joined !== '') {
+      texts.push(joined);
+    }
+  }
+  return texts;
+}
+
+/**
+ * 派生 `article.plain_text`：按页序收集文本，块与页之间统一以空行分隔。
+ * 这是唯一允许写该列的地方（ADR 0010）。
+ */
+export function derivePlainText(content: ArticleContent): string {
+  const blocks: string[] = [];
+  for (const page of content.pages) {
+    blocks.push(...collectBlockTexts(page.doc));
+  }
+  return blocks.join('\n\n');
+}
+
+function countImagesInDoc(doc: ArticlePageDoc): number {
+  let count = 0;
+  const walk = (node: ArticleNode) => {
+    if (node.type === 'articleImage') {
+      count += 1;
+      return;
+    }
+    for (const child of node.content ?? []) {
+      walk(child);
+    }
+  };
+  for (const root of doc.content) {
+    walk(root);
+  }
+  return count;
+}
+
+/** 跨页统计插图数量（删除确认与「每页 6 张」校验都用它）。 */
+export function countImages(content: ArticleContent): number {
+  return content.pages.reduce(
+    (sum, page) => sum + countImagesInDoc(page.doc),
+    0
+  );
+}
+
+/**
+ * 该 pathname 是否还被文档引用着——删页/删篇之后能不能真的清掉字节
+ * （同一张图可能被复制到多页，data-model §4）。
+ */
+export function isReferenced(
+  pathname: string,
+  content: ArticleContent
+): boolean {
+  const walk = (node: ArticleNode): boolean => {
+    if (node.type === 'articleImage') {
+      return node.attrs?.pathname === pathname;
+    }
+    return (node.content ?? []).some(walk);
+  };
+  return content.pages.some((page) => page.doc.content.some(walk));
+}
+
+/** 图片节点的显示宽度（缺省整宽，FR-026）。 */
+export function imageWidthOf(node: ArticleNode): string {
+  const width = node.attrs?.width;
+  return typeof width === 'string' ? width : DEFAULT_ARTICLE_IMAGE_WIDTH;
+}
+
+/** 组织隔离的 pathname 前缀：`articles/<orgId>/<articleId>/`（FR-035）。 */
+export function mediaPathPrefix(orgId: string, articleId: string): string {
+  return `${MEDIA_PATH_ROOT}/${orgId}/${articleId}/`;
+}
+
+/**
+ * 遍历分页文档包里所有图片节点的 attrs。入参故意放宽成 `unknown`：
+ * 库里读出的行与 Zod 校验后的输出都能走同一个遍历器，不再写第二份。
+ */
+export function eachImageAttrs(
+  value: unknown,
+  visit: (attrs: Record<string, unknown>, pageId: string) => void
+): void {
+  if (!isRecord(value) || !Array.isArray(value.pages)) {
+    return;
+  }
+  const walk = (node: unknown, pageId: string) => {
+    if (!isRecord(node) || typeof node.type !== 'string') {
+      return;
+    }
+    if (node.type === 'articleImage') {
+      visit(isRecord(node.attrs) ? node.attrs : {}, pageId);
+      return;
+    }
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) {
+        walk(child, pageId);
+      }
+    }
+  };
+  for (const page of value.pages) {
+    if (!isRecord(page) || typeof page.id !== 'string') {
+      continue;
+    }
+    const doc = isRecord(page.doc) ? page.doc : null;
+    if (!doc || !Array.isArray(doc.content)) {
+      continue;
+    }
+    for (const root of doc.content) {
+      walk(root, page.id);
+    }
+  }
+}
