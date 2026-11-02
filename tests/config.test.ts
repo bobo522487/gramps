@@ -186,6 +186,17 @@ describe('media mode', () => {
     expect(getMediaMode()).toBe('fs');
   });
 
+  it('空串令牌等于没配：配置校验不炸，驱动仍退回 fs', async () => {
+    // E2E 只能把变量覆盖成空串、不能删掉父进程带进来的，所以空串必须是合法输入。
+    setValidEnv();
+    process.env.BLOB_READ_WRITE_TOKEN = '';
+
+    const { getMediaMode, getServerConfig } = await loadConfig();
+
+    expect(getServerConfig().BLOB_READ_WRITE_TOKEN).toBeUndefined();
+    expect(getMediaMode()).toBe('fs');
+  });
+
   it('用 blob：本地也配了令牌（真机验证通道，不要求 VERCEL）', async () => {
     setValidEnv();
     process.env.BLOB_READ_WRITE_TOKEN = 'blob_url_x';

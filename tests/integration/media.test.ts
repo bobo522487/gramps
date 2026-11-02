@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST as blobUploadRoute } from '@/app/api/blob/upload/route';
 import { GET as mediaReadRoute } from '@/app/api/media/[...key]/route';
@@ -23,6 +15,7 @@ import {
   createUser,
   softDeleteArticle,
 } from '../helpers/factories';
+import { pinFsMediaMode } from '../helpers/media-mode';
 
 const session = vi.hoisted(() => ({
   cookie: undefined as string | undefined,
@@ -37,26 +30,6 @@ vi.mock('next/headers', () => ({
     return headers;
   },
 }));
-
-/**
- * 这个文件验的是**文件系统兜底驱动**，所以整份文件在「没有令牌」的环境下跑：
- * 本地开发者为了真机验证把 `BLOB_READ_WRITE_TOKEN` 写进 `.env` 时（`lib/config.ts`
- * 只看令牌判定驱动），本套用例不该跟着翻成 blob。真实 Blob 路径由
- * `tests/integration/media-blob.test.ts` 覆盖（那边无令牌时整体 skip）。
- */
-const savedToken = process.env.BLOB_READ_WRITE_TOKEN;
-
-beforeAll(() => {
-  if (savedToken) {
-    delete process.env.BLOB_READ_WRITE_TOKEN;
-  }
-});
-
-afterAll(() => {
-  if (savedToken) {
-    process.env.BLOB_READ_WRITE_TOKEN = savedToken;
-  }
-});
 
 beforeEach(() => {
   session.cookie = undefined;
@@ -152,6 +125,14 @@ async function makeFixture(): Promise<Fixture> {
   };
 }
 
+/**
+ * 本文件验的是**文件系统兜底驱动**，所以整份文件钉在「没有令牌」的环境下跑：
+ * 开发者为真机验证把 `BLOB_READ_WRITE_TOKEN` 写进 `.env` 时（`lib/config.ts`
+ * 只看令牌选驱动），这套断言不该跟着翻成 blob。真实 Blob 路径由
+ * `tests/integration/media-blob.test.ts` 覆盖（那边无令牌时整体 skip）。
+ */
+pinFsMediaMode();
+
 describe('media store（本地兜底驱动）', () => {
   let fixture: Fixture;
 
@@ -224,7 +205,7 @@ describe('GET /api/media/[...key]（读取代理）', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('cache-control')).toBe('private, max-age=300');
+    expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('content-type')).toBe('image/png');
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG_BYTES);
   });

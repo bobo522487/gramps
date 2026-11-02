@@ -21,11 +21,9 @@ import {
 import { POST as blobUploadRoute } from '@/app/api/blob/upload/route';
 import { GET as mediaReadRoute } from '@/app/api/media/[...key]/route';
 import { MEDIA_PATH_ROOT } from '@/lib/article/constants';
-import {
-  blobMediaStore,
-  blobReadWriteToken,
-} from '@/lib/article/media/blob-store';
+import { blobMediaStore } from '@/lib/article/media/blob-store';
 import { getMediaStore } from '@/lib/article/media/store';
+import { blobReadWriteToken } from '@/lib/article/media/token';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
 import { signSessionFor } from '../helpers/auth';
 import {
@@ -77,6 +75,8 @@ describe.skipIf(!hasToken)('media store（真实 Vercel Blob 私有桶）', () =
   let outsiderEmail = '';
   let articleId = '';
   let pathname = '';
+  /** 私有桶的直连主机名，取种子 put() 返回的真实 URL，不猜、也不外泄令牌。 */
+  let storeHost = '';
 
   beforeAll(() => {
     // 只有令牌存在才会跑到这里；能取到令牌就是这条链路的前提。
@@ -113,12 +113,18 @@ describe.skipIf(!hasToken)('media store（真实 Vercel Blob 私有桶）', () =
     articleId = article.id;
     pathname = `${MEDIA_PATH_ROOT}/${organization.id}/${article.id}/real.png`;
 
-    await put(pathname, new Blob([PNG_PIXEL], { type: 'image/png' }), {
-      access: 'private',
-      addRandomSuffix: false,
-      contentType: 'image/png',
-      token: blobReadWriteToken(),
-    });
+    const seeded = await put(
+      pathname,
+      new Blob([PNG_PIXEL], { type: 'image/png' }),
+      {
+        access: 'private',
+        addRandomSuffix: false,
+        contentType: 'image/png',
+        token: blobReadWriteToken(),
+      }
+    );
+    storeHost = new URL(seeded.url).hostname;
+    expect(storeHost).toContain('.blob.vercel-storage.com');
   });
 
   afterEach(async () => {
@@ -138,16 +144,42 @@ describe.skipIf(!hasToken)('media store（真实 Vercel Blob 私有桶）', () =
     expect(Array.from(media?.bytes ?? [])).toEqual(Array.from(PNG_PIXEL));
   });
 
-  it('读取代理回传真实字节，带 nosniff 与私有缓存', async () => {
+  it('读取路由只签发私有直连 URL，字节不再经过函数（ADR 0019）', async () => {
     session.cookie = await signSessionFor(ownerEmail);
 
     const response = await readWithProxy(pathname);
+    const location = response.headers.get('location') ?? '';
+    const url = new URL(location);
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toBe('image/png');
-    expect(response.headers.get('cache-control')).toBe('private, max-age=300');
-    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG_PIXEL);
+    expect(response.status).toBe(302);
+    // 302 本身不缓存：删除之后每一次新读取都要重新过一遍授权。
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.body).toBeNull();
+    expect(url.hostname).toBe(storeHost);
+    // URL 的 path 一定带前导斜杠，pathname 本身不带。
+    expect(decodeURIComponent(url.pathname).replace(/^\//, '')).toBe(pathname);
+    // 授权凭证在查询串里，且不含读写令牌。
+    expect(url.searchParams.has('vercel-blob-delegation')).toBe(true);
+    expect(url.searchParams.has('vercel-blob-signature')).toBe(true);
+    expect(location).not.toContain(process.env.BLOB_READ_WRITE_TOKEN ?? '\0');
+  });
+
+  it('第二次读取复用缓存的 delegation，不再打控制面', async () => {
+    session.cookie = await signSessionFor(ownerEmail);
+
+    const first = await readWithProxy(pathname);
+    const started = Date.now();
+    const second = await readWithProxy(pathname);
+    const elapsed = Date.now() - started;
+
+    const a = new URL(first.headers.get('location') ?? '');
+    const b = new URL(second.headers.get('location') ?? '');
+    expect(b.hostname).toBe(a.hostname);
+    // delegation 同一个（缓存命中），签名不同（每次新签，有效期各自独立）。
+    expect(b.searchParams.get('vercel-blob-delegation')).toBe(
+      a.searchParams.get('vercel-blob-delegation')
+    );
+    expect(elapsed).toBeLessThan(200);
   });
 
   it('非成员读不到，越权与不存在同为 404（FR-034）', async () => {
@@ -216,11 +248,11 @@ describe.skipIf(!hasToken)('blob 上传握手（客户端令牌 → 真实私有
   }
 
   /**
-   * 浏览器里那条 PUT 的目标是 `https://<store>.<access>.blob.vercel-storage.com/…`
-   * （access 编在主机名里），这台机器的 DNS 不放通 `*.blob.vercel-storage.com`
-   * （连 example.com 都不通），所以直传那一步只能在放通域名的机器或部署上验。
-   * 这里改成验证**令牌本身**：pathname 与约束是否被钉死——那正是浏览器 PUT 唯一的
-   * 授权凭证，也是 FR-035「客户端不能自行扩大前缀」的落点。
+   * 浏览器那条直传 PUT 的目标是 `https://<store>.<access>.blob.vercel-storage.com/…`
+   * （access 编在主机名里），本机可解析，E2E 已实测跑通（含 `<img>` 经 302 真加载）。
+   * 这里再验**令牌本身**的约束：pathname 与 allowedContentTypes/maximumSizeInBytes
+   * 被钉死在签发时的那个路径——那正是浏览器 PUT 唯一的授权凭证，也是 FR-035
+   * 「客户端不能自行扩大前缀」的落点，浏览器里反而看不出来。
    */
   function payloadOf(clientToken: string) {
     return getPayloadFromClientToken(clientToken);

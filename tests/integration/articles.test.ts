@@ -32,6 +32,7 @@ import {
   createUser,
   getPersonalOrg,
 } from '../helpers/factories';
+import { pinFsMediaMode } from '../helpers/media-mode';
 
 /**
  * 谱文 CRUD 与按页保存（Task 6 / FR-001..FR-006、FR-010..FR-017、FR-021）。
@@ -52,6 +53,8 @@ function dataOf<T>(result: T | { data?: T }): T {
   }
   return result.data;
 }
+
+pinFsMediaMode();
 
 const session = vi.hoisted(() => ({
   cookie: undefined as string | undefined,

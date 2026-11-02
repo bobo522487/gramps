@@ -20,8 +20,36 @@ const PASSWORD = 'Passw0rd!e2e';
  * 加上 critical-path 的注册就会超过 5 次，第 6 次被「尝试次数过多」挡下
  * （实跑踩过：CI 模式全量 E2E 里 critical-path 红）。所以每个 test 用
  * 独立的 x-forwarded-for（TEST-NET-3 段），让限流按不同客户端计。
+ *
+ * 只能给**本站请求**加：`setExtraHTTPHeaders` 会把它带到跨域请求上，而
+ * `x-forwarded-for` 不在 Vercel Blob 的 `access-control-allow-headers` 里，
+ * 预检直接失败，浏览器直传就变成 `net::ERR_FAILED`（实跑踩过，误判成环境挡网）。
  */
 let clientIpIndex = 0;
+
+/** 本站请求（本地 127.0.0.1 或 E2E_BASE_URL 指向的部署）才换客户端 IP。 */
+function isAppRequest(url: string): boolean {
+  if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\b/.test(url)) {
+    return true;
+  }
+  const external = process.env.E2E_BASE_URL;
+  return Boolean(external) && url.startsWith(external as string);
+}
+
+/** 只给本站请求换客户端 IP，跨域请求原样放行。 */
+function forgeClientIp(
+  page: import('@playwright/test').Page,
+  ip: string
+): void {
+  void page.route('**/*', (route) => {
+    if (!isAppRequest(route.request().url())) {
+      return route.continue();
+    }
+    return route.continue({
+      headers: { ...route.request().headers(), 'x-forwarded-for': ip },
+    });
+  });
+}
 
 function watchPageErrors(page: import('@playwright/test').Page): string[] {
   const errors: string[] = [];
@@ -55,9 +83,7 @@ async function bootstrap(
   page: import('@playwright/test').Page,
   label: string
 ): Promise<string> {
-  await page.setExtraHTTPHeaders({
-    'x-forwarded-for': `203.0.113.${++clientIpIndex}`,
-  });
+  forgeClientIp(page, `203.0.113.${++clientIpIndex}`);
   await page.goto('/sign-up');
   await page.locator('#email').fill(`e2e-article+${label}@example.com`);
   await page.locator('#password').fill(PASSWORD);
