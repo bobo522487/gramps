@@ -10,7 +10,7 @@ function read(path: string): string {
 
 function markdownFiles(dir: string): string[] {
   return readdirSync(join(root, dir)).flatMap((entry) => {
-    if (entry.startsWith('.backup-') || entry === 'reviews') {
+    if (entry === 'archive') {
       return [];
     }
     const path = join(dir, entry);

@@ -3,11 +3,11 @@
 - **状态**：已接受
 - **日期**：2026-10-25
 - **可逆性**：双向门（改起来不触发数据迁移，但影响每一次"要不要加个依赖"的判断）
-- **相关**：[技术栈选型评审](../reviews/2026-10-25-linus-stack-review.md) · [ADR 0005 零后台任务](./0005-zero-background-jobs.md) · [决策索引](./README.md)（ADR-01 代码组织、ADR-19 数据库驱动） · [07-运行视图-关键流程](../architecture/07-运行视图-关键流程.md) · [08-非功能性设计](../architecture/08-非功能性设计.md)
+- **相关**：[技术栈选型评审](../archive/reviews/2026-10-25-linus-stack-review.md) · [ADR 0005 零后台任务](./0005-zero-background-jobs.md) · [决策索引](./README.md)（ADR-01 代码组织、ADR-19 数据库驱动） · [07-运行视图-关键流程](../architecture/07-运行视图-关键流程.md) · [08-非功能性设计](../architecture/08-非功能性设计.md)
 
 ## 背景
 
-2026-10-25 已把直接管理的运行时、构建、测试与 UI 依赖升级到当时的最新稳定版本（见 `docs/superpowers/plans/2026-10-25-latest-stable-stack-upgrade.md`）。这次升级解决的是"版本旧"，但没有解决三个结构性问题：
+2026-10-25 已把直接管理的运行时、构建、测试与 UI 依赖升级到当时的最新稳定版本（见 `docs/archive/plans/2026-10-25-latest-stable-stack-upgrade.md`）。这次升级解决的是"版本旧"，但没有解决三个结构性问题：
 
 1. **决策地图缺一整类。** `decisions/README.md` 的 21 条决策覆盖树、软删、锁、隔离、驱动、部署、前端状态，**没有一条说"允许多少依赖""ORM 用什么版本策略""什么时候允许第二个运行时"**。
 2. **`drizzle-orm` 是最大的单点风险，却无人负责。** `package.json` 写 `^0.45.4`，它是 1.0 之前最后一个 0.x；全仓 28 个文件直接 import `drizzle-orm`，1.0 是断崖式重写。
@@ -31,7 +31,7 @@
 - `drizzle-orm` 与 `drizzle-kit` **只通过目标 ADR 的专门 PR 升级**，不允许跟着 `pnpm update` 走；升级 PR 必须同时改 `package.json` 与 `pnpm-lock.yaml`，并跑 `pnpm install --frozen-lockfile` 证明冻结安装通过。
 - **为什么不是去掉 `^`**（2026-10-25 实测结论，写给未来想"顺手钉一下"的人）：本机 pnpm 12.15.0 带 `minimumReleaseAge` 供应链策略（`@biomejs/biome@2.6.3` 的发布时间永久落在滚动截断窗口里）。只改本仓库的 specifier 会让 `pnpm-lock.yaml` 的完整性校验（integrity / lockfile freshness）失配，重算依赖图就会让 `pnpm install --frozen-lockfile` 以 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` 失败，而 CI 第一行就是 `--frozen-lockfile`。**在策略与 `@biomejs/biome` 的关系处理清楚之前，去掉 `^` 的收益（"不跟着漂"）由本节条款承担，代价（CI 红）不值得付。**
 - Drizzle 1.0 升级**不跟随 `pnpm update`**，单独立项：先确认写法变化、`sql` 模板边界与 `drizzle-kit` 生成的迁移是否等价，再决定。
-- 过渡期唯一应急通道：适配器只在 `lib/db/drizzle.ts` 与 `lib/db/auth-db.ts` 里换。**28 个 import 的收敛是"一处改动足够"的前提**，也是[选型评审](../reviews/2026-10-25-linus-stack-review.md) S0-4 的目标。
+- 过渡期唯一应急通道：适配器只在 `lib/db/drizzle.ts` 与 `lib/db/auth-db.ts` 里换。**28 个 import 的收敛是"一处改动足够"的前提**，也是[选型评审](../archive/reviews/2026-10-25-linus-stack-review.md) S0-4 的目标。
 
 ### 3. 架构规则必须有执行者
 
@@ -95,12 +95,12 @@
 | 不做决策，继续"每次升级都升到最新稳定" | 这是维护动作不是设计动作；Drizzle 1.0 的失败会成为一次事故，而不是一次决策 |
 | 迁到 Prisma / TypeORM | 两者对 RLS、多角色连接、`SET LOCAL ROLE` 的控制力都不如直接写 SQL；RLS 是 ADR-06 的核心，不能换一个对它不友好的 ORM |
 | 立刻上 Drizzle 1.0 RC | 生产仓库不引 RC；且当前写法与 1.0 的差异尚未评估 |
-| 现在就把 TipTap / RHF / Upstash 装上 | 没有需求就不建基础设施；三者分别在[选型评审](../reviews/2026-10-25-linus-stack-review.md)的 S1-1 / S1-2 / S1-3 里作为待决策记录，不在这里拍板 |
+| 现在就把 TipTap / RHF / Upstash 装上 | 没有需求就不建基础设施；三者分别在[选型评审](../archive/reviews/2026-10-25-linus-stack-review.md)的 S1-1 / S1-2 / S1-3 里作为待决策记录，不在这里拍板 |
 
 ## 重估触发条件
 
 1. **Drizzle 1.0 稳定并发布 3 个月后**：立项评估升级。
 2. **依赖总数 > 40**：审视第 1 条（当前 37 个直接依赖：25 运行期 + 12 开发期）。
 3. **M3 排版立项**：按第 4 条评估队列与对象存储，产出一篇新 ADR。
-4. **出现一次真实的登录暴力尝试或客户安全审计**：按[选型评审](../reviews/2026-10-25-linus-stack-review.md) S1-3 评估把限流换成共享存储（第 1 条允许破例：替换的是自写的进程内实现）。
+4. **出现一次真实的登录暴力尝试或客户安全审计**：按[选型评审](../archive/reviews/2026-10-25-linus-stack-review.md) S1-3 评估把限流换成共享存储（第 1 条允许破例：替换的是自写的进程内实现）。
 5. **`pnpm outdated` 出现 `drizzle-orm` 的安全公告**：安全补丁优先，按第 2 条的应急通道只改两个客户端文件。

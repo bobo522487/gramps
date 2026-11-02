@@ -11,7 +11,7 @@
 | 层 | 回答什么 | 在哪 |
 |---|---|---|
 | **事实层**（as-is） | 代码现在怎么搭的、表有哪些列、接口长什么样、哪个功能做到哪一步 | [`architecture/`](./architecture/00-文档说明.md)（结构）· [`data-model.md`](./data-model.md)（表与列）· [`api.md`](./api.md)（现有契约）· [`implementation-status.md`](./implementation-status.md)（状态）· [`setup.md`](./setup.md) · [`guides/`](./guides/) |
-| **差异层**（to-be） | 还没做的、为什么这么定、未来的部署形态 | [`prd.md`](./prd.md)（范围与里程碑）· [`specs/001-lineage-edit-preview/spec.md`](../specs/001-lineage-edit-preview/spec.md)（M2 专项需求，现行） · [`prd-lineage-editing-preview.md`](./prd-lineage-editing-preview.md)（历史底稿）· [`ops-target.md`](./ops-target.md)（部署蓝图）· [`decisions/`](./decisions/README.md)（决策与理由）· [`data-model.md`](./data-model.md) §13.2 与 [`api.md`](./api.md) 里标为 M2 的段落 |
+| **差异层**（to-be） | 还没做的、为什么这么定、未来的部署形态 | [`prd.md`](./prd.md)（范围与里程碑）· [`specs/001-lineage-edit-preview/spec.md`](../specs/001-lineage-edit-preview/spec.md)（M2 专项需求，现行） · [`archive/prd-lineage-editing-preview.md`](./archive/prd-lineage-editing-preview.md)（历史底稿）· [`ops-target.md`](./ops-target.md)（部署蓝图）· [`decisions/`](./decisions/README.md)（决策与理由）· [`data-model.md`](./data-model.md) §13.2 与 [`api.md`](./api.md) 里标为 M2 的段落 |
 
 **两条规则：**
 
@@ -35,7 +35,6 @@ docs/
 ├── README.md                    ← 你在这里
 │
 ├── prd.md                       产品需求：范围、角色、功能需求、验收标准
-├── prd-lineage-editing-preview.md  专项需求（M2）历史底稿，现行见 specs/001-lineage-edit-preview/spec.md
 │
 ├── architecture/                现在怎么搭的（as-is，15 份）
 │   ├── 00-文档说明.md           ★ 文档集导航、阅读路径、术语表
@@ -79,7 +78,7 @@ docs/
 ├── implementation-status.md     ★ 唯一状态来源
 │
 ├── architect.md                 跳转页（正文已拆到 architecture/）
-└── reviews/                     评审记录（历史，不作为规范）
+└── archive/                     归档材料（评审记录、已完成计划、历史底稿；不参与 docs:check）
 ```
 
 ---
@@ -161,4 +160,4 @@ docs/
 
 ### 5.6 文档边界
 
-`reviews/` 下是评审记录，**不是规范**。其中的建议在转化为 `architecture/` 或 `decisions/` 的内容之前，不具备约束力。
+`archive/` 下是归档材料（评审记录、已执行完的计划、历史底稿），**不是规范**，也不参与 `docs:check`。其中的建议在转化为 `architecture/` 或 `decisions/` 的内容之前，不具备约束力；引用规则见 [archive/README.md](./archive/README.md)。

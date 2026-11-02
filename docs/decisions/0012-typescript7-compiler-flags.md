@@ -3,11 +3,11 @@
 - **状态**：已接受
 - **日期**：2026-10-28
 - **可逆性**：双向门
-- **相关**：[ADR 0009（约束必须有执行者）](./0009-dependency-and-runtime-stance.md) · [10-25 技术栈评审 §9 未验证的假设](../reviews/2026-10-25-linus-stack-review.md) · [setup §5 命令表](../setup.md) · [实现状态 §1](../implementation-status.md)
+- **相关**：[ADR 0009（约束必须有执行者）](./0009-dependency-and-runtime-stance.md) · [10-25 技术栈评审 §9 未验证的假设](../archive/reviews/2026-10-25-linus-stack-review.md) · [setup §5 命令表](../setup.md) · [实现状态 §1](../implementation-status.md)
 
 ## 背景
 
-[10-25 评审](../reviews/2026-10-25-linus-stack-review.md) 把 TypeScript 7 列为「本轮唯一产生结构性收益的升级」，同时在 §9《未验证的假设》留下一条从未实测的条目：「TypeScript 7 的实际检查耗时提升 —— `pnpm typecheck` 前后对比」。也就是说：**收益被写进了结论，但支撑它的数字一直没测**。
+[10-25 评审](../archive/reviews/2026-10-25-linus-stack-review.md) 把 TypeScript 7 列为「本轮唯一产生结构性收益的升级」，同时在 §9《未验证的假设》留下一条从未实测的条目：「TypeScript 7 的实际检查耗时提升 —— `pnpm typecheck` 前后对比」。也就是说：**收益被写进了结论，但支撑它的数字一直没测**。
 
 一次「优化 TypeScript 7」的要求把这条假设变成必须回答的问题：要么它确实慢、值得优化，要么它没有可优化的东西。先把前提测清楚。
 

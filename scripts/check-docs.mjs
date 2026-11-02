@@ -24,9 +24,7 @@ function walk(dir) {
 }
 
 const allDocs = walk(DOCS).filter(
-  (file) =>
-    !file.includes(`${sep}reviews${sep}`) &&
-    !file.includes(`${sep}superpowers${sep}`)
+  (file) => !file.includes(`${sep}archive${sep}`)
 );
 
 const contradictionScope = [

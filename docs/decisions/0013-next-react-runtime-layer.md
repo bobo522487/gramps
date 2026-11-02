@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-28
 - **可逆性**：双向门
-- **相关**：[ADR 0008（只读 Route Handler）](./0008-read-only-route-handlers.md) · [ADR 0012（编译器开关：同一套「先测再改」）](./0012-typescript7-compiler-flags.md) · [10-24 架构评审 P1-8 / P1-9](../reviews/2026-10-24-linus-architecture-review.md) · [实现状态 §1](../implementation-status.md) · [setup §5](../setup.md)
+- **相关**：[ADR 0008（只读 Route Handler）](./0008-read-only-route-handlers.md) · [ADR 0012（编译器开关：同一套「先测再改」）](./0012-typescript7-compiler-flags.md) · [10-24 架构评审 P1-8 / P1-9](../archive/reviews/2026-10-24-linus-architecture-review.md) · [实现状态 §1](../implementation-status.md) · [setup §5](../setup.md)
 
 ## 背景
 

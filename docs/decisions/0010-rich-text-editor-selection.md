@@ -4,7 +4,7 @@
 - **日期**：2026-10-27
 - **可逆性**：单向门——文档格式一旦进了库、进了已排版的谱书，换编辑器要重排数据（同 [ADR 0003](./0003-tree-storage-ltree.md) 那类门）
 - **取代**：[决策索引](./README.md) 待决策 **D-9**（富文本选型）——D-9 自此转为本 ADR 并从待决策表移除，由 `scripts/check-docs.mjs` 的已解决清单执行
-- **相关**：[ADR-12（边界是 ProseMirror JSON）](./README.md) · [ADR 0009 §1/§5（依赖只减不增、选型三问）](./0009-dependency-and-runtime-stance.md) · [ADR 0011（`article.plain_text` 的 trigram 检索）](./0011-search-boundary-node-client-article-trgm.md) · [PRD FR-ART-1…5](../prd.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [技术栈评审 S1-1](../reviews/2026-10-25-linus-stack-review.md)
+- **相关**：[ADR-12（边界是 ProseMirror JSON）](./README.md) · [ADR 0009 §1/§5（依赖只减不增、选型三问）](./0009-dependency-and-runtime-stance.md) · [ADR 0011（`article.plain_text` 的 trigram 检索）](./0011-search-boundary-node-client-article-trgm.md) · [PRD FR-ART-1…5](../prd.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [技术栈评审 S1-1](../archive/reviews/2026-10-25-linus-stack-review.md)
 
 ## 背景
 
