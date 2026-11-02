@@ -101,7 +101,7 @@ git commit -m "chore(deps): 安装 TipTap 3 与 @vercel/blob，补 ADR 0019 媒�
 
 - [x] **Step 4: 配置与忽略项**
 
-`lib/config.ts` 加可选 `BLOB_READ_WRITE_TOKEN` 与 `mediaMode` 判定（有令牌且 `isVercel()` → `blob`，否则 `fs`）；`.gitignore` 加 `.data/`；核对 `vitest.coverage.config.ts` 的 include 覆盖 `lib/article/**`。
+`lib/config.ts` 加可选 `BLOB_READ_WRITE_TOKEN` 与 `mediaMode` 判定（**只看有没有令牌**，不看平台：有令牌 → `blob`，否则 `fs`。执行期改的：原判据带 `isVercel()`，那样本地永远验不到真实 Blob 通道，见文末「执行期裁决」）；`.gitignore` 加 `.data/`；核对 `vitest.coverage.config.ts` 的 include 覆盖 `lib/article/**`。
 
 - [x] **Step 5: 门禁与提交**
 
@@ -548,7 +548,10 @@ git commit -m "test(article): 安全回归与性能夹具"
 
 复跑证据：`CI=1 pnpm test:e2e --retries=0`（两个 spec 文件全量）**7 passed**（两次连跑都全绿，第二次 37.6s）。
 
-## 终审修复（评审代理 e650a160，2026-11-02 深夜）
+## 执行期裁决（补记，2026-11-02 深夜）
+
+- **`getMediaMode()` 的判据去掉平台条件**：原写「有令牌且 `isVercel()` 才 blob」，后果是本地无论怎么配令牌都只能跑 fs 驱动，ADR 0019 的真实 Blob 路径（私有桶写入 + `get({ access: 'private' })` 读回 + 读取代理）在开发机上无法验证。现改为只看 `BLOB_READ_WRITE_TOKEN`：留空（本地与 CI 的默认）走 `.data/media/`，配了就走 Blob——本地配了生产令牌即可真机验一遍，生产由 Vercel 存储绑定注入，行为不变。守它的测试：`tests/config.test.ts` 的 `describe('media mode')` 与 `tests/integration/media-blob.test.ts`（无令牌整体 skip）。
+
 
 结论「需小修」，9 条阻塞全部修完；提交 `566c6a8`（服务端与编辑器内核）与 `1502c6c`（页面与交互）。
 

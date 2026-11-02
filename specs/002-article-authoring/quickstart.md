@@ -11,7 +11,7 @@ pnpm db:setup                     # 建库、跑迁移、灌种子数据（本�
 pnpm dev                          # http://localhost:3000
 ```
 
-可选（仅验证 Blob 生产路径）：在 `.env` 里加 `BLOB_READ_WRITE_TOKEN=…`（注意是 `.env`，不是 `.env.local`，见 AGENTS.md §5.3 的陷阱说明）。不加则 `mediaMode = 'fs'`。
+可选（仅验证 Blob 生产路径）：在 `.env` 里加 `BLOB_READ_WRITE_TOKEN=…`（注意是 `.env`，不是 `.env.local`，见 AGENTS.md §5.3 的陷阱说明）。判定只看这一个变量，加了就 `mediaMode = 'blob'`，然后跑 `pnpm exec vitest run --config vitest.integration.config.ts tests/integration/media-blob.test.ts` 对真实私有桶做一次写入→代理读取→删除的往返；不加则一直是 `fs`。
 
 ## 2. 静态门（提交前必须全绿）
 

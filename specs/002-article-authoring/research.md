@@ -100,9 +100,11 @@
 
 选哪个由 `lib/config.ts` 一处判定（F7：只有它能读 `process.env`），客户端通过 RSC props 拿到 `mediaMode: 'blob' | 'fs'`，只影响**上传**走哪条路；读取永远是 `/api/media/...`（§3）。
 
-**Rationale**：CI 与本地不可能拿到 Blob 令牌，但没有上传通道就无法跑 E2E 与手工验证；把差异收敛到「上传」这一处，读取路径与授权逻辑只有一份，测试覆盖的是真实代码。
+**Rationale**：CI 与本地通常拿不到 Blob 令牌，但没有上传通道就无法跑 E2E 与手工验证；把差异收敛到「上传」这一处，读取路径与授权逻辑只有一份，测试覆盖的是真实代码。
 
-**重估触发**：CI 需要验证 blob 路径的真实行为（届时用 staging 项目 + 只读令牌，或在 CI 里起 MinIO 兼容层）。
+**执行期改动**：判据只看令牌（`lib/config.ts` 的 `getMediaMode()`），不带平台条件——开发机把生产令牌写进 `.env` 就能真机验证 Blob 通道，`tests/integration/media-blob.test.ts` 就是这条路径的守卫（无令牌时整体 skip）。
+
+**重估触发**：CI 也要跑真实 Blob 路径（届时给 CI 配只读令牌或用 staging 项目；否则维持「fs 跑 CI、令牌跑本地」的分工）。
 
 ---
 

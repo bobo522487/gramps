@@ -20,7 +20,7 @@
 - **文档里只存 pathname，不存完整 URL**。`article.content` 的图片节点记 `source: "articles/…/x.jpg"` 与显示宽度档位；读取 URL 每次现签，写进库就等于写了个会过期的东西。
 - **读取走服务端代理**：`GET /api/media/<pathname>` 在校验「会话有效 + 该谱文的组织成员 + `content.read`」之后，用 `@vercel/blob` 的 `get(pathname, { token, type: 'blob' })` 取字节并透传，附 `Cache-Control: private, max-age=300`。**放弃逐 pathname 签名 URL**（`issueSignedToken` 是控制面调用， pathname 只支持精确串或 `*`：精确串意味着一屏 40 张图 = 40 次签发往返，直接顶穿 SC-003 的切页 <300 ms；`*` 又等于把最小权限退化成整桶可读）。
 - **上传走客户端直传**：`POST /api/blob/upload` 用 `handleUpload({ onBeforeGenerateToken })`，在生成令牌前校验会话、成员、`article.write`、MIME（`image/jpeg|png|webp`）与 10 MB 上限，并把 `{ orgId, articleId }` 钉进 token payload；字节不经过 Server Action，绕开 1 MB / 4.5 MB 两道墙。
-- **本地兜底**：没有 `BLOB_READ_WRITE_TOKEN` 时（本地与 CI），同一个接口形状落到文件系统驱动，写 `.data/media/`，读取仍是同一个代理路由。由 `lib/config.ts` 单点决定用哪个（原则 F7：只有它能读 `process.env`），业务代码只看 `getMediaStore()`。
+- **本地兜底**：没有 `BLOB_READ_WRITE_TOKEN` 时（本地与 CI 的默认），同一个接口形状落到文件系统驱动，写 `.data/media/`，读取仍是同一个代理路由。由 `lib/config.ts` 单点决定用哪个（原则 F7：只有它能读 `process.env`），业务代码只看 `getMediaStore()`。判定**只看令牌、不看平台**：开发机补上生产令牌即可真机验证 Blob 通道（守卫测试 `tests/integration/media-blob.test.ts`，无令牌时 skip）。
 - **删除语义**：软删谱文保留字节（与 [ADR 0004](./0004-soft-delete-forever.md) 一致）；硬删谱文或整篇替换图片时，**事务提交后**删字节，失败只记日志不回头滚事务——数据库已不可见的内容不能被回滚成"可见但文件没了"。
 
 ## 后果
