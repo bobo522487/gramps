@@ -11,7 +11,7 @@ pnpm db:setup                     # 建库、跑迁移、灌种子数据（本�
 pnpm dev                          # http://localhost:3000
 ```
 
-可选（仅验证 Blob 生产路径）：在 `.env` 里加 `BLOB_READ_WRITE_TOKEN=…`（注意是 `.env`，不是 `.env.local`，见 AGENTS.md §5.3 的陷阱说明）。判定只看这一个变量，加了就 `mediaMode = 'blob'`，然后跑 `pnpm exec vitest run --config vitest.integration.config.ts tests/integration/media-blob.test.ts` 对真实私有桶做一次写入→代理读取→删除的往返；不加则一直是 `fs`。
+可选（仅验证 Blob 生产路径）：在 `.env` 里加 `BLOB_READ_WRITE_TOKEN=…`（注意是 `.env`，不是 `.env.local`，见 AGENTS.md §5.3 的陷阱说明）。判定只看这一个变量，加了就 `mediaMode = 'blob'`，然后跑 `pnpm exec vitest run --config vitest.integration.config.ts tests/integration/media-blob.test.ts`；浏览器那条腿用 `E2E_MEDIA_MODE=blob pnpm test:e2e tests/e2e/article-authoring.spec.ts -g image` 对真实私有桶做一次写入→代理读取→删除的往返；不加则一直是 `fs`。
 
 ## 2. 静态门（提交前必须全绿）
 
@@ -115,7 +115,7 @@ pnpm test:coverage       # 新增 lib/article/** 的覆盖率门槛
 | 现象 | 原因 / 处理 |
 |---|---|
 | 图片上传 401 / 404 | 会话过期或未登录；上传令牌与图片读取都要求会话 + 组织成员 |
-| 图片显示裂图 | fs 模式下 `.data/media` 被清空，或 blob 模式下 pathname 不存在 → 检查文件/日志；读取 URL 每次都是新的，不需要「刷新签名」 |
+| 图片显示裂图 | fs 模式下 `.data/media` 被清空，或 blob 模式下 pathname 不存在 → 看 `/api/media/**` 是不是 404；blob 模式命中时它是 **302**（`Location` 指向私有桶签名 URL，5 分钟有效），要重新拿就刷新页面，不需要也不应手拼签名 URL |
 | `pnpm test` 报「依赖 X 违反 ADR 0010「决策 ≠ 现在安装」」 | 删 ADR 0010 的「尚未安装」状态句时**连 `决策 ≠ 现在安装` 字面串一起删了**；该串必须保留（黑名单断言靠它跳过） |
 | `pnpm arch:check` 报文件超 400 行 | 编辑器逻辑按 `components/article/editor/**` 拆分，不要堆在单文件 |
 | 保存后刷新内容丢失 | 检查是否只改了本地状态没提交；服务端以 `article.content` 为准 |

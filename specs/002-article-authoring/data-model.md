@@ -94,7 +94,7 @@ GROUP BY a.folder_id
 |---|---|
 | 格式 | `articles/<orgId>/<articleId>/<uuidv4>.<ext>`，`ext ∈ {jpg, png, webp}` |
 | 生成 | 上传令牌签发时由服务端拼前缀（`onBeforeGenerateToken` 里校验前缀，客户端只能决定文件名主体） |
-| 读取 | 统一走 `GET /api/media/<pathname>`：服务端校验会话 + 组织成员关系后，用服务端凭据 `get(pathname, { access: 'private' })` 取流回传（`fs` 模式读 `.data/media/`）；响应 `Cache-Control: private, max-age=300`。**文档与响应里都不出现存储令牌，也不出现带能力的 URL**（research.md §3） |
+| 读取 | 统一走 `GET /api/media/<pathname>` 过授权（会话 + 组织成员 + 谱文未软删）：Blob 模式回 `302` + 私有桶**签名直读 URL**（5 分钟有效，delegation 按进程缓存、`presignUrl` 本地 HMAC），`fs` 模式由路由读 `.data/media/` 发字节；响应一律 `Cache-Control: no-store`。**文档与响应里都不出现存储令牌；带能力的签名 URL 只出现在 302 的 `Location` 上**（research.md §3、ADR 0019） |
 | 删除 | 删除页 / 删除谱文 / 移除图片时，在事务提交后对相应 pathname 调 `MediaStore.delete()`；失败只记日志（不回滚软删），可能留孤儿字节（research.md §3 已知限制） |
 | 复用 | 同一张图被复制到另一页时，节点复制 `pathname`；删除其中一页**不删字节**，因为另一页仍引用（`isReferenced(pathname, content)` 判定） |
 | 跨组织 | `pathname` 前缀含 `orgId`，服务端校验前缀归属；`article.write` 之外无法写入他人前缀 |

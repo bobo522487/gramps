@@ -159,7 +159,7 @@ export type ActionState<T = never> =
 |---|---|---|---|---|
 | `/api/blob/upload` | `mediaMode === 'blob'` | `POST` | `handleUpload({ onBeforeGenerateToken, onUploadCompleted })`：回调里 `getSessionUser()` → 从 `tokenPayload { orgId, articleId }` 反查 `article` 拿 `projectId` → 校验成员 + `article.write` → 校验 pathname 前缀 `articles/<orgId>/<articleId>/` → 返回 `{ allowedContentTypes: ['image/jpeg','image/png','image/webp'], maximumSizeInBytes: 10 * 1024 * 1024, addRandomSuffix: false, tokenPayload }` | `getSessionUser()` + `getOrgRole` |
 | `/api/media/upload` | `mediaMode === 'fs'`（本地/CI） | `POST` | multipart 落盘 `.data/media/<pathname>`；**同样校验** MIME（JPG/PNG/WebP 魔数）、体积 ≤10MB、pathname 前缀与成员关系 | 同上 |
-| `/api/media/[...key]` | **两种模式都注册** | `GET` | 读取代理：校验 `key` 形如 `articles/<orgId>/<articleId>/<file>` → 校验会话 + 该 `orgId` 成员 → `MediaStore.read(pathname)` 回传字节（`Cache-Control: private, max-age=300`、`Content-Type` 按扩展名） | `getSessionUser()` + `getOrgRole` |
+| `/api/media/[...key]` | **两种模式都注册** | `GET` | 读取授权：校验 `key` 形如 `articles/<orgId>/<articleId>/<file>` → 校验会话 + 该 `orgId` 成员 + 谱文未软删 → Blob 模式回 `302` + `Location: <私有桶签名 URL>`（`MediaStore.readRedirect`），兜底驱动回字节（`Content-Type` 按扩展名 + `nosniff`）；一律 `Cache-Control: no-store` | `getSessionUser()` + `getOrgRole` + `getArticleScope` |
 
 **共同约束**：
 - 全部走 `withApiLogging('<route>', handler)`；返回显式 DTO；错误体英文 JSON + 明确状态码（401 / 404 / 413 / 415）。
@@ -174,19 +174,25 @@ export type MediaMode = 'blob' | 'fs';
 
 export interface MediaStore {
   readonly mode: MediaMode;
-  /** 读取字节流（blob：私有 store 服务端读取；fs：读 .data/media）。 */
-  read(pathname: string): Promise<{ stream: ReadableStream; contentType: string } | null>;
+  /** 读取字节（blob：私有 store 服务端读取；fs：读 `.data/media/`）。 */
+  read(pathname: string): Promise<{ bytes: Uint8Array; contentType: string } | null>;
   /** 删除字节；失败抛错由调用方记日志，不回滚业务事务。 */
   delete(pathname: string): Promise<void>;
+  /**
+   * 能直连存储的驱动（blob）回一个短命私有签名 URL，读取路由据此 302，
+   * 字节不再经过函数；fs 回 `null`，继续由路由自己发字节（ADR 0019）。
+   */
+  readRedirect(pathname: string): Promise<string | null>;
 }
 
 /** 由 lib/config.ts 的配置判定，只此一处决定模式（F7）。 */
 export function getMediaStore(): MediaStore;
 ```
 
-- `blob-store.ts`：`get(pathname, { access: 'private' })` 取流；`delete` 用 `del()`；上传令牌由 `/api/blob/upload` 的 `handleUpload` 签发（**不提供 `getSignedToken`**，那是 `handleUploadPresigned` 的用法）。
+- `blob-store.ts`：`read` 用 `get(pathname, { access: 'private' })`；`delete` 用 `del()`；`readRedirect` 走 `read-url.ts`（delegation 按进程缓存 + `presignUrl` 本地 HMAC，单张 URL 5 分钟）。上传令牌由 `/api/blob/upload` 的 `handleUpload` 签发（**不提供 `getSignedToken`**，那是 `handleUploadPresigned` 的用法；`clientSigningToken` 只在服务端签 URL，不出响应）。
+- `token.ts`：`blobReadWriteToken()` 单独成模块（只从 `lib/config.ts` 取值，F7），供 store、签名 helper 与上传路由共用，避免 store ↔ read-url 循环 import。
 - `fs-store.ts`：`fs.readFile('.data/media/' + pathname)`；`delete` 用 `fs.rm`；写入由 `/api/media/upload` 负责。
-- 客户端通过 RSC props 拿到 `mediaMode`，只决定**上传**走 `upload()`（blob）还是 `POST /api/media/upload`（fs）；**读取永远是 `/api/media/<pathname>`**。
+- 客户端通过 RSC props 拿到 `mediaMode`，只决定**上传**走 `upload()`（blob）还是 `POST /api/media/upload`（fs）；**`<img>` 的 src 永远是 `/api/media/<pathname>`**，是 302 还是字节由服务端驱动决定，客户端不感知签名 URL。
 
 ## 4. 界面契约（`components/article/**`）
 

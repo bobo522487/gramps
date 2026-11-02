@@ -557,7 +557,7 @@ git commit -m "test(article): 安全回归与性能夹具"
 | 服务端腿（6 条） | 驱动选择、私有桶真实字节读回、读取代理 200 + `nosniff` + `private, max-age=300`、非成员 404、谱文软删后新读取 404（字节仍在桶里）、删除后读不回 | **6 passed**，对象是真的落在 `gramps-media` 桶里 |
 | 上传握手（5 条） | 令牌把 pathname / `allowedContentTypes` / `maximumSizeInBytes` / `addRandomSuffix:false` 钉死；换 pathname 必须重新签发；非成员、形状不对、`articleId` 不属于该组织一律 **404 且不带原因串**（终审 BLK-6 的回归） | **5 passed** |
 
-**没验到的一条，如实记账**：浏览器里那条直传 PUT 的目标主机是 `https://gramps-media.private.blob.vercel-storage.com/…`（access 编在主机名里，不是头部——SDK 源码 `constructBlobUrl()` 可证），而这台开发机的 DNS 不放通 `*.blob.vercel-storage.com`（连 `example.com` 都解析不到；同机 `curl`/Node 走 `vercel.com/api/blob` 是通的，Chromium 打 `vercel.com` 也通）。E2E 的 `-g image` 因此停在 `net::ERR_FAILED`（4 次重试），**不是代码缺陷**：换到能解析存储域名的机器或 Vercel 部署上（令牌已由 store 绑定自动注入）再验一次浏览器直传。SDK 另有一条与本条同源的提示：`onUploadCompleted` 在没有 `callbackUrl`（本地直接调 handler 时推不出来）时不触发，Vercel 运行时由 `x-vercel-proxied-url` 推出，只影响「上传完成」日志，不影响字节落桶。
+**当初判错的一条，已翻案**：浏览器里那条直传 PUT 一度停在 `net::ERR_FAILED`，我记成「本机 DNS 不放通 `*.blob.vercel-storage.com`」。实测该主机名（`https://<store id小写>.private.blob.vercel-storage.com/…`，access 编在主机名里，SDK `constructBlobUrl()` 可证）在本机可解析可连，`curl` 与 Chromium 都拿得到 4xx 响应。真因是测试自己：为绕开注册限流给整页加了 `x-forwarded-for`（`page.setExtraHTTPHeaders`），这个头被一并带到跨域 PUT 上，而它不在 Blob 服务的 `access-control-allow-headers` 白名单里 ⇒ 预检失败。改成只给本站请求注入该头（`tests/e2e/article-authoring.spec.ts` 的 `forgeClientIp()` 走 `page.route` 按 origin 判断）之后，图片用例在真实私有桶上跑通：浏览器直传落桶、`<img>` 经 `/api/media/**` 的 302 实际加载出像素。SDK 另有一条与本条无关的提示：`onUploadCompleted` 在没有 `callbackUrl`（本地直接调 handler 时推不出来）时不触发，Vercel 运行时由 `x-vercel-proxied-url` 推出，只影响「上传完成」日志，不影响字节落桶。
 
 配套改动：`tests/integration/media.test.ts` 在文件内临时摘掉令牌（它是 fs 驱动套件），两个文件合跑 → **31 passed**。
 
@@ -589,3 +589,37 @@ git commit -m "test(article): 安全回归与性能夹具"
 已接受的缺口（不在本期补）：图片加载失败没有占位（要做 NodeView）；blob 模式不做魔数嗅探（`allowedContentTypes` 交给 Blob 侧把关，fs 模式才嗅探）；`beforeunload` 原生弹窗与「editor 看不到分类管理入口」只有静态/RSC 层证据，没有浏览器级断言；孤儿图片字节没有回收（零后台任务，ADR 0005/0019）。
 
 - **缓存失效用 `revalidateWholeConsole()` 而不是计划里写的 `revalidatePath(列表路径)`**：全仓库 30 个既有 Action 只调这一个函数，`lib/lineage/revalidate.ts` 里的作用域助手 `revalidateProject` / `revalidateOrg` 至今零调用者；单为谱文接通第二条失效路径等于引入第二套事实来源（宪法 V）。失效只发生在**新建 / 改标题 / 移分类 / 删除**四种整篇级写入上；**保存页 / 加页 / 删页 / 重排页四个页级 Action 一律不失效**——这条是规格要求（FR-017：回显只到本次提交成功的那一页），实测靠 `tests/e2e/article-authoring.spec.ts` 的「打字→刷新→内容仍在」与 `tests/integration/articles.test.ts` 的按页保存用例守住。
+
+## 读取通道改为签名 URL 直连（2026-11-03 早，按 Context7 取回的 Vercel Blob 最佳实践优化）
+
+**动因**：官方文档把「让函数代传字节」列为成本反模式（函数出网流量 BDT 约为纯存储出口的 3 倍，且要在内存里把整张图拼起来）。来源：`https://vercel.com/docs/vercel-blob/vercel-signed-urls`（用 `npx ctx7@latest docs /websites/vercel …` 取回，另见本文件下一段的两个 API 细节）。
+
+**改成的形状**（授权一条没少，只换字节那一跳）：
+
+| 位置 | 内容 |
+|---|---|
+| `lib/article/media/read-url.ts` | `issueSignedToken({ operations: ['get'] })` 的 delegation **按进程缓存**（默认 1 小时，提前 5 分钟换新，`pending` promise 保证并发只打一次控制面）；`presignUrl(issued, { access: 'private', operation: 'get', pathname, validUntil })` 是**本地 HMAC**，单张 URL 有效期压到 5 分钟。签不出来返回 `null` ⇒ 退回函数代传（**宁可慢，不可裂图**）。 |
+| `lib/article/media/token.ts` | `blobReadWriteToken()` 独立成模块，断开 `blob-store ↔ read-url` 的循环 import；仍只从 `lib/config.ts` 取值（F7）。 |
+| `MediaStore.readRedirect(pathname)` | blob 回签名 URL；fs 回 `null`。`<img>` 的 src 永远是 `/api/media/<pathname>`，**302 还是字节由服务端驱动决定**，客户端不感知签名。 |
+| `app/api/media/[...key]/route.ts` | 会话 + 成员 + 谱文未软删（`getArticleScope`）→ 有直连 URL 就 `302 + Location + Cache-Control: no-store`；否则自己发字节（fs 路径也改成 `no-store`，`nosniff` 保留）。 |
+| `lib/config.ts` | `BLOB_READ_WRITE_TOKEN` 接受**空串 = 没配**（`z.preprocess`），否则 Playwright 只能覆盖不能删除变量，`min(1)` 会把整个配置校验炸掉。 |
+| `playwright.config.ts` | `E2E_MEDIA_MODE`：留空把被测服务的令牌覆盖成空串（E2E 固定跑兜底驱动，性能夹具直接落 `.data/media/`），`=blob` 才走真桶。 |
+
+**API 两个坑（写死在测试与注释里）**：① `presignUrl` 的 options **不接受 `token`**（TS2353），令牌只在 `issueSignedToken` 用；② `parseStoreIdFromReadWriteToken` 在 `@vercel/blob` 包根**没有导出**（TS2305 + 运行时 is not a function），期望主机名改用种子 `put()` 返回 URL 的 hostname。另：`access` 必传，不传会签出 `<store>.undefined.blob.vercel-storage.com`。
+
+**真机证据（store `gramps-media` / `store_tfPIAzMgUaajeHPq`，iad1，private）**
+
+| 测什么 | 结果 |
+|---|---|
+| delegation 与签名成本 | `issueSignedToken` **937ms**（`validUntil = now + 3600s`）；`presignUrl` 首次 **3ms**、第二次 **0ms**（本地 HMAC，零网络） |
+| 签名 URL 真取得到字节 | 用 Node 直接 GET 签出的 URL → **200 / image/png / 70 bytes**；`del()` 之后**同一个 URL → 404**（FR-029 在桶这一侧也成立） |
+| 路由不再过字节 | `tests/integration/media-blob.test.ts`「读取路由只签发私有直连 URL」：`302` + `cache-control: no-store` + `body` 为 null + `Location` 主机名 = 种子对象的 `url` 主机名 + 查询串含 `vercel-blob-delegation`/`vercel-blob-signature`、**不含读写令牌** |
+| delegation 复用 | 「第二次读取复用缓存的 delegation」：两次 `vercel-blob-delegation` 相同、签名不同，第二次整条链路 **880ms**（含夹具与授权，无第二次控制面往返） |
+| 浏览器那一跳（本次翻案） | `E2E_MEDIA_MODE=blob CI=1 pnpm test:e2e tests/e2e/article-authoring.spec.ts -g image --retries=0` → **1 passed (9.6s)**；同一次运行 `.data/media` 文件数 **41 → 41 不变**，桶里 `articles/` 前缀**新增 1 个 70B 对象**、`uploadedAt` 落在本次运行窗口内 ⇒ 浏览器直传确实落进私有桶，`<img>` 也确实经 302 从存储域名加载出像素。此前两次判「本机 DNS 不放通 `*.blob.vercel-storage.com`」**都是错的**：第一次用错了主机名（`gramps-media.blob…`，把 store 名当 store id，且漏了 `.private.` 段），第二次是 webServer 没拿到令牌 ⇒ 服务端还是 fs、客户端按 blob 直传，握手 404 后 SDK 重试 4 次全 `net::ERR_FAILED` |
+| fs 模式没有回归 | 默认模式（`E2E_MEDIA_MODE` 留空）`pnpm build` 后全量 article E2E → **6 passed (2.8m)**，`[SC-003 浏览器] 切页 ms=116/51/50/47/51 最差 116`、`滚动 60.0 fps` |
+
+**门禁**：`pnpm check` → `Checked 412 files … No fixes applied`；`pnpm typecheck` 干净；`pnpm test` → **46 files / 352 tests**；`pnpm arch:check` → `[F6] 216 files 0 violations` / `[F7] 218 files 0 process.env violations`；`pnpm docs:check --strict` → `0 issue(s)`；`pnpm build` 退出 0；`pnpm exec vitest run --config vitest.integration.config.ts tests/integration/{media,media-blob,articles}.test.ts --testTimeout=90000` → **3 files / 63 tests 全过**。
+
+**新增的测试基建**：`tests/helpers/media-mode.ts` 的 `pinFsMediaMode()`——断言本地落盘字节的两份套件（`media.test.ts`、`articles.test.ts`）整份钉在兜底驱动上，否则开发机 `.env` 一配真令牌，「删页后独占字节消失」这类断言就会打到真桶上（本轮实测就是这么炸的：`AssertionError: expected { …(2) } to be null`）。
+
+**这次优化后仍然接受的缺口（不掩盖）**：① 已签出的 URL 5 分钟内不可主动吊销（规格 FR-029 的口径就是「新请求不得取得」，`no-store` 保证每个新请求都重新授权）；② delegation 是整店只读令牌，Vercel 目前不支持前缀级作用域，只能在服务端内存里持有；③ 桶里留下了本次浏览器用例上传的测试对象，**没有生命周期回收**（零后台任务），要清只能按 `list({ prefix: 'articles/' })` 做差集手工删；④ `blob` 模式的上传仍不做魔数嗅探（`allowedContentTypes` 交给 Blob 服务把关），fs 模式才嗅探；⑤ 图片变体（`optimize`）与 `E2E_MEDIA_MODE=blob` 的其余用例（多页/性能夹具依赖 `.data/media/` 落盘）没做。
