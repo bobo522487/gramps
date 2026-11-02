@@ -14,6 +14,15 @@ test.describe.configure({ mode: 'serial' });
 
 const PASSWORD = 'Passw0rd!e2e';
 
+/**
+ * 注册限流按客户端 IP 计（`signup:<ip>`，5 次/小时，见
+ * `lib/auth/actions/session.ts:101`）。本文件每个 test 都要一个干净账号，
+ * 加上 critical-path 的注册就会超过 5 次，第 6 次被「尝试次数过多」挡下
+ * （实跑踩过：CI 模式全量 E2E 里 critical-path 红）。所以每个 test 用
+ * 独立的 x-forwarded-for（TEST-NET-3 段），让限流按不同客户端计。
+ */
+let clientIpIndex = 0;
+
 function watchPageErrors(page: import('@playwright/test').Page): string[] {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -38,6 +47,9 @@ async function bootstrap(
   page: import('@playwright/test').Page,
   label: string
 ): Promise<string> {
+  await page.setExtraHTTPHeaders({
+    'x-forwarded-for': `203.0.113.${++clientIpIndex}`,
+  });
   await page.goto('/sign-up');
   await page.locator('#email').fill(`e2e-article+${label}@example.com`);
   await page.locator('#password').fill(PASSWORD);
@@ -201,10 +213,16 @@ test('multi-page: add, switch commits first, reorder persists, cannot delete las
   await page.reload();
   const canvasAfterReload = page.locator('.article-canvas');
   await expect(canvasAfterReload).toContainText('第一页：始祖讳元。');
-  await strip.getByRole('button', { name: /^第 2 页/ }).click();
-  await expect(page.locator('.article-canvas')).toContainText(
-    '第二页：次房支系。'
-  );
+  // contenteditable 是 ProseMirror 挂上之后才有的属性：拿它当「客户端已接管」的门。
+  // 没这道门时实测过一次竞态——点第 2 页落在 hydration 之前，点了没反应，
+  // 10 秒后画布还是第 1 页（serial 模式下整条链路红一次）。
+  await expect(canvasAfterReload).toHaveAttribute('contenteditable', 'true');
+  await expect(async () => {
+    await strip.getByRole('button', { name: /^第 2 页/ }).click();
+    await expect(canvasAfterReload).toContainText('第二页：次房支系。', {
+      timeout: 2_000,
+    });
+  }).toPass({ timeout: 20_000 });
 
   // 拖拽重排（FR-023）：把第 2 页拖到第 1 页前面，刷新后页序保持。
   const items = strip.getByRole('listitem');

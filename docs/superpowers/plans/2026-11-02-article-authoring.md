@@ -540,3 +540,10 @@ git commit -m "test(article): 安全回归与性能夹具"
 
 1. **FR-032 的「命中结果显示所属分类」原先没做**：列表行只有标题、页数与日期。补了 `folderLabel()`（`components/article/types.ts`，`null`/哨兵/查不到一律回落「未分类」，子分类去掉全角缩进）与行内 `Badge`，并把它钉成三层证据：`tests/article-folder-label.test.ts` 3 条、E2E US1 段的搜索命中断言、`11-需求与实现状态` §5.5/§7 的措辞同步。
 2. **`searchArticlesByTitle` 是死代码**：列表全量下发后前端已在同一份数据上过滤，服务端那条 ILIKE 查询没有任何调用方（也是覆盖率门槛掉到 93.81% 的直接原因——`lib/db/queries/**` 要求 98%）。按「能不加就不加」删掉，正文检索留到 FR-044 立项时再连着 `pg_trgm` 一起做。顺带把 `countArticlesByFolder` 里走不到的 `!row.folderId` 分支（改取 `folders.id`）与 `getFolderDeletePreview` 里 `queue.shift()` 的空调守卫（改成递归 `collect`）清掉。
+
+### 全量 E2E 才暴露的两个问题（单文件跑看不见）
+
+1. **注册限流把基线用例打红**：`signup:<ip>` 是 5 次/小时（`lib/auth/actions/session.ts:101`），而本地/CI 请求没有 `x-forwarded-for`，全部落进同一个 `unknown` 桶。本文件 5 个 test 各注册一个账号，`critical-path.spec.ts` 的第 6 次注册就被「尝试次数过多，请稍后再试。」挡下（实跑：`✘ critical-path … Received string: "http://127.0.0.1:3100/sign-up"`）。改法是每个 test 用自己的 `x-forwarded-for`（TEST-NET-3 的 `203.0.113.N`），限流按不同客户端计，不动生产阈值。
+2. **刷新后立刻点页缩略图的竞态**：`page.reload()` 之后 Playwright 判定位可见可点就下手，可能落在 hydration 之前，点了没反应（serial 模式下整条链路红一次，单跑同一条又绿）。加了两道：先 `toHaveAttribute('contenteditable','true')` 等 ProseMirror 接管，再把「点第 N 页 + 断言画布内容」包进 `expect(...).toPass()`。
+
+复跑证据：`CI=1 pnpm test:e2e --retries=0`（两个 spec 文件全量）**7 passed**（两次连跑都全绿，第二次 37.6s）。

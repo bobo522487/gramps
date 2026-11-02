@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-
+import type { ArticleFolderNode } from '@/components/article/types';
 import {
-  UNFILED_FOLDER_ID,
   folderLabel,
   folderPickerOptions,
+  UNFILED_FOLDER_ID,
 } from '@/components/article/types';
-import type { ArticleFolderNode } from '@/components/article/types';
 
 /**
  * FR-032：搜索命中要能看出所属分类。列表行的分类标签由这个纯函数算，
@@ -28,7 +27,9 @@ describe('folderLabel（列表行分类标签）', () => {
   it('命中分类时显示不带缩进的名字', () => {
     expect(folderLabel(options, 'f3')).toBe('传记');
     // 子分类的 picker label 带全角空格缩进，标签里不该带。
-    expect(options.find((option) => option.id === 'f2')?.label).toContain('\u3000');
+    expect(options.find((option) => option.id === 'f2')?.label).toContain(
+      '\u3000'
+    );
     expect(folderLabel(options, 'f2')).toBe('旧谱序');
   });
 
