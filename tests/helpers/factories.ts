@@ -480,16 +480,25 @@ export async function createArticle(params: {
   projectId: string;
   createdBy: string;
   title?: string;
+  folderId?: string | null;
+  content?: Record<string, unknown>;
+  plainText?: string;
+  updatedAt?: Date;
+  deletedAt?: Date;
 }) {
+  const title = params.title ?? '测试谱文';
   const [article] = await getTestDb()
     .insert(articles)
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
+      folderId: params.folderId ?? null,
       createdBy: params.createdBy,
-      title: params.title ?? '测试谱文',
-      content: { type: 'doc', content: [] },
-      plainText: '测试谱文',
+      title,
+      content: params.content ?? { type: 'doc', content: [] },
+      plainText: params.plainText ?? title,
+      updatedAt: params.updatedAt,
+      deletedAt: params.deletedAt,
     })
     .returning();
   return article;

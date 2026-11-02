@@ -1,9 +1,351 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { withOrg } from '../drizzle';
-import { articles } from '../schema';
+import {
+  type Article,
+  articles,
+  bookCatalogs,
+  books,
+  folders,
+} from '../schema';
+
+/**
+ * 谱文读取层（specs/002-article-authoring）。页数与图片数都从 `article.content`
+ * 的分页文档包现算——不占列、不会有第二份真相（AGENTS §5.1、research §8）。
+ * 所有查询都走 `withOrg` 并同时带 `orgId`，外组织一律空结果而不是报错。
+ */
+
+export type ArticleSummary = {
+  id: string;
+  title: string;
+  folderId: string | null;
+  pageCount: number;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date | null;
+};
+
+export type ArticleFolderCounts = {
+  /** 只含 `folder.kind = 1` 的活动分类；没有谱文的分类不出现在里面。 */
+  byFolder: Map<string, number>;
+  /** 总数减去各分类之和：挂在已删分类或错种类分类下的都算未分类。 */
+  unfiled: number;
+  total: number;
+};
+
+export type ArticleDeletePreview = {
+  title: string;
+  pageCount: number;
+  imageCount: number;
+};
+
+export type FolderDeletePreview = {
+  name: string;
+  /** 含自身与全部子孙的谱文分类数。 */
+  folderCount: number;
+  /** 这批分类下当前还活着的谱文数。 */
+  articleCount: number;
+};
+
+/** 旧的单文档形状没有 `pages`，兜底显示 1 页，与 `parseArticleContent` 一致。 */
+const pageCountSql = sql<number>`case
+  when jsonb_typeof(${articles.content} -> 'pages') = 'array'
+  then jsonb_array_length(${articles.content} -> 'pages')
+  else 1
+end`;
+
+const imageCountSql = sql<number>`coalesce(jsonb_array_length(
+  jsonb_path_query_array(
+    ${articles.content},
+    '$.pages[*].doc.content[*] ? (@.type == "articleImage")'
+  )
+), 0)`;
+
+const lastTouched = sql`coalesce(${articles.updatedAt}, ${articles.createdAt})`;
+
+export async function listArticles(
+  userId: string,
+  orgId: string,
+  projectId: string
+): Promise<ArticleSummary[]> {
+  return withOrg(userId, (tx) =>
+    tx
+      .select({
+        id: articles.id,
+        title: articles.title,
+        folderId: articles.folderId,
+        createdBy: articles.createdBy,
+        createdAt: articles.createdAt,
+        updatedAt: articles.updatedAt,
+        pageCount: pageCountSql,
+      })
+      .from(articles)
+      .where(
+        and(
+          eq(articles.orgId, orgId),
+          eq(articles.projectId, projectId),
+          isNull(articles.deletedAt)
+        )
+      )
+      .orderBy(desc(lastTouched), asc(articles.id))
+  );
+}
+
+/** 列表页与搜索用：只按标题找，正文检索本期不做（FR-043）。 */
+export async function searchArticlesByTitle(
+  userId: string,
+  orgId: string,
+  projectId: string,
+  keyword: string
+): Promise<ArticleSummary[]> {
+  const pattern = `%${keyword.replace(/[%_\\]/g, '\\$&')}%`;
+  return withOrg(userId, (tx) =>
+    tx
+      .select({
+        id: articles.id,
+        title: articles.title,
+        folderId: articles.folderId,
+        createdBy: articles.createdBy,
+        createdAt: articles.createdAt,
+        updatedAt: articles.updatedAt,
+        pageCount: pageCountSql,
+      })
+      .from(articles)
+      .where(
+        and(
+          eq(articles.orgId, orgId),
+          eq(articles.projectId, projectId),
+          isNull(articles.deletedAt),
+          sql`${articles.title} ILIKE ${pattern}`
+        )
+      )
+      .orderBy(desc(lastTouched), asc(articles.id))
+  );
+}
+
+export async function getArticle(
+  userId: string,
+  orgId: string,
+  articleId: string
+): Promise<Article | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(articles)
+      .where(
+        and(
+          eq(articles.id, articleId),
+          eq(articles.orgId, orgId),
+          isNull(articles.deletedAt)
+        )
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  });
+}
+
+export async function countArticlesByFolder(
+  userId: string,
+  orgId: string,
+  projectId: string
+): Promise<ArticleFolderCounts> {
+  const grouped = withOrg(userId, (tx) =>
+    tx
+      .select({ folderId: articles.folderId, value: sql<number>`count(*)` })
+      .from(articles)
+      .innerJoin(
+        folders,
+        and(
+          eq(folders.id, articles.folderId),
+          eq(folders.kind, 1),
+          isNull(folders.deletedAt)
+        )
+      )
+      .where(
+        and(
+          eq(articles.orgId, orgId),
+          eq(articles.projectId, projectId),
+          isNull(articles.deletedAt)
+        )
+      )
+      .groupBy(articles.folderId)
+  );
+
+  const totalRows = withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(articles)
+      .where(
+        and(
+          eq(articles.orgId, orgId),
+          eq(articles.projectId, projectId),
+          isNull(articles.deletedAt)
+        )
+      );
+    // count(*) arrives as a string over the wire (bigint), same as everywhere else.
+    return Number(rows[0]?.value ?? 0);
+  });
+
+  const [rows, total] = await Promise.all([grouped, totalRows]);
+  const byFolder = new Map<string, number>();
+  let filed = 0;
+  for (const row of rows) {
+    if (!row.folderId) {
+      continue;
+    }
+    byFolder.set(row.folderId, Number(row.value));
+    filed += Number(row.value);
+  }
+
+  return { byFolder, unfiled: total - filed, total };
+}
+
+export async function getArticleDeletePreview(
+  userId: string,
+  orgId: string,
+  articleId: string
+): Promise<ArticleDeletePreview | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({
+        title: articles.title,
+        pageCount: pageCountSql,
+        imageCount: imageCountSql,
+      })
+      .from(articles)
+      .where(
+        and(
+          eq(articles.id, articleId),
+          eq(articles.orgId, orgId),
+          isNull(articles.deletedAt)
+        )
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      title: row.title,
+      pageCount: Number(row.pageCount),
+      imageCount: Number(row.imageCount),
+    };
+  });
+}
+
+/** 被任何活动谱书的活动编目引用过就不能删（FR-006）。 */
+export async function hasCatalogReference(
+  userId: string,
+  orgId: string,
+  articleId: string
+): Promise<boolean> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({ id: bookCatalogs.id })
+      .from(bookCatalogs)
+      .innerJoin(
+        books,
+        and(eq(books.id, bookCatalogs.bookId), isNull(books.deletedAt))
+      )
+      .where(
+        and(
+          eq(bookCatalogs.orgId, orgId),
+          eq(bookCatalogs.articleId, articleId),
+          isNull(bookCatalogs.deletedAt)
+        )
+      )
+      .limit(1);
+    return rows.length > 0;
+  });
+}
+
+/**
+ * 删分类前的确认口径（FR-005）：连带消失的分类数，与会转入「未分类」的谱文数。
+ * 只统计谱文分类（kind = 1）的子树，与 `deleteFolderInTransaction` 的级联一致。
+ */
+export async function getFolderDeletePreview(
+  userId: string,
+  orgId: string,
+  folderId: string
+): Promise<FolderDeletePreview | null> {
+  return withOrg(userId, async (tx) => {
+    const roots = await tx
+      .select({
+        id: folders.id,
+        name: folders.name,
+        projectId: folders.projectId,
+      })
+      .from(folders)
+      .where(
+        and(
+          eq(folders.id, folderId),
+          eq(folders.orgId, orgId),
+          eq(folders.kind, 1),
+          isNull(folders.deletedAt)
+        )
+      )
+      .limit(1);
+    const root = roots[0];
+    if (!root) {
+      return null;
+    }
+
+    const siblings = await tx
+      .select({ id: folders.id, parentId: folders.parentId })
+      .from(folders)
+      .where(
+        and(
+          eq(folders.orgId, orgId),
+          eq(folders.projectId, root.projectId),
+          eq(folders.kind, 1),
+          isNull(folders.deletedAt)
+        )
+      );
+
+    const childrenOf = new Map<string, string[]>();
+    for (const folder of siblings) {
+      if (!folder.parentId) {
+        continue;
+      }
+      const list = childrenOf.get(folder.parentId);
+      if (list) {
+        list.push(folder.id);
+      } else {
+        childrenOf.set(folder.parentId, [folder.id]);
+      }
+    }
+
+    const subtree: string[] = [];
+    const queue = [root.id];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
+      subtree.push(current);
+      queue.push(...(childrenOf.get(current) ?? []));
+    }
+
+    const counted = await tx
+      .select({ value: sql<number>`count(*)` })
+      .from(articles)
+      .where(
+        and(
+          eq(articles.orgId, orgId),
+          inArray(articles.folderId, subtree),
+          isNull(articles.deletedAt)
+        )
+      );
+
+    return {
+      name: root.name,
+      folderCount: subtree.length,
+      articleCount: Number(counted[0]?.value ?? 0),
+    };
+  });
+}
 
 export type ArticleScope = {
   id: string;
