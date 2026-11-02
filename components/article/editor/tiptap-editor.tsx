@@ -1,12 +1,16 @@
 'use client';
 
-import { TextStyle } from '@tiptap/extension-text-style';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useRef } from 'react';
 
 import { articleImage } from '@/components/article/editor/article-image-node';
 import { sanitizePasteHtml } from '@/components/article/editor/paste-filter';
+import {
+  articleFontFamily,
+  articleFontSize,
+  articleTextStyle,
+} from '@/components/article/editor/text-style';
 import { EditorToolbar } from '@/components/article/editor/toolbar';
 import { type ArticlePageDoc, normalizePageDoc } from '@/lib/article/doc';
 
@@ -60,7 +64,9 @@ export function TipTapEditor({
         hardBreak: false,
         link: false,
       }),
-      TextStyle,
+      articleTextStyle,
+      articleFontFamily,
+      articleFontSize,
       articleImage,
     ],
     content: value,

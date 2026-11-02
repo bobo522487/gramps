@@ -172,15 +172,14 @@ export function EditorToolbar({
         value={textStyle.fontFamily ?? ''}
         onChange={(event) => {
           const family = event.target.value || null;
-          if (!family) {
-            editor.chain().focus().unsetMark('textStyle').run();
-            return;
+          // 用扩展自带的命令：清掉字体时顺带删掉空的 textStyle span，
+          // 而且不会把同时设置的字号一起抹掉。
+          const chain = editor.chain().focus();
+          if (family) {
+            chain.setFontFamily(family).run();
+          } else {
+            chain.unsetFontFamily().run();
           }
-          editor
-            .chain()
-            .focus()
-            .setMark('textStyle', { fontFamily: family })
-            .run();
         }}
       >
         <option value="">默认字体</option>
@@ -201,11 +200,12 @@ export function EditorToolbar({
         value={textStyle.fontSize ?? ''}
         onChange={(event) => {
           const size = event.target.value || null;
-          if (!size) {
-            editor.chain().focus().unsetMark('textStyle').run();
-            return;
+          const chain = editor.chain().focus();
+          if (size) {
+            chain.setFontSize(size).run();
+          } else {
+            chain.unsetFontSize().run();
           }
-          editor.chain().focus().setMark('textStyle', { fontSize: size }).run();
         }}
       >
         <option value="">默认字号</option>

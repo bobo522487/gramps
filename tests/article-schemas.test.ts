@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ARTICLE_FONT_FAMILIES,
+  ARTICLE_FONT_SIZES,
+} from '@/lib/article/constants';
+import {
   articleContentSchema,
   articlePageDocSchema,
 } from '@/lib/article/schemas';
@@ -105,6 +109,92 @@ describe('articlePageDocSchema（节点与 mark 白名单）', () => {
 
     expect(result.success).toBe(true);
   });
+
+  // 规格只放行系统自带的三种字体与三个档位（FR-030）；清单本身在
+  // `lib/article/constants.ts`，这里逐条钉住「清单内的都能存、清单外的都存不进」。
+  for (const family of ARTICLE_FONT_FAMILIES) {
+    it(`接受白名单内的字体 ${family}`, () => {
+      const result = articlePageDocSchema.safeParse(
+        doc([
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '宋体正文',
+                marks: [{ type: 'textStyle', attrs: { fontFamily: family } }],
+              },
+            ],
+          },
+        ])
+      );
+
+      expect(result.success).toBe(true);
+    });
+  }
+
+  for (const size of ARTICLE_FONT_SIZES) {
+    it(`接受白名单内的字号 ${size}`, () => {
+      const result = articlePageDocSchema.safeParse(
+        doc([
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '字号档位',
+                marks: [{ type: 'textStyle', attrs: { fontSize: size } }],
+              },
+            ],
+          },
+        ])
+      );
+
+      expect(result.success).toBe(true);
+    });
+  }
+
+  for (const family of ['微软雅黑', 'Microsoft YaHei', 'Comic Sans MS']) {
+    it(`拒绝白名单外的字体 ${family}`, () => {
+      const result = articlePageDocSchema.safeParse(
+        doc([
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '外部字体',
+                marks: [{ type: 'textStyle', attrs: { fontFamily: family } }],
+              },
+            ],
+          },
+        ])
+      );
+
+      expect(result.success).toBe(false);
+    });
+  }
+
+  for (const size of ['28px', '12pt', '1.5em']) {
+    it(`拒绝白名单外的字号 ${size}`, () => {
+      const result = articlePageDocSchema.safeParse(
+        doc([
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: '自定义大小',
+                marks: [{ type: 'textStyle', attrs: { fontSize: size } }],
+              },
+            ],
+          },
+        ])
+      );
+
+      expect(result.success).toBe(false);
+    });
+  }
 
   it('拒绝白名单外的字体', () => {
     const result = articlePageDocSchema.safeParse(

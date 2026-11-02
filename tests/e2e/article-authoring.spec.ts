@@ -293,3 +293,30 @@ test('image: insert, resize, persist, and reject oversize', async ({
 
   expect(errors).toEqual([]);
 });
+
+test('font: 楷体与字号在刷新后仍然生效（US4、FR-030）', async ({ page }) => {
+  const errors = watchPageErrors(page);
+  await bootstrap(page, 'font');
+
+  await page.getByRole('button', { name: '新建谱文' }).click();
+  await createArticleAndOpen(page, '字辈考');
+
+  await page.locator('.article-canvas').click();
+  await page.keyboard.type('始祖讳元，字德承。');
+  await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 15_000 });
+
+  // P2 只给字体与字号两个开关（FR-031 的禁用清单由 StarterKit 关掉）。
+  await page.keyboard.press('Control+A');
+  await page.selectOption('#article-font-family', 'KaiTi');
+  await page.selectOption('#article-font-size', '19px');
+  await page.getByRole('button', { name: '立即保存' }).click();
+  await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 15_000 });
+
+  // 刷新后样式必须还在：attrs 走的是同一条序列化链路（Task 10 在这上面翻过一次）。
+  await page.reload();
+  const styled = page.locator('.article-canvas span[style*="KaiTi"]');
+  await expect(styled).toHaveCount(1);
+  await expect(styled).toHaveCSS('font-size', '19px');
+
+  expect(errors).toEqual([]);
+});
