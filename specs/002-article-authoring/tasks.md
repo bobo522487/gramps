@@ -50,7 +50,7 @@
 - [x] T013 `app/api/media/[...key]/route.ts`：双模式读取代理（`withApiLogging` + 会话 + 成员校验 + 404 语义）；测试 `tests/integration/media.test.ts`
 - [x] T014 [P] `app/api/blob/upload/route.ts`：`handleUpload({ onBeforeGenerateToken })`，模式不匹配 404
 - [x] T015 [P] `app/api/media/upload/route.ts`：fs 模式上传（MIME 魔数 / 10MB / 前缀 / 成员校验）
-- [ ] T016 `lib/db/queries/articles.ts`：列表（含页数）、单篇、分类篇数（`JOIN folder f … AND f.kind = 1`）、`getArticleDeletePreview`、`getFolderDeletePreview`、引用检查（含 `catalog.deleted_at` 与 `book.deleted_at`）
+- [x] T016 `lib/db/queries/articles.ts`：列表（含页数）、单篇、分类篇数（`JOIN folder f … AND f.kind = 1`）、`getArticleDeletePreview`、`getFolderDeletePreview`、引用检查（含 `catalog.deleted_at` 与 `book.deleted_at`）
 
 **Checkpoint**：`pnpm test:integration` 的媒体与查询用例通过；`/api/media/<key>` 跨组织返回 404。
 

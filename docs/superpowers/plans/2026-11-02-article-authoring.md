@@ -175,7 +175,7 @@ git commit -m "feat(article): 分页文档结构、派生规则与白名单校�
 
 `app/api/blob/upload/route.ts`：`handleUpload({ onBeforeGenerateToken, onUploadCompleted })`，回调里反查 `article` 拿 `projectId`、校验成员 + `article.write` + 前缀 + MIME + 10MB，返回 `allowedContentTypes` / `maximumSizeInBytes` / `addRandomSuffix: false` / `tokenPayload`；`mediaMode !== 'blob'` 直接 404。`app/api/media/upload/route.ts`：fs 模式 multipart，校验魔数、体积、前缀，落盘 `.data/media/`。
 
-- [ ] **Step 5: 门禁与提交**
+- [x] **Step 5: 门禁与提交**
 
 Run: `pnpm test:integration -- media && pnpm typecheck`
 Expected: PASS
@@ -196,15 +196,15 @@ git commit -m "feat(article): 媒体存储抽象与双模式上传/读取通道"
 **Interfaces:**
 - Produces: `listArticles(userId, orgId, projectId)`（带 `pageCount`）、`getArticle(userId, orgId, articleId)`、`countArticlesByFolder(...)`、`getArticleDeletePreview(...)`、`getFolderDeletePreview(...)`、`hasCatalogReference(...)`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 断言：列表按 `coalesce(updated_at, created_at) DESC`；`pageCount` 等于 `jsonb_array_length(content -> 'pages')`；分类篇数 SQL 用 `JOIN folder f ON f.id = a.folder_id AND f.kind = 1`（`article.kind` 恒 `NULL`）；引用检查带 `catalog.deleted_at IS NULL AND book.deleted_at IS NULL`。Run 确认失败。
 
-- [ ] **Step 2: 实现查询**
+- [x] **Step 2: 实现查询**
 
 全部经 `withOrg`、带 `orgId`；不加索引；「未分类」篇数 = 总数 − 分类篇数之和。
 
-- [ ] **Step 3: 门禁与提交**
+- [x] **Step 3: 门禁与提交**
 
 ```bash
 pnpm test:integration -- queries && pnpm typecheck
