@@ -11,7 +11,7 @@
 | 返回 | `ActionState & { data?: T }`（`lib/auth/types.ts` 的 `ActionState` 增加可选 `data` 字段，见 §0.2）；文案全简体中文，不回显堆栈与 SQL |
 | 权限 | 每个写 Action 内部用 `withOrgWrite(userId, orgId, 'article.write', fn)`（`lib/db/write.ts:15`，在 `fn` 之前判权限，返回 `T \| { ok: false, reason: 'forbidden' }`，Action 必须把 refusal 映射成 `forbidden` 文案）；读用 `withOrg`；**不信任客户端传来的角色或 projectId** |
 | 事务 | 多步写收敛到 `lib/article/services.ts` 的单个 `withOrgWrite` 事务；保存页在事务内 `SELECT … FOR UPDATE` 锁 `article` 行 |
-| 失效 | **按操作分级**（research.md §6）：新建/改标题/移分类/删除谱文 → `revalidatePath` 谱文列表路径；保存页/加页/删页/重排页 → **不 revalidate**（否则整树刷新会把服务端快照推回编辑器）。不用 `revalidateWholeConsole()` |
+| 失效 | **按操作分级**（research.md §6）：新建/改标题/移分类/删除谱文 → 调 `revalidateWholeConsole()`（全仓库 30 个既有 Action 都只用它，作用域助手 `revalidateProject` 至今零调用者，单独给谱文开第二条路是第二套事实来源）；保存页/加页/删页/重排页 → **一个都不失效**（页级写入不影响列表要展示的字段，整树失效会把服务端快照在敲字间隙推回编辑器，违反 FR-017） |
 | 活动日志 | `logActivityInTx` 复用既有 `CREATE_ARTICLE` / `UPDATE_ARTICLE` / `DELETE_ARTICLE` |
 | 非成员 | 一律按「不存在」返回 `not_found`，不泄露资源是否存在（FR-034） |
 

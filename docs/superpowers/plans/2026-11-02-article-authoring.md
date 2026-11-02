@@ -18,7 +18,7 @@
 - 权限一律 `hasPermission(role, '<permission>')`；**本期不改权限枚举、不改角色能力矩阵**（FR-036）——谱文分类写权限仍是 `project.write`，`editor` 看不到分类管理入口。
 - 面向用户的文案一律简体中文，错误不抛堆栈；非成员与不存在一律 404（不泄露存在性）。
 - **零迁移、零新表**：不改 `lib/db/migrations/`，不改 RLS，不加索引。
-- **保存路径不得调 `revalidateWholeConsole()`**：只有新建/改标题/移分类/删除谱文才 `revalidatePath` 谱文列表路径。
+- **保存路径不得调 `revalidateWholeConsole()`**：只有新建/改标题/移分类/删除谱文才失效缓存（执行时定为 `revalidateWholeConsole()`，理由见文末「执行期裁决」）。
 - 不写裸色值（`tests/design-system.test.ts` 会失败）；不引入编辑器外的状态库（zustand 仍只用于谱系工作区）。
 - 新依赖按 ADR 0009 §1 记账（PR 描述写清替换掉的自写代码）。
 - 提交前 `pnpm check && pnpm typecheck && pnpm test` 全绿；文档改动后 `pnpm docs:check --strict`。
@@ -547,3 +547,7 @@ git commit -m "test(article): 安全回归与性能夹具"
 2. **刷新后立刻点页缩略图的竞态**：`page.reload()` 之后 Playwright 判定位可见可点就下手，可能落在 hydration 之前，点了没反应（serial 模式下整条链路红一次，单跑同一条又绿）。加了两道：先 `toHaveAttribute('contenteditable','true')` 等 ProseMirror 接管，再把「点第 N 页 + 断言画布内容」包进 `expect(...).toPass()`。
 
 复跑证据：`CI=1 pnpm test:e2e --retries=0`（两个 spec 文件全量）**7 passed**（两次连跑都全绿，第二次 37.6s）。
+
+## 执行期裁决（评审补记，2026-11-02）
+
+- **缓存失效用 `revalidateWholeConsole()` 而不是计划里写的 `revalidatePath(列表路径)`**：全仓库 30 个既有 Action 只调这一个函数，`lib/lineage/revalidate.ts` 里的作用域助手 `revalidateProject` / `revalidateOrg` 至今零调用者；单为谱文接通第二条失效路径等于引入第二套事实来源（宪法 V）。失效只发生在**新建 / 改标题 / 移分类 / 删除**四种整篇级写入上；**保存页 / 加页 / 删页 / 重排页四个页级 Action 一律不失效**——这条是规格要求（FR-017：回显只到本次提交成功的那一页），实测靠 `tests/e2e/article-authoring.spec.ts` 的「打字→刷新→内容仍在」与 `tests/integration/articles.test.ts` 的按页保存用例守住。
