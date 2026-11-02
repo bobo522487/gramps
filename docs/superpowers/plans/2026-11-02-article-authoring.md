@@ -438,28 +438,28 @@ git commit -m "feat(article): 字体与字号（系统字体白名单，P2）"
 - Modify: `docs/architecture/04-数据视图-数据架构.md`、`docs/architecture/11-需求与实现状态.md`、`docs/architecture/05-接口与集成设计.md`、`AGENTS.md`
 - Test: `tests/security-regressions.test.ts`
 
-- [ ] **Step 1: 文档同步**
+- [x] **Step 1: 文档同步**
 
 04 §10.1 补 `article.content` 结构说明（不改 DDL）；11 §5.5 谱文状态与 FR-ART-1「类型→分类」；05 §6.6 按 contracts §1.11 的映射改成已实现清单；`AGENTS.md` §1「尚未实现」清单移除谱文编辑器与图片。
 
-- [ ] **Step 2: 安全回归测试**
+- [x] **Step 2: 安全回归测试**
 
 `viewer` 直接调写 Action 被拒；跨组织 `articleId` 404；跨组织 `/api/media` 404；上传令牌不能扩大前缀。**不改** `tests/permissions.test.ts` 与 `tests/access-control.test.ts`（本期零权限变更）。
 
-- [ ] **Step 3: 性能夹具**
+- [x] **Step 3: 性能夹具**
 
 `tests/e2e/fixtures/article.ts` 构造 20 页 / 40 图（SC-003）与 200 篇列表（SC-010）的测试数据，在 `tests/e2e/article-authoring.spec.ts` 里记录切页耗时与滚动帧率。
 
-- [ ] **Step 4: 全量门禁**
+- [x] **Step 4: 全量门禁**
 
 Run: `pnpm check && pnpm typecheck && pnpm test && pnpm arch:check && pnpm docs:check --strict && pnpm test:integration && pnpm test:e2e`
 Expected: 全部 0 issue / PASS（若集成或 E2E 环境不可用，记录哪一项没跑、为什么）
 
-- [ ] **Step 5: quickstart 演练**
+- [x] **Step 5: quickstart 演练**
 
 按 quickstart 逐条走完，特别确认：`editor` 看不到分类入口、地区只读、离开保护、跨组织 404、超限图片零副作用。
 
-- [ ] **Step 6: 提交（拆分）**
+- [x] **Step 6: 提交（拆分）**
 
 ```bash
 git add docs/ AGENTS.md
@@ -532,3 +532,5 @@ git commit -m "test(article): 安全回归与性能夹具"
 
 1. **编辑者（editor）在真实浏览器里看不到「新建/重命名/删除分类」入口**：入口显隐由 `canManageFolders = hasPermission(role, 'project.write')` 决定，且 `security-regressions.test.ts` 已钉住 `hasPermission('editor','project.write') === false`；但没有第二个成员账号的 E2E（要注册第二个用户再插一条 membership），本期未做。
 2. **浏览器原生「确定离开？」弹窗**（US2 最后一条，`beforeunload`）：拦截逻辑在 `article-editor-shell.tsx`（`busy = ws.hasPending || titlePending` 时才挂 `beforeunload`），集成/E2E 都只验到「应用内切页/切分类先保存、失败停留」，弹窗本身未自动化（Playwright 对 `beforeunload` 的处理需要专门的 dialog 夹具，性价比低）。
+
+**Task 12 执行偏差**：T046 的安全回归主要落在 `tests/integration/article-security.test.ts`（真实库里才测得到越权与拒绝副作用），brief 里点名的 `tests/security-regressions.test.ts` 只补了 5 条**静态不变量**（写事务必须复核 `article.write`、组织级查询必须带 `orgId`、媒体越权一律 404 不给 403、错误文案不回显内部信息）。两条未自动化项见「验证记录」末节。

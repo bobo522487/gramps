@@ -135,12 +135,12 @@
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T045 [P] 文档同步：`docs/architecture/04-数据视图-数据架构.md` §10.1 补 `content` 结构说明；`docs/architecture/11-需求与实现状态.md` §5.5 谱文状态与 FR-ART-1「类型→分类」；`docs/architecture/05-接口与集成设计.md` §6.6 映射（contracts §1.11）；`AGENTS.md` §1「尚未实现」清单
-- [ ] T046 [P] 安全回归：viewer 直接调 Action 被拒、跨组织 `articleId` 404、跨组织 `/api/media` 404、上传令牌不可扩大前缀 —— `tests/security-regressions.test.ts`
-- [ ] T047 [P] 性能夹具：`tests/e2e/article-authoring.spec.ts` 的 20 页 / 40 图（SC-003）与 200 篇列表（SC-010）数据构造，辅助函数放 `tests/e2e/fixtures/article.ts`
-- [ ] T048 全量门禁（无文件改动，输出记录进 PR 描述）：`pnpm check && pnpm typecheck && pnpm test && pnpm arch:check && pnpm docs:check --strict && pnpm test:integration && pnpm test:e2e`
-- [ ] T049 按 [quickstart.md](./quickstart.md) 逐条演练，实际输出记录到 `docs/superpowers/plans/2026-11-02-article-authoring.md` 末尾（含 `editor` 看不到分类入口、地区只读、离开保护）
-- [ ] T050 提交拆分：`package.json`、`biome.json`、`docs/decisions/**` 走 `chore(deps)`；`lib/article/**`、`components/article/**`、`app/**`、`tests/**` 走 `feat(article)`／`test(article)`；`docs/architecture/**`、`AGENTS.md` 走 `docs(spec)`，各自独立提交
+- [x] T045 [P] 文档同步：`docs/architecture/04-数据视图-数据架构.md` §10.1 补 `content` 结构说明；`docs/architecture/11-需求与实现状态.md` §5.5 谱文状态与 FR-ART-1「类型→分类」；`docs/architecture/05-接口与集成设计.md` §6.6 映射（contracts §1.11）；`AGENTS.md` §1「尚未实现」清单
+- [x] T046 [P] 安全回归：viewer 直接调 Action 被拒、跨组织 `articleId` 404、跨组织 `/api/media` 404、上传令牌不可扩大前缀 —— `tests/security-regressions.test.ts`
+- [x] T047 [P] 性能夹具：`tests/e2e/article-authoring.spec.ts` 的 20 页 / 40 图（SC-003）与 200 篇列表（SC-010）数据构造，辅助函数放 `tests/e2e/fixtures/article.ts`
+- [x] T048 全量门禁（无文件改动，输出记录进 PR 描述）：`pnpm check && pnpm typecheck && pnpm test && pnpm arch:check && pnpm docs:check --strict && pnpm test:integration && pnpm test:e2e`
+- [x] T049 按 [quickstart.md](./quickstart.md) 逐条演练，实际输出记录到 `docs/superpowers/plans/2026-11-02-article-authoring.md` 末尾（含 `editor` 看不到分类入口、地区只读、离开保护）
+- [x] T050 提交拆分：`package.json`、`biome.json`、`docs/decisions/**` 走 `chore(deps)`；`lib/article/**`、`components/article/**`、`app/**`、`tests/**` 走 `feat(article)`／`test(article)`；`docs/architecture/**`、`AGENTS.md` 走 `docs(spec)`，各自独立提交
 
 ---
 
