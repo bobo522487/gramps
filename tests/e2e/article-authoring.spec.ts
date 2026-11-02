@@ -28,14 +28,16 @@ function watchPageErrors(page: import('@playwright/test').Page): string[] {
   return errors;
 }
 
-test('article authoring: create, auto-save, rename, move folder, delete', async ({
-  page,
-}) => {
-  const errors = watchPageErrors(page);
-  const email = `e2e-article+${Date.now()}@example.com`;
-
+/**
+ * 注册 → 建云谱空间 → 回到谱文列表，返回 projectRef。
+ * 两个故事都要这套前序，抽出来免得两份拷贝各改各的。
+ */
+async function bootstrap(
+  page: import('@playwright/test').Page,
+  label: string
+): Promise<string> {
   await page.goto('/sign-up');
-  await page.locator('#email').fill(email);
+  await page.locator('#email').fill(`e2e-article+${label}@example.com`);
   await page.locator('#password').fill(PASSWORD);
   await page.getByRole('button', { name: '注册', exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard\/org\/[^/]+$/);
@@ -55,33 +57,45 @@ test('article authoring: create, auto-save, rename, move folder, delete', async 
   const projectRef =
     new URL(page.url()).pathname.split('/').filter(Boolean).at(-1) ?? '';
   expect(projectRef).not.toBe('');
-
   await page.goto(`/dashboard/project/${projectRef}/articles`);
-  await expect(page.getByText('还没有谱文', { exact: false })).toBeVisible();
+  return projectRef;
+}
 
-  // 新建：标题必填，地区只读继承云谱空间。
-  await page.getByRole('button', { name: '新建谱文' }).first().click();
+/**
+ * 填标题并提交，进入编辑器（对话框要由调用方先打开——US1 那条还要在打开后
+ * 先检查必填与只读地区，所以这里不再代劳点「新建谱文」）。
+ */
+async function createArticleAndOpen(
+  page: import('@playwright/test').Page,
+  title: string
+): Promise<string> {
   const createDialog = page.getByRole('dialog', { name: '新建谱文' });
   await expect(createDialog).toBeVisible();
+  await page.locator('#new-article-title').fill(title);
+  await createDialog.getByRole('button', { name: '新建并编辑' }).click();
+  await expect(page).toHaveURL(/\/articles\/[^/]+$/);
+  return new URL(page.url()).pathname.split('/').filter(Boolean).at(-1) ?? '';
+}
+
+test('article authoring: create, auto-save, rename, move folder, delete', async ({
+  page,
+}) => {
+  const errors = watchPageErrors(page);
+  const projectRef = await bootstrap(page, String(Date.now()));
+
+  await expect(page.getByText('还没有谱文', { exact: false })).toBeVisible();
+
+  // 新建：标题必填，地区只读继承云谱空间（FR-001、FR-007）。
+  await page.getByRole('button', { name: '新建谱文' }).first().click();
+  const createDialog = page.getByRole('dialog', { name: '新建谱文' });
   await expect(
     createDialog.getByRole('button', { name: '新建并编辑' })
   ).toBeDisabled();
-  // 地区继承云谱空间且**只读**：不是可编辑输入框。
   await expect(
     createDialog.getByText('中国福建', { exact: true })
   ).toBeVisible();
   await expect(createDialog.locator('input#new-article-region')).toHaveCount(0);
-
-  await page.locator('#new-article-title').fill('E2E 始祖谱序');
-  await createDialog.getByRole('button', { name: '新建并编辑' }).click();
-
-  const editorUrl = new RegExp(
-    `/dashboard/project/${projectRef}/articles/[^/]+$`
-  );
-  await expect(page).toHaveURL(editorUrl);
-
-  const articleId =
-    new URL(page.url()).pathname.split('/').filter(Boolean).at(-1) ?? '';
+  const articleId = await createArticleAndOpen(page, 'E2E 始祖谱序');
   expect(articleId).not.toBe('');
 
   // 顶栏：标题、只读地区、立即保存；没有任何分享/发布/导出/版式入口。
@@ -112,6 +126,8 @@ test('article authoring: create, auto-save, rename, move folder, delete', async 
   // 改标题：失焦提交，刷新后仍在。
   await page.getByLabel('谱文标题').fill('E2E 始祖谱序（改）');
   await page.getByLabel('谱文标题').blur();
+  // 标题是失焦即存的独立字段：等它存完（提交期间输入框是 disabled）再刷新。
+  await expect(page.getByLabel('谱文标题')).toBeEnabled({ timeout: 15_000 });
   await page.reload();
   await expect(page.getByLabel('谱文标题')).toHaveValue('E2E 始祖谱序（改）');
 
@@ -140,6 +156,71 @@ test('article authoring: create, auto-save, rename, move folder, delete', async 
   await expect(
     page.getByRole('link', { name: 'E2E 始祖谱序（改）' })
   ).toHaveCount(0);
+
+  expect(errors).toEqual([]);
+});
+
+test('multi-page: add, switch commits first, reorder persists, cannot delete last page', async ({
+  page,
+}) => {
+  const errors = watchPageErrors(page);
+  await bootstrap(page, `pages-${Date.now()}`);
+  await page.getByRole('button', { name: '新建谱文' }).first().click();
+  await createArticleAndOpen(page, 'E2E 多页谱文');
+
+  const strip = page.getByRole('complementary', { name: '页列表' });
+  const canvas = page.locator('.article-canvas');
+
+  // 第 1 页写字并等它存上。
+  await canvas.click();
+  await page.keyboard.type('第一页：始祖讳元。');
+  await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 15_000 });
+
+  // 加页（FR-021）：新页在末尾，缩略图先显示「空页」。
+  await strip.getByRole('button', { name: '添加页' }).click();
+  await expect(strip.getByText('第 2 页')).toBeVisible();
+  await expect(strip.getByText('（空页）')).toBeVisible();
+
+  // 切到新页写字。
+  await strip.getByRole('button', { name: /^第 2 页/ }).click();
+  await canvas.click();
+  await page.keyboard.type('第二页：次房支系。');
+
+  // 有未保存改动时切页 = 先提交再走（FR-003、FR-021、US2-AC7）：
+  // 直接点第 1 页，等这一笔存完，第 2 页的缩略图应当换成真实摘要。
+  await strip.getByRole('button', { name: /^第 1 页/ }).click();
+  await expect(strip.getByText(/次房支系/)).toBeVisible({ timeout: 15_000 });
+
+  // 刷新后两页各自内容不串（FR-024）。
+  await page.reload();
+  const canvasAfterReload = page.locator('.article-canvas');
+  await expect(canvasAfterReload).toContainText('第一页：始祖讳元。');
+  await strip.getByRole('button', { name: /^第 2 页/ }).click();
+  await expect(page.locator('.article-canvas')).toContainText(
+    '第二页：次房支系。'
+  );
+
+  // 拖拽重排（FR-023）：把第 2 页拖到第 1 页前面，刷新后页序保持。
+  const items = strip.getByRole('listitem');
+  await items.nth(1).dragTo(items.nth(0));
+  // 重排成功后右区顺序按服务端返回的页序立刻更新（FR-023）。
+  await expect(items.nth(0)).toContainText('次房支系', { timeout: 15_000 });
+  await page.reload();
+  await expect(strip.getByText('第 1 页')).toBeVisible();
+  await expect(strip.getByRole('button', { name: /^第 1 页/ })).toContainText(
+    '次房支系'
+  );
+  await expect(strip.getByRole('button', { name: /^第 2 页/ })).toContainText(
+    '始祖讳元'
+  );
+
+  // 删到只剩一页时不再给删除入口，也删不掉最后一页（FR-022）。
+  await strip.getByRole('button', { name: '删除第 2 页' }).click();
+  await expect(page.getByRole('button', { name: /^第 2 页/ })).toHaveCount(0);
+  await expect(strip.getByRole('button', { name: '删除第 1 页' })).toHaveCount(
+    0
+  );
+  await expect(page.locator('.article-canvas')).toContainText('次房支系');
 
   expect(errors).toEqual([]);
 });

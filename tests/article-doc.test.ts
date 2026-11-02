@@ -6,8 +6,10 @@ import {
   type ArticlePage,
   type ArticlePageDoc,
   countImages,
+  createEmptyPageDoc,
   derivePlainText,
   isReferenced,
+  pagePlainText,
   parseArticleContent,
 } from '@/lib/article/doc';
 
@@ -33,6 +35,28 @@ function pageDoc(nodes: ArticleNode[]): ArticlePageDoc {
 function content(pages: ArticlePage[]): ArticleContent {
   return { schemaVersion: 1, pages };
 }
+
+describe('pagePlainText（页缩略图的文本摘要）', () => {
+  it('只取这一页的块级文本，标题也算进去', () => {
+    const doc = {
+      type: 'doc' as const,
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 1 },
+          content: [{ type: 'text', text: '谱序' }],
+        },
+        { type: 'paragraph', content: [{ type: 'text', text: '吾族世系' }] },
+        { type: 'articleImage', attrs: { pathname: 'articles/a/b/c.png' } },
+      ],
+    };
+    expect(pagePlainText(doc)).toBe('谱序\n\n吾族世系');
+  });
+
+  it('空页返回空串（新加的页就是这个样子）', () => {
+    expect(pagePlainText(createEmptyPageDoc())).toBe('');
+  });
+});
 
 describe('derivePlainText', () => {
   it('按页序收集文本，页间用空行连接', () => {

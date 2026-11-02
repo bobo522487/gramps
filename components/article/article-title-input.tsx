@@ -19,10 +19,16 @@ export function ArticleTitleInput({
   orgId,
   articleId,
   initialTitle,
+  onPendingChange,
 }: {
   orgId: string;
   articleId: string;
   initialTitle: string;
+  /**
+   * 把「标题正在保存」告诉外面的离开保护（FR-016）：标题是失焦即存的独立
+   * 字段，正文没脏但标题在飞的时候刷新，一样会丢。
+   */
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const [value, setValue] = useState(initialTitle);
   const [error, setError] = useState<string | null>(null);
@@ -50,12 +56,14 @@ export function ArticleTitleInput({
       return;
     }
     setPending(true);
+    onPendingChange?.(true);
     const result = await updateArticleTitleAction({
       orgId,
       articleId,
       title,
     });
     setPending(false);
+    onPendingChange?.(false);
     if ('error' in result && result.error) {
       setError(result.error);
       return;

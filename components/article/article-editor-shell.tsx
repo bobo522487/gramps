@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useArticleAutosave } from '@/hooks/use-article-autosave';
 import type { ArticleContent } from '@/lib/article/doc';
+import { pagePlainText } from '@/lib/article/doc';
 import { ArticleMoveDialog } from './article-card-dialogs';
 import { ArticleFolderTree } from './article-folder-tree';
 import { ArticleTitleInput } from './article-title-input';
@@ -62,12 +63,15 @@ export function ArticleEditorShell({
   const ws = useArticleAutosave({ orgId, articleId, initial });
   const [moveOpen, setMoveOpen] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [titlePending, setTitlePending] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
 
   const listHref = `/dashboard/project/${projectRef}/articles`;
 
+  const busy = ws.hasPending || titlePending;
+
   async function guardedLeave() {
-    if (canWrite && ws.hasPending) {
+    if (canWrite && busy) {
       const ok = await ws.saveNow();
       if (!ok) {
         setLeaveError('还有内容没保存成功，已停留在当前页。');
@@ -79,7 +83,7 @@ export function ArticleEditorShell({
 
   function selectFolder(folderId: string | null) {
     setSelectedFolderId(folderId);
-    if (!canWrite || !ws.hasPending) {
+    if (!canWrite || !busy) {
       router.push(listHref);
       return;
     }
@@ -98,7 +102,7 @@ export function ArticleEditorShell({
       return;
     }
     function onBeforeUnload(event: BeforeUnloadEvent) {
-      if (ws.hasPending) {
+      if (busy) {
         event.preventDefault();
         event.returnValue = '';
       }
@@ -107,9 +111,14 @@ export function ArticleEditorShell({
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [canWrite, ws.hasPending]);
+  }, [canWrite, busy]);
 
   const currentDoc = ws.docOf(ws.currentPageId);
+  // 页缩略图的文本摘要：页都在内存里，直接算，不再打服务端。
+  const pageSummaries: Record<string, string> = {};
+  for (const pageId of ws.pageIds) {
+    pageSummaries[pageId] = pagePlainText(ws.docOf(pageId));
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -127,6 +136,7 @@ export function ArticleEditorShell({
           orgId={orgId}
           articleId={articleId}
           initialTitle={initialTitle}
+          onPendingChange={setTitlePending}
         />
 
         <span className="text-xs text-muted-foreground">
@@ -190,6 +200,7 @@ export function ArticleEditorShell({
         <PageStrip
           pageIds={ws.pageIds}
           currentPageId={ws.currentPageId}
+          summaries={pageSummaries}
           canWrite={canWrite}
           onSelect={(pageId) => {
             if (pageId === ws.currentPageId) {

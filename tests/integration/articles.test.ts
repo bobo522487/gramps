@@ -2,11 +2,14 @@ import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  addArticlePageAction,
   createArticleAction,
   deleteArticleAction,
+  deleteArticlePageAction,
   getArticleDeletePreviewAction,
   getFolderDeletePreviewAction,
   moveArticleAction,
+  reorderArticlePagesAction,
   saveArticlePageAction,
   updateArticleTitleAction,
 } from '@/lib/article/actions';
@@ -730,6 +733,167 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
       await getFolderDeletePreviewAction({
         orgId: fixture.outsiderOrgId,
         folderId: folder.id,
+      })
+    ).toEqual({ error: ARTICLE_ERRORS.not_found });
+  });
+});
+
+/**
+ * 页操作（T032 / FR-021–FR-024）。
+ *
+ * 服务层在 Task 6 已交付，这组用例把「页 id 由服务端生成、100 页与最后一页的拒绝、
+ * 重排集合必须一致、页序真的落库」钉成回归——页序是数组顺序，没有单独的排序列，
+ * 一旦写错就是用户看到的顺序错了。
+ */
+describe('页操作（加页 / 删页 / 重排）', () => {
+  const PAGE_A = '11111111-1111-4111-8111-111111111111';
+  const PAGE_B = '22222222-2222-4222-8222-222222222222';
+
+  async function twoPageArticle() {
+    await as(fixture.editorId);
+    const [row] = await getTestDb()
+      .insert(articles)
+      .values({
+        orgId: fixture.orgId,
+        projectId: fixture.projectId,
+        createdBy: fixture.editorId,
+        title: '两页谱文',
+        content: contentOf(
+          { id: PAGE_A, text: '甲页' },
+          { id: PAGE_B, text: '乙页' }
+        ),
+      })
+      .returning({ id: articles.id });
+    return row.id;
+  }
+
+  async function pageIdsOf(articleId: string) {
+    const content = (await readContent(articleId))?.content as {
+      pages: { id: string }[];
+    };
+    return content.pages.map((page) => page.id);
+  }
+
+  it('加页：页 id 由服务端生成并追加在末尾（FR-021）', async () => {
+    const articleId = await twoPageArticle();
+
+    const result = await addArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+    });
+
+    expect(result).toMatchObject({ success: '已添加一页' });
+    const data = (result as { data?: { pageId: string; pageOrder: string[] } })
+      .data;
+    expect(data?.pageId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(data?.pageOrder).toEqual([PAGE_A, PAGE_B, data?.pageId]);
+    expect(await pageIdsOf(articleId)).toEqual([PAGE_A, PAGE_B, data?.pageId]);
+  });
+
+  it('第 101 页被拒且谱文不变（FR-021）', async () => {
+    await as(fixture.editorId);
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: `page-${index}`,
+      text: `第 ${index} 页`,
+    }));
+    const [row] = await getTestDb()
+      .insert(articles)
+      .values({
+        orgId: fixture.orgId,
+        projectId: fixture.projectId,
+        createdBy: fixture.editorId,
+        title: '满页谱文',
+        content: contentOf(...full),
+      })
+      .returning({ id: articles.id });
+
+    expect(
+      await addArticlePageAction({ orgId: fixture.orgId, articleId: row.id })
+    ).toEqual({ error: ARTICLE_ERRORS.max_pages });
+    expect(await pageIdsOf(row.id)).toHaveLength(100);
+  });
+
+  it('删掉最后一页被拒（FR-022）', async () => {
+    await as(fixture.editorId);
+    const [row] = await getTestDb()
+      .insert(articles)
+      .values({
+        orgId: fixture.orgId,
+        projectId: fixture.projectId,
+        createdBy: fixture.editorId,
+        title: '单页谱文',
+        content: contentOf({ id: PAGE_A, text: '唯一一页' }),
+      })
+      .returning({ id: articles.id });
+
+    expect(
+      await deleteArticlePageAction({
+        orgId: fixture.orgId,
+        articleId: row.id,
+        pageId: PAGE_A,
+      })
+    ).toEqual({ error: ARTICLE_ERRORS.last_page });
+    expect(await pageIdsOf(row.id)).toEqual([PAGE_A]);
+  });
+
+  it('删页只删这一页，其余页与页序保持（FR-022）', async () => {
+    const articleId = await twoPageArticle();
+
+    const result = await deleteArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageId: PAGE_A,
+    });
+
+    expect(result).toMatchObject({ success: '已删除该页' });
+    expect(
+      (result as { data?: { pageOrder: string[] } }).data?.pageOrder
+    ).toEqual([PAGE_B]);
+    expect(await pageIdsOf(articleId)).toEqual([PAGE_B]);
+    expect((await readContent(articleId))?.plainText).toBe('乙页');
+  });
+
+  it('重排集合不一致（多了未知页）整次拒绝且顺序不变（FR-023）', async () => {
+    const articleId = await twoPageArticle();
+
+    expect(
+      await reorderArticlePagesAction({
+        orgId: fixture.orgId,
+        articleId,
+        pageIds: [PAGE_B, '99999999-9999-4999-8999-999999999999'],
+      })
+    ).toEqual({ error: ARTICLE_ERRORS.page_not_found });
+    expect(await pageIdsOf(articleId)).toEqual([PAGE_A, PAGE_B]);
+  });
+
+  it('重排后页序真的落库，plain_text 跟着新顺序派生（FR-023、FR-038）', async () => {
+    const articleId = await twoPageArticle();
+
+    const result = await reorderArticlePagesAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageIds: [PAGE_B, PAGE_A],
+    });
+
+    expect(result).toMatchObject({ success: '页序已保存' });
+    expect(await pageIdsOf(articleId)).toEqual([PAGE_B, PAGE_A]);
+    expect((await readContent(articleId))?.plainText).toBe('乙页\n\n甲页');
+  });
+
+  it('viewer 不能加页，editor 可以（FR-033）', async () => {
+    const articleId = await twoPageArticle();
+
+    await as(fixture.viewerId);
+    expect(
+      await addArticlePageAction({ orgId: fixture.orgId, articleId })
+    ).toEqual({ error: PERMISSION_DENIED_MESSAGES['article.write'] });
+
+    await as(fixture.outsiderId);
+    expect(
+      await reorderArticlePagesAction({
+        orgId: fixture.outsiderOrgId,
+        articleId,
+        pageIds: [PAGE_A, PAGE_B],
       })
     ).toEqual({ error: ARTICLE_ERRORS.not_found });
   });

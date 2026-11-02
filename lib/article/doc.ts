@@ -188,12 +188,18 @@ function collectBlockTexts(doc: ArticlePageDoc): string[] {
  * 派生 `article.plain_text`：按页序收集文本，块与页之间统一以空行分隔。
  * 这是唯一允许写该列的地方（ADR 0010）。
  */
+/**
+ * 单页的文本摘要（页缩略图用，FR-021）。
+ *
+ * 与 `derivePlainText` 同一套块级规则，只是范围限于一页：图片不贡献文本，
+ * 所以新加的页摘要是空串，缩略图上就显示「空页」。
+ */
+export function pagePlainText(doc: ArticlePageDoc): string {
+  return collectBlockTexts(doc).join('\n\n');
+}
+
 export function derivePlainText(content: ArticleContent): string {
-  const blocks: string[] = [];
-  for (const page of content.pages) {
-    blocks.push(...collectBlockTexts(page.doc));
-  }
-  return blocks.join('\n\n');
+  return content.pages.map((page) => pagePlainText(page.doc)).join('\n\n');
 }
 
 function countImagesInDoc(doc: ArticlePageDoc): number {
