@@ -47,29 +47,29 @@
 **Interfaces:**
 - Produces: 可用的 `@tiptap/react` / `@tiptap/core` / `@tiptap/pm` / `@tiptap/starter-kit` / `@tiptap/extension-text-style` / `@tiptap/extension-image` / `@vercel/blob`；ADR 0019 编号 0019（§1 索引行 ADR-29）
 
-- [ ] **Step 1: 装依赖**
+- [x] **Step 1: 装依赖**
 
 Run: `pnpm add @tiptap/react @tiptap/core @tiptap/pm @tiptap/starter-kit @tiptap/extension-text-style @tiptap/extension-image @vercel/blob`
 Expected: 六个 TipTap 包版本一致（3.x），`@vercel/blob` ≥2.3
 
-- [ ] **Step 2: 改 ADR 0010 状态句**
+- [x] **Step 2: 改 ADR 0010 状态句**
 
 把「依赖尚未安装」改为「本期安装」，**逐字保留 `决策 ≠ 现在安装` 这一串**（测试靠它跳过依赖黑名单）；同步 `docs/decisions/README.md` 的 ADR-12 行。
 
-- [ ] **Step 3: 写 ADR 0019**
+- [x] **Step 3: 写 ADR 0019**
 
 内容按 `docs/decisions/README.md` 的模板：背景（仓库无对象存储，规格把图片定为 P0）／决策（私有 Blob + 服务端代理读取 + fs 兜底 + 客户端直传）／后果（正：每请求授权、本地可验；负：带宽经函数、孤儿字节）／放弃的方案（公有桶、签名 URL、base64 内嵌）／重估触发。并在 `docs/decisions/README.md` §1 索引与 §2 表格各加一行。
 
-- [ ] **Step 4: biome 限制编辑器依赖**
+- [x] **Step 4: biome 限制编辑器依赖**
 
 在 `biome.json` 的 `noRestrictedImports` 里加一条：`@tiptap/*` 只允许 `lib/article/**` 与 `components/article/editor/**`。
 
-- [ ] **Step 5: 门禁**
+- [x] **Step 5: 门禁**
 
 Run: `pnpm check && pnpm typecheck && pnpm test && pnpm docs:check --strict`
 Expected: 全绿（`tests/docs-consistency.test.ts` 的 ADR 0010 用例通过）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add package.json pnpm-lock.yaml biome.json docs/decisions/

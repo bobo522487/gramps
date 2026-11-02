@@ -24,10 +24,10 @@
 
 **Purpose**：装依赖、改配置与文档前置项，为后续所有阶段解除阻塞。
 
-- [ ] T001 安装依赖（TipTap 3 六包 + `@vercel/blob` ≥2.3），确认版本对齐：`package.json`、`pnpm-lock.yaml`
-- [ ] T002 [P] 在 `biome.json` 增加 `noRestrictedImports`：`@tiptap/*` 只允许 `lib/article/**` 与 `components/article/editor/**`
-- [ ] T003 [P] 改 `docs/decisions/0010-rich-text-editor-selection.md` 状态句（删「尚未安装」，**保留 `决策 ≠ 现在安装` 字面串**）并同步 `docs/decisions/README.md` 的 ADR-12 行
-- [ ] T004 [P] 新增媒体存储决策 `docs/decisions/0019-media-storage.md`，并在 `docs/decisions/README.md` §1 索引与 §2 表格各加一行
+- [x] T001 安装依赖（TipTap 3 六包 + `@vercel/blob` ≥2.3），确认版本对齐：`package.json`、`pnpm-lock.yaml`
+- [x] T002 [P] 在 `biome.json` 增加 `noRestrictedImports`：`@tiptap/*` 只允许 `lib/article/**` 与 `components/article/editor/**`
+- [x] T003 [P] 改 `docs/decisions/0010-rich-text-editor-selection.md` 状态句（删「尚未安装」，**保留 `决策 ≠ 现在安装` 字面串**）并同步 `docs/decisions/README.md` 的 ADR-12 行
+- [x] T004 [P] 新增媒体存储决策 `docs/decisions/0019-media-storage.md`，并在 `docs/decisions/README.md` §1 索引与 §2 表格各加一行
 - [ ] T005 [P] `lib/config.ts` 增加可选 `BLOB_READ_WRITE_TOKEN` 与 `mediaMode: 'blob' | 'fs'` 判定（F7：只在此处读 `process.env`）
 - [ ] T006 [P] `.gitignore` 增加 `.data/`（本地媒体落盘目录）
 - [ ] T007 [P] 核对 `vitest.coverage.config.ts` 的 include/exclude 是否覆盖 `lib/article/**`，按现有规则补齐
