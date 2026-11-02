@@ -2,7 +2,7 @@
 
 import { FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -79,8 +79,13 @@ export function ArticleFolderTree({
     setRowError(null);
   }
 
+  // `Enter` 提交之后输入框还在 DOM 里，紧接着的 `blur` 会再提交一次；
+  // `editing` 要等 Action 回来才清空，所以两次都会真的发出去（分类树里
+  // 凭空多出一个重名分类）。用 ref 在同一 tick 里挡住第二次。
+  const submittingRef = useRef<string | null>(null);
+
   async function submitEdit() {
-    if (!editing) {
+    if (!editing || submittingRef.current === editing.id) {
       return;
     }
     const name = editing.value.trim();
@@ -90,6 +95,7 @@ export function ArticleFolderTree({
     }
 
     setPending(editing.id);
+    submittingRef.current = editing.id;
     try {
       if (editing.original === '') {
         const formData = new FormData();
@@ -121,6 +127,7 @@ export function ArticleFolderTree({
     } catch {
       setRowError({ id: editing.id, message: '保存失败，请重试' });
     } finally {
+      submittingRef.current = null;
       setPending(null);
     }
   }

@@ -4,6 +4,13 @@ import { ChevronLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { useArticleAutosave } from '@/hooks/use-article-autosave';
 import type { ArticleContent } from '@/lib/article/doc';
 import { pagePlainText } from '@/lib/article/doc';
@@ -68,6 +75,7 @@ export function ArticleEditorShell({
   const [leaveError, setLeaveError] = useState<string | null>(null);
   const [titlePending, setTitlePending] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [treeOpen, setTreeOpen] = useState(false);
 
   const listHref = `/dashboard/project/${projectRef}/articles`;
 
@@ -86,6 +94,7 @@ export function ArticleEditorShell({
 
   function selectFolder(folderId: string | null) {
     setSelectedFolderId(folderId);
+    setTreeOpen(false);
     if (!canWrite || !busy) {
       router.push(listHref);
       return;
@@ -116,6 +125,18 @@ export function ArticleEditorShell({
     };
   }, [canWrite, busy]);
 
+  const folderTree = (
+    <ArticleFolderTree
+      orgId={orgId}
+      projectId={projectId}
+      folders={folders}
+      unfiledCount={unfiledCount}
+      selectedFolderId={selectedFolderId}
+      canManage={canManageFolders}
+      onSelect={selectFolder}
+    />
+  );
+
   const currentDoc = ws.docOf(ws.currentPageId);
   // 页缩略图的文本摘要：页都在内存里，直接算，不再打服务端。
   const pageSummaries: Record<string, string> = {};
@@ -134,6 +155,40 @@ export function ArticleEditorShell({
         >
           <ChevronLeft className="size-4" />
         </button>
+
+        {/* 窄屏时分类树折进抽屉，但功能不缺（FR-012）。 */}
+        <Sheet
+          open={treeOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              setTreeOpen(false);
+              return;
+            }
+            void (async () => {
+              if (canWrite && busy) {
+                const ok = await ws.saveNow();
+                if (!ok) {
+                  setLeaveError('还有内容没保存成功，先别切分类。');
+                  return;
+                }
+              }
+              setTreeOpen(true);
+            })();
+          }}
+        >
+          <SheetTrigger asChild>
+            <Button variant="outline" size="xs" className="lg:hidden">
+              分类
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-72 p-3">
+            <SheetTitle className="sr-only">谱文分类</SheetTitle>
+            <SheetDescription className="sr-only">
+              按分类筛选谱文，或跳到别的谱文
+            </SheetDescription>
+            {folderTree}
+          </SheetContent>
+        </Sheet>
 
         <ArticleTitleInput
           orgId={orgId}
@@ -181,15 +236,7 @@ export function ArticleEditorShell({
 
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-card p-3 lg:flex">
-          <ArticleFolderTree
-            orgId={orgId}
-            projectId={projectId}
-            folders={folders}
-            unfiledCount={unfiledCount}
-            selectedFolderId={selectedFolderId}
-            canManage={canManageFolders}
-            onSelect={selectFolder}
-          />
+          {folderTree}
         </aside>
 
         <main className="min-w-0 flex-1 overflow-hidden">

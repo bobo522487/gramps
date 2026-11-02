@@ -7,6 +7,7 @@ import {
   deleteArticleAction,
   deleteArticlePageAction,
   getArticleDeletePreviewAction,
+  getFolderDeletePreviewAction,
   moveArticleAction,
   reorderArticlePagesAction,
   saveArticlePageAction,
@@ -171,8 +172,10 @@ beforeEach(async () => {
 });
 
 describe('未登录', () => {
-  it('九个谱文 Action 全部返回未登录的中文提示，且不新增任何行', async () => {
+  it('十个谱文 Action 全部返回未登录的中文提示，且不新增任何行', async () => {
     const { articleId, pageIds } = await seedArticle();
+    // 匿名调用在取会话那一步就被拒，所以这里不需要真实分类 id。
+    const folderId = crypto.randomUUID();
     session.cookie = undefined;
 
     const before = await articleCount();
@@ -216,6 +219,8 @@ describe('未登录', () => {
           pageIds: [...pageIds].reverse(),
         }),
       () => getArticleDeletePreviewAction({ orgId: fixture.orgId, articleId }),
+      // 预览类也是读接口，同样不许匿名调用（它照样得给出中文拒绝）。
+      () => getFolderDeletePreviewAction({ orgId: fixture.orgId, folderId }),
     ];
 
     for (const call of payloads) {

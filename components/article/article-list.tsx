@@ -19,7 +19,7 @@ import {
   ArticleRenameDialog,
 } from './article-card-dialogs';
 import type { ArticleRow, FolderPickerOption } from './types';
-import { folderLabel } from './types';
+import { folderLabel, UNFILED_FOLDER_ID } from './types';
 
 /**
  * 谱文列表（FR-002、FR-003、FR-006、FR-008、FR-010、FR-011）。
@@ -34,12 +34,15 @@ export function ArticleList({
   orgId,
   projectRef,
   rows,
+  selectedFolderId,
   folderOptions,
   canWrite,
 }: {
   orgId: string;
   projectRef: string;
   rows: ArticleRow[];
+  /** 当前选中的分类；只在没输入关键词时生效（FR-032 要求搜索覆盖全部谱文）。 */
+  selectedFolderId: string | null;
   folderOptions: FolderPickerOption[];
   canWrite: boolean;
 }) {
@@ -52,10 +55,12 @@ export function ArticleList({
   const visible = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
     if (!needle) {
-      return rows;
+      return inFolder(rows, selectedFolderId);
     }
+    // 一旦开始搜索就跳出当前分类：FR-032 说「命中结果 MUST 显示所属分类」，
+    // 前提是搜的是全部谱文，不是只有眼前这一类。
     return rows.filter((row) => row.title.toLowerCase().includes(needle));
-  }, [rows, keyword]);
+  }, [rows, keyword, selectedFolderId]);
 
   function refresh() {
     setRenaming(null);
@@ -175,5 +180,17 @@ export function ArticleList({
         onDeleted={refresh}
       />
     </div>
+  );
+}
+
+/** 按选中的分类裁剪；`UNFILED_FOLDER_ID` 就是 `folderId` 为空的那些篇。 */
+function inFolder(rows: ArticleRow[], folderId: string | null): ArticleRow[] {
+  if (!folderId) {
+    return rows;
+  }
+  return rows.filter((row) =>
+    folderId === UNFILED_FOLDER_ID
+      ? row.folderId === null
+      : row.folderId === folderId
   );
 }

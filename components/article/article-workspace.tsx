@@ -54,14 +54,6 @@ export function ArticleWorkspace({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const visibleRows = selectedFolderId
-    ? rows.filter((row) =>
-        selectedFolderId === UNFILED_FOLDER_ID
-          ? row.folderId === null
-          : row.folderId === selectedFolderId
-      )
-    : rows;
-
   function select(folderId: string | null) {
     setSelectedFolderId(folderId);
     setSheetOpen(false);
@@ -112,7 +104,8 @@ export function ArticleWorkspace({
         <ArticleList
           orgId={orgId}
           projectRef={projectRef}
-          rows={visibleRows}
+          rows={rows}
+          selectedFolderId={selectedFolderId}
           folderOptions={folderOptions}
           canWrite={canWrite}
         />

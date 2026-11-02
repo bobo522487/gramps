@@ -144,3 +144,37 @@
     @apply bg-shell text-foreground font-sans;
   }
 }
+
+/* 谱文编辑区（FR-018）：这里没有 Tailwind 的 typography 插件，标题与正文的差别
+   必须自己写清楚，否则 Preflight 把 h1/h2 重置成和段落一样，用户看不出层级。
+   颜色只用 @theme 里的 token，不写裸色值。 */
+@layer components {
+  .article-canvas {
+    line-height: 1.8;
+    color: var(--color-foreground);
+  }
+
+  .article-canvas h1 {
+    margin: 0.6em 0 0.4em;
+    font-size: 1.6rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .article-canvas h2 {
+    margin: 0.5em 0 0.35em;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .article-canvas p {
+    margin: 0.35em 0;
+  }
+
+  .article-canvas img {
+    display: block;
+    margin: 0.8em auto;
+    height: auto;
+  }
+}

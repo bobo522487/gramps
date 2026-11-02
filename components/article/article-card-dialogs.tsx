@@ -152,6 +152,15 @@ export function ArticleMoveDialog({
   onSaved: () => void;
 }) {
   const [folderId, setFolderId] = useState<string>(UNFILED_FOLDER_ID);
+  const [error, setError] = useState<string | null>(null);
+
+  // 打开时预选这篇现在所在的分类：不然「移到分类」看上去像总能移到未分类。
+  useEffect(() => {
+    if (open && row) {
+      setFolderId(row.folderId ?? UNFILED_FOLDER_ID);
+      setError(null);
+    }
+  }, [open, row]);
 
   async function submit() {
     if (!row) {
@@ -163,8 +172,11 @@ export function ArticleMoveDialog({
       folderId: folderId === UNFILED_FOLDER_ID ? null : folderId,
     });
     if ('error' in result && result.error) {
+      // 失败必须说清楚（FR-011），不能静默关框。
+      setError(result.error);
       return;
     }
+    setError(null);
     onOpenChange(false);
     onSaved();
   }
@@ -191,6 +203,11 @@ export function ArticleMoveDialog({
             ))}
           </SelectContent>
         </Select>
+        {error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
         <DialogFooter className="mt-2">
           <Button
             type="button"

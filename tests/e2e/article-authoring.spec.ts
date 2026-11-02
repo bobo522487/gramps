@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 
 import { seedArticleWithImages } from './fixtures/article';
 
@@ -30,13 +30,21 @@ function watchPageErrors(page: import('@playwright/test').Page): string[] {
     if (message.type() !== 'error') {
       return;
     }
-    const text = message.text();
-    if (text.includes('Failed to load resource')) {
-      return;
-    }
-    errors.push(text);
+    errors.push(message.text());
   });
   return errors;
+}
+
+/**
+ * 刷新后等编辑器真正接管（ProseMirror 会给 contenteditable 挂上属性），
+ * 再把光标放进去。少了这一步，按键会落到整个页面上，`Control+a` 选中的
+ * 就不是文档，mark 自然设不上。
+ */
+async function takeEditorFocus(canvas: Locator) {
+  await expect(canvas).toHaveAttribute('contenteditable', 'true', {
+    timeout: 15_000,
+  });
+  await canvas.click();
 }
 
 /**
@@ -238,12 +246,24 @@ test('multi-page: add, switch commits first, reorder persists, cannot delete las
     '始祖讳元'
   );
 
-  // 删到只剩一页时不再给删除入口，也删不掉最后一页（FR-022）。
-  await strip.getByRole('button', { name: '删除第 2 页' }).click();
+  // 删页要先二次确认，确认框里写清楚删的是哪一页（FR-022）。
+  const deleteButton = strip.getByRole('button', { name: '删除第 2 页' });
+  const confirm = page.getByRole('dialog', { name: '删除这一页？' });
+  await deleteButton.click();
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText('第 2 页');
+  // 先取消：确认框必须真的拦一道（FR-022）。
+  await confirm.getByRole('button', { name: '取消' }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(strip.getByRole('button', { name: /^第 2 页/ })).toBeVisible();
+  // 再删一次并确认。
+  await deleteButton.click();
+  await confirm.getByRole('button', { name: '删除' }).click();
   await expect(page.getByRole('button', { name: /^第 2 页/ })).toHaveCount(0);
-  await expect(strip.getByRole('button', { name: '删除第 1 页' })).toHaveCount(
-    0
-  );
+  // 只剩一页：给入口但拒绝执行，并说明原因（FR-022「被拒绝并提示」）。
+  await strip.getByRole('button', { name: '删除第 1 页' }).click();
+  await expect(page.getByText('至少要保留一页，这一页删不掉。')).toBeVisible();
+  await expect(strip.getByRole('button', { name: /^第 1 页/ })).toBeVisible();
   await expect(page.locator('.article-canvas')).toContainText('次房支系');
 
   expect(errors).toEqual([]);
@@ -414,4 +434,108 @@ test('perf: 20 页 40 图的切页与滚动（SC-003）', async ({ page }) => {
   });
   console.log(`[SC-003 浏览器] 滚动帧率=${fps.toFixed(1)} fps`);
   expect(fps).toBeGreaterThan(30);
+});
+
+test('regressions: 空页引导、Ctrl+U 不再毁掉整页保存、搜索跨分类、在途保存不丢字', async ({
+  page,
+}) => {
+  test.slow();
+  const errors = watchPageErrors(page);
+  const projectRef = await bootstrap(page, 'regression');
+  await page.goto(`/dashboard/project/${projectRef}/articles`);
+
+  // 新建谱文：空白页必须有引导（FR-018）。
+  await page.getByRole('button', { name: '新建谱文' }).click();
+  await createArticleAndOpen(page, '终审回归谱序');
+  const canvas = page.locator('.article-canvas');
+  await expect(page.getByText('输入文字')).toBeVisible();
+  await canvas.click();
+  await page.keyboard.type('始祖讳元，宋末自闽徙居。');
+  await expect(page.getByText('输入文字')).toHaveCount(0);
+
+  // Ctrl+U（StarterKit 默认键位）不许留下服务端存不住的 mark（FR-031）。
+  await page.keyboard.press('Control+u');
+  await page.keyboard.type('这一段曾经被下划线毁掉。');
+  await page.getByRole('button', { name: '立即保存' }).click();
+  await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 15_000 });
+  await page.reload();
+  await expect(canvas).toContainText('这一段曾经被下划线毁掉。');
+  await takeEditorFocus(canvas);
+
+  // 只设字体、字号留空：TipTap 会把 null 一起序列化，服务端必须吃下（FR-030）。
+  await page.keyboard.press('Control+a');
+  await page.locator('#article-font-family').selectOption('KaiTi');
+  await page.getByRole('button', { name: '立即保存' }).click();
+  await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 15_000 });
+  await page.reload();
+  await expect(
+    page.locator('.article-canvas span[style*="KaiTi"]')
+  ).toHaveCount(1);
+
+  // 在途保存不许被「返回」绕过，也不许把新敲的字吃掉（FR-016、FR-014）。
+  await takeEditorFocus(canvas);
+  await page.keyboard.press('End');
+  // 用一道闸门把保存请求卡在途（不靠猜延时）：3 秒 watchdog 之内放开，
+  // 既验「在途不许先跳走」，也验「等回来再导航」。
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/dashboard/project/**', async (route) => {
+    if (route.request().method() === 'POST') {
+      await gate;
+    }
+    await route.continue();
+  });
+  await page.keyboard.type('在途补的一句话');
+  await page.waitForTimeout(2_100); // 自动保存已发出，响应被闸门按住
+  await page.getByLabel('返回谱文列表').click();
+  await page.waitForTimeout(400);
+  expect(page.url(), '保存在途时不许先跳走（FR-016）').toMatch(
+    /\/articles\/[0-9a-f-]+$/
+  );
+  release();
+  await expect(page).toHaveURL(/\/articles$/, { timeout: 15_000 });
+  await page.unroute('**/dashboard/project/**');
+
+  // 回到这篇，最后那句话必须在（没被旧回显覆盖，也没被丢）。
+  await page.getByRole('link', { name: '终审回归谱序' }).first().click();
+  await expect(page.locator('.article-canvas')).toContainText('在途补的一句话');
+
+  // 搜索要跨分类（FR-032）：另建一篇放进分类，选中该分类后仍搜得到本篇。
+  await page.getByLabel('返回谱文列表').click();
+  await expect(page).toHaveURL(/\/articles$/);
+  await page.getByRole('button', { name: '新建谱文' }).click();
+  await createArticleAndOpen(page, '另篇在分类里');
+  await page.getByLabel('返回谱文列表').click();
+  await expect(page).toHaveURL(/\/articles$/);
+
+  const tree = page.getByRole('navigation', { name: '谱文分类' });
+  await tree.getByRole('button', { name: '新建分类' }).click();
+  await tree.getByLabel('分类名称').fill('谱序类');
+  await tree.getByLabel('分类名称').press('Enter');
+  await expect(tree.getByText('谱序类').first()).toBeVisible();
+
+  const otherRow = page.locator('li').filter({ hasText: '另篇在分类里' });
+  await otherRow.getByLabel('「另篇在分类里」的操作').click();
+  await page.getByRole('menuitem', { name: '移到分类' }).click();
+  const moveDialog = page.getByRole('dialog', { name: '移到分类' });
+  await expect(moveDialog).toBeVisible();
+  // 打开时预选这篇当前所在的分类（评审 S3）。
+  await expect(
+    moveDialog.getByRole('combobox', { name: '目标分类' })
+  ).toContainText('默认分类');
+  await moveDialog.getByRole('combobox', { name: '目标分类' }).click();
+  await page.getByRole('option', { name: '谱序类' }).click();
+  await moveDialog.getByRole('button', { name: '移动' }).click();
+  await expect(otherRow).toContainText('谱序类');
+
+  await tree.getByRole('button', { name: /^谱序类/ }).click();
+  await expect(otherRow).toBeVisible();
+  await page.locator('#article-search').fill('终审回归');
+  await expect(
+    page.locator('li').filter({ hasText: '终审回归谱序' })
+  ).toContainText('默认分类');
+
+  expect(errors).toEqual([]);
 });

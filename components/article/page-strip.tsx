@@ -3,6 +3,14 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * 编辑器的右侧区域（FR-012、FR-021、FR-023）：页缩略图条。
@@ -35,6 +43,9 @@ export function PageStrip({
   onReorder: (fromId: string, toIndex: number) => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
+  // 删页要二次确认（FR-022）：先问清楚「删的是第几页、上面有什么」。
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<string | null>(null);
 
   return (
     <aside
@@ -88,12 +99,21 @@ export function PageStrip({
                   {snippet(summaries[pageId] ?? '')}
                 </span>
               </button>
-              {canWrite && pageIds.length > 1 ? (
+              {canWrite ? (
                 <button
                   type="button"
                   aria-label={`删除第 ${index + 1} 页`}
                   className="shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => onDelete(pageId)}
+                  onClick={() => {
+                    setBlocked(
+                      pageIds.length > 1
+                        ? null
+                        : '至少要保留一页，这一页删不掉。'
+                    );
+                    if (pageIds.length > 1) {
+                      setPendingDelete(pageId);
+                    }
+                  }}
                 >
                   <Trash2 className="size-3" />
                 </button>
@@ -102,6 +122,50 @@ export function PageStrip({
           );
         })}
       </ul>
+
+      {blocked ? (
+        <p role="alert" className="text-xs text-destructive">
+          {blocked}
+        </p>
+      ) : null}
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDelete(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除这一页？</DialogTitle>
+            <DialogDescription>
+              第 {pendingDelete ? pageIds.indexOf(pendingDelete) + 1 : 0} 页
+              上的文字与图片都会被删掉，这一步不能撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <p className="break-all text-xs text-muted-foreground">
+            {pendingDelete ? snippet(summaries[pendingDelete] ?? '') : ''}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (pendingDelete) {
+                  onDelete(pendingDelete);
+                }
+                setPendingDelete(null);
+              }}
+            >
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }

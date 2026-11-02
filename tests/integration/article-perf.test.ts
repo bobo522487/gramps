@@ -12,6 +12,7 @@ import {
 } from '@/lib/article/constants';
 import type { ArticleNode, ArticlePageDoc } from '@/lib/article/doc';
 import { countImages, parseArticleContent } from '@/lib/article/doc';
+import { articleContentSchema } from '@/lib/article/schemas';
 import { getArticle } from '@/lib/db/queries/articles';
 import { signSessionFor } from '../helpers/auth';
 import {
@@ -246,19 +247,29 @@ describe('谱文性能夹具（SC-003 / SC-010）', () => {
     expect(queryMs).lessThan(5_000);
   });
 
-  it('单页图片上限与整篇页上限在夹具边界上仍然生效（FR-027、FR-021）', () => {
-    const atLimit = buildLargeContent(1, MAX_IMAGES_PER_PAGE, 'articles/o/a/');
+  it('上限由保存用的校验器把关，夹具形状正好卡在边界上（FR-021、FR-027）', () => {
+    const scope = { orgId: 'o', articleId: 'a' };
+    // 边界内：100 页、单页 6 图，必须过。
     expect(
-      parseArticleContent(atLimit).pages[0]?.doc.content.filter(
-        (node) => node.type === 'articleImage'
-      )
-    ).toHaveLength(MAX_IMAGES_PER_PAGE);
-    const overPages = buildLargeContent(
-      MAX_PAGES_PER_ARTICLE + 1,
-      1,
-      'articles/o/a/'
-    );
-    expect(overPages.pages).toHaveLength(MAX_PAGES_PER_ARTICLE + 1);
-    expect(MAX_PAGES_PER_ARTICLE).toBe(100);
+      articleContentSchema(scope).safeParse(
+        buildLargeContent(MAX_PAGES_PER_ARTICLE, 1, 'articles/o/a/')
+      ).success
+    ).toBe(true);
+    expect(
+      articleContentSchema(scope).safeParse(
+        buildLargeContent(1, MAX_IMAGES_PER_PAGE, 'articles/o/a/')
+      ).success
+    ).toBe(true);
+    // 越界：多一页、多一图都必须被拒（不是断言常量自己等于 100）。
+    expect(
+      articleContentSchema(scope).safeParse(
+        buildLargeContent(MAX_PAGES_PER_ARTICLE + 1, 1, 'articles/o/a/')
+      ).success
+    ).toBe(false);
+    expect(
+      articleContentSchema(scope).safeParse(
+        buildLargeContent(1, MAX_IMAGES_PER_PAGE + 1, 'articles/o/a/')
+      ).success
+    ).toBe(false);
   });
 });
