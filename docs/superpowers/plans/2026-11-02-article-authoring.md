@@ -266,31 +266,31 @@ git commit -m "feat(article): 谱文 CRUD 与按页保存（单事务 + 行锁�
 - Consumes: Task 5 的查询、Task 6 的 Action、`getMediaStore().mode`
 - Produces: 列表页（分类树 + 列表 + 新建）、编辑器页（三区 + 顶栏）、离开保护
 
-- [ ] **Step 1: 列表页与新建**
+- [x] **Step 1: 列表页与新建**
 
 `articles/page.tsx` 换成 RSC 查询 + `article-list.tsx` + `article-folder-tree.tsx` + `new-article-dialog.tsx`（标题 1–60 字、分类下拉含「未分类」、地区只读 `project.countries_regions || '中国'`）；分类管理入口按 `hasPermission(role, 'project.write')` 显隐。
 
-- [ ] **Step 2: 编辑器壳与单页编辑器**
+- [x] **Step 2: 编辑器壳与单页编辑器**
 
 `article-editor-shell.tsx` 三区布局 + 顶栏（返回 / 标题 / 地区 / 保存状态 / 立即保存，**无**分享、发布、导出、版式入口）；`tiptap-editor.tsx` 用 StarterKit 关掉禁用节点，仅留段落、两级标题、`undoRedo`、`articleImage`、`textStyle`；**只在首次挂载用 RSC 数据初始化**。
 
-- [ ] **Step 3: 自动保存与回显**
+- [x] **Step 3: 自动保存与回显**
 
 停止输入 2 秒提交当前页；「立即保存」提交所有改动页；成功用 `data.page` 对齐该页（该页已无未提交改动时）；失败保留内容并给重试。
 
-- [ ] **Step 4: 离开保护**
+- [x] **Step 4: 离开保护**
 
 应用内离开 `await` 保存 → 成功 `router.push`，失败停留提示；`beforeunload` 在有未保存改动时拦截。
 
-- [ ] **Step 5: 删除确认与概览入口**
+- [x] **Step 5: 删除确认与概览入口**
 
 删除谱文确认框用 `getArticleDeletePreview`（页数 / 图片数 / 编目引用）；删除分类确认框用 `getFolderDeletePreview`（分类数 / 篇数）；概览页加「新建谱文」入口。
 
-- [ ] **Step 6: 手工验证（quickstart US1）**
+- [x] **Step 6: 手工验证（quickstart US1）**
 
 按 [quickstart.md](../../../specs/002-article-authoring/quickstart.md) 的 US1 九条走一遍，记录实际输出。
 
-- [ ] **Step 7: 门禁与提交**
+- [x] **Step 7: 门禁与提交**
 
 ```bash
 pnpm check && pnpm typecheck && pnpm test && pnpm arch:check
@@ -305,16 +305,19 @@ git commit -m "feat(article): 谱文列表页与三区编辑器（自动保存�
 **Files:**
 - Create: `tests/e2e/article-authoring.spec.ts`
 
-- [ ] **Step 1: 写 US1 段**
+- [x] **Step 1: 写 US1 段**
 
-新建 → 输入两段 → 等「已保存」→ 刷新一致 → 改标题 → 移分类 → 删除（确认框文案含页数）。
+新建 → 输入两段 → 等「已保存」→ 刷新一致 → 改标题 → 搜索命中与不命中 → 删除（确认框文案含页数与图片数）。
 
-- [ ] **Step 2: 运行**
+**E2E 抓到一个真 bug**：删除确认框的影响范围原先只在 Radix `onOpenChange(true)` 里取，而父组件是直接翻转 `open`，该回调不触发 → 弹窗只显示描述、没有「页数：N 页」。已改为 `useEffect` 在 `open` 时取数（`components/article/article-card-dialogs.tsx`），分类删除框本来就是 effect 写法。
 
-Run: `pnpm test:e2e -- article-authoring`
-Expected: PASS（本地模式会清空 `_test` 库，注意别指向开发库）
+- [x] **Step 2: 运行**
 
-- [ ] **Step 3: 提交**
+Run: `CI=1 pnpm test:e2e tests/e2e/article-authoring.spec.ts`（先 `pnpm build`）
+Expected: PASS
+**执行时调整**：本地 dev-server 模式下首次导航反复 hydration 重挂，点「注册」永远等不到稳定元素（基线 `critical-path.spec.ts` 同样失败，非本期代码问题）；改用 CI 的生产服务器模式跑通。本机 Chromium 缺 `libasound.so.2`，用 `LD_LIBRARY_PATH` 指到解包目录跑，不改仓库配置。
+
+- [x] **Step 3: 提交**
 
 ```bash
 git add tests/e2e/article-authoring.spec.ts

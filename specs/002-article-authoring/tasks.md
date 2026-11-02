@@ -72,16 +72,16 @@
 - [x] T019 [US1] `lib/article/services.ts`：`createArticleInTransaction`（含默认分类自动创建）、`updateTitleInTransaction`、`moveInTransaction`、`deleteArticleInTransaction`（单事务 + 引用检查 + 活动日志）
 - [x] T020 [US1] `lib/article/actions.ts`：`createArticleAction` / `updateArticleTitleAction` / `moveArticleAction` / `deleteArticleAction`（契约 §1.1–§1.4）
 - [x] T021 [US1] `lib/article/services.ts` + `actions.ts`：`saveArticlePageAction`（`FOR UPDATE`、按页替换、`derivePlainText`、`savedAt` 回显）
-- [ ] T022 [P] [US1] `components/article/article-list.tsx`（倒序、页数、标题搜索）与 `components/article/new-article-dialog.tsx`（标题 + 分类 + 只读地区）
-- [ ] T023 [P] [US1] `components/article/article-folder-tree.tsx`（篇数、未分类、分类管理入口按 `project.write` 显隐）
-- [ ] T024 [US1] `app/(dashboard)/dashboard/project/[projectRef]/articles/page.tsx`：占位 → 分类树 + 列表 + 新建
-- [ ] T025 [P] [US1] `app/(dashboard)/dashboard/project/[projectRef]/page.tsx`：加「新建谱文」入口（FR-008）
-- [ ] T026 [US1] `app/(dashboard)/dashboard/project/[projectRef]/articles/[articleId]/page.tsx` + `components/article/article-editor-shell.tsx`（三区布局、RSC 只首次初始化）
-- [ ] T027 [P] [US1] `components/article/editor/tiptap-editor.tsx`（单页、禁用的节点集在 StarterKit 配置里）+ `components/article/article-title-input.tsx`（1–60 字、失焦提交、空值阻断）
-- [ ] T028 [US1] `components/article/save-status.tsx` + 自动保存接线（停止输入 2 秒、按页提交、「立即保存」提交全部改动页）
-- [ ] T029 [US1] 离开保护：`components/article/article-editor-shell.tsx` 内应用内 `await` 保存后导航（失败停留）；`beforeunload` 原生确认
-- [ ] T030 [US1] 删除确认框接 `lib/db/queries/articles.ts` 的 `getArticleDeletePreview` / `getFolderDeletePreview`（页数、图片数、分类数），UI 在 `components/article/article-list.tsx` 与 `components/article/article-folder-tree.tsx`
-- [ ] T031 [P] [US1] E2E：`tests/e2e/article-authoring.spec.ts` 的 US1 段（新建 → 打字 → 刷新一致 → 改标题 → 移分类 → 删除）
+- [x] T022 [P] [US1] `components/article/article-list.tsx`（倒序、页数、标题搜索）与 `components/article/new-article-dialog.tsx`（标题 + 分类 + 只读地区）
+- [x] T023 [P] [US1] `components/article/article-folder-tree.tsx`（篇数、未分类、分类管理入口按 `project.write` 显隐）
+- [x] T024 [US1] `app/(dashboard)/dashboard/project/[projectRef]/articles/page.tsx`：占位 → 分类树 + 列表 + 新建
+- [x] T025 [P] [US1] `app/(dashboard)/dashboard/project/[projectRef]/page.tsx`：加「新建谱文」入口（FR-008）
+- [x] T026 [US1] `app/(dashboard)/dashboard/project/[projectRef]/articles/[articleId]/page.tsx` + `components/article/article-editor-shell.tsx`（三区布局、RSC 只首次初始化）
+- [x] T027 [P] [US1] `components/article/editor/tiptap-editor.tsx`（单页、禁用的节点集在 StarterKit 配置里）+ `components/article/article-title-input.tsx`（1–60 字、失焦提交、空值阻断）
+- [x] T028 [US1] `components/article/save-status.tsx` + 自动保存接线（停止输入 2 秒、按页提交、「立即保存」提交全部改动页）
+- [x] T029 [US1] 离开保护：`components/article/article-editor-shell.tsx` 内应用内 `await` 保存后导航（失败停留）；`beforeunload` 原生确认
+- [x] T030 [US1] 删除确认框接 `lib/db/queries/articles.ts` 的 `getArticleDeletePreview` / `getFolderDeletePreview`（页数、图片数、分类数），UI 在 `components/article/article-list.tsx` 与 `components/article/article-folder-tree.tsx`
+- [x] T031 [P] [US1] E2E：`tests/e2e/article-authoring.spec.ts` 的 US1 段（新建 → 打字 → 刷新一致 → 改标题 → 移分类 → 删除）
 
 **Checkpoint**：US1 独立可用；`pnpm test:integration` 与 E2E US1 通过。
 
