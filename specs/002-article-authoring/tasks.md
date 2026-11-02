@@ -93,10 +93,10 @@
 
 **Independent Test**：加第 2 页并写字 → 切回第 1 页内容正确 → 拖拽换序 → 刷新后页序保持 → 删到只剩一页被拒。
 
-- [ ] T032 [P] [US2] 集成测试：加页 / 删页 / 重排 / 页序一致性与 100 页上限 —— `tests/integration/articles.test.ts`
-- [ ] T033 [US2] `lib/article/services.ts` + `actions.ts`：`addArticlePageAction` / `deleteArticlePageAction` / `reorderArticlePagesAction`（服务端生成页 id）
-- [ ] T034 [US2] `components/article/page-thumbnails.tsx`：页序列表、添加页、拖拽排序、切页前先提交
-- [ ] T035 [P] [US2] E2E：`tests/e2e/article-authoring.spec.ts` 的 US2 段（含「有未保存改动时切页先提交」）
+- [x] T032 [P] [US2] 集成测试：加页 / 删页 / 重排 / 页序一致性与 100 页上限 —— `tests/integration/articles.test.ts`
+- [x] T033 [US2] `lib/article/services.ts` + `actions.ts`：`addArticlePageAction` / `deleteArticlePageAction` / `reorderArticlePagesAction`（服务端生成页 id）
+- [x] T034 [US2] `components/article/page-thumbnails.tsx`：页序列表、添加页、拖拽排序、切页前先提交
+- [x] T035 [P] [US2] E2E：`tests/e2e/article-authoring.spec.ts` 的 US2 段（含「有未保存改动时切页先提交」）
 
 **Checkpoint**：US1 + US2 各自独立可用；多页保存与页序刷新一致。
 

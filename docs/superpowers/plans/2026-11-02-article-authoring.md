@@ -333,19 +333,19 @@ git commit -m "test(e2e): 谱文建篇到保存的主链路"
 - Create: `components/article/page-thumbnails.tsx`
 - Test: `tests/integration/articles.test.ts`、`tests/e2e/article-authoring.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 加页（服务端生成页 id）、超 100 页拒绝、删最后一页拒绝、重排集合不一致拒绝、重排后页序持久。Run 确认失败。
 
-- [ ] **Step 2: 实现服务层与 Action**
+- [x] **Step 2: 实现服务层与 Action**
 
 `addArticlePageAction` / `deleteArticlePageAction`（删页后清理该页独有图片字节）/ `reorderArticlePagesAction`；三者都**不 revalidate**。
 
-- [ ] **Step 3: 页缩略图组件**
+- [x] **Step 3: 页缩略图组件**
 
 页序列表 + 添加页 + 拖拽排序 + 切页前先提交当前页（失败则停留）；缩略图用文本摘要，不渲染整页 DOM。
 
-- [ ] **Step 4: E2E US2 段 + 门禁 + 提交**
+- [x] **Step 4: E2E US2 段 + 门禁 + 提交**
 
 ```bash
 pnpm test:integration -- articles && pnpm test:e2e -- article-authoring && pnpm typecheck
@@ -355,6 +355,8 @@ git commit -m "feat(article): 多页编辑（加页、切页先保存、拖拽�
 
 ---
 
+
+> 执行时调整：页缩略图组件实际落在 `components/article/page-strip.tsx`（Task 7 已建，本任务加摘要与拖拽接线），不新建 `page-thumbnails.tsx`；页摘要由 `lib/article/doc.ts` 新增的 `pagePlainText()` 在客户端算，不打服务端。另把「标题正在保存」并入离开保护（FR-016），否则正文不脏时刷新会丢标题。
 ### Task 10: US3 图片（T036–T041）
 
 **Files:**
