@@ -2,6 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { ARTICLE_ERRORS } from '@/lib/article/constants';
+import { hasPermission } from '@/lib/auth/permissions';
+
 const read = (path: string) =>
   readFileSync(resolve(import.meta.dirname, path), 'utf8');
 
@@ -62,6 +65,54 @@ describe('auth action source guards', () => {
     expect(actionsSource).not.toContain('bcrypt');
     expect(actionsSource).not.toContain('signToken');
     expect(proxySource).not.toContain('jose');
+  });
+});
+
+describe('article authorization invariants', () => {
+  const articleServiceSources = [
+    read('../lib/article/services.ts'),
+    read('../lib/article/page-services.ts'),
+  ].join('\n');
+  const articleQuerySource = read('../lib/db/queries/articles.ts');
+  const mediaReadSource = read('../app/api/media/[...key]/route.ts');
+
+  it('keeps article writing to the three writer roles', () => {
+    for (const role of ['owner', 'admin', 'editor'] as const) {
+      expect(hasPermission(role, 'article.write'), role).toBe(true);
+    }
+    expect(hasPermission('viewer', 'article.write')).toBe(false);
+    // 分类管理入口按 project.write 显隐：编辑者看不到，是能力矩阵的现状，不是漏做。
+    expect(hasPermission('editor', 'project.write')).toBe(false);
+  });
+
+  it('re-checks article.write inside every article write transaction', () => {
+    const transactions = articleServiceSources.match(/withOrgWrite\(/g) ?? [];
+    const grants = articleServiceSources.match(/'article\.write'/g) ?? [];
+    expect(transactions.length).toBeGreaterThan(0);
+    expect(grants.length).toBe(transactions.length);
+  });
+
+  it('pairs every org-scoped article query with the owning orgId', () => {
+    const scopes = articleQuerySource.match(/withOrg\(/g) ?? [];
+    const filters = articleQuerySource.match(/orgId, orgId\)/g) ?? [];
+    expect(scopes.length).toBeGreaterThan(0);
+    expect(filters.length).toBeGreaterThanOrEqual(scopes.length);
+  });
+
+  it('answers cross-organization media reads with 404, never 403', () => {
+    // 403 会告诉猜测者「这张图存在，只是你不能读」（FR-034）。
+    expect(mediaReadSource).toContain('status: 404');
+    expect(mediaReadSource).not.toContain('status: 403');
+  });
+
+  it('keeps internal details out of the article error copy', () => {
+    for (const message of Object.values(ARTICLE_ERRORS)) {
+      expect(message).toMatch(/[\u4e00-\u9fa5]/);
+      expect(message).not.toMatch(
+        /select\s|insert into|update\s|relation|undefined|null/i
+      );
+      expect(message).not.toMatch(/at\s+\w+\.\w+.*:\d+:\d+/);
+    }
   });
 });
 

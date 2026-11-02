@@ -492,3 +492,43 @@ git commit -m "test(article): 安全回归与性能夹具"
 - 保存页/加删页/重排页不 revalidate；新建/改标题/移分类/删除才 revalidate
 - 图片字节删除在事务提交后执行，失败只记日志（孤儿字节是已知限制）
 - 每完成一个 Task 就 `git commit`，不要攒到最后
+
+## 验证记录（2026-11-02 执行完毕，T048 / T049）
+
+### 门禁实际输出
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm check` | `Checked 407 files in 126ms. No fixes applied.` |
+| `pnpm typecheck` | `tsc --noEmit` 退出 0，无输出 |
+| `pnpm test` | `Test Files 45 passed (45)` / `Tests 342 passed (342)` |
+| `pnpm arch:check` | `[F6] 214 files scanned, 7 exemptions, 0 violations` / `[F7] 216 files scanned, 0 process.env violations` |
+| `pnpm docs:check --strict` | `0 issue(s)`（该脚本只扫 `docs/`，`specs/` 与 `AGENTS.md` 不在范围内） |
+| `pnpm test:integration` | `Test Files 1 failed | 24 passed (25)` / `Tests 3 failed | 318 passed (321)` |
+| `pnpm build` | 退出 0 |
+| `CI=1 pnpm test:e2e tests/e2e/article-authoring.spec.ts` | `5 passed (29.4s)`（本机需 `LD_LIBRARY_PATH` 补 `libasound.so.2`，见 Task 8 偏差说明） |
+
+**唯一未过的一条不是本期回归**：`tests/integration/fact-cli.test.ts` 3 个用例在默认 15s 超时下报 `Error: Test timed out in 15000ms`；同一文件加 `--testTimeout=90000` 后 `8 passed (8)`。它们 spawn 子进程去连不可达地址，本机比 CI 慢一个量级，`main` 上就存在，与谱文无关。
+
+### 规格口径的实测数值
+
+- SC-003（20 页 / 40 图）：服务端 `解析 20 页/40 图 0.6ms；加页 19 次 275.7ms；逐页保存 20 次 339.6ms`（`tests/integration/article-perf.test.ts`）；浏览器切页 `ms=120/50/49/48/51`（最差 120ms，规格 <300ms 达标）、滚动 `60.0 fps`（规格 ≥45fps 达标）。
+- SC-010（200 篇）：`造 200 篇 495ms；列表查询 8.7ms`，规格 p95 <1s 达标且不需翻页。
+- E2E 的 perf 用例阈值有意放宽到 1s / 30fps：本机是生产构建 + 软渲染，绝对值受机器影响；它守的是「没有平方级退化、没有整篇重渲染」。规格的 300ms / 45fps 要钉死需在目标环境重跑。
+
+### quickstart 逐条对应（§3）
+
+| 手工项 | 自动化落点 |
+|---|---|
+| US1 建篇 → 写字 → 已保存 → 刷新一致 → 改标题 → 搜索 → 删除弹窗给页数图片数 → 地区只读 → 无分享/发布/导出/版式入口 | `article-authoring.spec.ts` 第 1 个 test（7.3s）；`tests/integration/articles.test.ts` 的 createArticle / 预览 / 引用阻止各段 |
+| US1 标题清空阻断（AC11） | `tests/integration/articles.test.ts`「标题为空时就近返回中文校验信息」+ `article-title-input` 的中文提示 |
+| US2 加页 / 切页先提交 / 拖拽重排持久 / 最后一页拒删 | 第 2 个 test（5.3s）+ `articles.test.ts`「页操作」7 条 |
+| US3 插图默认整宽 → 改中档 → 刷新仍在；>10MB 与非白名单类型被拒且内容零变化；单页第 7 张被拒 | 第 3 个 test（6.4s）+ `article-image-upload.test.ts` 8 条 + `media.test.ts` 19 条 |
+| US4 字体字号保存后仍生效、缺字体显示替代字体 | 第 4 个 test（4.6s，本机未装楷体仍生效即「不是方块」）+ `article-text-style.test.ts` 6 条 |
+| 权限与越权：viewer 无写入按钮、跨组织 404、跨组织媒体 404、viewer 直接调 Action 被拒 | `article-security.test.ts` 8 条 + `security-regressions.test.ts` 新增 5 条不变量（含媒体读取「一律 404 不给 403」的源码不变量） |
+| 粘贴清洗只留段落/两级标题/文字 | `article-paste-filter.test.ts` 9 条（`sanitizePasteHtml` 为纯字符串实现，vitest 环境是 `node`） |
+
+### 本轮**没有**做到的两条（如实记账）
+
+1. **编辑者（editor）在真实浏览器里看不到「新建/重命名/删除分类」入口**：入口显隐由 `canManageFolders = hasPermission(role, 'project.write')` 决定，且 `security-regressions.test.ts` 已钉住 `hasPermission('editor','project.write') === false`；但没有第二个成员账号的 E2E（要注册第二个用户再插一条 membership），本期未做。
+2. **浏览器原生「确定离开？」弹窗**（US2 最后一条，`beforeunload`）：拦截逻辑在 `article-editor-shell.tsx`（`busy = ws.hasPending || titlePending` 时才挂 `beforeunload`），集成/E2E 都只验到「应用内切页/切分类先保存、失败停留」，弹窗本身未自动化（Playwright 对 `beforeunload` 的处理需要专门的 dialog 夹具，性价比低）。

@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { seedArticleWithImages } from './fixtures/article';
+
 /**
  * 谱文（US1）：新建 → 输入 → 自动保存后刷新一致 → 改标题 → 移到分类 → 删除。
  *
@@ -319,4 +321,75 @@ test('font: 楷体与字号在刷新后仍然生效（US4、FR-030）', async ({
   await expect(styled).toHaveCSS('font-size', '19px');
 
   expect(errors).toEqual([]);
+});
+
+/**
+ * SC-003 的浏览器那一半（T048）：20 页 40 图，量切页耗时与滚动帧率。
+ *
+ * 阈值有意比规格宽松（切页 1s、帧率 30fps）：本地跑的是生产构建 + 软渲染，
+ * 绝对值受机器影响很大。这条回归的作用是**发现平方级退化或整篇重渲染**，
+ * 不是给 45fps 背书；规格口径的实测要拿目标环境重跑一次。
+ */
+test('perf: 20 页 40 图的切页与滚动（SC-003）', async ({ page }) => {
+  test.slow();
+  const projectRef = await bootstrap(page, 'perf');
+  const seeded = await seedArticleWithImages({
+    projectRef,
+    pageCount: 20,
+    imagesPerPage: 2,
+  });
+  expect(seeded.imageCount).toBe(40);
+
+  await page.goto(
+    `/dashboard/project/${projectRef}/articles/${seeded.articleId}`
+  );
+  const strip = page.getByRole('complementary', { name: '页列表' });
+  const items = strip.getByRole('listitem');
+  await expect(items).toHaveCount(20);
+
+  const durations: number[] = [];
+  for (const target of [7, 13, 19, 2, 10]) {
+    const start = Date.now();
+    await items
+      .nth(target - 1)
+      .getByRole('button', { name: new RegExp(`^第 ${target} 页`) })
+      .click();
+    await expect(page.locator('.article-canvas')).toContainText(
+      `第 ${target} 房支系`
+    );
+    durations.push(Date.now() - start);
+  }
+  const worst = Math.max(...durations);
+  console.log(
+    `[SC-003 浏览器] 切页耗时 ms=${durations.join('/')} 最差=${worst}`
+  );
+  expect(worst).toBeLessThan(1_000);
+
+  const fps = await page.evaluate(async () => {
+    const canvas = document.querySelector('.article-canvas');
+    let scroller: Element | null = canvas ?? null;
+    while (scroller && scroller !== document.body) {
+      const style = getComputedStyle(scroller);
+      if (/(auto|scroll)/.test(style.overflowY)) break;
+      scroller = scroller.parentElement;
+    }
+    const target = scroller ?? document.scrollingElement;
+    let frames = 0;
+    let stop = false;
+    const start = performance.now();
+    const tick = () => {
+      if (stop) return;
+      frames += 1;
+      if (target) {
+        target.scrollTop = (target.scrollTop + 80) % 4000;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    stop = true;
+    return frames / ((performance.now() - start) / 1000);
+  });
+  console.log(`[SC-003 浏览器] 滚动帧率=${fps.toFixed(1)} fps`);
+  expect(fps).toBeGreaterThan(30);
 });
