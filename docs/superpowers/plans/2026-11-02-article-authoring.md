@@ -548,6 +548,28 @@ git commit -m "test(article): 安全回归与性能夹具"
 
 复跑证据：`CI=1 pnpm test:e2e --retries=0`（两个 spec 文件全量）**7 passed**（两次连跑都全绿，第二次 37.6s）。
 
-## 执行期裁决（评审补记，2026-11-02）
+## 终审修复（评审代理 e650a160，2026-11-02 深夜）
+
+结论「需小修」，9 条阻塞全部修完；提交 `566c6a8`（服务端与编辑器内核）与 `1502c6c`（页面与交互）。
+
+| 阻塞 | 症状 | 修法 | 守住它的测试 |
+|---|---|---|---|
+| BLK-1 | 只设字体（字号留空）时整页存不上 | `lib/article/schemas.ts` 的 `fontFamily`/`fontSize` 改 `.nullish()`；`lib/article/doc.ts` 的 `sanitizeNode` 用 `dropNullAttrs` 剥 null | `tests/article-schemas.test.ts` +4、`tests/integration/articles.test.ts`「字体与字号的真实序列化」 |
+| BLK-2 | Ctrl+U 造出服务端存不住的 underline mark | `tiptap-editor.tsx` 的 StarterKit 关 `underline`（3.32.2 默认注册） | E2E「regressions」段：Ctrl+U 后仍能保存并 reload 复现 |
+| BLK-3 | 在途保存拦不住离开、回显吃掉新敲的字、没有 3 秒收敛 | `lib/article/save-state.ts` 加 `hasUnsettled`/`inFlightPageIds`；`hooks/use-article-autosave.ts` 加 `SAVE_DEADLINE_MS=3000`、`withDeadline`、`stateRef`、`inFlight` 去重，成功但本页已再被编辑就不回显只标 dirty | `tests/article-save-state.test.ts` 新增 4 条、E2E 用闸门卡住在途请求 |
+| BLK-4 | 删页没有二次确认（FR-022 P0） | `page-strip.tsx` 加确认 Dialog（写明「第 N 页」+ 该页摘要）；只剩一页时按钮仍在、点击给「至少要保留一页，这一页删不掉。」 | E2E multi-page 段：取消→还在→再删→消失 |
+| BLK-5 | 空白页没有「输入文字」引导；`prose`/`article-canvas` 是死类名，标题与正文视觉一样 | `app/globals.css` 的 `@layer components` 里给 `.article-canvas` 写 h1/h2/p/img 规则（只用 token）；编辑器里空页渲染覆盖层（不引 Placeholder 扩展：打断中文输入法） | E2E regressions 段断言引导出现、打字后消失 |
+| BLK-6 | blob 上传把「不存在/无权限」回 403 + 原因串，泄露存在性 | `app/api/blob/upload/route.ts` 一律 404 + `logger.info` 记原因；文档 `05 §7`、`11 §8.4` 同步 | `tests/integration/media.test.ts` |
+| BLK-7 | 选中分类时搜索只覆盖该分类（FR-032） | `article-workspace.tsx` 传全量 rows；`article-list.tsx` 关键词非空时忽略分类过滤 | E2E regressions 段跨分类搜索命中 |
+| BLK-8 | 窄屏下编辑器的分类树整块消失（FR-012） | `article-editor-shell.tsx` 补 `Sheet`，与桌面 `aside` 挂同一棵树；开抽屉前先保存在途 | 静态检查 + 手工（视口断点无 E2E） |
+| BLK-9 | 契约写「不用 `revalidateWholeConsole()`」但实现与全仓库都在用它 | 以现状为准改契约 §0 与本计划口径：整篇级四类写入失效整棵控制台，页级四类一律不失效 | 见上一节裁决 |
+
+顺带修的两处（E2E 与评审建议）：`ArticleMoveDialog` 打开时预选这篇当前分类、失败不再吞掉（S3）；读取代理补 `getArticleScope`（谱文软删后新请求 404，FR-029 第二条腿）与 `X-Content-Type-Options: nosniff`（S1）；`media` 集成测试加软删用例（`tests/helpers/factories.ts` 新增 `softDeleteArticle`）；`article-perf` 末条改为真调 `articleContentSchema` 而不是断言常量（S4）；未登录面扫满 10 个 Action（S5）；拖拽排序失败回滚页序（S7）；清孤儿 JSDoc 与两处 `as`（S9/S14）。
+
+**E2E 又抓到一个真 bug**：分类树行内输入 `Enter` 提交后 `editing` 要等 Action 回来才清空，紧随其后的 `blur` 会再提交一次，凭空造出两个同名分类（表现为移动对话框里出现两个「谱序类」选项）。`components/article/article-folder-tree.tsx` 加 `submittingRef` 挡第二次，与 `components/lineage/lineage-sidebar.tsx:183` 的 `savingRef` 同一做法。
+
+复跑证据（本机 2026-11-02 22:5x）：`pnpm check` 408 files（1 条警告已修）、`pnpm typecheck` 0、`pnpm test` **46 files / 352 tests**、`pnpm arch:check` `[F6] 214 files 0 violations` / `[F7] 216 files 0 violations`、`pnpm docs:check --strict` `0 issue(s)`、`pnpm build` 0、`pnpm test:integration`（全量）`320 passed | 3 failed`，3 条仍是 `tests/integration/fact-cli.test.ts` 的 15s 超时（`pnpm exec vitest run --config vitest.integration.config.ts tests/integration/fact-cli.test.ts --testTimeout=90000` → 8 passed；注意 `pnpm test:integration -- --testTimeout=…` 的额外参数不会传到 vitest）、`CI=1 pnpm test:e2e --retries=0`（整个目录）**8 passed (47.8s)**，含基线 `critical-path.spec.ts` 2 条。
+
+已接受的缺口（不在本期补）：图片加载失败没有占位（要做 NodeView）；blob 模式不做魔数嗅探（`allowedContentTypes` 交给 Blob 侧把关，fs 模式才嗅探）；`beforeunload` 原生弹窗与「editor 看不到分类管理入口」只有静态/RSC 层证据，没有浏览器级断言；孤儿图片字节没有回收（零后台任务，ADR 0005/0019）。
 
 - **缓存失效用 `revalidateWholeConsole()` 而不是计划里写的 `revalidatePath(列表路径)`**：全仓库 30 个既有 Action 只调这一个函数，`lib/lineage/revalidate.ts` 里的作用域助手 `revalidateProject` / `revalidateOrg` 至今零调用者；单为谱文接通第二条失效路径等于引入第二套事实来源（宪法 V）。失效只发生在**新建 / 改标题 / 移分类 / 删除**四种整篇级写入上；**保存页 / 加页 / 删页 / 重排页四个页级 Action 一律不失效**——这条是规格要求（FR-017：回显只到本次提交成功的那一页），实测靠 `tests/e2e/article-authoring.spec.ts` 的「打字→刷新→内容仍在」与 `tests/integration/articles.test.ts` 的按页保存用例守住。
