@@ -29,6 +29,13 @@ const webServer = external
         BETTER_AUTH_SECRET: E2E_BETTER_AUTH_SECRET,
         BETTER_AUTH_URL: baseURL,
         LOG_LEVEL: 'error',
+        // E2E 默认锁在兜底驱动上：性能夹具直接往 `.data/media/` 写文件，
+        // 换成 blob 就找不到。要真机验 Blob 通道（浏览器直传 + 302 直读）就
+        // `E2E_MEDIA_MODE=blob pnpm test:e2e`（令牌仍从 `.env` 读）。
+        BLOB_READ_WRITE_TOKEN:
+          process.env.E2E_MEDIA_MODE === 'blob'
+            ? (process.env.BLOB_READ_WRITE_TOKEN ?? '')
+            : '',
       },
     };
 

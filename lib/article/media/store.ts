@@ -19,6 +19,11 @@ export interface MediaStore {
   readonly mode: MediaMode;
   read(pathname: string): Promise<MediaObject | null>;
   delete(pathname: string): Promise<void>;
+  /**
+   * 能直连存储的驱动（Vercel Blob）回一个短命签名 URL，读取路由据此 302，
+   * 字节不再经过函数；本地文件系统驱动回 `null`，继续由路由自己发字节。
+   */
+  readRedirect(pathname: string): Promise<string | null>;
 }
 
 /** Chosen in exactly one place: `BLOB_READ_WRITE_TOKEN` on Vercel, else the filesystem. */

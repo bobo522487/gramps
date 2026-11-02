@@ -4,8 +4,8 @@ import {
   ARTICLE_IMAGE_CONTENT_TYPES,
   MAX_IMAGE_BYTES,
 } from '@/lib/article/constants';
-import { blobReadWriteToken } from '@/lib/article/media/blob-store';
 import { parseMediaPathname } from '@/lib/article/media/path';
+import { blobReadWriteToken } from '@/lib/article/media/token';
 import { getSessionUser } from '@/lib/auth/context';
 import { getOrgRole, hasPermission } from '@/lib/auth/permissions';
 import { getMediaMode } from '@/lib/config';

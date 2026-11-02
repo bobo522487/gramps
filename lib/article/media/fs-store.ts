@@ -62,6 +62,11 @@ export const fsMediaStore: MediaStore & {
     }
   },
 
+  // 本地兜底驱动没有可直连的域名，字节由读取路由自己发。
+  async readRedirect(): Promise<string | null> {
+    return null;
+  },
+
   async delete(pathname): Promise<void> {
     const target = resolveInsideRoot(pathname);
     await rm(target, { force: true });

@@ -46,9 +46,24 @@ async function readMedia(
     return notFound();
   }
 
-  const media = await getMediaStore().read(
-    buildMediaPathname(parts.orgId, parts.articleId, parts.filename)
+  const target = buildMediaPathname(
+    parts.orgId,
+    parts.articleId,
+    parts.filename
   );
+  const store = getMediaStore();
+
+  // 私有桶：授权已经在这里做完，字节改由存储域名直发给浏览器（ADR 0019）。
+  // 302 本身不缓存，删除之后新的请求一定会重新走一遍上面的授权。
+  const direct = await store.readRedirect(target);
+  if (direct) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: direct, 'Cache-Control': 'no-store' },
+    });
+  }
+
+  const media = await store.read(target);
   if (!media) {
     return notFound();
   }
@@ -56,7 +71,8 @@ async function readMedia(
   return new Response(new Blob([media.bytes], { type: media.contentType }), {
     headers: {
       'Content-Type': media.contentType,
-      'Cache-Control': 'private, max-age=300',
+      // 本地兜底驱动没有直连域名，仍由本路由发字节。
+      'Cache-Control': 'no-store',
       // 字节来自用户上传，禁止浏览器嗅探出图片以外的类型（ADR 0019）。
       'X-Content-Type-Options': 'nosniff',
     },

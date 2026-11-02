@@ -1,19 +1,10 @@
 import 'server-only';
 
 import { BlobNotFoundError, del, get } from '@vercel/blob';
-
-import { getServerConfig } from '@/lib/config';
 import { contentTypeForMediaPathname } from './path';
+import { presignPrivateRead } from './read-url';
 import type { MediaObject, MediaStore } from './store';
-
-/** Read-write token, read through `lib/config.ts` only (F7). */
-export function blobReadWriteToken(): string {
-  const token = getServerConfig().BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    throw new Error('BLOB_READ_WRITE_TOKEN 未配置，无法访问 Vercel Blob');
-  }
-  return token;
-}
+import { blobReadWriteToken } from './token';
 
 export const blobMediaStore: MediaStore = {
   mode: 'blob',
@@ -41,6 +32,10 @@ export const blobMediaStore: MediaStore = {
       }
       throw error;
     }
+  },
+
+  async readRedirect(pathname): Promise<string | null> {
+    return presignPrivateRead(pathname);
   },
 
   async delete(pathname): Promise<void> {
