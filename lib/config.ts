@@ -76,12 +76,13 @@ export function isVercel(): boolean {
 export type MediaMode = 'blob' | 'fs';
 
 /**
- * 只有「部署在 Vercel 且配了私有桶令牌」才走 Blob；其余一律文件系统驱动，
- * 这样本地与 CI 不需要任何凭证也能跑通整条图片链路。判定只写在这一处（F7：
- * 只有本模块读 `process.env`），业务代码只问 `getMediaMode()`。
+ * 判定只看「有没有私有桶令牌」，不看平台：留空（本地与 CI 的默认）走文件系统驱动，
+ * 配了令牌（Vercel 存储绑定注入，或本地 `.env` 临时补上以真机验证生产路径）就走
+ * Vercel Blob。判定只写在这一处（F7：只有本模块读 `process.env`），业务代码只问
+ * `getMediaMode()`。
  */
 export function getMediaMode(): MediaMode {
-  return isVercel() && process.env.BLOB_READ_WRITE_TOKEN ? 'blob' : 'fs';
+  return process.env.BLOB_READ_WRITE_TOKEN ? 'blob' : 'fs';
 }
 
 /** Current log level; unset in development means verbose. */

@@ -186,13 +186,13 @@ describe('media mode', () => {
     expect(getMediaMode()).toBe('fs');
   });
 
-  it('用 fs：有令牌但不在 Vercel', async () => {
+  it('用 blob：本地也配了令牌（真机验证通道，不要求 VERCEL）', async () => {
     setValidEnv();
     process.env.BLOB_READ_WRITE_TOKEN = 'blob_url_x';
 
     const { getMediaMode } = await loadConfig();
 
-    expect(getMediaMode()).toBe('fs');
+    expect(getMediaMode()).toBe('blob');
   });
 
   it('用 fs：在 Vercel 但没有令牌', async () => {
