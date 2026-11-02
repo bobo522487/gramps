@@ -1,9 +1,9 @@
 # 工程协作指南（当前实现）
 
-> **文档状态：当前实现说明** · 最后更新：2026-10-30
+> **文档状态：当前实现说明** · 最后更新：2026-11-02
 > 本文件每次会话都会被加载，所以只放**每次都必须遵守**的内容：项目边界、仓库约定、数据与安全规则、禁止清单。
-> 其余细节按 [docs/README.md §5.1](docs/README.md) 的单一事实来源写，本文件**只指路、不复制**：命令与环境变量 → [setup.md](docs/setup.md)；实现状态与当前代码结构 → [implementation-status.md](docs/implementation-status.md)；加表/加 Action/加页面 → [guides/add-a-feature.md](docs/guides/add-a-feature.md)；测试分层与写法 → [guides/testing.md](docs/guides/testing.md)；架构现状与结构 → [architecture/](docs/architecture/00-文档说明.md)；目标设计 → [prd.md](docs/prd.md)；决策理由 → [decisions/](docs/decisions/README.md)。
-> 冲突时以代码与 [实现状态](docs/implementation-status.md) 为准；本文件的仓库约定（安全、数据规则、禁止清单）优先于任何技能或目标文档的建议。
+> 其余细节按 [docs/README.md §5.1](docs/README.md) 的单一事实来源写，本文件**只指路、不复制**：命令与环境变量 → [13-本地开发与命令](docs/architecture/13-本地开发与命令.md)；实现状态与当前代码结构 → [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)；加表/加 Action/加页面 → [guides/add-a-feature.md](docs/guides/add-a-feature.md)；测试分层与写法 → [guides/testing.md](docs/guides/testing.md)；架构现状与结构 → [architecture/](docs/architecture/00-文档说明.md)；M2 专项需求 → [specs/001-lineage-edit-preview/spec.md](specs/001-lineage-edit-preview/spec.md)；决策理由 → [decisions/](docs/decisions/README.md)。
+> 冲突时以代码与 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md) 为准；本文件的仓库约定（安全、数据规则、禁止清单）优先于任何技能或目标文档的建议。
 
 ---
 
@@ -32,7 +32,7 @@
 
 Next.js 组织/项目控制台 + 家谱业务第一版：组织 → 项目两层控制台，组织与项目用 20 位公开 ID（`organization.slug`、`project.ref`）作 URL，UUIDv7 主键仅内部使用；登录、组织成员（4 角色）、邀请链接、活动日志；注册/建组织/接受邀请/成员变更/删号等多步写在单个事务内完成，失败不留半成品。谱系与人丁已有第一版（左侧谱系管理、分类树、欧式书本画布、世系表、检查器、搜索定位、字辈、始祖/子女/兄弟/配偶、拖拽录入、移动/删除、打印视图、按代渲染窗口）。界面全简体中文，品牌「云谱」，不引入 i18n 框架。
 
-**尚未实现**：谱文与富文本编辑/自动保存、谱书与编目编辑器、谱文/谱书分类页面接入、人丁自定义字段 UI、回收站、编辑锁、分享。任务要求实现这些时，先读 [PRD](docs/prd.md)、[架构](docs/architect.md)、[数据模型](docs/data-model.md)、[接口](docs/api.md)，先写实现计划；**不要把目标文档里的 `src/modules` 目录当成现状**。已明确不做：邮箱验证、找回密码、改邮箱、邮件发送、`/api/auth/*`。
+**尚未实现**：谱文与富文本编辑/自动保存、谱书与编目编辑器、谱文/谱书分类页面接入、人丁自定义字段 UI、回收站、编辑锁、分享。任务要求实现这些时，先读 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)、[架构现状](docs/architecture/00-文档说明.md)、[04-数据视图-数据架构](docs/architecture/04-数据视图-数据架构.md)、[05-接口与集成设计](docs/architecture/05-接口与集成设计.md)，先写实现计划；**不要把目标文档里的 `src/modules` 目录当成现状**。已明确不做：邮箱验证、找回密码、改邮箱、邮件发送、`/api/auth/*`。
 
 | 项 | 当前值 |
 |---|---|
@@ -50,14 +50,14 @@ Next.js 组织/项目控制台 + 家谱业务第一版：组织 → 项目两层
 
 | 你要做的事 | 先读 |
 |---|---|
-| 任何事 | 本文件 + [实现状态](docs/implementation-status.md) |
-| 本地跑起来 / 配环境变量 | [setup.md](docs/setup.md)（含 `pnpm db:setup`、全部脚本表） |
-| 改表 / 加迁移 | [数据模型](docs/data-model.md) + `lib/db/schema.ts`、`lib/db/migrations/`；步骤见 [add-a-feature ①–④](docs/guides/add-a-feature.md) |
-| 加页面 / Action / API | [接口契约](docs/api.md)（目标）；当前做法见 [add-a-feature ⑤–⑧](docs/guides/add-a-feature.md) |
+| 任何事 | 本文件 + [11-需求与实现状态](docs/architecture/11-需求与实现状态.md) |
+| 本地跑起来 / 配环境变量 | [13-本地开发与命令](docs/architecture/13-本地开发与命令.md)（含 `pnpm db:setup`、全部脚本表） |
+| 改表 / 加迁移 | [04-数据视图-数据架构](docs/architecture/04-数据视图-数据架构.md) + `lib/db/schema/`、`lib/db/migrations/`；步骤见 [add-a-feature ①–④](docs/guides/add-a-feature.md) |
+| 加页面 / Action / API | [05-接口与集成设计](docs/architecture/05-接口与集成设计.md)（契约）；当前做法见 [add-a-feature ⑤–⑧](docs/guides/add-a-feature.md) |
 | 写测试 / 覆盖率门槛 | [guides/testing.md](docs/guides/testing.md) |
-| 线上故障 / 恢复 | [guides/runbooks.md](docs/guides/runbooks.md)、[ops-target.md](docs/ops-target.md) |
+| 线上故障 / 恢复 | [guides/runbooks.md](docs/guides/runbooks.md)、[06-部署视图-部署架构](docs/architecture/06-部署视图-部署架构.md) |
 | 了解架构现状与结构 | [architecture/](docs/architecture/00-文档说明.md) |
-| 讨论家谱目标架构 | [prd.md](docs/prd.md)、[decisions/](docs/decisions/README.md) |
+| 讨论家谱目标架构 | [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)、[decisions/](docs/decisions/README.md) |
 
 ---
 
@@ -67,7 +67,7 @@ Next.js 组织/项目控制台 + 家谱业务第一版：组织 → 项目两层
 pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 ```
 
-其余命令（`dev`/`build`/`start`/`db:*`/`lint`/`format`/`fix`）与各自作用见 [setup.md §5](docs/setup.md)；测试与 CI 细节见 [setup.md §7](docs/setup.md)。
+其余命令（`dev`/`build`/`start`/`db:*`/`lint`/`format`/`fix`）与各自作用见 [13-本地开发与命令 §5](docs/architecture/13-本地开发与命令.md)；测试与 CI 细节见 [13-本地开发与命令 §7](docs/architecture/13-本地开发与命令.md)。
 
 - `pnpm arch:check` —— 架构约束：`app`/`components`/`lib`/`hooks` 下单文件 ≤400 行（F6，存量豁免只许缩不许涨）+ 只在 `lib/config.ts` 读 `process.env`（F7）。
 - `pnpm docs:check` —— 文档相对链接、锚点、过期路径、矛盾措辞、文档头；CI 跑 `--strict`。
@@ -80,7 +80,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 ## 4. 目录与命名
 
-目录树与「哪块代码在哪」见 [implementation-status §1.5](docs/implementation-status.md)；模块边界与依赖方向见 [03-逻辑视图-模块设计](docs/architecture/03-逻辑视图-模块设计.md)。顶层是 `app/` + `components/` + `lib/` + `hooks/` + `tests/`，没有 `src/modules`。
+目录树与「哪块代码在哪」见 [11-需求与实现状态 §8](docs/architecture/11-需求与实现状态.md)；模块边界与依赖方向见 [03-逻辑视图-模块设计](docs/architecture/03-逻辑视图-模块设计.md)。顶层是 `app/` + `components/` + `lib/` + `hooks/` + `tests/`，没有 `src/modules`。
 
 | 对象 | 规则 | 示例 |
 |---|---|---|
@@ -146,7 +146,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 ### 5.6 API Route
 
-当前 4 个只读 Route Handler（`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`）与 DTO/状态码契约见 [implementation-status §1.3](docs/implementation-status.md)；它们是过渡形态，见 [ADR 0008](docs/decisions/0008-read-only-route-handlers.md)。
+当前 4 个只读 Route Handler（`/api/health`、`/api/orgs`、`/api/orgs/[orgId]/projects`、`/api/user`）与 DTO/状态码契约见 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)；它们是过渡形态，见 [ADR 0008](docs/decisions/0008-read-only-route-handlers.md)。
 
 新增 API Route 的顺序：`withApiLogging('<route-name>', handler)` 导出 → `getSessionUser()`，未登录 401 → Zod 校验路径参数与 body → 组织资源先 `getOrgRole`，非成员 403/404 → 查询带 `orgId` → 返回显式 DTO（不给整行）→ 补 Vitest（401/403/404/成功）。**不要复制 Server Action 的逻辑**，能复用 query 就复用；认证类 handler 数量为 0，不要新增 `/api/auth/*`。
 
@@ -154,7 +154,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 ## 6. 编码约定
 
-- `strict: true`，避免 `any`，不用 `as` 强行断言未知数据。领域类型从 `lib/db/schema.ts` 的 `$inferSelect` / `$inferInsert` 派生；外部输入（表单、URL、API body）一律 Zod。
+- `strict: true`，避免 `any`，不用 `as` 强行断言未知数据。领域类型从 `lib/db/schema/` 的 `$inferSelect` / `$inferInsert` 派生；外部输入（表单、URL、API body）一律 Zod。
 - 返回给 UI 的文案一律简体中文，且**不回显密码**；不要把数据库错误、堆栈直接展示给用户。API Route 用明确状态码 + 英文 JSON 错误体，内部日志保持英文。
 - 表单用 Server Action + `useActionState` / `useTransition`，并加 `noValidate`，让中文 Zod 消息生效。
 - 日志用 `logger`（`lib/logger.ts`，结构化 JSON，服务端自动带 `request_id` / `user_id`，API 另带 `duration_ms`）；不要在业务代码散落 `console.log`，不要记录密码、token、身份证、完整住址。
@@ -228,7 +228,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 - [ ] 没有返回密码哈希或整行用户；新表有已 review 的迁移并已启用 RLS
 - [ ] 安全路径有测试（越权、密码回显、限流）
 - [ ] 没有把家谱业务页面/写流程做成半成品
-- [ ] 文档同步：行为/命令变化 → `setup.md` / `implementation-status.md`（状态只写一处）
+- [ ] 文档同步：命令/环境变化 → [13-本地开发与命令](docs/architecture/13-本地开发与命令.md) / [06-部署视图-部署架构](docs/architecture/06-部署视图-部署架构.md)；状态只写 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md) §7
 
 **评审顺序**：① 越权（猜 ID 能否访问别的组织）② 信息泄露（整行/密钥/内部错误）③ 认证语义（`getSessionUser()` 是否查库、撤销是否正确）④ 错误处理（401/403/404）⑤ 迁移（可重复、可回滚、影响现有数据）⑥ 命名与风格。
 
@@ -236,6 +236,6 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 ## 10. 基础层与部署现状（**不要再次重置**）
 
-基础层已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地，认证已按 [ADR 0007](docs/decisions/0007-self-hosted-better-auth.md) 切换到自托管 Better Auth：UUIDv7、`auth.users/session/account/verification`、Better Auth organization 插件、11 张组织级业务表、业务表软删、复合外键、RLS + `app_rw`/`auth_service`、`withOrg`、4 角色 + 权限字符串、邀请链接（邀请 ID、7 天过期、一次性、禁止邀请 `owner`，旧 pending 会被取消）。实现家谱业务功能时：先读目标文档 → 先写实现计划 → 不要在同一 PR 里混入业务功能与基础层改动 → 更新 [实现状态](docs/implementation-status.md)。
+基础层已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地，认证已按 [ADR 0007](docs/decisions/0007-self-hosted-better-auth.md) 切换到自托管 Better Auth：UUIDv7、`auth.users/session/account/verification`、Better Auth organization 插件、17 张组织级业务表、业务表软删、复合外键、RLS + `app_rw`/`auth_service`、`withOrg`、4 角色 + 权限字符串、邀请链接（邀请 ID、7 天过期、一次性、禁止邀请 `owner`，旧 pending 会被取消）。实现家谱业务功能时：先读目标文档 → 先写实现计划 → 不要在同一 PR 里混入业务功能与基础层改动 → 更新 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)。
 
-部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`），生产必须提供 `APP_POSTGRES_URL`（`app`）与 `AUTH_POSTGRES_URL`（`auth_runtime`）；本地/CI 用 `postgres.js`，本地 Docker 只跑 PostgreSQL + `next dev`。本地生产模式与真实生产环境都已用 `pnpm verify:deploy` 验证。**生产库迁移由 `.github/workflows/migrate-production.yml` 在 `lib/db/migrations/**` 变更时执行，不放进 Vercel 构建**；改 schema 的 PR 合进 `main` 后必须确认这个 job 绿了，否则线上会跑在新代码 + 旧库上（[部署蓝图 §5.3](docs/ops-target.md)）。
+部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`），生产必须提供 `APP_POSTGRES_URL`（`app`）与 `AUTH_POSTGRES_URL`（`auth_runtime`）；本地/CI 用 `postgres.js`，本地 Docker 只跑 PostgreSQL + `next dev`。本地生产模式与真实生产环境都已用 `pnpm verify:deploy` 验证。**生产库迁移由 `.github/workflows/migrate-production.yml` 在 `lib/db/migrations/**` 变更时执行，不放进 Vercel 构建**；改 schema 的 PR 合进 `main` 后必须确认这个 job 绿了，否则线上会跑在新代码 + 旧库上（[06-部署视图-部署架构 §5.3](docs/architecture/06-部署视图-部署架构.md)）。

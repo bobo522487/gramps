@@ -52,7 +52,7 @@ describe('auth documentation', () => {
   });
 
   test('setup documents the auth runtime roles and URL', () => {
-    const setup = read('docs/setup.md');
+    const setup = read('docs/architecture/13-本地开发与命令.md');
 
     expect(setup).toMatch(/BETTER_AUTH_URL/);
     expect(setup).toMatch(/CREATE ROLE auth_runtime/);
@@ -70,7 +70,7 @@ describe('auth documentation', () => {
   });
 
   test('data model lists the Better Auth organization columns', () => {
-    const model = read('docs/data-model.md');
+    const model = read('docs/architecture/04-数据视图-数据架构.md');
     const start = model.indexOf('CREATE TABLE organization');
     const table = model.slice(start, model.indexOf(');', start));
 
@@ -80,7 +80,7 @@ describe('auth documentation', () => {
   });
 
   test('documented Drizzle version matches package.json', () => {
-    const status = read('docs/implementation-status.md');
+    const status = read('docs/architecture/11-需求与实现状态.md');
     const dependency = JSON.parse(read('package.json')).dependencies[
       'drizzle-orm'
     ] as string;
@@ -94,7 +94,9 @@ describe('auth documentation', () => {
   });
 
   test('public ids are documented as text, not varchar', () => {
-    expect(read('docs/setup.md')).not.toMatch(/varchar\(20\)/);
+    expect(read('docs/architecture/13-本地开发与命令.md')).not.toMatch(
+      /varchar\(20\)/
+    );
   });
 });
 
@@ -106,7 +108,7 @@ describe('documented stack versions', () => {
       packageManager: string;
       engines: { node: string };
     };
-    const status = read('docs/implementation-status.md');
+    const status = read('docs/architecture/11-需求与实现状态.md');
 
     expect(pkg.packageManager).toBe('pnpm@12.15.0');
     expect(pkg.engines.node).toBe('>=24.0.0 <25');
@@ -123,7 +125,7 @@ describe('documented stack versions', () => {
       devDependencies: Record<string, string>;
     };
     const agents = read('AGENTS.md');
-    const status = read('docs/implementation-status.md');
+    const status = read('docs/architecture/11-需求与实现状态.md');
 
     for (const doc of [agents, status]) {
       expect(doc).toContain(pkg.dependencies.next as string);
@@ -239,9 +241,9 @@ describe('documented stack versions', () => {
       '当前仓库实际是四个迁移',
     ];
     for (const path of [
-      'docs/implementation-status.md',
-      'docs/setup.md',
-      'docs/ops-target.md',
+      'docs/architecture/11-需求与实现状态.md',
+      'docs/architecture/13-本地开发与命令.md',
+      'docs/architecture/06-部署视图-部署架构.md',
       'docs/README.md',
     ]) {
       const text = read(path);

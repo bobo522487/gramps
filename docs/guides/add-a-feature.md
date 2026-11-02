@@ -193,7 +193,7 @@ export default async function Page({ params }: Props) {
 
 ### ⑩ 更新状态
 
-- `docs/implementation-status.md`：改对应模块行（这是**唯一**的状态来源）
+- `docs/architecture/11-需求与实现状态.md`：改 §7 追溯矩阵的状态列（这是**唯一**的状态来源）
 
 ---
 
@@ -261,4 +261,4 @@ pnpm check && pnpm typecheck && pnpm test:coverage
 - [ ] 三条集成测试（正常 / 跨组织 / 只读角色）
 - [ ] `implementation-status.md` 已更新
 
-> **Action 契约**：统一为 `ActionState`；见 [api.md §4.2](../api.md#42-出口一server-action--actionstate)。
+> **Action 契约**：统一为 `ActionState`；见 [api.md §4.2](../architecture/05-接口与集成设计.md#42-出口一server-action--actionstate)。

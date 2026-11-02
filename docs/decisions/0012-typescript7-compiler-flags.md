@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-28
 - **可逆性**：双向门
-- **相关**：[ADR 0009（约束必须有执行者）](./0009-dependency-and-runtime-stance.md) · [10-25 技术栈评审 §9 未验证的假设](../archive/reviews/2026-10-25-linus-stack-review.md) · [setup §5 命令表](../setup.md) · [实现状态 §1](../implementation-status.md)
+- **相关**：[ADR 0009（约束必须有执行者）](./0009-dependency-and-runtime-stance.md) · [10-25 技术栈评审 §9 未验证的假设](../archive/reviews/2026-10-25-linus-stack-review.md) · [setup §5 命令表](../architecture/13-本地开发与命令.md) · [实现状态 §1](../architecture/11-需求与实现状态.md)
 
 ## 背景
 

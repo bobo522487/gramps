@@ -4,7 +4,7 @@
 - **日期**：2026-10-27
 - **可逆性**：双向门
 - **取代**：[决策索引](./README.md) 中 ADR-13「检索：`pg_trgm` + ILIKE」这一行——ADR-13 此前只有一行结论，没有文件、没有执行者，按 [ADR-24](./0009-dependency-and-runtime-stance.md) 属于「视为未决策」
-- **相关**：[data-model §10](../data-model.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [ADR 0003](./0003-tree-storage-ltree.md) · [ADR 0009（约束必须有执行者）](./0009-dependency-and-runtime-stance.md)
+- **相关**：[04-数据视图 §10](../architecture/04-数据视图-数据架构.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [ADR 0003](./0003-tree-storage-ltree.md) · [ADR 0009（约束必须有执行者）](./0009-dependency-and-runtime-stance.md)
 
 ## 背景
 
@@ -59,7 +59,7 @@ ADR-13 写的是一句「检索用 `pg_trgm` + ILIKE」。据此 `0001_auth_rls`
 ## 重估触发条件
 
 - **单谱系人丁量超过约 5000（保守阈值）**：[04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) 给单谱系人丁的容量上限是 5 万，本 ADR 的重估触发线刻意取更保守的 5000——全量载入与内存匹配的体验代价在远未触及容量上限前就会先越线；或 `getNodes` 全量载入不再可行；
-- `node` 单表超过 500 万行，或检索 p95 超过 300ms（[data-model §10.1](../data-model.md) 已给出的外部索引触发线）；
+- `node` 单表超过 500 万行，或检索 p95 超过 300ms（[04-数据视图 §10.1](../architecture/04-数据视图-数据架构.md) 已给出的外部索引触发线）；
 - 出现需要跨谱系 / 全组织的人丁检索需求。
 
 出现以上任一信号时：**先改本 ADR**，再在同一个改动里同时加回 `idx_node_search` 与服务端查询，并放宽 `tests/integration/search-boundary.test.ts` 对 `node` 的断言。本 ADR 定义的反模式只有两种：**只加服务端查询而不把索引与测试断言一起改回来**（查询在 `node` 上裸跑，边界形同虚设）；**只加索引而没有消费者查询**（`idx_node_search` 此前的处境，每次写人丁白付 GIN 维护）。先加查询、看见它需要索引，再把索引与断言一起补上，是正确路径，不是反模式。

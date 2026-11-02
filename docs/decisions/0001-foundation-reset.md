@@ -5,7 +5,7 @@
 | 状态 | 已接受，已完成基础层实现；**认证部分已被 [0007](./0007-self-hosted-better-auth.md) 取代（2026-10-23）** |
 | 日期 | 2026-10-21（执行完成 2026-10-22） |
 | 决策人 | 项目维护者 |
-| 相关文档 | [数据模型](../data-model.md) · [架构](../architecture/01-架构总览.md) · [实现状态](../implementation-status.md) · [部署蓝图](../ops-target.md) |
+| 相关文档 | [数据模型](../architecture/04-数据视图-数据架构.md) · [架构](../architecture/01-架构总览.md) · [实现状态](../architecture/11-需求与实现状态.md) · [部署蓝图](../architecture/06-部署视图-部署架构.md) |
 
 ---
 
@@ -55,7 +55,7 @@ Phase 0/1/2 已完成测试安全网、P0 修复与架构接缝。仓库只有�
 约束：
 
 - 迁移内不写数据修复；演示数据由 `pnpm db:seed` 重建。
-- `POSTGRES_URL` 在本地/CI 使用可 `SET ROLE app_rw` 的迁移角色；生产按 [ops-target.md](../ops-target.md) 分离 `app`（运行时）与迁移角色。
+- `POSTGRES_URL` 在本地/CI 使用可 `SET ROLE app_rw` 的迁移角色；生产按 [06-部署视图-部署架构.md](../architecture/06-部署视图-部署架构.md) 分离 `app`（运行时）与迁移角色。
 - CI 在空库执行全部迁移，并断言 `public` 下业务表全部启用 `relrowsecurity`。
 
 ## 5. 影响

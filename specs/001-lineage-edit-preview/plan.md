@@ -35,7 +35,7 @@
 
 **Constraints**: 单文件 ≤400 行（`pnpm arch:check`，豁免只许缩）；不写裸色值；提交前 `pnpm check && pnpm typecheck && pnpm test` 全绿
 
-**Scale/Scope**: 单谱系 1000 人丁可用、5000 为目标上限；本期改动 4 处行为 + 3 个新文件 + 1 个权限串 + 1 份文档同步（`docs/prd.md` 权限矩阵）
+**Scale/Scope**: 单谱系 1000 人丁可用、5000 为目标上限；本期改动 4 处行为 + 3 个新文件 + 1 个权限串 + 1 份文档同步（`docs/architecture/11-需求与实现状态.md` 权限矩阵）
 
 **既有测试影响**: 已 grep 确认 `tests/` 中**没有**断言被移除的 UI（`人丁操作` / `未选择族人` / `查看档案` 均 0 命中），所以本期不需要改写既有测试；只需为两条新入口补 1 条 E2E 与 2 个单测。
 
@@ -52,7 +52,7 @@
 | 禁止清单：不新增表 / 不加后台任务 / 不用裸色值 | PASS | 零迁移；抽屉用既有 Sheet 基元 |
 | F6 行数棘轮（豁免只许缩） | PASS（靠**删代码**腾空间） | `lineage-detail.tsx` 865/865、`person-inspector.tsx` 606/606 都顶格；本期各删 85 / 40 行左右，净变小 |
 | 迁移与业务代码分开提交 | PASS | 本期无迁移 |
-| 文档同步（权限矩阵） | PASS | `docs/prd.md` §3.2/§3.3（CRLF，按字节回写）；表结构未变故 `docs/data-model.md` 不动 |
+| 文档同步（权限矩阵） | PASS | `docs/architecture/11-需求与实现状态.md` §3.2/§3.3（CRLF，按字节回写）；表结构未变故 `docs/architecture/04-数据视图-数据架构.md` 不动 |
 
 设计后复核：同上，无新增违例；`pnpm arch:check`、`pnpm docs:check --strict` 为完成判据。
 

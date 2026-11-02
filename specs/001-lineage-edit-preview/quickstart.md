@@ -90,4 +90,4 @@ pnpm test:e2e
 git diff --stat docs/
 ```
 
-**期望**：只 `docs/prd.md`（权限矩阵 1 行拆分 + `ROLE_PERMISSIONS` 1 行）。**该文件是 CRLF**：脚本改写后必须 `data.replace(b"\n", b"\r\n")` 写回，否则整文件重写。
+**期望**：只 `docs/architecture/11-需求与实现状态.md`（权限矩阵 1 行拆分 + `ROLE_PERMISSIONS` 1 行）。**该文件是 CRLF**：脚本改写后必须 `data.replace(b"\n", b"\r\n")` 写回，否则整文件重写。

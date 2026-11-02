@@ -3,7 +3,7 @@
 > **回答什么问题**：有哪些已定决策？哪条需要写正式 ADR？为什么不是别的方案？
 > **读者**：所有人　**长度上限**：2 页（索引本身）
 > **来源**：原 `architect.md` §13，另加「可逆性」标注与正式 ADR 清单
-> **目标 vs 现状**：本索引记录的是**目标设计**的决策。实现层面的偏差见 [实现状态](../implementation-status.md)。
+> **目标 vs 现状**：本索引记录的是**目标设计**的决策。实现层面的偏差见 [实现状态](../architecture/11-需求与实现状态.md)。
 
 ---
 
@@ -40,6 +40,7 @@
 | ADR-25 | TypeScript 编译器开关 | 只开 4 条实测 0 报错的检查；贵开关全部拒绝并留下报错数 | 双向门 | [0012](./0012-typescript7-compiler-flags.md) |
 | ADR-26 | 首屏数据来源 | RSC `dehydrate` 是唯一首屏来源；hook 不得用 `refetchOnMount` 作废它。P1-8/P1-9 判为「前提不存在」 | 双向门 | [0013](./0013-next-react-runtime-layer.md) |
 | ADR-27 | 单支世系导出 | M2 做单支世系导出，格式 GEDCOM 7（不是 5.5.1）；不做导入、不做整库导出 | 双向门 | [0017](./0017-single-branch-export-gedcom7.md) |
+| ADR-28 | 文档结构 | `docs/` 只有一层文档集：根级文档并入 `architecture/`，as-is / to-be 改成段落级 `[现状]`/`[目标]` 标注 | 双向门 | [0018](./0018-single-doc-set.md) |
 
 **单向门的含义**：不是「不能改」，而是「改的时候要付数据迁移或全量重排的代价」。这类决策一旦有真实客户数据，讨论成本会上升一个数量级，所以**在有数据之前**就要想清楚。
 
@@ -48,6 +49,8 @@
 ## 2. 正式 ADR
 
 只有「有争议、有代价、可能被推翻」的决策才写正式 ADR。其余留在上表即可，两处不重复计数。
+
+**编号 0014 / 0015 从未创建**（`git log --all` 无历史）：0014 原计划写「人丁/家庭模型取代 ADR 0003 的严格父系」，实际由 [person-family-model 计划](../archive/plans/2026-10-29-p0-p1-schema-split-and-fact-layer.md) 与 [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) §6 承载；0015 原计划写「事件与日期语义」，语义落在 `lib/db/schema/event.ts` 的注释与 [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) §6.5。**编号不连续是历史事实，不改号、不复用**。
 
 | ADR | 主题 | 为什么值得单独写 |
 |---|---|---|
@@ -66,6 +69,7 @@
 | [0013](./0013-next-react-runtime-layer.md) | 首屏只查一遍：RSC `dehydrate` 为唯一来源，`refetchOnMount:'always'` 移除 | 实测出控制台每次硬加载重复打 `/api/user` + `/api/orgs`；同时把 P1-8（整树失效）与 P1-9（营销页静态化）判为「前提不存在」——21 条路由全动态、零预渲染 |
 | [0016](./0016-tenant-columns-immutable.md) | 租户列不可变：`UPDATE` 不得改归属列，10 张表各挂 `trg_<table>_tenant_immutable` | 修的是已发布代码里的真实越权路径（RLS `WITH CHECK` 只看新值，双组织用户能把行搬走）；并记录 `folder_id` 属结构列、必须保持可写，否则删文件夹会失败 |
 | [0017](./0017-single-branch-export-gedcom7.md) | 单支世系导出用 GEDCOM 7，且提前到 M2 | 推翻了 §6.2「用户量不足」的判断，格式选择会被第三方兼容性挑战 |
+| [0018](./0018-single-doc-set.md) | 文档只保留一层：根级事实层并入 `architecture/` | 删的是重复副本而不是内容；链接改动面大且不可机械修复锚点，需要留档说明取舍 |
 
 ### ADR 模板
 
@@ -107,7 +111,7 @@
 - D-1 / D-3 → ADR-01（`lib/<domain>` 垂直切片）
 - D-2 → [ADR 0008](./0008-read-only-route-handlers.md)
 - D-5 → [02-架构目标与约束 G3](../architecture/02-架构目标与约束.md) 写为「≤5 个源文件 + 1 个迁移 + 1 处状态更新」
-- D-7 → `api.md` 采用 `ActionState`（定义在 `lib/auth/types.ts`）
+- D-7 → [05-接口与集成设计](../architecture/05-接口与集成设计.md) 采用 `ActionState`（定义在 `lib/auth/types.ts`）
 - D-8（依赖与运行时立场）→ [ADR 0009](./0009-dependency-and-runtime-stance.md)
 - D-9（富文本选型）→ [ADR 0010](./0010-rich-text-editor-selection.md)
 

@@ -3,7 +3,7 @@
 - **状态**：已接受
 - **日期**：2026-10-29
 - **可逆性**：双向门（`DROP TRIGGER` 即回到原状——但那等于重新打开越权路径，见「重估触发条件」）
-- **相关**：[data-model §12](../data-model.md) · [ADR 0006](./0006-rls-isolation.md) · [ADR 0004](./0004-soft-delete-forever.md) · 迁移 `lib/db/migrations/0015_forbid_tenant_move.sql` · `tests/integration/tenant-immutability.test.ts` · 蓝图 §7.5
+- **相关**：[04-数据视图 §12](../architecture/04-数据视图-数据架构.md) · [ADR 0006](./0006-rls-isolation.md) · [ADR 0004](./0004-soft-delete-forever.md) · 迁移 `lib/db/migrations/0015_forbid_tenant_move.sql` · `tests/integration/tenant-immutability.test.ts` · 蓝图 §7.5
 
 ## 背景
 
