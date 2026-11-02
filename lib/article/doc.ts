@@ -80,16 +80,25 @@ function sanitizeNode(value: unknown): ArticleNode | null {
   }
   const node: ArticleNode = { type: value.type };
   if (isRecord(value.attrs)) {
-    node.attrs = value.attrs as Record<string, unknown>;
+    // 必须重新装进普通对象：ProseMirror 的 attrsToJSON 用 Object.create(null)，
+    // 而 React 的 Server Action 序列化只认带原型的普通对象——直接透传会让服务端
+    // 收到一个没有 attrs 的节点（图片路径、标题层级就此丢失）。
+    node.attrs = { ...value.attrs };
   }
   if (typeof value.text === 'string') {
     node.text = value.text;
   }
   if (Array.isArray(value.marks)) {
-    const marks = value.marks.filter(
-      (mark): mark is ArticleMark =>
-        isRecord(mark) && typeof mark.type === 'string'
-    );
+    const marks = value.marks
+      .filter(
+        (mark): mark is ArticleMark =>
+          isRecord(mark) && typeof mark.type === 'string'
+      )
+      .map((mark) =>
+        isRecord(mark.attrs)
+          ? { type: mark.type, attrs: { ...mark.attrs } }
+          : { type: mark.type }
+      );
     if (marks.length > 0) {
       node.marks = marks;
     }
@@ -103,20 +112,31 @@ function sanitizeNode(value: unknown): ArticleNode | null {
   return node;
 }
 
-function sanitizePageDoc(value: unknown): ArticlePageDoc | null {
-  if (
-    !isRecord(value) ||
-    value.type !== 'doc' ||
-    !Array.isArray(value.content)
-  ) {
-    return null;
-  }
+/**
+ * 把任意来源的文档补成我们的形状。
+ *
+ * ProseMirror 的 `toJSON()` 在文档为空时**会省略 `content`**，服务端历史数据里
+ * 也可能缺这个键；与其到处判空，不如在边界一次补齐：`content` 永远是数组，
+ * 白名单外的节点一律丢掉。
+ */
+export function normalizePageDoc(value: unknown): ArticlePageDoc {
+  const content =
+    isRecord(value) && value.type === 'doc' && Array.isArray(value.content)
+      ? value.content
+      : [];
   return {
     type: 'doc',
-    content: value.content
+    content: content
       .map(sanitizeNode)
       .filter((n): n is ArticleNode => n !== null),
   };
+}
+
+function sanitizePageDoc(value: unknown): ArticlePageDoc | null {
+  if (!isRecord(value) || value.type !== 'doc') {
+    return null;
+  }
+  return normalizePageDoc(value);
 }
 
 function sanitizePage(value: unknown): ArticlePage | null {

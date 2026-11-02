@@ -224,3 +224,72 @@ test('multi-page: add, switch commits first, reorder persists, cannot delete las
 
   expect(errors).toEqual([]);
 });
+
+test('image: insert, resize, persist, and reject oversize', async ({
+  page,
+}) => {
+  const errors = watchPageErrors(page);
+  const _projectRef = await bootstrap(page, String(Date.now()));
+
+  await page.getByRole('button', { name: '新建谱文' }).first().click();
+  const articleId = await createArticleAndOpen(page, 'E2E 像赞');
+
+  await page.locator('.article-canvas').click();
+  await page.keyboard.type('始祖像赞一首。');
+  await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 15_000 });
+
+  // 插入图片：走服务端媒体通道，文档里存的是 pathname，渲染走 /api/media 代理。
+  // 最小合法 PNG（1×1）：只验魔数与通路，不验像素。
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  );
+  await page.getByRole('button', { name: '插入图片' }).click();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: '祖像.png',
+    mimeType: 'image/png',
+    buffer: png,
+  });
+
+  const img = page.locator('.article-canvas img');
+  await expect(img).toHaveCount(1, { timeout: 15_000 });
+  await expect(img).toHaveAttribute('src', /^\/api\/media\/articles\//);
+  await expect(img).toHaveAttribute('data-width', 'full');
+  expect(await img.getAttribute('src')).toContain(articleId);
+
+  // 三档宽度（FR-026）：选中图片后切「中」，保存后刷新仍是中。
+  await img.click();
+  await page.getByRole('button', { name: '图片宽度中' }).click();
+  await expect(img).toHaveAttribute('data-width', 'medium');
+  await expect(page.getByRole('button', { name: '立即保存' })).toBeEnabled();
+  await page.getByRole('button', { name: '立即保存' }).click();
+  await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 15_000 });
+
+  await page.reload();
+  await expect(page.locator('.article-canvas img')).toHaveAttribute(
+    'data-width',
+    'medium'
+  );
+
+  // 超过 10MB：客户端先挡，中文提示，已有图片与文字不受影响（FR-037、US3-AC4）。
+  await page.locator('input[type="file"]').setInputFiles({
+    name: '大图.png',
+    mimeType: 'image/png',
+    buffer: Buffer.alloc(10 * 1024 * 1024 + 1),
+  });
+  await expect(
+    page.getByText('只支持 JPG / PNG / WebP，单张不超过 10MB')
+  ).toBeVisible();
+  await expect(page.locator('.article-canvas img')).toHaveCount(1);
+  await expect(page.locator('.article-canvas')).toContainText('始祖像赞一首。');
+
+  // 伪装成图片的文本：客户端 MIME 先挡一道。
+  await page.locator('input[type="file"]').setInputFiles({
+    name: '手抄.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('不是图片'),
+  });
+  await expect(page.locator('.article-canvas img')).toHaveCount(1);
+
+  expect(errors).toEqual([]);
+});

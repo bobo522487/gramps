@@ -40,6 +40,7 @@ export function ArticleEditorShell({
   initialTitle,
   projectRegion,
   canWrite,
+  mediaMode,
   canManageFolders,
   initial,
   folders,
@@ -53,6 +54,8 @@ export function ArticleEditorShell({
   initialTitle: string;
   projectRegion: string;
   canWrite: boolean;
+  /** 图片字节走 Blob 还是本地兜底（ADR 0019），由服务端页面下来。 */
+  mediaMode: 'blob' | 'fs';
   canManageFolders: boolean;
   initial: ArticleContent;
   folders: ArticleFolderNode[];
@@ -193,7 +196,12 @@ export function ArticleEditorShell({
           <TipTapEditor
             pageId={ws.currentPageId}
             value={currentDoc}
+            orgId={orgId}
+            articleId={articleId}
+            mediaMode={mediaMode}
+            editable={canWrite}
             onChange={(doc) => ws.setDoc(ws.currentPageId, doc)}
+            onNotice={ws.setNotice}
           />
         </main>
 

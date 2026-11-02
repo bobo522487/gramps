@@ -121,3 +121,18 @@ export function sniffImageContentType(bytes: Uint8Array): string | null {
 function startsWith(bytes: Uint8Array, prefix: number[]): boolean {
   return prefix.every((value, index) => bytes[index] === value);
 }
+
+/**
+ * 图片在页面里的地址：一律走服务端代理，浏览器拿不到存储直链。
+ *
+ * 每一段都单独编码，这样 `..%2F` 之类的写法到不了 `parseMediaPathname`。
+ * 授权也在这条路上做（`app/api/media/[...key]/route.ts`），
+ * 所以这个 URL 可以安全地出现在文档渲染里（FR-034、ADR 0019）。
+ */
+export function mediaUrl(pathname: string): string {
+  const encoded = pathname
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  return `/api/media/${encoded}`;
+}

@@ -49,6 +49,8 @@ export type ArticleWorkspaceState = {
   hasPending: boolean;
   /** 加页 / 删页 / 排序被服务端拒绝时的中文提示（FR-021、FR-022）。 */
   notice: string | null;
+  /** 工具栏（插图、超限）也往同一条提示通道里写中文（FR-037）。 */
+  setNotice: (message: string | null) => void;
 };
 
 export function useArticleAutosave({
@@ -112,6 +114,8 @@ export function useArticleAutosave({
       });
       const saved = 'data' in result ? result.data : undefined;
       if (!saved) {
+        // 失败要带原因（FR-015）：服务端返回的就是中文文案，直接冒到顶栏。
+        setNotice(errorMessage(result));
         setState((current) => setPageStatus(current, pageId, 'error'));
         return false;
       }
@@ -260,6 +264,7 @@ export function useArticleAutosave({
     statusText,
     hasPending,
     notice,
+    setNotice,
   };
 }
 

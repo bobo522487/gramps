@@ -14,6 +14,7 @@ import {
   updateArticleTitleAction,
 } from '@/lib/article/actions';
 import { ARTICLE_ERRORS } from '@/lib/article/constants';
+import { parseArticleContent } from '@/lib/article/doc';
 import { PERMISSION_DENIED_MESSAGES } from '@/lib/auth/permissions';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
 import { articles, books, folders } from '@/lib/db/schema';
@@ -533,6 +534,55 @@ describe('saveArticlePageAction', () => {
     });
 
     expect(result).toMatchObject({ error: ARTICLE_ERRORS.invalid_doc });
+  });
+
+  it('正文插图的页能存进去，宽度按提交的档位落库（FR-025、FR-026）', async () => {
+    const articleId = await articleWithTwoPages();
+    const pathname = `articles/${fixture.orgId}/${articleId}/pic-1.png`;
+    const result = await saveArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageId: '11111111-1111-4111-8111-111111111111',
+      doc: {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: '始祖画像' }] },
+          { type: 'articleImage', attrs: { pathname, width: 'medium' } },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({ success: '已保存' });
+    const stored = parseArticleContent((await readContent(articleId))?.content);
+    expect(stored.pages[0]?.doc.content?.[1]).toMatchObject({
+      type: 'articleImage',
+      attrs: { pathname, width: 'medium' },
+    });
+  });
+
+  it('一页第七张图被拒，已存内容一字不动（FR-028、FR-037）', async () => {
+    const articleId = await articleWithTwoPages();
+    const pageId = '11111111-1111-4111-8111-111111111111';
+    const before = await readContent(articleId);
+
+    const images = Array.from({ length: 7 }, (_, index) => ({
+      type: 'articleImage',
+      attrs: {
+        pathname: `articles/${fixture.orgId}/${articleId}/img${index}.png`,
+        width: 'full',
+      },
+    }));
+    const result = await saveArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageId,
+      doc: { type: 'doc', content: images },
+    });
+
+    expect(result).toMatchObject({ error: ARTICLE_ERRORS.too_many_images });
+    const after = await readContent(articleId);
+    expect(after?.content).toEqual(before?.content);
+    expect(after?.plainText).toBe(before?.plainText);
   });
 
   it('查看者保存按不存在处理，内容不变', async () => {

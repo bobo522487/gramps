@@ -5,6 +5,7 @@ import {
   folderPickerOptions,
 } from '@/components/article/types';
 import { parseArticleContent } from '@/lib/article/doc';
+import { getMediaStore } from '@/lib/article/media/store';
 import { getNavArticleCounts, getNavArticleFolders } from '@/lib/article/nav';
 import { requireProjectContext } from '@/lib/auth/context';
 import { hasPermission } from '@/lib/auth/permissions';
@@ -46,6 +47,7 @@ export default async function ArticleEditorPage({
 
   return (
     <ArticleEditorShell
+      mediaMode={getMediaStore().mode}
       orgId={organization.id}
       projectId={project.id}
       projectRef={projectRef}
