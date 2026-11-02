@@ -154,3 +154,56 @@ export function articleContentSchema(scope: {
 
 /** 保存单页时的入参文档（不含分页包装）。 */
 export { imageNodeSchema as articleImageNodeSchema };
+
+/* ── Action 入参（contracts §1）────────────────────────────────────── */
+
+const uuidArg = z.uuid('参数无效');
+const pageIdArg = z.string().min(1, '页标识无效');
+
+export const createArticleSchema = z.object({
+  orgId: uuidArg,
+  projectId: uuidArg,
+  title: titleSchema,
+  folderId: z.nullable(uuidArg).optional(),
+});
+
+export const updateArticleTitleSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+  title: titleSchema,
+});
+
+export const moveArticleSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+  folderId: z.nullable(uuidArg),
+});
+
+export const deleteArticleSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+});
+
+export const saveArticlePageSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+  pageId: pageIdArg,
+  doc: articlePageDocSchema,
+});
+
+export const addArticlePageSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+});
+
+export const deleteArticlePageSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+  pageId: pageIdArg,
+});
+
+export const reorderArticlePagesSchema = z.object({
+  orgId: uuidArg,
+  articleId: uuidArg,
+  pageIds: z.array(pageIdArg).min(1, '页顺序不能为空'),
+});

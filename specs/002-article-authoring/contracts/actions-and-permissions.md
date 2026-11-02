@@ -205,7 +205,7 @@ export function getMediaStore(): MediaStore;
 
 | code / reason | 文案 | 触发 |
 |---|---|---|
-| `forbidden` | 你没有编辑谱文的权限 | 无 `article.write` |
+| `forbidden` | 你没有撰写谱文的权限（与 `PERMISSION_DENIED_MESSAGES['article.write']` 同串） | 无 `article.write` |
 | `not_found` | 谱文不存在或已删除 | 不存在 / 非本组织 / 已软删 |
 | `page_not_found` | 这一页已被删除，你的文字仍保留在本地，请刷新后重新添加一页 | 保存的 `pageId` 不在文档里（FR-021：拒绝提交、保留内容、不凭空生成页） |
 | `last_page` | 至少要保留一页 | 删最后一页 |
