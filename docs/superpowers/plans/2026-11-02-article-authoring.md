@@ -548,6 +548,19 @@ git commit -m "test(article): 安全回归与性能夹具"
 
 复跑证据：`CI=1 pnpm test:e2e --retries=0`（两个 spec 文件全量）**7 passed**（两次连跑都全绿，第二次 37.6s）。
 
+## Blob 通道真机验证（2026-11-03 00:13，store `gramps-media`）
+
+私有桶 store 已在 Vercel 项目 `gramps` 上创建（`vercel blob create-store gramps-media --access private --yes` → `store_tfPIAzMgUaajeHPq`，iad1），令牌写进本地 `.env`（不入库）。[tests/integration/media-blob.test.ts](../../../tests/integration/media-blob.test.ts) 是**按令牌门控**的真机套件：没有 `BLOB_READ_WRITE_TOKEN` 时整个文件 skip，CI 与默认本地跑不受影响。
+
+| 段 | 用例 | 实测 |
+|---|---|---|
+| 服务端腿（6 条） | 驱动选择、私有桶真实字节读回、读取代理 200 + `nosniff` + `private, max-age=300`、非成员 404、谱文软删后新读取 404（字节仍在桶里）、删除后读不回 | **6 passed**，对象是真的落在 `gramps-media` 桶里 |
+| 上传握手（5 条） | 令牌把 pathname / `allowedContentTypes` / `maximumSizeInBytes` / `addRandomSuffix:false` 钉死；换 pathname 必须重新签发；非成员、形状不对、`articleId` 不属于该组织一律 **404 且不带原因串**（终审 BLK-6 的回归） | **5 passed** |
+
+**没验到的一条，如实记账**：浏览器里那条直传 PUT 的目标主机是 `https://gramps-media.private.blob.vercel-storage.com/…`（access 编在主机名里，不是头部——SDK 源码 `constructBlobUrl()` 可证），而这台开发机的 DNS 不放通 `*.blob.vercel-storage.com`（连 `example.com` 都解析不到；同机 `curl`/Node 走 `vercel.com/api/blob` 是通的，Chromium 打 `vercel.com` 也通）。E2E 的 `-g image` 因此停在 `net::ERR_FAILED`（4 次重试），**不是代码缺陷**：换到能解析存储域名的机器或 Vercel 部署上（令牌已由 store 绑定自动注入）再验一次浏览器直传。SDK 另有一条与本条同源的提示：`onUploadCompleted` 在没有 `callbackUrl`（本地直接调 handler 时推不出来）时不触发，Vercel 运行时由 `x-vercel-proxied-url` 推出，只影响「上传完成」日志，不影响字节落桶。
+
+配套改动：`tests/integration/media.test.ts` 在文件内临时摘掉令牌（它是 fs 驱动套件），两个文件合跑 → **31 passed**。
+
 ## 执行期裁决（补记，2026-11-02 深夜）
 
 - **`getMediaMode()` 的判据去掉平台条件**：原写「有令牌且 `isVercel()` 才 blob」，后果是本地无论怎么配令牌都只能跑 fs 驱动，ADR 0019 的真实 Blob 路径（私有桶写入 + `get({ access: 'private' })` 读回 + 读取代理）在开发机上无法验证。现改为只看 `BLOB_READ_WRITE_TOKEN`：留空（本地与 CI 的默认）走 `.data/media/`，配了就走 Blob——本地配了生产令牌即可真机验一遍，生产由 Vercel 存储绑定注入，行为不变。守它的测试：`tests/config.test.ts` 的 `describe('media mode')` 与 `tests/integration/media-blob.test.ts`（无令牌整体 skip）。
