@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -227,25 +227,35 @@ export function ArticleDeleteDialog({
   const [referenced, setReferenced] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    if (!row) {
+  // 打开对话框那一刻就取影响范围（FR-004、SC-005）。父组件直接翻转 `open`，
+  // Radix 不会为此回调 onOpenChange，所以只能在 effect 里取；取到之前按钮保持禁用，
+  // 免得弹窗里先给出一个没有数字的确认框。
+  useEffect(() => {
+    if (!open || !row) {
       return;
     }
+    let active = true;
     setLoading(true);
     setError(null);
-    const result = await getArticleDeletePreviewAction({
-      orgId,
-      articleId: row.id,
-    });
-    setLoading(false);
-    if (!('pageCount' in result)) {
-      setError(result.error ?? '读取删除影响范围失败');
-      return;
-    }
-    setPageCount(result.pageCount);
-    setImageCount(result.imageCount);
-    setReferenced(result.referencedByCatalog);
-  }
+    void getArticleDeletePreviewAction({ orgId, articleId: row.id }).then(
+      (result) => {
+        if (!active) {
+          return;
+        }
+        setLoading(false);
+        if (!('pageCount' in result)) {
+          setError(result.error ?? '读取删除影响范围失败');
+          return;
+        }
+        setPageCount(result.pageCount);
+        setImageCount(result.imageCount);
+        setReferenced(result.referencedByCatalog);
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [open, row, orgId]);
 
   async function confirm() {
     if (!row) {
@@ -266,9 +276,7 @@ export function ArticleDeleteDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (next) {
-          void refresh();
-        } else {
+        if (!next) {
           setLoading(false);
           setPageCount(null);
           setImageCount(null);
