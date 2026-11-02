@@ -64,14 +64,14 @@
 
 ### Tests for User Story 1（先失败）
 
-- [ ] T017 [P] [US1] 集成测试：`createArticleAction` / `updateArticleTitleAction` / `moveArticleAction` / `deleteArticleAction` 的权限、跨组织 404、编目引用阻止 —— `tests/integration/articles.test.ts`
-- [ ] T018 [P] [US1] 单测：保存状态机 `idle→dirty→saving→saved/error` 与「任一页未保存不得显示已保存」—— `tests/article-save-state.test.ts`
+- [x] T017 [P] [US1] 集成测试：`createArticleAction` / `updateArticleTitleAction` / `moveArticleAction` / `deleteArticleAction` 的权限、跨组织 404、编目引用阻止 —— `tests/integration/articles.test.ts`
+- [x] T018 [P] [US1] 单测：保存状态机 `idle→dirty→saving→saved/error` 与「任一页未保存不得显示已保存」—— `tests/article-save-state.test.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T019 [US1] `lib/article/services.ts`：`createArticleInTransaction`（含默认分类自动创建）、`updateTitleInTransaction`、`moveInTransaction`、`deleteArticleInTransaction`（单事务 + 引用检查 + 活动日志）
-- [ ] T020 [US1] `lib/article/actions.ts`：`createArticleAction` / `updateArticleTitleAction` / `moveArticleAction` / `deleteArticleAction`（契约 §1.1–§1.4）
-- [ ] T021 [US1] `lib/article/services.ts` + `actions.ts`：`saveArticlePageAction`（`FOR UPDATE`、按页替换、`derivePlainText`、`savedAt` 回显）
+- [x] T019 [US1] `lib/article/services.ts`：`createArticleInTransaction`（含默认分类自动创建）、`updateTitleInTransaction`、`moveInTransaction`、`deleteArticleInTransaction`（单事务 + 引用检查 + 活动日志）
+- [x] T020 [US1] `lib/article/actions.ts`：`createArticleAction` / `updateArticleTitleAction` / `moveArticleAction` / `deleteArticleAction`（契约 §1.1–§1.4）
+- [x] T021 [US1] `lib/article/services.ts` + `actions.ts`：`saveArticlePageAction`（`FOR UPDATE`、按页替换、`derivePlainText`、`savedAt` 回显）
 - [ ] T022 [P] [US1] `components/article/article-list.tsx`（倒序、页数、标题搜索）与 `components/article/new-article-dialog.tsx`（标题 + 分类 + 只读地区）
 - [ ] T023 [P] [US1] `components/article/article-folder-tree.tsx`（篇数、未分类、分类管理入口按 `project.write` 显隐）
 - [ ] T024 [US1] `app/(dashboard)/dashboard/project/[projectRef]/articles/page.tsx`：占位 → 分类树 + 列表 + 新建

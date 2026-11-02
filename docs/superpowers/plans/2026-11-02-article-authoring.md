@@ -216,6 +216,10 @@ git commit -m "feat(db): 谱文查询层（列表页数、分类篇数、删除�
 
 ### Task 6: US1 服务层与四个 Action（T017–T021）
 
+> **执行时调整**：`lib/article/services.ts` 写成 652 行会撞 F6（单文件 ≤400 行），
+> 已拆成 `lib/article/mutations.ts`（事务共用件）+ `services.ts`（整篇 CRUD）+
+> `page-services.ts`（按页操作）。函数名与契约不变。
+
 **Files:**
 - Create: `lib/article/services.ts`、`lib/article/actions.ts`
 - Test: `tests/integration/articles.test.ts`、`tests/article-save-state.test.ts`
@@ -224,23 +228,23 @@ git commit -m "feat(db): 谱文查询层（列表页数、分类篇数、删除�
 - Consumes: `withOrgWrite`、`logActivityInTx`、`lib/article/doc.ts`、`lib/article/schemas.ts`
 - Produces: `createArticleAction`、`updateArticleTitleAction`、`moveArticleAction`、`deleteArticleAction`、`saveArticlePageAction`（契约见 contracts §1.1–§1.5）
 
-- [ ] **Step 1: 写失败测试（权限与事务）**
+- [x] **Step 1: 写失败测试（权限与事务）**
 
 `tests/integration/articles.test.ts`：`editor` 可建/改/移/删；`viewer` 全部被拒；跨组织 `articleId` 返回 404；被 `book_catalog` 引用时删除返回 `catalog_referenced` 且**行未变**；默认分类自动创建只发生一次。Run 确认失败。
 
-- [ ] **Step 2: 实现服务层**
+- [x] **Step 2: 实现服务层**
 
 `createArticleInTransaction`（默认分类自动创建）、`updateTitleInTransaction`、`moveInTransaction`、`deleteArticleInTransaction`（引用检查 → 软删 → 活动日志，提交后删字节）、`savePageInTransaction`（`FOR UPDATE` → 替换该页 → `derivePlainText` → `updated_at`）。
 
-- [ ] **Step 3: 实现 Action**
+- [x] **Step 3: 实现 Action**
 
 `'use server'` + `validatedActionWithUserObject`；refusal 映射 `forbidden`；返回 `{ success, data }`（`articleId` / `savedAt` / `page`）；新建/改标题/移分类/删除后 `revalidatePath` 谱文列表路径，**保存页不 revalidate**。
 
-- [ ] **Step 4: 写失败测试（保存状态机）→ 实现**
+- [x] **Step 4: 写失败测试（保存状态机）→ 实现**
 
 `tests/article-save-state.test.ts`：`idle→dirty→saving→saved/error` 转移；任一页未保存时顶栏不得显示「已保存」。
 
-- [ ] **Step 5: 门禁与提交**
+- [x] **Step 5: 门禁与提交**
 
 ```bash
 pnpm test:integration -- articles && pnpm test -- article-save-state && pnpm typecheck
