@@ -239,3 +239,13 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 基础层已按 [ADR 0001](docs/decisions/0001-foundation-reset.md) 落地，认证已按 [ADR 0007](docs/decisions/0007-self-hosted-better-auth.md) 切换到自托管 Better Auth：UUIDv7、`auth.users/session/account/verification`、Better Auth organization 插件、17 张组织级业务表、业务表软删、复合外键、RLS + `app_rw`/`auth_service`、`withOrg`、4 角色 + 权限字符串、邀请链接（邀请 ID、7 天过期、一次性、禁止邀请 `owner`，旧 pending 会被取消）。实现家谱业务功能时：先读目标文档 → 先写实现计划 → 不要在同一 PR 里混入业务功能与基础层改动 → 更新 [11-需求与实现状态](docs/architecture/11-需求与实现状态.md)。
 
 部署：Vercel + 自定义域名 + Neon PostgreSQL 18+；生产驱动已接入（`process.env.VERCEL` 时用 `pg` + `attachDatabasePool`），生产必须提供 `APP_POSTGRES_URL`（`app`）与 `AUTH_POSTGRES_URL`（`auth_runtime`）；本地/CI 用 `postgres.js`，本地 Docker 只跑 PostgreSQL + `next dev`。本地生产模式与真实生产环境都已用 `pnpm verify:deploy` 验证。**生产库迁移由 `.github/workflows/migrate-production.yml` 在 `lib/db/migrations/**` 变更时执行，不放进 Vercel 构建**；改 schema 的 PR 合进 `main` 后必须确认这个 job 绿了，否则线上会跑在新代码 + 旧库上（[06-部署视图-部署架构 §5.3](docs/architecture/06-部署视图-部署架构.md)）。
+
+## Cursor Cloud specific instructions
+
+Cloud Agent 机器上的 Postgres 是本机 PostgreSQL 18，不是 Docker。监听 `127.0.0.1:54322`，用户/密码为 `postgres` / `postgres`；开发库名 `postgres`，集成测试库名 `gramps_test`。`policy-rc.d` 会拒绝 `service` / `systemctl` 拉起数据库，用 `sudo pg_ctlcluster 18 main start`。开机脚本会等数据库就绪、在缺少 `.env` 时生成它、执行 `pnpm db:migrate` 与 `pnpm db:seed`，再在前台跑 `pnpm dev`（端口 3000）。
+
+镜像 PATH 里可能先出现 `/exec-daemon/node`（Node 22）。本环境的 Node **24.22.1** 装在 `/usr/local/lib/nodejs`，`pnpm` 为 12.15.0。确认 `node -v` 是 24 再跑命令。
+
+`pnpm db:seed` 调用 `npx tsx`。在这个 pnpm 仓库里，npm 11 的 `npx` 不会临时下载 `tsx`，环境已把 `tsx` 放到 PATH 上。
+
+演示账号是 `test@test.com` / `admin123`。浏览器访问 `http://localhost:3000`。其余命令见 [13-本地开发与命令](docs/architecture/13-本地开发与命令.md)。
