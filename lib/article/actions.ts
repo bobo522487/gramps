@@ -41,7 +41,7 @@ import {
   getFolderDeletePreview,
   hasCatalogReference,
 } from '@/lib/db/queries/articles';
-import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { logger } from '@/lib/logger';
 
 /**

@@ -33,7 +33,7 @@ import { logActivity } from '@/lib/db/queries/activity';
 import { getOrgById } from '@/lib/db/queries/organizations';
 import { ActivityType, orgMembers } from '@/lib/db/schema';
 import { generatePublicId } from '@/lib/ids';
-import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { logger } from '@/lib/logger';
 
 const SLUG_ATTEMPTS = 3;

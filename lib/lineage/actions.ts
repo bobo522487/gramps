@@ -29,7 +29,7 @@ import {
   type OptionalSpouse,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
-import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import {
   createLineageInTransaction,
   deleteLineageInTransaction,

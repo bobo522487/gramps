@@ -13,7 +13,7 @@ import {
   deleteFolderSchema,
   renameFolderSchema,
 } from '@/lib/genealogy/schemas';
-import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 
 const FOLDER_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',

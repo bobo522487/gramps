@@ -6,7 +6,7 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 
 const { revalidatePath } = await import('next/cache');
 const { revalidateOrg, revalidateProject, revalidateWholeConsole } =
-  await import('@/lib/lineage/revalidate');
+  await import('@/lib/console/revalidate');
 
 const ORG_SLUG = 'orgslug123451789abc';
 const PROJECT_REF = 'projref123456789abc';
@@ -57,6 +57,7 @@ describe('revalidate helpers', () => {
       'lib/folder/actions.ts',
       'lib/project/actions.ts',
       'lib/org/actions.ts',
+      'lib/article/actions.ts',
       'lib/auth/actions/account.ts',
     ];
     const sources = actionFiles
