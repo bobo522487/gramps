@@ -71,6 +71,32 @@ function fullName(surname: string, name: string) {
   return `${surname}${name}`;
 }
 
+/** Genealogy spouse convention: the co-spouse is the opposite sex of the blood node. */
+function oppositeSex(sex: number): number {
+  return sex === 0 ? 1 : 0;
+}
+
+/**
+ * Expand the optional create-details into the full set of node columns,
+ * filling the defaults. Single source for both the transaction layer and the
+ * Server Actions (which hold the same shape before it reaches here).
+ */
+export function toNodeDetails(
+  details: Partial<NodeCreateDetails> | undefined
+): NodeCreateDetails {
+  return {
+    courtesy: details?.courtesy ?? null,
+    namePrefix: details?.namePrefix ?? null,
+    isAlive: details?.isAlive ?? false,
+    birthText: details?.birthText ?? null,
+    deathText: details?.deathText ?? null,
+    birthYear: details?.birthYear ?? null,
+    deathYear: details?.deathYear ?? null,
+    burialPlace: details?.burialPlace ?? null,
+    biography: details?.biography ?? null,
+  };
+}
+
 /** Locks the lineage row so node count and root checks stay serialized. */
 async function loadLineageForUpdate(
   tx: DbTransaction,
@@ -134,12 +160,16 @@ async function withLineageWrite<T>(
   });
 }
 
-async function nextBloodSort(
+/** Next `sort` in one sibling group: blood keyed by parent (roots when none),
+ *  spouse keyed by the blood node. Only the scoping column and role differ. */
+async function nextSort(
   tx: DbTransaction,
   orgId: string,
   lineageId: string,
-  parentId: string | null
-) {
+  scope:
+    | { role: 'blood'; parentId: string | null }
+    | { role: 'spouse'; spouseOfId: string }
+): Promise<number> {
   const [row] = await tx
     .select({ value: sql<number>`coalesce(max(${nodes.sort}), -1)::int` })
     .from(nodes)
@@ -147,29 +177,12 @@ async function nextBloodSort(
       and(
         eq(nodes.orgId, orgId),
         eq(nodes.lineageId, lineageId),
-        eq(nodes.role, 'blood'),
-        parentId ? eq(nodes.parentId, parentId) : isNull(nodes.parentId),
-        isNull(nodes.deletedAt)
-      )
-    );
-  return (row?.value ?? -1) + 1;
-}
-
-async function nextSpouseSort(
-  tx: DbTransaction,
-  orgId: string,
-  lineageId: string,
-  spouseOfId: string
-) {
-  const [row] = await tx
-    .select({ value: sql<number>`coalesce(max(${nodes.sort}), -1)::int` })
-    .from(nodes)
-    .where(
-      and(
-        eq(nodes.orgId, orgId),
-        eq(nodes.lineageId, lineageId),
-        eq(nodes.role, 'spouse'),
-        eq(nodes.spouseOfId, spouseOfId),
+        eq(nodes.role, scope.role),
+        scope.role === 'blood'
+          ? scope.parentId
+            ? eq(nodes.parentId, scope.parentId)
+            : isNull(nodes.parentId)
+          : eq(nodes.spouseOfId, scope.spouseOfId),
         isNull(nodes.deletedAt)
       )
     );
@@ -199,20 +212,6 @@ async function insertNode(
   return node;
 }
 
-function detailValues(details: NodeCreateDetails | undefined) {
-  return {
-    courtesy: details?.courtesy ?? null,
-    namePrefix: details?.namePrefix ?? null,
-    isAlive: details?.isAlive ?? false,
-    birthText: details?.birthText ?? null,
-    deathText: details?.deathText ?? null,
-    birthYear: details?.birthYear ?? null,
-    deathYear: details?.deathYear ?? null,
-    burialPlace: details?.burialPlace ?? null,
-    biography: details?.biography ?? null,
-  };
-}
-
 async function insertCoSpouse(
   tx: DbTransaction,
   params: {
@@ -234,14 +233,60 @@ async function insertCoSpouse(
     role: 'spouse',
     path: null,
     generation: blood.generation,
-    sort: await nextSpouseSort(tx, orgId, lineageId, blood.id),
+    sort: await nextSort(tx, orgId, lineageId, {
+      role: 'spouse',
+      spouseOfId: blood.id,
+    }),
     name: spouse.name,
     surname: spouse.surname,
     fullName: fullName(spouse.surname, spouse.name),
-    sex: blood.sex === 0 ? 1 : 0,
+    sex: oppositeSex(blood.sex),
     isAlive: blood.isAlive,
     createdBy: userId,
   });
+}
+
+/** Everything the shared node-creation write preamble needs. */
+type NodeWriteContext = {
+  userId: string;
+  orgId: string;
+  lineageId: string;
+  ipAddress?: string;
+};
+
+/** A node row without the id/createdBy that recordNode itself fills in. */
+type NodeInsertValues = Omit<typeof nodes.$inferInsert, 'id' | 'createdBy'>;
+
+/**
+ * The write preamble every node creation shares: allocate id, insert node,
+ * add the co-spouse if supplied, bump `node_count`, log the create. The four
+ * callers differ only in `buildValues` (given the fresh id to compute `path`).
+ */
+async function recordNode(
+  tx: DbTransaction,
+  ctx: NodeWriteContext,
+  buildValues: (id: string) => NodeInsertValues,
+  coSpouse?: OptionalSpouse
+): Promise<Extract<NodeMutationResult, { ok: true }>> {
+  const { userId, orgId, lineageId, ipAddress } = ctx;
+  const id = await newNodeId(tx);
+  const node = await insertNode(tx, {
+    id,
+    createdBy: userId,
+    ...buildValues(id),
+  });
+  const spouse = coSpouse
+    ? await insertCoSpouse(tx, {
+        userId,
+        orgId,
+        lineageId,
+        blood: node,
+        spouse: coSpouse,
+      })
+    : null;
+  await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
+  await logActivityInTx(tx, userId, orgId, ActivityType.CREATE_NODE, ipAddress);
+  return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
 }
 
 export async function createRootNodeInTransaction(params: {
@@ -275,41 +320,24 @@ export async function createRootNodeInTransaction(params: {
     }
 
     const surname = params.surname ?? lineage.surname;
-    const id = await newNodeId(tx);
-    const node = await insertNode(tx, {
-      id,
-      orgId,
-      lineageId,
-      role: 'blood',
-      path: nodeLabel(id),
-      generation: 1,
-      sort: 0,
-      name,
-      surname,
-      fullName: fullName(surname, name),
-      sex,
-      ...detailValues(params.details),
-      createdBy: userId,
-    });
-    const spouse = params.spouse
-      ? await insertCoSpouse(tx, {
-          userId,
-          orgId,
-          lineageId,
-          blood: node,
-          spouse: params.spouse,
-        })
-      : null;
-
-    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
-    await logActivityInTx(
+    return recordNode(
       tx,
-      userId,
-      orgId,
-      ActivityType.CREATE_NODE,
-      ipAddress
+      { userId, orgId, lineageId, ipAddress },
+      (id) => ({
+        orgId,
+        lineageId,
+        role: 'blood',
+        path: nodeLabel(id),
+        generation: 1,
+        sort: 0,
+        name,
+        surname,
+        fullName: fullName(surname, name),
+        sex,
+        ...toNodeDetails(params.details),
+      }),
+      params.spouse
     );
-    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
   });
 }
 
@@ -337,42 +365,31 @@ export async function addChildInTransaction(params: {
     }
 
     const surname = params.surname ?? lineage.surname;
-    const id = await newNodeId(tx);
-    const node = await insertNode(tx, {
-      id,
-      orgId,
-      lineageId,
-      parentId: parent.id,
+    const parentPath = parent.path;
+    const generation = parent.generation + 1;
+    const sort = await nextSort(tx, orgId, lineageId, {
       role: 'blood',
-      path: `${parent.path}.${nodeLabel(id)}`,
-      generation: parent.generation + 1,
-      sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
-      name,
-      surname,
-      fullName: fullName(surname, name),
-      sex,
-      ...detailValues(params.details),
-      createdBy: userId,
+      parentId: parent.id,
     });
-    const spouse = params.spouse
-      ? await insertCoSpouse(tx, {
-          userId,
-          orgId,
-          lineageId,
-          blood: node,
-          spouse: params.spouse,
-        })
-      : null;
-
-    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
-    await logActivityInTx(
+    return recordNode(
       tx,
-      userId,
-      orgId,
-      ActivityType.CREATE_NODE,
-      ipAddress
+      { userId, orgId, lineageId, ipAddress },
+      (id) => ({
+        orgId,
+        lineageId,
+        parentId: parent.id,
+        role: 'blood',
+        path: `${parentPath}.${nodeLabel(id)}`,
+        generation,
+        sort,
+        name,
+        surname,
+        fullName: fullName(surname, name),
+        sex,
+        ...toNodeDetails(params.details),
+      }),
+      params.spouse
     );
-    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
   });
 }
 
@@ -408,42 +425,31 @@ export async function addSiblingInTransaction(params: {
     }
 
     const surname = params.surname ?? lineage.surname;
-    const id = await newNodeId(tx);
-    const node = await insertNode(tx, {
-      id,
-      orgId,
-      lineageId,
-      parentId: parent.id,
+    const parentPath = parent.path;
+    const generation = sibling.generation;
+    const sort = await nextSort(tx, orgId, lineageId, {
       role: 'blood',
-      path: `${parent.path}.${nodeLabel(id)}`,
-      generation: sibling.generation,
-      sort: await nextBloodSort(tx, orgId, lineageId, parent.id),
-      name,
-      surname,
-      fullName: fullName(surname, name),
-      sex,
-      ...detailValues(params.details),
-      createdBy: userId,
+      parentId: parent.id,
     });
-    const spouse = params.spouse
-      ? await insertCoSpouse(tx, {
-          userId,
-          orgId,
-          lineageId,
-          blood: node,
-          spouse: params.spouse,
-        })
-      : null;
-
-    await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
-    await logActivityInTx(
+    return recordNode(
       tx,
-      userId,
-      orgId,
-      ActivityType.CREATE_NODE,
-      ipAddress
+      { userId, orgId, lineageId, ipAddress },
+      (id) => ({
+        orgId,
+        lineageId,
+        parentId: parent.id,
+        role: 'blood',
+        path: `${parentPath}.${nodeLabel(id)}`,
+        generation,
+        sort,
+        name,
+        surname,
+        fullName: fullName(surname, name),
+        sex,
+        ...toNodeDetails(params.details),
+      }),
+      params.spouse
     );
-    return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
   });
 }
 
@@ -470,34 +476,26 @@ export async function addSpouseInTransaction(params: {
     }
 
     const surname = params.surname ?? spouseOf.surname;
-    const id = await newNodeId(tx);
-    const node = await insertNode(tx, {
-      id,
+    const generation = spouseOf.generation;
+    const sort = await nextSort(tx, orgId, lineageId, {
+      role: 'spouse',
+      spouseOfId: spouseOf.id,
+    });
+    return recordNode(tx, { userId, orgId, lineageId, ipAddress }, () => ({
       orgId,
       lineageId,
       parentId: null,
       spouseOfId: spouseOf.id,
       role: 'spouse',
       path: null,
-      generation: spouseOf.generation,
-      sort: await nextSpouseSort(tx, orgId, lineageId, spouseOf.id),
+      generation,
+      sort,
       name,
       surname,
       fullName: fullName(surname, name),
       sex,
-      ...detailValues(params.details),
-      createdBy: userId,
-    });
-
-    await adjustNodeCount(tx, orgId, lineageId, 1);
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.CREATE_NODE,
-      ipAddress
-    );
-    return { ok: true as const, node };
+      ...toNodeDetails(params.details),
+    }));
   });
 }
 
@@ -692,7 +690,10 @@ export async function moveNodeInTransaction(params: {
 
     const newPrefix = `${newParent.path}.${nodeLabel(node.id)}`;
     const generationDelta = newParent.generation + 1 - node.generation;
-    const sort = await nextBloodSort(tx, orgId, lineageId, newParent.id);
+    const sort = await nextSort(tx, orgId, lineageId, {
+      role: 'blood',
+      parentId: newParent.id,
+    });
 
     // Spouses keep a null path but follow the generation of the blood node
     // they are attached to, so collect the moving subtree before paths change.

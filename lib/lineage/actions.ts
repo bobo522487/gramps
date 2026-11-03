@@ -24,9 +24,9 @@ import {
   createRootNodeInTransaction,
   deleteNodeInTransaction,
   moveNodeInTransaction,
-  type NodeCreateDetails,
   type NodeUpdates,
   type OptionalSpouse,
+  toNodeDetails,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
 import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
@@ -36,30 +36,6 @@ import {
   type LineageUpdates,
   updateLineageInTransaction,
 } from '@/lib/lineage/services';
-
-function nodeDetails(data: {
-  courtesy?: string;
-  namePrefix?: string;
-  isAlive?: boolean;
-  birthText?: string;
-  deathText?: string;
-  birthYear?: number | null;
-  deathYear?: number | null;
-  burialPlace?: string;
-  biography?: string;
-}): NodeCreateDetails {
-  return {
-    courtesy: data.courtesy ?? null,
-    namePrefix: data.namePrefix ?? null,
-    isAlive: data.isAlive ?? false,
-    birthText: data.birthText ?? null,
-    deathText: data.deathText ?? null,
-    birthYear: data.birthYear ?? null,
-    deathYear: data.deathYear ?? null,
-    burialPlace: data.burialPlace ?? null,
-    biography: data.biography ?? null,
-  };
-}
 
 function coSpouse(data: {
   spouseName?: string;
@@ -169,7 +145,7 @@ export const createRootNodeAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
-      details: nodeDetails(data),
+      details: toNodeDetails(data),
       spouse: coSpouse(data),
     });
 
@@ -197,7 +173,7 @@ export const addChildAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
-      details: nodeDetails(data),
+      details: toNodeDetails(data),
       spouse: coSpouse(data),
     });
 
@@ -225,7 +201,7 @@ export const addSiblingAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
-      details: nodeDetails(data),
+      details: toNodeDetails(data),
       spouse: coSpouse(data),
     });
 
@@ -252,7 +228,7 @@ export const addPersonAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
-      details: nodeDetails(data),
+      details: toNodeDetails(data),
       spouse: coSpouse(data),
     };
     const result = data.parentId
@@ -283,7 +259,7 @@ export const addSpouseAction = validatedActionWithUser(
       name: data.name,
       surname: data.surname,
       sex: data.sex,
-      details: nodeDetails(data),
+      details: toNodeDetails(data),
     });
 
     if (!result.ok) {
