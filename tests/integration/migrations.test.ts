@@ -87,9 +87,9 @@ describe('migrations', () => {
         'idx_activity_logs_org',
         'idx_activity_logs_user',
         'idx_node_lineage_path',
-        // idx_node_search is gone on purpose: ADR 0011 puts person search in
-        // the client and keeps trigram only for article (search-boundary.test.ts).
-        'idx_article_search',
+        // idx_node_search and idx_article_search are gone on purpose: ADR 0011
+        // keeps person and article title search in the client until a body-search
+        // query ships (search-boundary.test.ts).
         // The fact layer: the composite key a person_name hangs off, the key
         // person.primary_name_id points through, and the two partial keys that
         // keep one name type and one legacy node per person/project unique.

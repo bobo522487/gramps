@@ -119,8 +119,9 @@ export async function countArticlesByFolder(
   orgId: string,
   projectId: string
 ): Promise<ArticleFolderCounts> {
-  const grouped = withOrg(userId, (tx) =>
-    tx
+  // 分组与总数必须在同一事务快照里相减，否则并发写入会让 unfiled 偏一甚至为负。
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
       // innerJoin 之后 folderId 不可能为 null：取 folders.id，免得留个走不到的分支。
       .select({ folderId: folders.id, value: sql<number>`count(*)` })
       .from(articles)
@@ -139,11 +140,9 @@ export async function countArticlesByFolder(
           isNull(articles.deletedAt)
         )
       )
-      .groupBy(folders.id)
-  );
+      .groupBy(folders.id);
 
-  const totalRows = withOrg(userId, async (tx) => {
-    const rows = await tx
+    const totalRows = await tx
       .select({ value: sql<number>`count(*)` })
       .from(articles)
       .where(
@@ -154,18 +153,17 @@ export async function countArticlesByFolder(
         )
       );
     // count(*) arrives as a string over the wire (bigint), same as everywhere else.
-    return Number(rows[0]?.value ?? 0);
+    const total = Number(totalRows[0]?.value ?? 0);
+
+    const byFolder = new Map<string, number>();
+    let filed = 0;
+    for (const row of rows) {
+      byFolder.set(row.folderId, Number(row.value));
+      filed += Number(row.value);
+    }
+
+    return { byFolder, unfiled: total - filed, total };
   });
-
-  const [rows, total] = await Promise.all([grouped, totalRows]);
-  const byFolder = new Map<string, number>();
-  let filed = 0;
-  for (const row of rows) {
-    byFolder.set(row.folderId, Number(row.value));
-    filed += Number(row.value);
-  }
-
-  return { byFolder, unfiled: total - filed, total };
 }
 
 export async function getArticleDeletePreview(

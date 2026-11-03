@@ -173,3 +173,20 @@ describe('authorization invariants', () => {
     ).toContain('requireProjectContext(projectRef)');
   });
 });
+
+describe('fact-layer write boundary', () => {
+  // R21 / 2026-11-03 review: the fact layer is a one-shot backfill snapshot.
+  // Lineage write services must not start dual-writing person/family rows.
+  const lineageWriteSources = [
+    read('../lib/lineage/node-services.ts'),
+    read('../lib/lineage/services.ts'),
+  ].join('\n');
+
+  it('lineage write services do not import the fact-layer tables', () => {
+    expect(lineageWriteSources).not.toMatch(/\bpersons\b/);
+    expect(lineageWriteSources).not.toMatch(/\bpersonNames\b/);
+    expect(lineageWriteSources).not.toMatch(/\bfamilies\b/);
+    expect(lineageWriteSources).not.toMatch(/\bfamilyPartners\b/);
+    expect(lineageWriteSources).not.toMatch(/\bfamilyChildren\b/);
+  });
+});

@@ -14,6 +14,9 @@ import { revalidatePath } from 'next/cache';
  * `/favicon.ico`。也就是说服务端没有预渲染 HTML 可被「炸掉」，整树失效的代价落在
  * 客户端 Router Cache（下次导航重新拉 RSC payload），不是服务端重渲染。等路由真的
  * 静态化或被缓存之后，再回到这里收窄。
+ *
+ * 本文件属于控制台横切能力，不属于谱系域——认证 / 组织 / 项目 / 分类 / 谱文 / 谱系
+ * 的写 Action 都从这里 import。
  */
 
 /** A lineage / node / folder write: only this project and its org shell change. */

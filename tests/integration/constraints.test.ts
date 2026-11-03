@@ -11,6 +11,8 @@ import {
 import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
+  createBook,
+  createCatalogItem,
   createFolder,
   createInvitation,
   createLineage,
@@ -526,6 +528,61 @@ describe('spouse edges belong to exactly one lineage', () => {
         generation: 1,
         role: 'spouse',
         spouseOfId: blood.id,
+      })
+    ).resolves.toBeTruthy();
+  });
+});
+
+describe('book_catalog book edges belong to exactly one organization', () => {
+  it('rejects a catalog whose book_id lives in another organization', async () => {
+    const ownerA = await createUser();
+    const ownerB = await createUser();
+    const personalA = await getPersonalOrg(ownerA.id);
+    const personalB = await getPersonalOrg(ownerB.id);
+    if (!personalA || !personalB) {
+      throw new Error('registration trigger did not create an org');
+    }
+
+    const projectB = await createProject({
+      orgId: personalB.organization.id,
+      createdBy: ownerB.id,
+    });
+    const foreignBook = await createBook({
+      orgId: personalB.organization.id,
+      projectId: projectB.id,
+      createdBy: ownerB.id,
+    });
+
+    await expect(
+      createCatalogItem({
+        orgId: personalA.organization.id,
+        bookId: foreignBook.id,
+        createdBy: ownerA.id,
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
+  });
+
+  it('still allows a catalog attached to a book in the same organization', async () => {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal) {
+      throw new Error('registration trigger did not create an org');
+    }
+    const project = await createProject({
+      orgId: personal.organization.id,
+      createdBy: user.id,
+    });
+    const book = await createBook({
+      orgId: personal.organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+
+    await expect(
+      createCatalogItem({
+        orgId: personal.organization.id,
+        bookId: book.id,
+        createdBy: user.id,
       })
     ).resolves.toBeTruthy();
   });

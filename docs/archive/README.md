@@ -13,7 +13,7 @@
 
 | 目录 / 文件 | 内容 | 原始位置 |
 |---|---|---|
-| `reviews/`（5 份，约 3,000 行） | 架构、技术栈、数据模型评审记录 | `docs/reviews/` |
+| `reviews/`（6 份） | 架构、技术栈、数据模型评审记录。其中 `2026-11-03-linus-architecture-review.md` 是归档之后新增的，行号对 `010bd87`，不是 11-02 之前的底稿 | `docs/reviews/`（11-03 那份直接写在本目录） |
 | `plans/`（10 份，约 9,000 行） | 已执行完的 superpowers 执行计划 | `docs/superpowers/plans/` |
 | `specs/`（5 份，约 1,700 行） | 架构文档集、数据模型蓝图、人丁/家族模型等设计底稿 | `docs/superpowers/specs/` |
 | `prd-lineage-editing-preview.md`（558 行） | 谱系录编与实时预览的专项需求底稿，**已被 `specs/001-lineage-edit-preview/spec.md` 取代** | `docs/prd-lineage-editing-preview.md` |
@@ -31,4 +31,4 @@
 
 ## 4. 未归档的现行计划
 
-`docs/superpowers/plans/2026-11-01-lineage-edit-preview.md` **不归档**：它对应的实现在 HEAD 上仍在进行，属于"在飞计划"，参与 `docs:check`。执行计划完成后按本目录的规则移入 `plans/`。
+`docs/superpowers/plans/` 里仍在飞、不归档的有两份：`2026-11-01-lineage-edit-preview.md` 与 `2026-11-02-article-authoring.md`。它们参与 `docs:check`。执行计划完成后按本目录的规则移入 `plans/`。

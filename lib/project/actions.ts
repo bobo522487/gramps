@@ -9,7 +9,7 @@ import {
   deleteProjectSchema,
   updateProjectSchema,
 } from '@/lib/auth/schemas';
-import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import {
   createProjectInTransaction,
   deleteProjectInTransaction,

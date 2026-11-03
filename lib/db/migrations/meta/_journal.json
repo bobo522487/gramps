@@ -176,6 +176,20 @@
       "when": 1793373751208,
       "tag": "0024_certain_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793460000000,
+      "tag": "0025_drop_article_trgm",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793460100000,
+      "tag": "0026_catalog_book_composite_fk",
+      "breakpoints": true
     }
   ]
 }

@@ -27,13 +27,13 @@ import {
   updateOrgMemberRoleSchema,
 } from '@/lib/auth/schemas';
 import { getServerConfig } from '@/lib/config';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { withOrg } from '@/lib/db/drizzle';
 import { isRaisedException } from '@/lib/db/errors';
 import { logActivity } from '@/lib/db/queries/activity';
 import { getOrgById } from '@/lib/db/queries/organizations';
 import { ActivityType, orgMembers } from '@/lib/db/schema';
 import { generatePublicId } from '@/lib/ids';
-import { revalidateWholeConsole } from '@/lib/lineage/revalidate';
 import { logger } from '@/lib/logger';
 
 const SLUG_ATTEMPTS = 3;

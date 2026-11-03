@@ -89,9 +89,11 @@ export const bookCatalogs = pgTable(
   {
     id: uuidPk(),
     orgId: uuid('organization_id').notNull(),
-    bookId: uuid('book_id')
-      .notNull()
-      .references(() => books.id, { onDelete: 'cascade' }),
+    // Composite FK below: a catalog row must hang off a book in the same org.
+    // The old single-column REFERENCES book(id) ON DELETE CASCADE is gone —
+    // app_rw has no DELETE grant, so cascade never fired, and it allowed the
+    // catalog's organization_id to disagree with the book's.
+    bookId: uuid('book_id').notNull(),
     parentId: uuid('parent_id'),
     name: text('name').notNull(),
     section: smallint('section').notNull(),
@@ -115,8 +117,12 @@ export const bookCatalogs = pgTable(
       name: 'fk_catalog_lineage',
     }).onDelete('restrict'),
     unique('uk_book_catalog_org_book_id').on(t.orgId, t.bookId, t.id),
-    // Same book AND same organization. ON DELETE cascade was dead weight:
-    // app_rw has no DELETE grant, so the cascade could never fire.
+    foreignKey({
+      columns: [t.orgId, t.bookId],
+      foreignColumns: [books.orgId, books.id],
+      name: 'fk_catalog_book',
+    }).onDelete('restrict'),
+    // Same book AND same organization.
     foreignKey({
       columns: [t.parentId, t.orgId, t.bookId],
       foreignColumns: [t.id, t.orgId, t.bookId],
