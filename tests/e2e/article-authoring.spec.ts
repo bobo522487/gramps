@@ -326,6 +326,20 @@ test('image: insert, resize, persist, and reject oversize', async ({
   await expect(img).toHaveAttribute('src', /^\/api\/media\/articles\//);
   await expect(img).toHaveAttribute('data-width', 'full');
   expect(await img.getAttribute('src')).toContain(articleId);
+  // 图必须**真解码出像素**：Blob 模式下 /api/media 回的是 302，只有浏览器能跟到
+  // 私有桶并把 1×1 解出来，naturalWidth 才大于 0。只数 <img> 元素是假通过。
+  await expect
+    .poll(
+      () =>
+        img.evaluate((node) =>
+          node instanceof HTMLImageElement ? node.naturalWidth : 0
+        ),
+      {
+        message: '图片没有真的加载出像素（读取通道或直连域名不通）',
+        timeout: 15_000,
+      }
+    )
+    .toBeGreaterThan(0);
 
   // 三档宽度（FR-026）：选中图片后切「中」，保存后刷新仍是中。
   await img.click();
