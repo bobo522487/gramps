@@ -11,6 +11,7 @@
 | 触发面 | 底部快捷按钮条（`node-action-bar.tsx`）、节点右键菜单（`node-context-menu.tsx`） |
 | 渲染前置 | `canWrite === false` 时两处都**不渲染**（不是渲染成禁用） |
 | 始祖 | `add-sibling` / `move` / `delete` 三项不渲染（`parentId == null`） |
+| 配偶节点 | `role=spouse` 时仅暴露「删除」（加子女 / 加兄弟 / 加配偶 / 移动不渲染） |
 | 身份提示 | 底部条与右键菜单**都**显示「<谱名> · 第 N 代」，随选中变化 |
 
 ## 2. 信息卡抽屉（`components/lineage/person-inspector.tsx`）

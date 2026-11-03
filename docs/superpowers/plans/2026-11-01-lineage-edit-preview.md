@@ -18,7 +18,8 @@
 - 不新增 npm 依赖；不写裸色值（`tests/design-system.test.ts` 会失败）。
 - **零 schema 变更、零迁移**：不加 `node.birth_place`，不新建表。
 - 提交前 `pnpm check && pnpm typecheck && pnpm test` 全绿；文档改动后 `pnpm docs:check --strict`。
-- `docs/prd.md` 是 **CRLF**：脚本改写后必须 `data.replace(b"\n", b"\r\n")` 回写。
+- 状态只同步 [`docs/architecture/11-需求与实现状态.md`](../../architecture/11-需求与实现状态.md)。根级 `docs/prd.md` 与 `docs/implementation-status.md` 已删除，不要再改它们，也不要把状态文件整文件重写换行。
+- 端到端覆盖并入 [`tests/e2e/critical-path.spec.ts`](../../../tests/e2e/critical-path.spec.ts)（底部条、右键菜单、抽屉、未选中无占位）。没有独立的 lineage-node-actions / lineage-inspector E2E 文件，不要补建。
 
 ## Review Focus
 
@@ -44,7 +45,7 @@
 - Consumes: 既有 `ORG_PERMISSIONS`、`hasPermission`、`withOrgWrite(userId, orgId, permission, fn)`
 - Produces: 权限串 `'lineage.delete'`（`OrgPermission` 联合类型成员）；`PERMISSION_DENIED_MESSAGES['lineage.delete']`
 
-- [ ] **Step 1: 写失败测试 —— 权限矩阵**
+- [x] **Step 1: 写失败测试 —— 权限矩阵**
 
 在 `tests/permissions.test.ts` 的 `expected` 表里：`admin` 数组加 `'lineage.delete'`，`editor`/`viewer` 不加。再加一条断言：
 
@@ -57,30 +58,30 @@ it('只允许 owner/admin 删除谱系', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/permissions.test.ts`
 Expected: FAIL —— TS/运行时报 `'lineage.delete'` 不在 `ORG_PERMISSIONS`/`OrgPermission` 里（`expect(false).toBe(true)` 或类型错误）
 
-- [ ] **Step 3: 实现权限串**
+- [x] **Step 3: 实现权限串**
 
 `lib/auth/access-control.ts`：`statement.lineage` → `['write', 'delete']`；`roles.owner.lineage`/`roles.admin.lineage` → `['write', 'delete']`；`ORG_PERMISSIONS` 加 `'lineage.delete'`；`PERMISSION_REQUESTS` 加 `'lineage.delete': { lineage: ['delete'] }`。
 `lib/auth/permissions.ts`：`PERMISSION_DENIED_MESSAGES` 加 `'lineage.delete': '只有所有者或管理员可以删除谱系'`。
 `lib/lineage/services.ts`：`deleteLineageInTransaction` 里的 `withOrgWrite(userId, orgId, 'lineage.write', …)` 改为 `'lineage.delete'`（**人丁级写不动**）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `npx vitest run tests/permissions.test.ts tests/access-control.test.ts`
 Expected: PASS（含既有矩阵断言）
 
-- [ ] **Step 5: 集成测试 —— 编辑者被拒**
+- [x] **Step 5: 集成测试 —— 编辑者被拒**
 
 在 `tests/integration/folders-lineages.test.ts` 加一条：以 `editor` 身份调 `deleteLineageInTransaction`，期望 `{ ok: false, reason: 'forbidden' }`，且谱系行仍在（`deleted_at IS NULL`）。
 
 Run: `pnpm test:integration -- folders-lineages`
 Expected: PASS。若测试库未初始化，先跑一次 `pnpm db:setup`；若 Postgres 不可达，记录到 ledger 并继续（unit + typecheck 为准）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add lib/auth/access-control.ts lib/auth/permissions.ts lib/lineage/services.ts tests/permissions.test.ts tests/access-control.test.ts tests/integration/folders-lineages.test.ts
@@ -102,7 +103,7 @@ git commit -m "feat(lineage): 删除谱系收紧为 lineage.delete，编辑者�
   - `collectSubtreeIds(node: NodeView, nodes: NodeView[]): Set<string>` —— 血亲广度遍历 + 归并这些血亲的配偶（与服务端 `deleteNodeInTransaction` 集合一致）
   - `buildDeleteConfirmMessage(node: NodeView, count: number): string` —— `count > 1` 时 `删除「X」及其子孙与配偶？共 N 位人丁会归档。`，否则 `删除「X」？该人丁会归档。`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/lineage-subtree.test.ts`：
 
@@ -145,30 +146,30 @@ describe('buildDeleteConfirmMessage', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/lineage-subtree.test.ts`
 Expected: FAIL —— `Cannot find module '@/lib/lineage/subtree'`
 
-- [ ] **Step 3: 实现 `lib/lineage/subtree.ts`**
+- [x] **Step 3: 实现 `lib/lineage/subtree.ts`**
 
 `collectSubtreeIds` 就是把 `lineage-detail.tsx:90-119` 的 `subtreeIds` **原样搬过来**（逻辑不改，配偶归并保留）；`buildDeleteConfirmMessage` 返回上面两条模板之一。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `npx vitest run tests/lineage-subtree.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 接线 `lineage-detail.tsx`**
+- [x] **Step 5: 接线 `lineage-detail.tsx`**
 
 删掉本地 `subtreeIds`（90-119），改为 `import { buildDeleteConfirmMessage, collectSubtreeIds } from '@/lib/lineage/subtree'`；`handleDelete` 里 `const ids = collectSubtreeIds(node, nodes)`、`const message = buildDeleteConfirmMessage(node, ids.size)`。
 
-- [ ] **Step 6: 运行测试与类型检查**
+- [x] **Step 6: 运行测试与类型检查**
 
 Run: `npx vitest run tests/lineage-subtree.test.ts && pnpm typecheck`
 Expected: PASS，且 `pnpm arch:check` 中 `lineage-detail.tsx` 行数下降
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add lib/lineage/subtree.ts components/lineage/lineage-detail.tsx tests/lineage-subtree.test.ts
@@ -191,25 +192,25 @@ git commit -m "feat(lineage): 删除确认写明子孙与配偶，子树集合�
   - `NODE_COMMANDS: readonly NodeCommand[]`（顺序：加子女 / 加兄弟 / 加配偶 / 移动 / 删除）
   - `enabledCommands(node: NodeView, canWrite: boolean): NodeCommand[]` —— `canWrite === false` 返回 `[]`；否则返回 `isEnabled(node)` 为真的命令
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/node-commands.test.ts`，断言：① `NODE_COMMANDS.map(c => c.id)` 等于五元序列；② 始祖（`parentId: null`）下 `enabledCommands` 只含 `add-child`/`add-spouse`；③ 非始祖血亲含全部五项；④ `canWrite=false` 返回 `[]`；⑤ 配偶节点（`role: 'spouse'`）禁用 `add-spouse`。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/node-commands.test.ts`
 Expected: FAIL —— 模块不存在
 
-- [ ] **Step 3: 实现命令表**
+- [x] **Step 3: 实现命令表**
 
 纯常量 + 一个过滤函数；`label` 用中文（加子女/加兄弟/加配偶/移动/删除）；`delete` 标 `isDestructive: true`。**不含「查看档案」**（选中即开抽屉）。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `npx vitest run tests/node-commands.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add components/lineage/node-commands.ts tests/node-commands.test.ts
@@ -228,7 +229,7 @@ git commit -m "feat(lineage): 节点命令表，底部条与右键菜单共用�
 - Consumes: `NODE_COMMANDS` / `enabledCommands`（Task 3）、`NodeView`
 - Produces: `NodeActionBar({ node, canWrite, onCommand }: { node: NodeView; canWrite: boolean; onCommand: (id: NodeCommandId) => void })` —— 客户端组件；`canWrite === false` 或 `enabledCommands` 为空时返回 `null`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/node-action-bar.test.tsx`，用 `renderToStaticMarkup`：
 
@@ -242,21 +243,21 @@ expect(rootHtml).not.toContain('删除');          // 始祖禁用
 expect(renderToStaticMarkup(<NodeActionBar node={sonA} canWrite={false} onCommand={() => {}} />)).toBe('');
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/node-action-bar.test.tsx`
 Expected: FAIL —— 模块不存在
 
-- [ ] **Step 3: 实现底部条**
+- [x] **Step 3: 实现底部条**
 
 固定底栏（`sticky bottom-0`），左侧身份提示 `当前选中：{node.fullName} · 第 {node.generation} 代`，右侧按 `enabledCommands` 渲染按钮；`delete` 用 `variant="destructive"`。样式只用既有 `components/ui/button.tsx` 与语义 token，不写裸色值。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `npx vitest run tests/node-action-bar.test.tsx`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add components/lineage/node-action-bar.tsx tests/node-action-bar.test.tsx
@@ -272,37 +273,37 @@ git commit -m "feat(lineage): 底部快捷按钮条，随选中态出现"
 - Modify: `components/lineage/canvas/genealogy-canvas.tsx`（透传 `onNodeContextMenu`）
 - Modify: `components/lineage/canvas/nodes/book-person-node.tsx`（节点卡片 `onContextMenu`）
 - Create: `components/lineage/node-context-menu.tsx`
-- Test: `tests/e2e/lineage-node-actions.spec.ts`（新建）
+- Test: `tests/e2e/critical-path.spec.ts`（并入既有关键路径，不另建 lineage-node-actions 文件）
 
 **Interfaces:**
 - Consumes: `NODE_COMMANDS` / `enabledCommands`、`NodeActionBar`
 - Produces: `NodeContextMenu({ node, canWrite, open, position, onCommand, onOpenChange })`；`lineage-detail` 新增状态 `contextMenu: { node: NodeView; x: number; y: number } | null`
 
-- [ ] **Step 1: 写失败 E2E**
+- [x] **Step 1: 写失败 E2E**
 
-`tests/e2e/lineage-node-actions.spec.ts`：进入谱系 → 不选节点时**看不到**「当前选中」→ 点节点 → 底部条出现且含「加子女」→ 节点卡片上**没有**「人丁操作」按钮 → 右键节点 → 出现与底部条相同的命令集。
+断言在 `tests/e2e/critical-path.spec.ts`：进入谱系 → 不选节点时**看不到**「当前选中」→ 点节点 → 底部条出现且含「加子女」→ 节点卡片上**没有**「人丁操作」按钮 → 右键节点 → 出现与底部条相同的命令集。
 
-Run: `pnpm test:e2e -- lineage-node-actions`
+Run: `pnpm test:e2e -- critical-path`
 Expected: FAIL（底部条不存在、卡片菜单仍在）
 
-- [ ] **Step 2: 实现 `node-context-menu.tsx`**
+- [x] **Step 2: 实现 `node-context-menu.tsx`**
 
 Radix `DropdownMenu` 受控（`open`/`onOpenChange`），用 `Trigger` 的 `asChild` 包一个零尺寸锚点并按 `x/y` 定位；菜单项由 `enabledCommands` 生成。不接管画布空白处的 `contextmenu`。
 
-- [ ] **Step 3: 接线并删除旧菜单**
+- [x] **Step 3: 接线并删除旧菜单**
 
 `lineage-detail.tsx`：删 `NodeActions`（146-230）与其在 `NodeRows`/表格里的渲染；选中态渲染 `<NodeActionBar …/>`；节点右键时 `setContextMenu({node, x, y})` 并 `setSelectedNode(node.id)`；`onCommand` 分派到既有 `openCreate` / `handleMove` / `handleDelete`。
 `genealogy-canvas.tsx` + `book-person-node.tsx`：新增 `onNodeContextMenu(nodeId, x, y)` 回调，卡片 `onContextMenu` 里 `preventDefault()` 后调用。
 
-- [ ] **Step 4: 运行 E2E 与门禁**
+- [x] **Step 4: 运行 E2E 与门禁**
 
-Run: `pnpm test:e2e -- lineage-node-actions && pnpm typecheck && pnpm arch:check`
+Run: `pnpm test:e2e -- critical-path && pnpm typecheck && pnpm arch:check`
 Expected: E2E PASS；`lineage-detail.tsx` 行数从 865 下降；`person-inspector.tsx` 不涨
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
-git add components/lineage/node-context-menu.tsx components/lineage/lineage-detail.tsx components/lineage/canvas tests/e2e/lineage-node-actions.spec.ts
+git add components/lineage/node-context-menu.tsx components/lineage/lineage-detail.tsx components/lineage/canvas tests/e2e/critical-path.spec.ts
 git commit -m "feat(lineage): 取消卡片操作菜单，改由底部快捷条与右键菜单触发"
 ```
 
@@ -313,36 +314,36 @@ git commit -m "feat(lineage): 取消卡片操作菜单，改由底部快捷条�
 **Files:**
 - Modify: `components/lineage/person-inspector.tsx:33-47`（删 `EmptyInspector`）、`:55-74,112-132`（删 `width`/`isResizing`/`onResizeStart`）
 - Modify: `components/lineage/lineage-detail.tsx:368,522-545`（改用 `Sheet`，删 `useResizable` 接线）
-- Test: `tests/e2e/lineage-inspector.spec.ts`（新建）
+- Test: `tests/e2e/critical-path.spec.ts`（并入既有关键路径，不另建 lineage-inspector 文件）
 
 **Interfaces:**
 - Consumes: `components/ui/sheet.tsx` 的 `Sheet` / `SheetContent` / `SheetHeader` / `SheetClose`
 - Produces: `PersonInspector` 去掉 `width` / `isResizing` / `onResizeStart` 三个 props，其余不变；抽屉由 `lineage-detail` 用 `<Sheet open={selectedNode != null}>` 承载
 
-- [ ] **Step 1: 写失败 E2E**
+- [x] **Step 1: 写失败 E2E**
 
-`tests/e2e/lineage-inspector.spec.ts`：进入谱系 → **右侧无面板**（`未选择族人` 不可见、无 `[role=dialog]`）→ 点节点 → 抽屉出现并可编辑 → `Esc` → 抽屉消失且无残留。
+断言在 `tests/e2e/critical-path.spec.ts`：进入谱系 → **右侧无面板**（`未选择族人` 不可见、无 `[role=dialog]`）→ 点节点 → 抽屉出现并可编辑 → `Esc` → 抽屉消失且无残留。
 
-Run: `pnpm test:e2e -- lineage-inspector`
+Run: `pnpm test:e2e -- critical-path`
 Expected: FAIL（常驻面板与空占位仍在）
 
-- [ ] **Step 2: 改造 `person-inspector.tsx`**
+- [x] **Step 2: 改造 `person-inspector.tsx`**
 
 删 `EmptyInspector` 与 `node == null` 分支（组件只接受 `node: NodeView`）；删三个宽度 props 与拖拽把手；保留 `onClose`。
 
-- [ ] **Step 3: 改造 `lineage-detail.tsx`**
+- [x] **Step 3: 改造 `lineage-detail.tsx`**
 
 `selectedNode` 为空时**不渲染任何右侧内容**；有值时渲染 `<Sheet open onOpenChange={(o) => !o && setSelectedNode(null)}><SheetContent side="right">…<PersonInspector …/></SheetContent></Sheet>`；删除 `useResizable`（368）与相关 props。
 
-- [ ] **Step 4: 运行 E2E 与门禁**
+- [x] **Step 4: 运行 E2E 与门禁**
 
-Run: `pnpm test:e2e -- lineage-inspector && pnpm typecheck && pnpm arch:check && pnpm test`
+Run: `pnpm test:e2e -- critical-path && pnpm typecheck && pnpm arch:check && pnpm test`
 Expected: E2E PASS；`person-inspector.tsx` 行数下降；单测全绿
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
-git add components/lineage/person-inspector.tsx components/lineage/lineage-detail.tsx tests/e2e/lineage-inspector.spec.ts
+git add components/lineage/person-inspector.tsx components/lineage/lineage-detail.tsx tests/e2e/critical-path.spec.ts
 git commit -m "feat(lineage): 信息卡改抽屉，未选中不占位"
 ```
 
@@ -351,32 +352,31 @@ git commit -m "feat(lineage): 信息卡改抽屉，未选中不占位"
 ### Task 7: 文档同步与全量门禁
 
 **Files:**
-- Modify: `docs/prd.md`（§3.2 权限矩阵拆行、§3.3 `admin` 数组加 `'lineage.delete'`）—— **CRLF**
-- Modify: `docs/implementation-status.md`（若抽屉/入口计入已交付）
+- Modify: `docs/architecture/11-需求与实现状态.md`（权限矩阵与交付状态。根级 `docs/prd.md`、`docs/implementation-status.md` 已删除，不再同步）
 - Test: 全量命令
 
-- [ ] **Step 1: 改权限矩阵**
+- [x] **Step 1: 改权限矩阵**
 
-§3.2 把「删除内容」行拆成「删除内容（人丁/谱文/谱书）」✅✅✅— 与「删除谱系」✅✅——；§3.3 给 `admin` 加 `'lineage.delete'`。用 python 按字节读、`replace(b"\n", b"\r\n")` 回写。
+在 `docs/architecture/11-需求与实现状态.md` 把「删除内容」与「删除谱系」分行，并给 `admin` 加上 `lineage.delete`。只改这一份状态文件。
 
-- [ ] **Step 2: 验证 CRLF 未被破坏**
+- [x] **Step 2: 验证换行未被整文件重写**
 
-Run: `git diff --stat docs/prd.md`
-Expected: 只有个位数行变动（不是整文件重写）
+Run: `git diff --stat docs/architecture/11-需求与实现状态.md`
+Expected: 只有必要行变动（不是整文件换行重写）
 
-- [ ] **Step 3: 全量门禁**
+- [x] **Step 3: 全量门禁**
 
 Run: `pnpm check && pnpm typecheck && pnpm test && pnpm arch:check && pnpm docs:check --strict`
 Expected: 全部 0 issue
 
-- [ ] **Step 4: 集成与 E2E（若环境可用）**
+- [x] **Step 4: 集成与 E2E（若环境可用）**
 
 Run: `pnpm test:integration && pnpm test:e2e`
 Expected: PASS；若 Postgres/E2E 环境不可用，记录 ledger ruling 并说明哪一项没跑
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
-git add docs/prd.md docs/implementation-status.md
+git add docs/architecture/11-需求与实现状态.md
 git commit -m "docs(prd): 权限矩阵加入 lineage.delete，编辑者不可删谱系"
 ```

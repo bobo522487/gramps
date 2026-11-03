@@ -2,8 +2,11 @@
 
 **Feature Branch**: `002-article-authoring`（仅目录名，本规格不创建 git 分支）
 **Created**: 2026-11-02
-**Updated**: 2026-11-02（重定范围：模板套用移出本期）
-**Status**: Draft
+**Updated**: 2026-11-03
+**Status**: Accepted
+
+**交付附注**：本期范围（无模板套用）已落地；后置：FR-ART-3 人丁引用、FR-ART-5 正文检索、模板套用另立。文档对齐 2026-11-03。
+
 **Input**: User description: "/speckit-specify 参考附件需求 结合最佳实践 制定本项目的 谱文功能需求"
 
 附件《PRD-谱文排版与模板套用》v0.3 草案（参考样本：大谱师 Maker 演示视频 03）原样保存在 [source-prd.md](./source-prd.md)，sha256 `b70e02ca9c509049a40657d21c17d41b7a93ebbb61e8d5c2448e09776bf80879`。本规格按仓库真实状态（[AGENTS.md](../../AGENTS.md)、[ADR 0010](../../docs/decisions/0010-rich-text-editor-selection.md)、[11-需求与实现状态](../../docs/architecture/11-需求与实现状态.md)）收敛范围，不照搬样本；与附件不一致处逐条记在 [Assumptions](#assumptions) 的「与附件 PRD 的收敛点」。
