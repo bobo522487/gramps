@@ -5,8 +5,9 @@ import { getTestSql } from '../helpers/db';
 // it cannot drift back silently:
 //   - person search runs in memory (matchLineagePerson over getNodes), so node
 //     carries no trigram index;
-//   - FR-ART-5 needs idx_article_search, so article keeps exactly one;
-//   - idx_article_search depends on pg_trgm, so the extension must survive.
+//   - article title search also runs in memory over the fully loaded list, so
+//     article carries no trigram index until FR-ART-5 body search ships a query;
+//   - pg_trgm stays installed so that day is one CREATE INDEX, not CREATE EXTENSION.
 
 describe('search boundary', () => {
   it('keeps no trigram index on node', async () => {
@@ -19,19 +20,17 @@ describe('search boundary', () => {
     expect(nodeTrgm).toEqual([]);
   });
 
-  it('keeps the article trigram index and nothing else on article', async () => {
+  it('keeps no trigram index on article until a query consumes one', async () => {
     const articleTrgm = await getTestSql()<
       { indexname: string }[]
     >`select indexname from pg_indexes
       where schemaname = 'public' and tablename = 'article'
         and indexdef ilike ${'%gin_trgm_ops%'}`;
 
-    expect(articleTrgm.map((row) => row.indexname)).toEqual([
-      'idx_article_search',
-    ]);
+    expect(articleTrgm).toEqual([]);
   });
 
-  it('keeps the pg_trgm extension that idx_article_search depends on', async () => {
+  it('keeps the pg_trgm extension for the day FR-ART-5 body search ships', async () => {
     const extensions = await getTestSql()<
       { extname: string }[]
     >`select extname from pg_extension where extname = 'pg_trgm'`;
