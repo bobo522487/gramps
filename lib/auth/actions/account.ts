@@ -18,10 +18,10 @@ import {
   updatePasswordSchema,
 } from '@/lib/auth/schemas';
 import type { ActionState } from '@/lib/auth/types';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { logActivity } from '@/lib/db/queries/activity';
 import { getSoleOwnerOrgNames } from '@/lib/db/queries/organizations';
 import { ActivityType } from '@/lib/db/schema';
-import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { logger } from '@/lib/logger';
 
 export const updatePassword = validatedActionWithUser(

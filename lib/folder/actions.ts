@@ -3,6 +3,7 @@
 import 'server-only';
 
 import { validatedActionWithUser } from '@/lib/auth/middleware';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import {
   createFolderInTransaction,
   deleteFolderInTransaction,
@@ -13,7 +14,6 @@ import {
   deleteFolderSchema,
   renameFolderSchema,
 } from '@/lib/genealogy/schemas';
-import { revalidateWholeConsole } from '@/lib/console/revalidate';
 
 const FOLDER_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',

@@ -32,6 +32,7 @@ import {
 } from '@/lib/article/services';
 import { validatedActionWithUserObject } from '@/lib/auth/middleware';
 import type { ActionState } from '@/lib/auth/types';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import type {
   ArticleDeletePreview,
   FolderDeletePreview,
@@ -41,7 +42,6 @@ import {
   getFolderDeletePreview,
   hasCatalogReference,
 } from '@/lib/db/queries/articles';
-import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { logger } from '@/lib/logger';
 
 /**

@@ -3,6 +3,7 @@
 import 'server-only';
 
 import { validatedActionWithUser } from '@/lib/auth/middleware';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import {
   addChildSchema,
   addPersonSchema,
@@ -29,7 +30,6 @@ import {
   type OptionalSpouse,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
-import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import {
   createLineageInTransaction,
   deleteLineageInTransaction,
