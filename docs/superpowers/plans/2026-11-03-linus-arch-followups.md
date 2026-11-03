@@ -50,15 +50,15 @@
 
 **Interfaces:** 无代码接口。
 
-- [ ] **Step 1: 改 R21**
+- [x] **Step 1: 改 R21**
 
 把缓解列从「回填 + 对账 CLI 可重复执行」改成明确合同：回填每个组织一次（已有 `person` 则 `FactLayerAlreadyBackfilledError`）；对账可重复；谱系写入不更新事实层；切换计划未编写。
 
-- [ ] **Step 2: 改 R22**
+- [x] **Step 2: 改 R22**
 
 拆开谱文与谱书：谱文已有列表/编辑器/Action；谱书仍只有 `EmptyState`。状态可仍为「缓解中」（谱书缺口）。
 
-- [ ] **Step 3: 改技术债顺序第 1 条**
+- [x] **Step 3: 改技术债顺序第 1 条**
 
 不要写「谱文路径无」。改成：事实层仍是冻结快照（R21）；谱书仍无读写（R22 谱书半边）。下一步仍是「先定唯一写入路径再切读」，**禁止**在每个 `node` 写入口双写。
 
@@ -66,7 +66,7 @@
 
 原文把 `/articles` 与 `/books` 绑成「只有列表 + EmptyState」。改为：谱文列表与编辑器已实现（见同行 L3 与 §7）；谱书列表仍为 `EmptyState`；编目标路由未建。
 
-- [ ] **Step 5: 验证并提交**
+- [x] **Step 5: 验证并提交**
 
 Run: `pnpm docs:check --strict`  
 Expected: `0 issue(s)`
@@ -90,7 +90,7 @@ git commit -m "docs(docs): 对齐 R21/R22 与谱文实现现状"
 **Interfaces:**
 - Produces: article 表上零 `gin_trgm_ops` 索引；`pg_trgm` 扩展仍安装；`article.plain_text` 列保留并由 `derivePlainText` 继续写。
 
-- [ ] **Step 1: 改失败的边界测试**
+- [x] **Step 1: 改失败的边界测试**
 
 把「article 恰有 `idx_article_search`」改成「article 上零 trigram 索引」；第三条改为「保留 `pg_trgm` 扩展（正文检索落地当天再建索引）」：
 
@@ -116,12 +116,12 @@ git commit -m "docs(docs): 对齐 R21/R22 与谱文实现现状"
 
 文件头注释同步改写。
 
-- [ ] **Step 2: 跑集成测试确认失败**
+- [x] **Step 2: 跑集成测试确认失败**
 
 Run: `pnpm exec vitest run tests/integration/search-boundary.test.ts`  
 Expected: article 索引那条 FAIL（仍能看到 `idx_article_search`）
 
-- [ ] **Step 3: 手写迁移（照 `0013_drop_node_trgm.sql`）**
+- [x] **Step 3: 手写迁移（照 `0013_drop_node_trgm.sql`）**
 
 ```sql
 -- idx_article_search has had no consumer since 谱文列表用前端标题过滤
@@ -134,11 +134,11 @@ DROP INDEX IF EXISTS "idx_article_search";
 
 在 `_journal.json` 追加 idx 25 / tag `0025_drop_article_trgm`（`when` 用当前毫秒时间戳）。
 
-- [ ] **Step 4: 更新 ADR 0011**
+- [x] **Step 4: 更新 ADR 0011**
 
 决策第 3 条改为：在出现真正的正文检索查询之前，`article` 不保留 trigram 索引。后果段删掉「中性 · article 侧不受影响」。重估触发：正文检索开工时，同一改动里加查询 + `CREATE INDEX` + 放宽 `search-boundary` 断言。
 
-- [ ] **Step 5: 跑迁移相关测试并提交（仅迁移 + ADR + 测试）**
+- [x] **Step 5: 跑迁移相关测试并提交（仅迁移 + ADR + 测试）**
 
 Run: `pnpm exec vitest run tests/integration/search-boundary.test.ts tests/integration/migrations.test.ts`  
 Expected: PASS
@@ -163,25 +163,25 @@ git commit -m "fix(db): 删除无查询消费的 idx_article_search"
 **Interfaces:**
 - Produces: `revalidateWholeConsole(): void`、`revalidateProject(orgSlug, projectRef): void`、`revalidateOrg(orgSlug): void`，行为与现实现逐字相同。
 
-- [ ] **Step 1: 新建 `lib/console/revalidate.ts`，更新测试 import**
+- [x] **Step 1: 新建 `lib/console/revalidate.ts`，更新测试 import**
 
 `tests/revalidate-paths.test.ts` 改为 `from '@/lib/console/revalidate'`；Action 列表补上 `lib/article/actions.ts`。
 
-- [ ] **Step 2: 跑单测确认仍绿（文件已存在时可先复制再改 import）**
+- [x] **Step 2: 跑单测确认仍绿（文件已存在时可先复制再改 import）**
 
 Run: `pnpm exec vitest run tests/revalidate-paths.test.ts`  
 Expected: PASS
 
-- [ ] **Step 3: 六个 Action 改 import；删除旧文件**
+- [x] **Step 3: 六个 Action 改 import；删除旧文件**
 
 全部改为 `from '@/lib/console/revalidate'`。不要留 `lib/lineage/revalidate.ts` 再导出（避免第二入口）。
 
-- [ ] **Step 4: 全仓确认无旧路径**
+- [x] **Step 4: 全仓确认无旧路径**
 
 Run: `rg "lineage/revalidate" -g '*.ts' -g '*.tsx'`  
 Expected: 无匹配（文档里历史引用除外）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add lib/console/revalidate.ts lib/lineage/revalidate.ts \
@@ -203,7 +203,7 @@ git commit -m "refactor(ui): 把控制台失效入口移出谱系模块"
 - Consumes: `withOrg(userId, fn)`
 - Produces: 同一签名 `countArticlesByFolder(userId, orgId, projectId): Promise<ArticleFolderCounts>`；`unfiled = total - filed` 来自同一事务快照。
 
-- [ ] **Step 1: 改实现为一次 `withOrg`**
+- [x] **Step 1: 改实现为一次 `withOrg`**
 
 ```ts
 export async function countArticlesByFolder(
@@ -256,12 +256,12 @@ export async function countArticlesByFolder(
 }
 ```
 
-- [ ] **Step 2: 跑集成测试**
+- [x] **Step 2: 跑集成测试**
 
 Run: `pnpm exec vitest run tests/integration/queries.test.ts -t 'counts articles per'`  
 Expected: PASS；`unfiled` 仍为既有夹具期望值。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add lib/db/queries/articles.ts
@@ -281,7 +281,7 @@ git commit -m "fix(db): 谱文分类计数在同一事务内求差"
 **Interfaces:**
 - Produces: `fk_catalog_book`（或 drizzle 生成名）`FOREIGN KEY (organization_id, book_id) REFERENCES book(organization_id, id)`；去掉仅引用 `book(id)` 的窄外键。
 
-- [ ] **Step 1: 改 schema**
+- [x] **Step 1: 改 schema**
 
 在 `bookCatalogs` 上：
 
@@ -298,11 +298,11 @@ foreignKey({
 
 `uk_book_organization_id` 已存在，可作为目标。
 
-- [ ] **Step 2: 生成或手写迁移并 review**
+- [x] **Step 2: 生成或手写迁移并 review**
 
 优先 `pnpm db:generate`，人工确认：`DROP` 旧 `book_catalog_book_id_book_id_fk`，`ADD` 复合外键。空库可一次跑通；无数据 backfill。
 
-- [ ] **Step 3: 迁移单独提交**
+- [x] **Step 3: 迁移单独提交**
 
 ```bash
 git add lib/db/schema/content.ts lib/db/migrations/
@@ -321,7 +321,7 @@ git commit -m "fix(db): book_catalog 用复合外键钉住书的组织"
 **Interfaces:**
 - Produces: 源码级不变量——`lib/lineage/node-services.ts` 与 `lib/lineage/services.ts` 不出现 `persons` / `personNames` / `families` / `familyPartners` / `familyChildren` 的 schema import 或表名字符串写入。
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 ```ts
 it('lineage write services do not import the fact-layer tables', () => {
@@ -343,12 +343,12 @@ it('lineage write services do not import the fact-layer tables', () => {
 
 （若 `security-regressions` 已有 `readFileSync` 模式，跟它放一起。）
 
-- [ ] **Step 2: 跑测试**
+- [x] **Step 2: 跑测试**
 
 Run: `pnpm exec vitest run tests/security-regressions.test.ts`  
 Expected: PASS
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add tests/security-regressions.test.ts
