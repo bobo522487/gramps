@@ -464,18 +464,48 @@ describe('lineage derived values', () => {
 
   it('matches a spouse but points focus at the blood relative', () => {
     const spouseMatch = matchLineagePerson(index, '王');
-    expect(spouseMatch).toEqual({ bloodId: 'a', matchedId: 'w', count: 1 });
+    expect(spouseMatch).toEqual({
+      bloodId: 'a',
+      matchedId: 'w',
+      count: 1,
+      matchIndex: 0,
+    });
 
     const bloodMatch = matchLineagePerson(index, '子安');
-    expect(bloodMatch).toEqual({ bloodId: 'a', matchedId: 'a', count: 1 });
+    expect(bloodMatch).toEqual({
+      bloodId: 'a',
+      matchedId: 'a',
+      count: 1,
+      matchIndex: 0,
+    });
 
     expect(matchLineagePerson(index, '元')).toEqual({
       bloodId: 'a',
       matchedId: 'a',
       count: 3,
+      matchIndex: 0,
     });
     expect(matchLineagePerson(index, '   ')).toBeNull();
     expect(matchLineagePerson(index, '不存在')).toBeNull();
+  });
+
+  it('cycles through multiple matches with a cursor', () => {
+    const first = matchLineagePerson(index, '元', 0);
+    const second = matchLineagePerson(index, '元', 1);
+    const third = matchLineagePerson(index, '元', 2);
+    const wrap = matchLineagePerson(index, '元', 3);
+
+    expect(first).toMatchObject({ matchIndex: 0, count: 3 });
+    expect(second).toMatchObject({ matchIndex: 1, count: 3 });
+    expect(third).toMatchObject({ matchIndex: 2, count: 3 });
+    expect(wrap).toMatchObject({
+      matchIndex: 0,
+      matchedId: first?.matchedId,
+      count: 3,
+    });
+    expect(
+      new Set([first?.matchedId, second?.matchedId, third?.matchedId]).size
+    ).toBe(3);
   });
 });
 

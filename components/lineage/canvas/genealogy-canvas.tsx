@@ -15,21 +15,10 @@ import {
   useNodesState,
   useReactFlow,
 } from '@xyflow/react';
-import {
-  BookOpen,
-  Filter,
-  GripHorizontal,
-  Map as MapIcon,
-  Plus,
-  Printer,
-  RotateCcw,
-  Search,
-  User,
-  Users,
-  X,
-} from 'lucide-react';
+import { BookOpen, GripHorizontal, Plus, User, Users, X } from 'lucide-react';
 import { type DragEvent, useCallback, useEffect, useMemo, useRef } from 'react';
 import '@/components/lineage/canvas/canvas.css';
+import { CanvasToolbar } from '@/components/lineage/canvas/canvas-toolbar';
 import { BookGenealogyEdge } from '@/components/lineage/canvas/edges/book-genealogy-edge';
 import {
   BOOK_COLUMN_WIDTH,
@@ -79,6 +68,7 @@ export type GenealogyCanvasProps = {
   onCreateChild: (parentId: string) => void;
   onCreateSpouse: (bloodId: string) => void;
   onCreatePerson: () => void;
+  onSelectNode: (nodeId: string | null) => void;
   onEditNode: (nodeId: string) => void;
   onNodeContextMenu: (nodeId: string, x: number, y: number) => boolean;
   onMoveNode: (nodeId: string, newParentId: string) => void;
@@ -92,6 +82,7 @@ function CanvasInner({
   onCreateChild,
   onCreateSpouse,
   onCreatePerson,
+  onSelectNode,
   onEditNode,
   onNodeContextMenu,
   onMoveNode,
@@ -102,13 +93,14 @@ function CanvasInner({
   const containerRef = useRef<HTMLDivElement>(null);
   const handledFocus = useRef(0);
   const fittedKey = useRef('');
+  const matchCursorRef = useRef(0);
+  const lastMatchQueryRef = useRef('');
 
   const selectedNodeId = useLineageStore((state) => state.selectedNodeId);
-  const setSelectedNode = useLineageStore((state) => state.setSelectedNode);
   const collapsedNodeIds = useLineageStore((state) => state.collapsedNodeIds);
   const toggleCollapse = useLineageStore((state) => state.toggleCollapse);
-  const canvasQuery = useLineageStore((state) => state.canvasQuery);
-  const setCanvasQuery = useLineageStore((state) => state.setCanvasQuery);
+  const personQuery = useLineageStore((state) => state.personQuery);
+  const setPersonQuery = useLineageStore((state) => state.setPersonQuery);
   const generationLimit = useLineageStore((state) => state.generationLimit);
   const setGenerationLimit = useLineageStore(
     (state) => state.setGenerationLimit
@@ -187,12 +179,12 @@ function CanvasInner({
   );
 
   const handleSelect = useCallback(
-    (nodeId: string) => setSelectedNode(nodeId),
-    [setSelectedNode]
+    (nodeId: string) => onSelectNode(nodeId),
+    [onSelectNode]
   );
   const handleSelectSpouse = useCallback(
-    (spouseId: string) => setSelectedNode(spouseId),
-    [setSelectedNode]
+    (spouseId: string) => onSelectNode(spouseId),
+    [onSelectNode]
   );
   const handleToggleCollapse = useCallback(
     (nodeId: string) => toggleCollapse(nodeId),
@@ -322,13 +314,25 @@ function CanvasInner({
   );
 
   const handleLocate = useCallback(() => {
-    const match = matchLineagePerson(index, canvasQuery);
+    const query = personQuery;
+    const normalized = query.trim();
+    if (normalized !== lastMatchQueryRef.current) {
+      matchCursorRef.current = 0;
+      lastMatchQueryRef.current = normalized;
+    } else {
+      matchCursorRef.current += 1;
+    }
+
+    const match = matchLineagePerson(index, query, matchCursorRef.current);
     if (!match) {
+      matchCursorRef.current = 0;
       setNotice('未找到匹配的族人，请换个关键字');
       return;
     }
+    matchCursorRef.current = match.matchIndex;
     const blood = index.byId.get(match.bloodId);
-    if (!blood) {
+    const matched = index.byId.get(match.matchedId);
+    if (!blood || !matched) {
       setNotice('未找到匹配的族人，请换个关键字');
       return;
     }
@@ -343,24 +347,24 @@ function CanvasInner({
         toggleCollapse(id);
       }
     }
-    setSelectedNode(match.matchedId);
+    onSelectNode(match.matchedId);
     requestFocus(match.matchedId);
     setNotice(
       match.count > 1
-        ? `找到 ${match.count} 位匹配，已定位到「${blood.fullName}」`
+        ? `找到 ${match.count} 位匹配，第 ${match.matchIndex + 1} 位「${matched.fullName}」· 再按 Enter 下一个`
         : null
     );
   }, [
-    canvasQuery,
     collapsedNodeIds,
     freshLimit,
     index,
+    onSelectNode,
+    personQuery,
     renderGenerationLimit,
     requestFocus,
     setGenerationLimit,
     setNotice,
     setRenderGenerationLimit,
-    setSelectedNode,
     toggleCollapse,
   ]);
 
@@ -522,7 +526,7 @@ function CanvasInner({
         edgeTypes={edgeTypes}
         onNodeClick={(_, node) => {
           if (node.type === 'bookPerson') {
-            setSelectedNode(node.id);
+            onSelectNode(node.id);
           }
         }}
         onNodeDoubleClick={(_, node) => {
@@ -530,7 +534,7 @@ function CanvasInner({
             onEditNode(node.id);
           }
         }}
-        onPaneClick={() => setSelectedNode(null)}
+        onPaneClick={() => onSelectNode(null)}
         onConnect={handleConnect}
         isValidConnection={isValidConnection}
         onMoveEnd={handleMoveEnd}
@@ -574,92 +578,24 @@ function CanvasInner({
           />
         )}
 
-        <Panel position="top-right" className="z-30 m-3">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleLocate();
-              }}
-              className="relative w-36 md:w-44"
-            >
-              <Search
-                size={12}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                type="search"
-                value={canvasQuery}
-                onChange={(event) => setCanvasQuery(event.target.value)}
-                placeholder="搜族人定位..."
-                className="w-full rounded-lg border border-border bg-card/90 py-1 pl-7 pr-2.5 font-serif text-xs outline-none backdrop-blur transition-all focus:border-primary focus:ring-1 focus:ring-primary"
-              />
-            </form>
-
-            <div className="flex items-center gap-1 rounded-lg border border-border bg-card/90 px-2.5 py-1 font-serif text-xs text-muted-foreground shadow-xs backdrop-blur">
-              <Filter size={12} className="text-primary" />
-              <select
-                value={generationLimit}
-                onChange={(event) =>
-                  handleGenerationChange(Number(event.target.value))
-                }
-                className="cursor-pointer border-none bg-transparent font-serif text-xs font-medium text-foreground outline-none"
-                aria-label="世代筛选"
-              >
-                <option value={0}>全部世代（共 {maxGeneration} 世）</option>
-                {Array.from({ length: maxGeneration }, (_, i) => i + 1).map(
-                  (generation) => (
-                    <option key={generation} value={generation}>
-                      前 {generation} 世
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => fitView({ padding: 0.15, duration: 300 })}
-              className="flex h-8 items-center gap-1 rounded-lg border border-border bg-card/90 px-2 text-xs shadow-xs backdrop-blur transition-colors hover:text-primary"
-              title="居中重置"
-            >
-              <RotateCcw size={12} /> 居中
-            </button>
-
-            <button
-              type="button"
-              onClick={onPrint}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card/90 text-muted-foreground shadow-xs backdrop-blur transition-colors hover:text-foreground"
-              title="打印世系表"
-              aria-label="打印世系表"
-            >
-              <Printer size={13} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMinimapVisible(!minimapVisible)}
-              className={`flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card/90 shadow-xs backdrop-blur transition-colors ${
-                minimapVisible ? 'text-primary' : 'text-muted-foreground'
-              }`}
-              title="切换小地图"
-              aria-label="切换小地图"
-            >
-              <MapIcon size={13} />
-            </button>
-
-            {canWrite && (
-              <button
-                type="button"
-                onClick={onCreatePerson}
-                className="flex h-8 items-center gap-1 rounded-lg border border-primary/30 bg-primary/10 px-2 text-xs font-medium text-primary shadow-xs transition-colors hover:bg-primary/20"
-                title="新增族人"
-              >
-                <Plus size={12} /> 新增族人
-              </button>
-            )}
-          </div>
-        </Panel>
+        <CanvasToolbar
+          personQuery={personQuery}
+          onPersonQueryChange={(query) => {
+            lastMatchQueryRef.current = '';
+            matchCursorRef.current = 0;
+            setPersonQuery(query);
+          }}
+          onLocate={handleLocate}
+          generationLimit={generationLimit}
+          maxGeneration={maxGeneration}
+          onGenerationChange={handleGenerationChange}
+          minimapVisible={minimapVisible}
+          onToggleMinimap={() => setMinimapVisible(!minimapVisible)}
+          onFitView={() => fitView({ padding: 0.15, duration: 300 })}
+          onPrint={onPrint}
+          canWrite={canWrite}
+          onCreatePerson={onCreatePerson}
+        />
 
         {notice && (
           <Panel position="top-center" className="z-40 mt-3">

@@ -16,8 +16,7 @@ describe('lineage workspace store', () => {
     store.initializeForLineage('lineage-a');
     store.setSelectedNode('node-1');
     store.toggleCollapse('node-2');
-    store.setCanvasQuery('元英');
-    store.setTableQuery('长房');
+    store.setPersonQuery('元英');
     store.setGenerationLimit(3);
     store.setRenderGenerationLimit(5);
     store.setNotice('提示');
@@ -31,12 +30,21 @@ describe('lineage workspace store', () => {
     expect(state.lineageId).toBe('lineage-b');
     expect(state.selectedNodeId).toBeNull();
     expect(state.collapsedNodeIds).toEqual([]);
-    expect(state.canvasQuery).toBe('');
-    expect(state.tableQuery).toBe('');
+    expect(state.personQuery).toBe('');
     expect(state.generationLimit).toBe(0);
     expect(state.renderGenerationLimit).toBe(0);
     expect(state.notice).toBeNull();
     expect(state.focus).toBeNull();
+  });
+
+  it('shares one personQuery across canvas and table views', () => {
+    const store = useLineageStore.getState();
+    store.setPersonQuery('崇祯');
+    expect(useLineageStore.getState().personQuery).toBe('崇祯');
+    store.setView('table');
+    expect(useLineageStore.getState().personQuery).toBe('崇祯');
+    store.setPersonQuery('');
+    expect(useLineageStore.getState().personQuery).toBe('');
   });
 
   it('toggles node and folder collapse independently', () => {

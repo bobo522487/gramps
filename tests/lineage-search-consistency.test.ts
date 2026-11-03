@@ -87,6 +87,6 @@ describe('lineage search predicate is single-sourced', () => {
     expect(src).toMatch(
       /import \{[^}]*matchesNode[^}]*\} from '@\/components\/lineage\/derived'/
     );
-    expect(src).toMatch(/useDeferredValue\(tableQuery\)/);
+    expect(src).toMatch(/useDeferredValue\(personQuery\)/);
   });
 });

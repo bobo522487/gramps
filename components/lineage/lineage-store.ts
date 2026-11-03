@@ -12,8 +12,8 @@ export type LineageStore = {
   view: LineageWorkspaceView;
   selectedNodeId: string | null;
   collapsedNodeIds: string[];
-  canvasQuery: string;
-  tableQuery: string;
+  /** Shared person search across 谱系图 and 世系表. */
+  personQuery: string;
   generationLimit: number;
   renderGenerationLimit: number;
   minimapVisible: boolean;
@@ -26,8 +26,7 @@ export type LineageStore = {
   setSelectedNode: (id: string | null) => void;
   toggleCollapse: (id: string) => void;
   clearCollapsed: () => void;
-  setCanvasQuery: (query: string) => void;
-  setTableQuery: (query: string) => void;
+  setPersonQuery: (query: string) => void;
   setGenerationLimit: (limit: number) => void;
   setRenderGenerationLimit: (limit: number) => void;
   appendGenerations: (step: number, maxGeneration: number) => void;
@@ -47,8 +46,7 @@ export const initialLineageState = {
   view: 'canvas' as LineageWorkspaceView,
   selectedNodeId: null as string | null,
   collapsedNodeIds: [] as string[],
-  canvasQuery: '',
-  tableQuery: '',
+  personQuery: '',
   generationLimit: 0,
   renderGenerationLimit: 0,
   minimapVisible: false,
@@ -68,8 +66,7 @@ export const useLineageStore = create<LineageStore>((set) => ({
             lineageId: id,
             selectedNodeId: null,
             collapsedNodeIds: [],
-            canvasQuery: '',
-            tableQuery: '',
+            personQuery: '',
             generationLimit: 0,
             renderGenerationLimit: 0,
             notice: null,
@@ -85,8 +82,7 @@ export const useLineageStore = create<LineageStore>((set) => ({
         : [...state.collapsedNodeIds, id],
     })),
   clearCollapsed: () => set({ collapsedNodeIds: [] }),
-  setCanvasQuery: (query) => set({ canvasQuery: query }),
-  setTableQuery: (query) => set({ tableQuery: query }),
+  setPersonQuery: (query) => set({ personQuery: query }),
   setGenerationLimit: (limit) =>
     set({ generationLimit: Math.max(0, Math.trunc(limit)) }),
   setRenderGenerationLimit: (limit) =>
