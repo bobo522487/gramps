@@ -859,19 +859,6 @@
         }
       },
       "foreignKeys": {
-        "book_catalog_book_id_book_id_fk": {
-          "name": "book_catalog_book_id_book_id_fk",
-          "tableFrom": "book_catalog",
-          "tableTo": "book",
-          "columnsFrom": [
-            "book_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "fk_catalog_article": {
           "name": "fk_catalog_article",
           "tableFrom": "book_catalog",
@@ -894,6 +881,21 @@
           "columnsFrom": [
             "organization_id",
             "lineage_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "fk_catalog_book": {
+          "name": "fk_catalog_book",
+          "tableFrom": "book_catalog",
+          "tableTo": "book",
+          "columnsFrom": [
+            "organization_id",
+            "book_id"
           ],
           "columnsTo": [
             "organization_id",
