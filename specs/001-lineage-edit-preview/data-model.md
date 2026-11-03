@@ -53,6 +53,5 @@
 
 | 文档 | 同步点 |
 |---|---|
-| `docs/architecture/11-需求与实现状态.md` | §3.2 把现有「删除内容」行拆成「删除内容（人丁 / 谱文 / 谱书）」✅✅✅— 与「删除谱系」✅✅——；§3.3 给 `admin` 权限数组加 `'lineage.delete'`（`owner` 是 `['*']`，`editor` 不含）。**该文件是 CRLF，脚本改写后必须按字节回写** |
+| `docs/architecture/11-需求与实现状态.md` | 权限矩阵：删除谱系与删除内容分行，`admin` 含 `lineage.delete`（`owner` 是 `['*']`，`editor` 不含）。2026-11-03 起，抽屉、底部条 + 右键、`lineage.delete` 已计入交付；状态只写该文件 |
 | `docs/architecture/04-数据视图-数据架构.md` | **不动**（无表结构变更） |
-| `docs/architecture/11-需求与实现状态.md` | 若本期把抽屉/操作入口计入已交付，在对应条目记一句；否则不动 |
