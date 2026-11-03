@@ -32,8 +32,10 @@ const serverConfigSchema = z
     // getMediaMode() 据此退回文件系统驱动。**空串等于没配**——E2E 用它把被测
     // 服务钉回兜底驱动（Playwright 只能覆盖环境变量，不能删掉父进程带进来的），
     // Vercel 上留空的一个变量也不该让整个配置校验炸掉。
-    BLOB_READ_WRITE_TOKEN: z
-      .preprocess((value) => (value === '' ? undefined : value), z.string().min(1).optional()),
+    BLOB_READ_WRITE_TOKEN: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().min(1).optional()
+    ),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   })
   .superRefine((config, ctx) => {
