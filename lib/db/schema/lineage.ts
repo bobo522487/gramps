@@ -87,6 +87,13 @@ export const nodes = pgTable(
     deathYear: integer('death_year'),
     burialPlace: text('burial_place'),
     biography: text('biography'),
+    /**
+     * 创建幂等键（R31）：客户端每「一次提交意图」生成一个 uuid，只有创建路径写它。
+     * 同组织内唯一（见 uk_node_org_request_id），重放与并发双飞都落回已有那一行。
+     * 共创配偶不写这个键——它会与血亲撞同一索引，重放时按 spouse_of_id 找回。
+     * 迁移前的历史行为 NULL，部分唯一索引不约束 NULL。
+     */
+    requestId: uuid('request_id'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
     updatedAt: timestamptz('updated_at'),
@@ -127,6 +134,11 @@ export const nodes = pgTable(
       sql`${t.generation} >= case when ${t.path} is null then 1 else nlevel(${t.path}) end`
     ),
     index('idx_node_parent').on(t.orgId, t.parentId),
+    // 创建幂等（R31）：同一组织内一个 requestId 只能留下一行未删人丁。
+    // 软删行不在索引里，所以删掉之后同一键可以再次录入。
+    uniqueIndex('uk_node_org_request_id')
+      .on(t.orgId, t.requestId)
+      .where(sql`${t.requestId} is not null and ${t.deletedAt} is null`),
     index('idx_node_alive')
       .on(t.orgId, t.lineageId)
       .where(sql`${t.deletedAt} is null`),

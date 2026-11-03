@@ -87,6 +87,9 @@ describe('migrations', () => {
         'idx_activity_logs_org',
         'idx_activity_logs_user',
         'idx_node_lineage_path',
+        // R31: the partial unique key that makes a node create idempotent within
+        // an organization (0027); its exact columns are pinned further down.
+        'uk_node_org_request_id',
         // idx_node_search and idx_article_search are gone on purpose: ADR 0011
         // keeps person and article title search in the client until a body-search
         // query ships (search-boundary.test.ts).
@@ -154,6 +157,11 @@ describe('migrations', () => {
         index: 'idx_family_child_person',
         columns: '(organization_id, project_id, person_id)',
       },
+      {
+        table: 'node',
+        index: 'uk_node_org_request_id',
+        columns: '(organization_id, request_id)',
+      },
     ];
 
     for (const { table, index, columns } of expected) {
@@ -165,6 +173,29 @@ describe('migrations', () => {
       expect(rows, `${index} is missing`).toHaveLength(1);
       expect(String(rows[0]?.indexdef)).toContain(columns);
     }
+
+    // 幂等索引两条腿都得是部分的：NULL 键（0027 之前写入的历史行）不能互相排斥，
+    // 软删行要释放自己的键，否则同一键无法再录入新的人丁。
+    const keyed = await getTestSql()<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = 'node'
+        AND indexname = 'uk_node_org_request_id'`;
+    expect(String(keyed[0]?.indexdef)).toContain(
+      'WHERE ((request_id IS NOT NULL) AND (deleted_at IS NULL))'
+    );
+  });
+
+  it('adds nullable request_id to node for create idempotency', async () => {
+    const rows = await getTestSql()<
+      { column_name: string; data_type: string; is_nullable: string }[]
+    >`SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'node'
+        AND column_name = 'request_id'`;
+
+    expect(rows).toEqual([
+      { column_name: 'request_id', data_type: 'uuid', is_nullable: 'YES' },
+    ]);
   });
 
   it('adds nullable region and notes columns to lineage', async () => {

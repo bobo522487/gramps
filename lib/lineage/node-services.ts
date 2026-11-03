@@ -3,14 +3,8 @@ import 'server-only';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { type DbTransaction, queryRows } from '@/lib/db/drizzle';
 import { logActivityInTx } from '@/lib/db/queries/activity';
-import {
-  ActivityType,
-  type Lineage,
-  lineages,
-  type Node,
-  nodes,
-} from '@/lib/db/schema';
-import { withOrgWrite } from '@/lib/db/write';
+import { ActivityType, lineages, type Node, nodes } from '@/lib/db/schema';
+import { withCreateWrite, withLineageWrite } from './lineage-write';
 
 export type NodeCreateDetails = {
   courtesy?: string | null;
@@ -30,7 +24,8 @@ export type OptionalSpouse = {
   surname: string;
 };
 
-type NodeFailure =
+/** 谱系写入的失败原因；`lib/lineage/lineage-errors.ts` 逐个映射成中文文案。 */
+export type NodeFailure =
   | 'forbidden'
   | 'not_found'
   | 'invalid_target'
@@ -97,27 +92,6 @@ export function toNodeDetails(
   };
 }
 
-/** Locks the lineage row so node count and root checks stay serialized. */
-async function loadLineageForUpdate(
-  tx: DbTransaction,
-  orgId: string,
-  lineageId: string
-): Promise<Lineage | null> {
-  const [lineage] = await tx
-    .select()
-    .from(lineages)
-    .where(
-      and(
-        eq(lineages.id, lineageId),
-        eq(lineages.orgId, orgId),
-        isNull(lineages.deletedAt)
-      )
-    )
-    .for('update')
-    .limit(1);
-  return lineage ?? null;
-}
-
 async function loadNode(
   tx: DbTransaction,
   orgId: string,
@@ -140,27 +114,7 @@ async function loadNode(
 }
 
 /**
- * The lineage-write preamble: org-scoped transaction, `lineage.write` re-check,
- * then the `FOR UPDATE` lineage lock. Every node mutation needs all three — the
- * lock is what stops two concurrent writers from computing the same `sort`, the
- * same `node_count`, or overlapping subtree rewrites.
- */
-async function withLineageWrite<T>(
-  params: { userId: string; orgId: string; lineageId: string },
-  fn: (tx: DbTransaction, lineage: Lineage) => Promise<T>
-): Promise<T | { ok: false; reason: NodeFailure }> {
-  const { userId, orgId, lineageId } = params;
-
-  return withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
-    const lineage = await loadLineageForUpdate(tx, orgId, lineageId);
-    if (!lineage) {
-      return { ok: false, reason: 'not_found' } as const;
-    }
-    return fn(tx, lineage);
-  });
-}
-
-/** Next `sort` in one sibling group: blood keyed by parent (roots when none),
+ * Next `sort` in one sibling group: blood keyed by parent (roots when none),
  *  spouse keyed by the blood node. Only the scoping column and role differ. */
 async function nextSort(
   tx: DbTransaction,
@@ -251,6 +205,8 @@ type NodeWriteContext = {
   userId: string;
   orgId: string;
   lineageId: string;
+  /** 客户端幂等键：只写在主行上，共创配偶留 NULL（见 uk_node_org_request_id）。 */
+  requestId: string;
   ipAddress?: string;
 };
 
@@ -261,6 +217,8 @@ type NodeInsertValues = Omit<typeof nodes.$inferInsert, 'id' | 'createdBy'>;
  * The write preamble every node creation shares: allocate id, insert node,
  * add the co-spouse if supplied, bump `node_count`, log the create. The four
  * callers differ only in `buildValues` (given the fresh id to compute `path`).
+ *
+ * 重放不会走到这里：`withCreateWrite` 在锁内先按 `requestId` 查过一次。
  */
 async function recordNode(
   tx: DbTransaction,
@@ -268,11 +226,12 @@ async function recordNode(
   buildValues: (id: string) => NodeInsertValues,
   coSpouse?: OptionalSpouse
 ): Promise<Extract<NodeMutationResult, { ok: true }>> {
-  const { userId, orgId, lineageId, ipAddress } = ctx;
+  const { userId, orgId, lineageId, requestId, ipAddress } = ctx;
   const id = await newNodeId(tx);
   const node = await insertNode(tx, {
     id,
     createdBy: userId,
+    requestId,
     ...buildValues(id),
   });
   const spouse = coSpouse
@@ -289,20 +248,29 @@ async function recordNode(
   return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
 }
 
-export async function createRootNodeInTransaction(params: {
+/**
+ * 四条创建路径共享的入参。`requestId` 是客户端幂等键（R31）：一次「提交意图」
+ * 一个 uuid，必填——缺键的创建在 Zod 处就拒掉，不给重放留无键通道。
+ */
+export type NodeCreateParams = {
   userId: string;
   orgId: string;
   lineageId: string;
+  requestId: string;
   name: string;
   surname?: string;
   sex: number;
   details?: NodeCreateDetails;
   spouse?: OptionalSpouse;
   ipAddress?: string;
-}): Promise<NodeMutationResult> {
-  const { userId, orgId, lineageId, name, sex, ipAddress } = params;
+};
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
+export async function createRootNodeInTransaction(
+  params: NodeCreateParams
+): Promise<NodeMutationResult> {
+  const { orgId, lineageId, name, sex } = params;
+
+  return withCreateWrite(params, async (tx, lineage) => {
     const [existing] = await tx
       .select({ id: nodes.id })
       .from(nodes)
@@ -322,7 +290,7 @@ export async function createRootNodeInTransaction(params: {
     const surname = params.surname ?? lineage.surname;
     return recordNode(
       tx,
-      { userId, orgId, lineageId, ipAddress },
+      params,
       (id) => ({
         orgId,
         lineageId,
@@ -341,21 +309,12 @@ export async function createRootNodeInTransaction(params: {
   });
 }
 
-export async function addChildInTransaction(params: {
-  userId: string;
-  orgId: string;
-  lineageId: string;
-  parentId: string;
-  name: string;
-  surname?: string;
-  sex: number;
-  details?: NodeCreateDetails;
-  spouse?: OptionalSpouse;
-  ipAddress?: string;
-}): Promise<NodeMutationResult> {
-  const { userId, orgId, lineageId, parentId, name, sex, ipAddress } = params;
+export async function addChildInTransaction(
+  params: NodeCreateParams & { parentId: string }
+): Promise<NodeMutationResult> {
+  const { orgId, lineageId, parentId, name, sex } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
+  return withCreateWrite(params, async (tx, lineage) => {
     const parent = await loadNode(tx, orgId, lineageId, parentId);
     if (!parent) {
       return { ok: false, reason: 'not_found' as const };
@@ -373,7 +332,7 @@ export async function addChildInTransaction(params: {
     });
     return recordNode(
       tx,
-      { userId, orgId, lineageId, ipAddress },
+      params,
       (id) => ({
         orgId,
         lineageId,
@@ -393,22 +352,12 @@ export async function addChildInTransaction(params: {
   });
 }
 
-export async function addSiblingInTransaction(params: {
-  userId: string;
-  orgId: string;
-  lineageId: string;
-  siblingOfId: string;
-  name: string;
-  surname?: string;
-  sex: number;
-  details?: NodeCreateDetails;
-  spouse?: OptionalSpouse;
-  ipAddress?: string;
-}): Promise<NodeMutationResult> {
-  const { userId, orgId, lineageId, siblingOfId, name, sex, ipAddress } =
-    params;
+export async function addSiblingInTransaction(
+  params: NodeCreateParams & { siblingOfId: string }
+): Promise<NodeMutationResult> {
+  const { orgId, lineageId, siblingOfId, name, sex } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
+  return withCreateWrite(params, async (tx, lineage) => {
     const sibling = await loadNode(tx, orgId, lineageId, siblingOfId);
     if (!sibling) {
       return { ok: false, reason: 'not_found' as const };
@@ -433,7 +382,7 @@ export async function addSiblingInTransaction(params: {
     });
     return recordNode(
       tx,
-      { userId, orgId, lineageId, ipAddress },
+      params,
       (id) => ({
         orgId,
         lineageId,
@@ -453,20 +402,16 @@ export async function addSiblingInTransaction(params: {
   });
 }
 
-export async function addSpouseInTransaction(params: {
-  userId: string;
-  orgId: string;
-  lineageId: string;
-  spouseOfId: string;
-  name: string;
-  surname?: string;
-  sex: number;
-  details?: NodeCreateDetails;
-  ipAddress?: string;
-}): Promise<NodeMutationResult> {
-  const { userId, orgId, lineageId, spouseOfId, name, sex, ipAddress } = params;
+/**
+ * 单独录入配偶：主行就是配偶行，所以入参刻意去掉 `spouse`，不再链式挂出
+ * 「配偶的配偶」；`requestId` 仍然必填，同键重放返回当初那位配偶。
+ */
+export async function addSpouseInTransaction(
+  params: Omit<NodeCreateParams, 'spouse'> & { spouseOfId: string }
+): Promise<NodeMutationResult> {
+  const { orgId, lineageId, spouseOfId, name, sex } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+  return withCreateWrite(params, async (tx) => {
     const spouseOf = await loadNode(tx, orgId, lineageId, spouseOfId);
     if (!spouseOf) {
       return { ok: false, reason: 'not_found' as const };
@@ -481,7 +426,7 @@ export async function addSpouseInTransaction(params: {
       role: 'spouse',
       spouseOfId: spouseOf.id,
     });
-    return recordNode(tx, { userId, orgId, lineageId, ipAddress }, () => ({
+    return recordNode(tx, params, () => ({
       orgId,
       lineageId,
       parentId: null,

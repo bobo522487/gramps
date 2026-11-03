@@ -205,6 +205,8 @@ export async function createNode(params: {
   burialPlace?: string | null;
   fullName?: string | null;
   deletedAt?: Date | null;
+  /** 创建幂等键（R31）；测试直插时用来撞 uk_node_org_request_id。 */
+  requestId?: string | null;
 }) {
   const id = randomUUID();
   const role = params.role ?? 'blood';
@@ -237,6 +239,7 @@ export async function createNode(params: {
       deathYear: params.deathYear ?? null,
       burialPlace: params.burialPlace ?? null,
       deletedAt: params.deletedAt ?? null,
+      requestId: params.requestId ?? null,
     })
     .returning();
   return node;

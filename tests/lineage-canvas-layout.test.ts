@@ -157,12 +157,15 @@ describe('book_ltr layout', () => {
   });
 
   it('stacks multiple roots and treats a missing parent as a visible root', () => {
-    const first = person({ id: 'r1', name: '始祖', generation: 1 });
+    // 根之间的堆叠序跟着 `index.roots`（sort → 全名，见 derived.ts 的 R30 注释），
+    // 所以这里显式给出 sort，不让断言依赖中文全名的拼音比较。
+    const first = person({ id: 'r1', name: '始祖', generation: 1, sort: 0 });
     const orphan = person({
       id: 'o',
       name: '失考祖',
       generation: 2,
       parentId: 'missing',
+      sort: 1,
     });
 
     const { result } = layout([first, orphan]);

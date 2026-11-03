@@ -6,6 +6,7 @@ import {
   activityLogs,
   folders,
   invitations,
+  nodes,
   orgMembers,
 } from '@/lib/db/schema';
 import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
@@ -327,6 +328,55 @@ describe('node tree invariants enforced by the database', () => {
         spouseOfId: root.id,
       })
     ).resolves.toBeTruthy();
+  });
+
+  // R31：创建幂等键的唯一性由数据库兜底。索引是部分的（deleted_at IS NULL），
+  // 所以软删之后同一键可以再录一次；历史行 request_id 为 NULL，NULL 之间不互斥。
+  it('keeps one live node per (organization, request_id)', async () => {
+    const { user, organization, lineage } = await lineageScope();
+    const requestId = randomUUID();
+
+    const first = await createNode({
+      orgId: organization.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      generation: 1,
+      requestId,
+    });
+
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 1,
+        requestId,
+      })
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
+
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 1,
+      })
+    ).resolves.toBeDefined();
+
+    await getTestDb()
+      .update(nodes)
+      .set({ deletedAt: new Date() })
+      .where(eq(nodes.id, first.id));
+
+    await expect(
+      createNode({
+        orgId: organization.id,
+        lineageId: lineage.id,
+        createdBy: user.id,
+        generation: 1,
+        requestId,
+      })
+    ).resolves.toBeDefined();
   });
 });
 

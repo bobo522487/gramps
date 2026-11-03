@@ -18,16 +18,71 @@ function bySortThenName(left: NodeView, right: NodeView) {
   return left.fullName.localeCompare(right.fullName, 'zh-Hans-CN');
 }
 
+/**
+ * The single source of lineage display order (R30). 世系表的世次卡片、画布的纵向
+ * 堆叠、搜索首匹配、打印视图全部继承 `index.blood`，谁都不再自己排一次序；
+ * `lib/db/queries/nodes.ts` 的 `orderBy` 只提供稳定的入库序。
+ *
+ * The order is a depth-first **preorder** from the roots: 长房整支在前、次房整支在后
+ * (FR-LIN-13). Ordering by `generation → sort` — the old rule — interleaves the
+ * branches, because `sort` is a sibling rank *within one parent* (`nextSort` in
+ * `lib/lineage/node-services.ts`); comparing it across branches lines up "the
+ * N-th son of every house" side by side instead of walking one house at a time.
+ * Sorting by ltree `path` is not an alternative either: the label is a UUID
+ * (`nodeLabel`), so its collation says nothing about 长幼房支序 — see ADR 0003.
+ *
+ * Roots (multiple 始祖, or 悬空 `parentId`) are ordered between themselves by
+ * `sort` → 全名; the same rule orders siblings, and nothing else is available.
+ */
+function bloodDepthFirst(
+  roots: NodeView[],
+  members: NodeView[],
+  childrenByParent: Map<string, NodeView[]>
+): NodeView[] {
+  const ordered: NodeView[] = [];
+  const visited = new Set<string>();
+  // 显式栈而不是递归：万人谱不该靠 JS 调用栈扛深链。
+  const stack = [...roots].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || visited.has(node.id)) {
+      continue;
+    }
+    visited.add(node.id);
+    ordered.push(node);
+    const children = childrenByParent.get(node.id);
+    if (children) {
+      // 副本再反转：childrenByParent 的桶还服务 rankLabel，不能就地改序。
+      stack.push(...[...children].reverse());
+    }
+  }
+
+  // 兜底：只有父链成环（自环、A→B→A）的节点走不到——悬空 `parentId` 已经算根。
+  // 按 generation → sort → 全名追加，保证一个人都不丢，且两次构建结果一致。
+  const unreachable = members.filter((node) => !visited.has(node.id));
+  if (unreachable.length > 0) {
+    unreachable.sort((left, right) => {
+      if (left.generation !== right.generation) {
+        return left.generation - right.generation;
+      }
+      return bySortThenName(left, right);
+    });
+    ordered.push(...unreachable);
+  }
+
+  return ordered;
+}
+
 export function buildLineageIndex(nodes: NodeView[]): LineageIndex {
   const byId = new Map<string, NodeView>();
-  const blood: NodeView[] = [];
+  const members: NodeView[] = [];
   const spousesByBlood = new Map<string, NodeView[]>();
   const childrenByParent = new Map<string, NodeView[]>();
 
   for (const node of nodes) {
     byId.set(node.id, node);
     if (node.role === 'blood') {
-      blood.push(node);
+      members.push(node);
     } else if (node.spouseOfId) {
       const bucket = spousesByBlood.get(node.spouseOfId) ?? [];
       bucket.push(node);
@@ -35,18 +90,11 @@ export function buildLineageIndex(nodes: NodeView[]): LineageIndex {
     }
   }
 
-  blood.sort((left, right) => {
-    if (left.generation !== right.generation) {
-      return left.generation - right.generation;
-    }
-    return bySortThenName(left, right);
-  });
-
   for (const bucket of spousesByBlood.values()) {
     bucket.sort(bySortThenName);
   }
 
-  for (const node of blood) {
+  for (const node of members) {
     if (node.parentId && byId.get(node.parentId)?.role === 'blood') {
       const bucket = childrenByParent.get(node.parentId) ?? [];
       bucket.push(node);
@@ -57,26 +105,37 @@ export function buildLineageIndex(nodes: NodeView[]): LineageIndex {
     bucket.sort(bySortThenName);
   }
 
-  const roots = blood.filter(
-    (node) => !node.parentId || byId.get(node.parentId)?.role !== 'blood'
-  );
-  const maxGeneration = blood.reduce(
+  const roots = members
+    .filter(
+      (node) => !node.parentId || byId.get(node.parentId)?.role !== 'blood'
+    )
+    .sort(bySortThenName);
+
+  const blood = bloodDepthFirst(roots, members, childrenByParent);
+  const maxGeneration = members.reduce(
     (max, node) => Math.max(max, node.generation),
     0
   );
 
   const descendantCounts = new Map<string, number>();
+  // 脏数据（父链成环）时防止无界递归：环上重入的节点按 0 计，不缓存。
+  const counting = new Set<string>();
   const countDescendants = (nodeId: string): number => {
     const cached = descendantCounts.get(nodeId);
     if (cached !== undefined) {
       return cached;
     }
+    if (counting.has(nodeId)) {
+      return 0;
+    }
+    counting.add(nodeId);
     let total = 0;
     for (const child of childrenByParent.get(nodeId) ?? []) {
       total += 1;
       total += spousesByBlood.get(child.id)?.length ?? 0;
       total += countDescendants(child.id);
     }
+    counting.delete(nodeId);
     descendantCounts.set(nodeId, total);
     return total;
   };

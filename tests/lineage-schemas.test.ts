@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { z } from 'zod';
 import {
   addChildSchema,
   addPersonSchema,
@@ -14,12 +15,14 @@ const orgId = '00000000-0000-4000-8000-000000000001';
 const lineageId = '00000000-0000-4000-8000-000000000002';
 const parentId = '00000000-0000-4000-8000-000000000003';
 const projectId = '00000000-0000-4000-8000-000000000004';
+const requestId = '00000000-0000-4000-8000-000000000005';
 
 describe('node creation schemas', () => {
   it('parses creation details and co-recorded spouse fields', () => {
     const parsed = createRootNodeSchema.parse({
       orgId,
       lineageId,
+      requestId,
       name: '元英',
       surname: '陈',
       sex: '0',
@@ -51,6 +54,7 @@ describe('node creation schemas', () => {
     const parsed = createRootNodeSchema.parse({
       orgId,
       lineageId,
+      requestId,
       name: '无名',
       sex: 0,
     });
@@ -65,6 +69,7 @@ describe('node creation schemas', () => {
     const missingSurname = createRootNodeSchema.safeParse({
       orgId,
       lineageId,
+      requestId,
       name: '元英',
       sex: 0,
       spouseName: '氏',
@@ -81,6 +86,7 @@ describe('node creation schemas', () => {
       orgId,
       lineageId,
       parentId,
+      requestId,
       name: '元华',
       sex: 0,
       spouseSurname: '王',
@@ -96,6 +102,7 @@ describe('node creation schemas', () => {
       orgId,
       lineageId,
       parentId,
+      requestId,
       name: '元英',
       sex: 0,
       spouseName: '氏',
@@ -108,6 +115,7 @@ describe('node creation schemas', () => {
       orgId,
       lineageId,
       siblingOfId: parentId,
+      requestId,
       name: '元华',
       sex: 0,
       spouseName: '氏',
@@ -122,6 +130,7 @@ describe('node creation schemas', () => {
       orgId,
       lineageId,
       parentId,
+      requestId,
       name: '元英',
       sex: 0,
     });
@@ -131,6 +140,7 @@ describe('node creation schemas', () => {
       orgId,
       lineageId,
       parentId: '',
+      requestId,
       name: '始祖',
       sex: 0,
     });
@@ -140,6 +150,7 @@ describe('node creation schemas', () => {
       orgId,
       lineageId,
       parentId: 'not-a-uuid',
+      requestId,
       name: '元英',
       sex: 0,
     });
@@ -151,6 +162,7 @@ describe('node creation schemas', () => {
       orgId,
       lineageId,
       spouseOfId: parentId,
+      requestId,
       name: '氏',
       surname: '王',
       sex: '1',
@@ -170,11 +182,75 @@ describe('node creation schemas', () => {
     const parsed = createRootNodeSchema.safeParse({
       orgId,
       lineageId,
+      requestId,
       name: '元英',
       sex: 0,
       birthYear: '0',
     });
     expect(parsed.success).toBe(false);
+  });
+
+  // R31：幂等键必填。缺键的创建在 Zod 处就拒掉，不给重放留无键通道。
+  it('requires an idempotency key on every create schema', () => {
+    const cases: {
+      label: string;
+      schema: z.ZodType;
+      input: Record<string, unknown>;
+    }[] = [
+      {
+        label: '始祖',
+        schema: createRootNodeSchema,
+        input: { orgId, lineageId, name: '元英', sex: 0 },
+      },
+      {
+        label: '子女',
+        schema: addChildSchema,
+        input: { orgId, lineageId, parentId, name: '元英', sex: 0 },
+      },
+      {
+        label: '兄弟',
+        schema: addSiblingSchema,
+        input: {
+          orgId,
+          lineageId,
+          siblingOfId: parentId,
+          name: '元英',
+          sex: 0,
+        },
+      },
+      {
+        label: '族人',
+        schema: addPersonSchema,
+        input: { orgId, lineageId, parentId, name: '元英', sex: 0 },
+      },
+      {
+        label: '配偶',
+        schema: addSpouseSchema,
+        input: {
+          orgId,
+          lineageId,
+          spouseOfId: parentId,
+          name: '氏',
+          surname: '王',
+          sex: 1,
+        },
+      },
+    ];
+
+    for (const { label, schema, input } of cases) {
+      const missing = schema.safeParse(input);
+      expect(missing.success, label).toBe(false);
+      if (!missing.success) {
+        expect(missing.error.issues[0]?.path, label).toEqual(['requestId']);
+      }
+      expect(schema.safeParse({ ...input, requestId }).success, label).toBe(
+        true
+      );
+      expect(
+        schema.safeParse({ ...input, requestId: 'not-a-uuid' }).success,
+        label
+      ).toBe(false);
+    }
   });
 });
 
@@ -192,6 +268,7 @@ describe('field-level validation messages', () => {
       createRootNodeSchema.safeParse({
         orgId,
         lineageId,
+        requestId,
         name: '元英',
         sex: '2',
       }).error?.issues[0].message

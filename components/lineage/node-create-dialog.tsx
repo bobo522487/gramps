@@ -98,21 +98,20 @@ export function NodeCreateDialog({
   onClose: () => void;
 }) {
   const index = useLineageIndex();
-  const action =
-    mode === 'root'
-      ? createRootNodeAction
-      : mode === 'child'
-        ? addChildAction
-        : mode === 'sibling'
-          ? addSiblingAction
-          : mode === 'spouse'
-            ? addSpouseAction
-            : addPersonAction;
+  const action = {
+    root: createRootNodeAction,
+    child: addChildAction,
+    sibling: addSiblingAction,
+    spouse: addSpouseAction,
+    person: addPersonAction,
+  }[mode];
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     action,
     {}
   );
   const handled = useRef<string | null>(null);
+  // 创建幂等键（R31）：一次打开生成一次；失败重试复用同键，成功即卸载换新键
+  const [requestId] = useState(() => crypto.randomUUID());
 
   const hasRoot = index.blood.length > 0;
   const [parentId, setParentId] = useState(() => {
@@ -220,6 +219,7 @@ export function NodeCreateDialog({
         >
           <input type="hidden" name="orgId" value={orgId} />
           <input type="hidden" name="lineageId" value={lineageId} />
+          <input type="hidden" name="requestId" value={requestId} />
           {mode === 'child' && target ? (
             <input type="hidden" name="parentId" value={target.id} />
           ) : null}

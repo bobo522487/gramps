@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { ActivityType, activityLogs, lineages, nodes } from '@/lib/db/schema';
@@ -50,16 +51,23 @@ async function setup() {
   };
 }
 
+/** 每次调用一个全新幂等键；要测重放就显式把同一个键再传一次。 */
+function newRequestId() {
+  return randomUUID();
+}
+
 async function root(
   userId: string,
   orgId: string,
   lineageId: string,
-  name = '始祖'
+  name = '始祖',
+  requestId = newRequestId()
 ) {
   const result = await createRootNodeInTransaction({
     userId,
     orgId,
     lineageId,
+    requestId,
     name,
     sex: 0,
   });
@@ -74,12 +82,14 @@ async function child(
   orgId: string,
   lineageId: string,
   parentId: string,
-  name: string
+  name: string,
+  requestId = newRequestId()
 ) {
   const result = await addChildInTransaction({
     userId,
     orgId,
     lineageId,
+    requestId,
     parentId,
     name,
     sex: 0,
@@ -128,6 +138,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       siblingOfId: son.id,
       name: '元华',
       surname: '陈',
@@ -143,6 +154,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       spouseOfId: son.id,
       name: '林氏',
       surname: '林',
@@ -171,6 +183,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       parentId: founder.id,
       name: '元英',
       surname: '陈',
@@ -245,6 +258,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       name: '始迁祖',
       surname: '陈',
       sex: 0,
@@ -298,6 +312,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       spouseOfId: son.id,
       name: '王氏',
       sex: 1,
@@ -330,6 +345,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       name: '另一位始祖',
       sex: 0,
     });
@@ -339,6 +355,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       siblingOfId: founder.id,
       name: '始祖兄弟',
       sex: 0,
@@ -353,6 +370,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       spouseOfId: founder.id,
       name: '林氏',
       sex: 1,
@@ -365,6 +383,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       parentId: spouse.node.id,
       name: '错误子女',
       sex: 0,
@@ -404,6 +423,7 @@ describe('node tree semantics', () => {
         userId: user.id,
         orgId: organization.id,
         lineageId: lineage.id,
+        requestId: newRequestId(),
         spouseOfId: targetId,
         name,
         sex: 1,
@@ -467,6 +487,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       spouseOfId: branchA.id,
       name: '长房妻',
       sex: 1,
@@ -584,6 +605,7 @@ describe('node tree semantics', () => {
       userId: viewer.id,
       orgId: organization.id,
       lineageId: lineage.id,
+      requestId: newRequestId(),
       name: '越权始祖',
       sex: 0,
     });
@@ -603,6 +625,7 @@ describe('node tree semantics', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: foreignLineage.id,
+      requestId: newRequestId(),
       name: '跨组织始祖',
       sex: 0,
     });
@@ -635,6 +658,7 @@ describe('node tree semantics', () => {
         userId: viewer.id,
         orgId: organization.id,
         lineageId: lineage.id,
+        requestId: newRequestId(),
         name: '越权始祖',
         sex: 0,
       }),
@@ -642,6 +666,7 @@ describe('node tree semantics', () => {
         userId: viewer.id,
         orgId: organization.id,
         lineageId: lineage.id,
+        requestId: newRequestId(),
         parentId: founder.id,
         name: '越权子女',
         surname: '陈',
@@ -651,6 +676,7 @@ describe('node tree semantics', () => {
         userId: viewer.id,
         orgId: organization.id,
         lineageId: lineage.id,
+        requestId: newRequestId(),
         siblingOfId: childNode.id,
         name: '越权兄弟',
         surname: '陈',
@@ -660,6 +686,7 @@ describe('node tree semantics', () => {
         userId: viewer.id,
         orgId: organization.id,
         lineageId: lineage.id,
+        requestId: newRequestId(),
         spouseOfId: founder.id,
         name: '越权配偶',
         surname: '陈',
@@ -697,5 +724,285 @@ describe('node tree semantics', () => {
     for (const result of attempts) {
       expect(result).toEqual({ ok: false, reason: 'forbidden' });
     }
+  });
+});
+
+// R31：创建幂等。同一个 requestId 的重放（双击、慢网重试、Action 被重放）
+// 只允许留下一个人丁，并且返回首次写入的那一行——不是第二条、也不是报错。
+describe('node create idempotency', () => {
+  it('returns the first row when the same requestId is replayed', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+    const params = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      parentId: founder.id,
+      requestId: newRequestId(),
+      name: '元英',
+      sex: 0,
+    };
+
+    const first = await addChildInTransaction(params);
+    const replay = await addChildInTransaction(params);
+
+    expect(first.ok).toBe(true);
+    expect(replay.ok).toBe(true);
+    if (!first.ok || !replay.ok) {
+      return;
+    }
+    expect(replay.node.id).toBe(first.node.id);
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
+
+    const [stored] = await getTestDb()
+      .select({ nodeCount: lineages.nodeCount })
+      .from(lineages)
+      .where(eq(lineages.id, lineage.id));
+    expect(stored?.nodeCount).toBe(2);
+  });
+
+  it('keeps two same-named brothers when the request keys differ', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+    const base = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      parentId: founder.id,
+      name: '元英',
+      sex: 0,
+    };
+
+    const first = await addChildInTransaction({
+      ...base,
+      requestId: newRequestId(),
+    });
+    const second = await addChildInTransaction({
+      ...base,
+      requestId: newRequestId(),
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      return;
+    }
+    expect(second.node.id).not.toBe(first.node.id);
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(3);
+  });
+
+  it('settles a concurrent double submit on one row', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+    const params = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      parentId: founder.id,
+      requestId: newRequestId(),
+      name: '元英',
+      sex: 0,
+    };
+
+    const results = await Promise.all([
+      addChildInTransaction(params),
+      addChildInTransaction(params),
+    ]);
+    const nodeIds = results.flatMap((result) =>
+      result.ok ? [result.node.id] : []
+    );
+
+    expect(nodeIds).toHaveLength(2);
+    expect(new Set(nodeIds).size).toBe(1);
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
+  });
+
+  it('replays root, sibling and spouse creates onto the existing row', async () => {
+    const { user, organization, lineage } = await setup();
+
+    const rootParams = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      requestId: newRequestId(),
+      name: '始迁祖',
+      sex: 0,
+    };
+    const firstRoot = await createRootNodeInTransaction(rootParams);
+    // 重放不能退化成「该谱系已经有始祖了」：同一个提交意图就是同一行。
+    const replayedRoot = await createRootNodeInTransaction(rootParams);
+    expect(firstRoot.ok).toBe(true);
+    expect(replayedRoot).toEqual(firstRoot);
+
+    if (!firstRoot.ok) {
+      return;
+    }
+    const son = await child(
+      user.id,
+      organization.id,
+      lineage.id,
+      firstRoot.node.id,
+      '元英'
+    );
+
+    const siblingParams = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      siblingOfId: son.id,
+      requestId: newRequestId(),
+      name: '元华',
+      sex: 1,
+    };
+    const firstSibling = await addSiblingInTransaction(siblingParams);
+    const replayedSibling = await addSiblingInTransaction(siblingParams);
+    expect(replayedSibling).toEqual(firstSibling);
+
+    const spouseParams = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      spouseOfId: son.id,
+      requestId: newRequestId(),
+      name: '氏',
+      surname: '王',
+      sex: 1,
+    };
+    const firstSpouse = await addSpouseInTransaction(spouseParams);
+    const replayedSpouse = await addSpouseInTransaction(spouseParams);
+    expect(replayedSpouse).toEqual(firstSpouse);
+
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(4);
+  });
+
+  it('does not add a second co-recorded spouse on replay', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+    const params = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      parentId: founder.id,
+      requestId: newRequestId(),
+      name: '元英',
+      sex: 0,
+      spouse: { name: '氏', surname: '王' },
+    };
+
+    const first = await addChildInTransaction(params);
+    const replay = await addChildInTransaction(params);
+    expect(first.ok).toBe(true);
+    expect(replay.ok).toBe(true);
+    if (!first.ok || !replay.ok) {
+      return;
+    }
+    expect(replay.node.id).toBe(first.node.id);
+    expect(replay.spouse?.id).toBe(first.spouse?.id);
+
+    const rows = await getTestDb()
+      .select({ id: nodes.id, requestId: nodes.requestId, role: nodes.role })
+      .from(nodes)
+      .where(and(eq(nodes.lineageId, lineage.id), isNull(nodes.deletedAt)));
+    expect(rows).toHaveLength(3);
+    // 只有主行带幂等键：共创配偶与血亲同事务落库，共用一键会撞唯一索引。
+    expect(
+      rows
+        .filter((row) => row.requestId === params.requestId)
+        .map((row) => row.role)
+    ).toEqual(['blood']);
+  });
+
+  it('lets a soft-deleted node free its request key for a new record', async () => {
+    const { user, organization, lineage } = await setup();
+    const founder = await root(user.id, organization.id, lineage.id);
+    const requestId = newRequestId();
+    const params = {
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      parentId: founder.id,
+      requestId,
+      name: '元英',
+      sex: 0,
+    };
+
+    const first = await addChildInTransaction(params);
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      return;
+    }
+    const deleted = await deleteNodeInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      lineageId: lineage.id,
+      nodeId: first.node.id,
+    });
+    expect(deleted.ok).toBe(true);
+
+    const recreated = await addChildInTransaction(params);
+    expect(recreated.ok).toBe(true);
+    if (!recreated.ok) {
+      return;
+    }
+    expect(recreated.node.id).not.toBe(first.node.id);
+    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
+  });
+  // 两条谱系的 FOR UPDATE 锁互不冲突，所以跨谱系的同键并发会真的撞
+  // uk_node_org_request_id：撞索引的那一个整体回滚，再把赢的那一行返回。
+  it('collapses a cross-lineage race onto the row that won the index', async () => {
+    const { user, organization, project, lineage } = await setup();
+    const otherLineage = await createLineage({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      name: '另一支谱系',
+    });
+    const founderA = await root(user.id, organization.id, lineage.id);
+    const founderB = await root(
+      user.id,
+      organization.id,
+      otherLineage.id,
+      '另一支始祖'
+    );
+    const requestId = newRequestId();
+
+    const results = await Promise.all([
+      addChildInTransaction({
+        userId: user.id,
+        orgId: organization.id,
+        lineageId: lineage.id,
+        parentId: founderA.id,
+        requestId,
+        name: '元英',
+        sex: 0,
+      }),
+      addChildInTransaction({
+        userId: user.id,
+        orgId: organization.id,
+        lineageId: otherLineage.id,
+        parentId: founderB.id,
+        requestId,
+        name: '元英',
+        sex: 0,
+      }),
+    ]);
+
+    const nodeIds = results.flatMap((result) =>
+      result.ok ? [result.node.id] : []
+    );
+    expect(nodeIds).toHaveLength(2);
+    expect(new Set(nodeIds).size).toBe(1);
+
+    const keyed = await getTestDb()
+      .select({ id: nodes.id })
+      .from(nodes)
+      .where(
+        and(
+          eq(nodes.orgId, organization.id),
+          eq(nodes.requestId, requestId),
+          isNull(nodes.deletedAt)
+        )
+      );
+    expect(keyed).toHaveLength(1);
   });
 });

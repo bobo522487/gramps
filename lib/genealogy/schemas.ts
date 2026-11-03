@@ -14,6 +14,11 @@ const projectId = z.uuid('云谱空间 ID 无效');
 const folderId = z.uuid('分类 ID 无效');
 const lineageId = z.uuid('谱系 ID 无效');
 const nodeId = z.uuid('人丁 ID 无效');
+/**
+ * 创建幂等键（R31）：一次「提交意图」一个 uuid，由录入对话框在打开时生成一次。
+ * 必填——缺少键的创建一律拒绝（返回中文校验文案），不给重放留无键入口。
+ */
+const requestId = z.uuid('提交标识无效，请重新打开录入表单');
 
 const optionalUuid = (message: string) =>
   z.preprocess(
@@ -206,6 +211,7 @@ export const createRootNodeSchema = z
   .object({
     orgId,
     lineageId,
+    requestId,
     ...nodeNameFields,
     ...nodeDetailsFields,
     ...optionalSpouseFields,
@@ -217,6 +223,7 @@ export const addChildSchema = z
     orgId,
     lineageId,
     parentId: nodeId,
+    requestId,
     ...nodeNameFields,
     ...nodeDetailsFields,
     ...optionalSpouseFields,
@@ -228,6 +235,7 @@ export const addSiblingSchema = z
     orgId,
     lineageId,
     siblingOfId: nodeId,
+    requestId,
     ...nodeNameFields,
     ...nodeDetailsFields,
     ...optionalSpouseFields,
@@ -239,6 +247,7 @@ export const addPersonSchema = z
     orgId,
     lineageId,
     parentId: optionalUuid('父节点无效'),
+    requestId,
     ...nodeNameFields,
     ...nodeDetailsFields,
     ...optionalSpouseFields,
@@ -249,6 +258,7 @@ export const addSpouseSchema = z.object({
   orgId,
   lineageId,
   spouseOfId: nodeId,
+  requestId,
   name: text('姓名', 60),
   surname: text('姓氏', 30),
   sex,
