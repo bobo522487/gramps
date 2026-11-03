@@ -36,10 +36,10 @@
 | No implementation details | Pass | 规格未点名编辑器引擎/框架；设计约束写「既有控制台视觉语言」，外来主题仅在 Assumptions 说明用户已否决 |
 | Stakeholder language | Pass | 用户故事与验收以编辑者/查看者视角 |
 | No clarification markers | Pass | specify 阶段默认裁决已写入 Clarifications；无残留 `[NEEDS CLARIFICATION]` |
-| Testable FRs | Pass | FR-001…017 均可观察验收；FR-011 明确取代 002 FR-031 禁令范围 |
+| Testable FRs | Pass | FR-001…019 均可观察验收；FR-011 明确取代 002 FR-031 禁令范围；clarify 已消歧空选区/只读工具栏/迷你纸页/单层列表/快捷键 |
 | Measurable SCs | Pass | SC-001…008 含时间、成功率、零入口、还原一致率 |
 | Tech-agnostic SCs | Pass | 无框架/数据库/API 指标 |
 | Scope boundary | Pass | FR-012…015 与 Assumptions 非目标对齐用户「Still NOT」清单 |
 | Relationship to 002 | Pass | 文首与 Assumptions 说明增强关系；FR-042/保存/权限继续有效 |
 
-**Checklist status**: Complete — ready for `/speckit-plan`（若要对齐口径有疑义可先 `/speckit-clarify`，当前无强制澄清项）
+**Checklist status**: Complete — 16/16 → 16/16（clarify 后仍全绿）— ready for `/speckit-plan`
