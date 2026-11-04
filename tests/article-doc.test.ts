@@ -329,3 +329,157 @@ describe('normalizePageDoc 的输出必须是普通对象（RSC 序列化只认�
     expect(Object.getPrototypeOf(mark?.attrs)).toBe(Object.prototype);
   });
 });
+
+// 003 / FR-012：单级列表允许进入文档；FR-031 的「禁止嵌套」靠落库前压平兑现，
+// 文字必须保留。旧文档与粘贴带进来的嵌套结构都走这条路径。
+describe('normalizePageDoc：列表压平与 mark 白名单（003）', () => {
+  it('单级项目符号列表原样保留，listItem 文字进 plain_text', () => {
+    const doc = normalizePageDoc({
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          content: [
+            { type: 'listItem', content: [paragraph('甲')] },
+            { type: 'listItem', content: [paragraph('乙')] },
+          ],
+        },
+      ],
+    });
+
+    expect(doc).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          content: [
+            { type: 'listItem', content: [paragraph('甲')] },
+            { type: 'listItem', content: [paragraph('乙')] },
+          ],
+        },
+      ],
+    });
+    expect(pagePlainText(doc)).toContain('甲');
+    expect(pagePlainText(doc)).toContain('乙');
+  });
+
+  it('三层嵌套列表全部提升为同级兄弟项，文字不丢（FR-031 禁止嵌套）', () => {
+    const doc = normalizePageDoc({
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                paragraph('甲'),
+                {
+                  type: 'bulletList',
+                  content: [
+                    {
+                      type: 'listItem',
+                      content: [
+                        paragraph('乙'),
+                        {
+                          type: 'orderedList',
+                          content: [
+                            { type: 'listItem', content: [paragraph('丙')] },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const list = doc.content[0];
+    expect(list?.type).toBe('bulletList');
+    expect(list?.content?.map((item) => item.type)).toEqual([
+      'listItem',
+      'listItem',
+      'listItem',
+    ]);
+    const itemTexts = (list?.content ?? []).map((item) =>
+      pagePlainText({ type: 'doc', content: [item] })
+    );
+    expect(itemTexts).toEqual(['甲', '乙', '丙']);
+    expect(pagePlainText(doc)).toBe('甲乙丙');
+  });
+
+  it('列表里白名单外的节点照旧整节点丢弃', () => {
+    const doc = normalizePageDoc({
+      type: 'doc',
+      content: [
+        {
+          type: 'orderedList',
+          content: [
+            {
+              type: 'listItem',
+              content: [paragraph('一'), { type: 'table', content: [] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(doc.content[0]?.content?.[0]?.content).toEqual([paragraph('一')]);
+  });
+
+  it('bold/italic/underline 保留，白名单外与空 attrs 的 mark 不进存储', () => {
+    const doc = normalizePageDoc({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: '重点',
+              marks: [
+                { type: 'bold' },
+                { type: 'italic' },
+                { type: 'underline' },
+                { type: 'highlight', attrs: { color: 'red' } },
+                {
+                  type: 'textStyle',
+                  attrs: { fontFamily: null, fontSize: null },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(doc.content[0]?.content?.[0]?.marks).toEqual([
+      { type: 'bold' },
+      { type: 'italic' },
+      { type: 'underline' },
+    ]);
+  });
+
+  it('parseArticleContent 读回单级列表，plain_text 含列表文字', () => {
+    const parsed = parseArticleContent(
+      content([
+        {
+          id: 'p1',
+          doc: pageDoc([
+            {
+              type: 'bulletList',
+              content: [{ type: 'listItem', content: [paragraph('世系')] }],
+            },
+          ]),
+        },
+      ])
+    );
+
+    expect(parsed.pages[0]?.doc.content[0]?.type).toBe('bulletList');
+    expect(derivePlainText(parsed)).toContain('世系');
+  });
+});
