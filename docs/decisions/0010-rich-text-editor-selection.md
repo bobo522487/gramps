@@ -96,3 +96,13 @@ M1 的 5 种块级排版 + 1 种行内格式确实**用 60 行渲染器也能做
 2. **PRD FR-ART-2 的块级需求超出 5 种**（或新增图片/脚注/目录等节点）：`lib/article` 的 schema 设计要重看，可能推翻"TipTap 标准节点够用"这个前提。
 3. **M4 实时协同被正式立项**：协同时的文档粒度（段落级 patch 还是整篇覆盖，见评审 S1-1 第 3 点）会反过来决定 `article.content` 的形状，必须与 ADR-0002（无编辑锁）一起重看。
 4. **谱文立项但仍不打算上编辑器**（例如先只做只读渲染）：本 ADR 的引擎选择继续挂起，"决策 ≠ 现在安装"保持不变，D-9 也不回到待决策表——决策已经有了，只是还没执行。
+
+## 更新（2026-11-04）：003 在 002 FR-031 上放开部分富文本格式
+
+[003-article-editor-wordlike](../../specs/003-article-editor-wordlike/spec.md) 在 002 的 FR-031 基础上修订了正文白名单，**未新增任何 npm 包**（"决策 ≠ 现在安装"的依赖禁令已由 002 谱文立项解除，003 仅复用已安装的 `@tiptap/*`）：
+
+- 加粗 / 斜体 / 下划线：经 StarterKit 的可选开关（`bold` / `italic` / `underline`）启用；
+- 单层 `bulletList` / `orderedList` / `listItem`：由 StarterKit 的列表节点提供（嵌套列表落库前压平，文字不丢）；
+- 段落与标题的 `textAlign`（left / center / right）：由本地 `articleTextAlign` 扩展实现（非新依赖）。
+
+白名单的最终裁决仍在三处口径一致地落地：`lib/article/schemas.ts`（Zod 校验）、`lib/article/doc.ts`（落库前 `sanitizeNode` / `flattenListItems`）、`components/article/editor/paste-filter.ts`（粘贴清洗）；对齐常量 `ARTICLE_TEXT_ALIGNMENTS`（left / center / right）集中在 `lib/article/constants.ts`。颜色、行高、表格、引用、链接、图片 alt/题注、多级/嵌套列表、任务列表仍按规格排除。
