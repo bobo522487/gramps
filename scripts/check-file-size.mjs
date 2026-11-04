@@ -20,11 +20,11 @@ const SCANNED = ['app', 'components', 'lib', 'hooks'];
 // the exemption) is allowed. Captured at feat/arch-simplification.
 const EXEMPT = [
   { path: 'lib/lineage/node-services.ts', lines: 820 },
-  { path: 'components/lineage/lineage-detail.tsx', lines: 865 },
-  { path: 'components/lineage/canvas/genealogy-canvas.tsx', lines: 773 },
-  { path: 'components/lineage/lineage-sidebar.tsx', lines: 734 },
+  { path: 'components/lineage/lineage-detail.tsx', lines: 848 },
+  { path: 'components/lineage/canvas/genealogy-canvas.tsx', lines: 701 },
+  { path: 'components/lineage/lineage-sidebar.tsx', lines: 722 },
   { path: 'components/ui/sidebar.tsx', lines: 717 },
-  { path: 'components/lineage/person-inspector.tsx', lines: 606 },
+  { path: 'components/lineage/person-inspector.tsx', lines: 578 },
   { path: 'components/lineage/node-create-dialog.tsx', lines: 581 },
 ];
 

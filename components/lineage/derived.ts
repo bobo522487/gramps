@@ -239,10 +239,15 @@ export function spouseCount(index: LineageIndex, nodeId: string): number {
   return index.spousesByBlood.get(nodeId)?.length ?? 0;
 }
 
-export type PersonMatch = {
+export type PersonMatchHit = {
   bloodId: string;
   matchedId: string;
+};
+
+export type PersonMatch = PersonMatchHit & {
   count: number;
+  /** 0-based index within `listLineagePersonMatches` for this query. */
+  matchIndex: number;
 };
 
 /**
@@ -263,33 +268,43 @@ export function matchesNode(node: NodeView, needle: string): boolean {
   return values.some((value) => value?.toLowerCase().includes(needle));
 }
 
-export function matchLineagePerson(
+/** Every match in blood → spouse DFS order (same order as the first-hit locator). */
+export function listLineagePersonMatches(
   index: LineageIndex,
   query: string
-): PersonMatch | null {
+): PersonMatchHit[] {
   const needle = query.trim().toLowerCase();
   if (!needle) {
-    return null;
+    return [];
   }
 
-  let count = 0;
-  let first: PersonMatch | null = null;
+  const hits: PersonMatchHit[] = [];
   for (const blood of index.blood) {
-    const spouses = index.spousesByBlood.get(blood.id) ?? [];
     if (matchesNode(blood, needle)) {
-      count += 1;
-      first ??= { bloodId: blood.id, matchedId: blood.id, count: 0 };
+      hits.push({ bloodId: blood.id, matchedId: blood.id });
     }
-    for (const spouse of spouses) {
+    for (const spouse of index.spousesByBlood.get(blood.id) ?? []) {
       if (matchesNode(spouse, needle)) {
-        count += 1;
-        first ??= { bloodId: blood.id, matchedId: spouse.id, count: 0 };
+        hits.push({ bloodId: blood.id, matchedId: spouse.id });
       }
     }
   }
+  return hits;
+}
 
-  if (!first) {
+export function matchLineagePerson(
+  index: LineageIndex,
+  query: string,
+  cursor = 0
+): PersonMatch | null {
+  const hits = listLineagePersonMatches(index, query);
+  if (hits.length === 0) {
     return null;
   }
-  return { ...first, count };
+  const matchIndex = ((cursor % hits.length) + hits.length) % hits.length;
+  const hit = hits[matchIndex];
+  if (!hit) {
+    return null;
+  }
+  return { ...hit, count: hits.length, matchIndex };
 }

@@ -27,6 +27,7 @@ import {
   type TreeFolderInput,
   type TreeLineageInput,
 } from '@/components/lineage/lineage-tree';
+import { SidebarDeleteDialogs } from '@/components/lineage/sidebar-delete-dialogs';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -107,6 +108,10 @@ export function LineageSidebar({
   const [createLineage, setCreateLineage] = useState<{
     folderId: string | null;
   } | null>(null);
+  const [deleteLineageTarget, setDeleteLineageTarget] =
+    useState<TreeLineageInput | null>(null);
+  const [deleteFolderTarget, setDeleteFolderTarget] =
+    useState<TreeFolderInput | null>(null);
 
   const skipBlurRef = useRef(false);
   const savingRef = useRef(false);
@@ -223,16 +228,20 @@ export function LineageSidebar({
     }
   }
 
-  async function handleDeleteLineage(lineage: TreeLineageInput) {
-    if (
-      !window.confirm(
-        lineage.nodeCount > 0
-          ? `删除谱系「${lineage.name}」？谱系中的 ${lineage.nodeCount} 位人丁会一并归档，且没有恢复界面。`
-          : `删除谱系「${lineage.name}」？该谱系还没有人丁，且没有恢复界面。`
-      )
-    ) {
+  function requestDeleteLineage(lineage: TreeLineageInput) {
+    setDeleteLineageTarget(lineage);
+  }
+
+  function requestDeleteFolder(folder: TreeFolderInput) {
+    setDeleteFolderTarget(folder);
+  }
+
+  async function confirmDeleteLineage() {
+    const lineage = deleteLineageTarget;
+    if (!lineage) {
       return;
     }
+    setDeleteLineageTarget(null);
     setRowError(null);
     setPendingId(lineage.id);
     try {
@@ -256,14 +265,12 @@ export function LineageSidebar({
     }
   }
 
-  async function handleDeleteFolder(folder: TreeFolderInput) {
-    if (
-      !window.confirm(
-        `删除文件夹「${folder.name}」？子文件夹会一并删除，其中的谱系将移入未分类。`
-      )
-    ) {
+  async function confirmDeleteFolder() {
+    const folder = deleteFolderTarget;
+    if (!folder) {
       return;
     }
+    setDeleteFolderTarget(null);
     setRowError(null);
     setPendingId(folder.id);
     try {
@@ -390,7 +397,7 @@ export function LineageSidebar({
                   original: item.name,
                 })
               }
-              onDelete={handleDeleteLineage}
+              onDelete={requestDeleteLineage}
             />
           ) : null}
         </div>
@@ -529,7 +536,7 @@ export function LineageSidebar({
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         variant="destructive"
-                        onSelect={() => void handleDeleteFolder(folder.folder)}
+                        onSelect={() => requestDeleteFolder(folder.folder)}
                       >
                         <Trash2 size={12} /> 删除文件夹
                       </DropdownMenuItem>
@@ -627,31 +634,6 @@ export function LineageSidebar({
               {lineages.length}
             </span>
           </div>
-          <div className="flex items-center gap-1">
-            {canManageFolders ? (
-              <button
-                type="button"
-                onClick={() => void handleCreateFolder(null)}
-                disabled={pendingId !== null}
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                title="新建文件夹"
-                aria-label="新建文件夹"
-              >
-                <FolderPlus size={13} />
-              </button>
-            ) : null}
-            {canWrite ? (
-              <button
-                type="button"
-                onClick={() => setCreateLineage({ folderId: null })}
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="新建谱系"
-                aria-label="新建谱系"
-              >
-                <Plus size={13} />
-              </button>
-            ) : null}
-          </div>
         </div>
 
         <div className="mb-2 shrink-0 px-3">
@@ -714,6 +696,27 @@ export function LineageSidebar({
           onClose={() => setCreateLineage(null)}
         />
       ) : null}
+
+      <SidebarDeleteDialogs
+        lineage={deleteLineageTarget}
+        folder={deleteFolderTarget}
+        onLineageOpenChange={(open) => {
+          if (!open) {
+            setDeleteLineageTarget(null);
+          }
+        }}
+        onFolderOpenChange={(open) => {
+          if (!open) {
+            setDeleteFolderTarget(null);
+          }
+        }}
+        onConfirmLineage={() => {
+          void confirmDeleteLineage();
+        }}
+        onConfirmFolder={() => {
+          void confirmDeleteFolder();
+        }}
+      />
     </div>
   );
 }

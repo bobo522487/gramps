@@ -35,6 +35,7 @@ export function PersonInspector({
   onAddChild,
   onAddSpouse,
   onDelete,
+  onDirtyChange,
 }: {
   orgId: string;
   lineageId: string;
@@ -46,6 +47,7 @@ export function PersonInspector({
   onAddChild: (nodeId: string) => void;
   onAddSpouse: (nodeId: string) => void;
   onDelete: (target: NodeView) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const index = useLineageIndex();
 
@@ -63,6 +65,7 @@ export function PersonInspector({
       onAddChild={onAddChild}
       onAddSpouse={onAddSpouse}
       onDelete={onDelete}
+      onDirtyChange={onDirtyChange}
     />
   );
 }
@@ -79,6 +82,7 @@ function PersonInspectorForm({
   onAddChild,
   onAddSpouse,
   onDelete,
+  onDirtyChange,
 }: {
   orgId: string;
   lineageId: string;
@@ -91,6 +95,7 @@ function PersonInspectorForm({
   onAddChild: (nodeId: string) => void;
   onAddSpouse: (nodeId: string) => void;
   onDelete: (target: NodeView) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const router = useRouter();
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
@@ -98,13 +103,20 @@ function PersonInspectorForm({
     {}
   );
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const savedTimer = useRef<number | null>(null);
+  const readOnly = !canWrite;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   useEffect(() => {
     if (!state.nodeId) {
       return;
     }
     router.refresh();
+    setDirty(false);
     setSaved(true);
     if (savedTimer.current) {
       window.clearTimeout(savedTimer.current);
@@ -146,10 +158,16 @@ function PersonInspectorForm({
               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                 第 {node.generation} 世
               </Badge>
+              {readOnly ? (
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                  仅查看
+                </Badge>
+              ) : null}
             </h3>
             <span className="text-[10px] text-muted-foreground">
               {node.role === 'spouse' ? '配偶' : rank || '本宗'} ·{' '}
               {node.sex === 1 ? '女' : '男'} · {node.isAlive ? '在世' : '已故'}
+              {dirty ? ' · 未保存' : ''}
             </span>
           </div>
         </div>
@@ -176,6 +194,11 @@ function PersonInspectorForm({
         action={formAction}
         noValidate
         className="flex min-h-0 flex-1 flex-col"
+        onChange={() => {
+          if (canWrite && !dirty) {
+            setDirty(true);
+          }
+        }}
       >
         <input type="hidden" name="orgId" value={orgId} />
         <input type="hidden" name="lineageId" value={lineageId} />
@@ -200,6 +223,7 @@ function PersonInspectorForm({
                   defaultValue={node.name}
                   maxLength={60}
                   className="mt-1 h-8 text-xs font-semibold"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.name} />
               </div>
@@ -216,6 +240,7 @@ function PersonInspectorForm({
                   defaultValue={node.surname}
                   maxLength={30}
                   className="mt-1 h-8 text-xs"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.surname} />
               </div>
@@ -235,6 +260,7 @@ function PersonInspectorForm({
                   defaultValue={node.courtesy ?? ''}
                   maxLength={60}
                   className="mt-1 h-8 text-xs"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.courtesy} />
               </div>
@@ -251,6 +277,7 @@ function PersonInspectorForm({
                   defaultValue={node.namePrefix ?? ''}
                   maxLength={60}
                   className="mt-1 h-8 text-xs"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.namePrefix} />
               </div>
@@ -269,6 +296,7 @@ function PersonInspectorForm({
                   name="sex"
                   defaultValue={String(node.sex)}
                   className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                  disabled={readOnly}
                 >
                   <option value="0">男</option>
                   <option value="1">女</option>
@@ -280,6 +308,7 @@ function PersonInspectorForm({
                   type="checkbox"
                   name="isAlive"
                   defaultChecked={node.isAlive}
+                  disabled={readOnly}
                   className="size-4 rounded border-input accent-primary"
                 />
                 在世
@@ -408,6 +437,7 @@ function PersonInspectorForm({
                   defaultValue={node.birthText ?? ''}
                   maxLength={60}
                   className="mt-1 h-8 text-xs"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.birthText} />
               </div>
@@ -426,6 +456,7 @@ function PersonInspectorForm({
                   max={9999}
                   defaultValue={node.birthYear ?? ''}
                   className="mt-1 h-8 text-xs"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.birthYear} />
               </div>
@@ -442,6 +473,7 @@ function PersonInspectorForm({
                   defaultValue={node.deathText ?? ''}
                   maxLength={60}
                   className="mt-1 h-8 text-xs"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.deathText} />
               </div>
@@ -460,6 +492,7 @@ function PersonInspectorForm({
                   max={9999}
                   defaultValue={node.deathYear ?? ''}
                   className="mt-1 h-8 text-xs"
+                  readOnly={readOnly}
                 />
                 <FieldError message={state.fieldErrors?.deathYear} />
               </div>
@@ -475,6 +508,7 @@ function PersonInspectorForm({
               placeholder="葬地位置及坐向"
               className="h-8 text-xs"
               aria-label="葬地"
+              readOnly={readOnly}
             />
             <FieldError message={state.fieldErrors?.burialPlace} />
           </section>
@@ -489,6 +523,7 @@ function PersonInspectorForm({
               placeholder="生平事略、功名、迁徙等"
               className="text-xs"
               aria-label="行传"
+              readOnly={readOnly}
             />
             <FieldError message={state.fieldErrors?.biography} />
           </section>

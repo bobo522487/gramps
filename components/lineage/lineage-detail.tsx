@@ -48,9 +48,11 @@ import {
 import { NodeMoveDialog } from '@/components/lineage/node-move-dialog';
 import { PersonInspector } from '@/components/lineage/person-inspector';
 import type { FolderOption, NodeView } from '@/components/lineage/types';
+import { useInspectorSelection } from '@/components/lineage/use-inspector-selection';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import {
   Sheet,
@@ -238,21 +240,30 @@ function LineageDetailInner({
   const view = useLineageStore((state) => state.view);
   const setView = useLineageStore((state) => state.setView);
   const selectedNodeId = useLineageStore((state) => state.selectedNodeId);
-  const setSelectedNode = useLineageStore((state) => state.setSelectedNode);
-  const tableQuery = useLineageStore((state) => state.tableQuery);
-  const setTableQuery = useLineageStore((state) => state.setTableQuery);
+  const personQuery = useLineageStore((state) => state.personQuery);
+  const setPersonQuery = useLineageStore((state) => state.setPersonQuery);
   const notice = useLineageStore((state) => state.notice);
   const setNotice = useLineageStore((state) => state.setNotice);
   const requestFocus = useLineageStore((state) => state.requestFocus);
   const initializeForLineage = useLineageStore(
     (state) => state.initializeForLineage
   );
+  const {
+    markInspectorDirty,
+    requestSelectNode,
+    confirmDiscard,
+    clearSelection,
+    discardConfirm,
+    setDiscardConfirm,
+    setSelectedNodeRaw,
+  } = useInspectorSelection();
   const [createDialog, setCreateDialog] = useState<CreateState>(null);
   const [moveNode, setMoveNode] = useState<NodeView | null>(null);
   const [contextMenu, setContextMenu] = useState<NodeContextMenuState | null>(
     null
   );
   const [editLineage, setEditLineage] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<NodeView | null>(null);
   const [, startDelete] = useTransition();
   const autoRootOpened = useRef(false);
 
@@ -286,11 +297,11 @@ function LineageDetailInner({
 
   useEffect(() => {
     if (selectedNodeId && !index.byId.has(selectedNodeId)) {
-      setSelectedNode(null);
+      clearSelection();
     }
-  }, [index, selectedNodeId, setSelectedNode]);
+  }, [clearSelection, index, selectedNodeId]);
 
-  const deferredQuery = useDeferredValue(tableQuery);
+  const deferredQuery = useDeferredValue(personQuery);
   const isSearching = deferredQuery.trim().length > 0;
   const visibleBlood = useMemo(() => {
     const needle = deferredQuery.trim().toLowerCase();
@@ -329,38 +340,44 @@ function LineageDetailInner({
         setNotice('始祖不可删除，请删除整个谱系');
         return;
       }
-      const ids = collectSubtreeIds(node, nodes);
-      const message = buildDeleteConfirmMessage(node, ids.size);
-      if (!window.confirm(message)) {
+      setDeleteTarget(node);
+    },
+    [setNotice]
+  );
+
+  const confirmDelete = useCallback(() => {
+    const node = deleteTarget;
+    if (!node) {
+      return;
+    }
+    const ids = collectSubtreeIds(node, nodes);
+    setDeleteTarget(null);
+    setNotice(null);
+    startDelete(async () => {
+      const formData = new FormData();
+      formData.set('orgId', orgId);
+      formData.set('lineageId', lineage.id);
+      formData.set('nodeId', node.id);
+      const result = await deleteNodeAction({}, formData);
+      if ('error' in result && result.error) {
+        setNotice(result.error);
         return;
       }
-      setNotice(null);
-      startDelete(async () => {
-        const formData = new FormData();
-        formData.set('orgId', orgId);
-        formData.set('lineageId', lineage.id);
-        formData.set('nodeId', node.id);
-        const result = await deleteNodeAction({}, formData);
-        if ('error' in result && result.error) {
-          setNotice(result.error);
-          return;
-        }
-        if (selectedNodeId && ids.has(selectedNodeId)) {
-          setSelectedNode(null);
-        }
-        router.refresh();
-      });
-    },
-    [
-      lineage.id,
-      nodes,
-      orgId,
-      router,
-      selectedNodeId,
-      setNotice,
-      setSelectedNode,
-    ]
-  );
+      if (selectedNodeId && ids.has(selectedNodeId)) {
+        clearSelection();
+      }
+      router.refresh();
+    });
+  }, [
+    clearSelection,
+    deleteTarget,
+    lineage.id,
+    nodes,
+    orgId,
+    router,
+    selectedNodeId,
+    setNotice,
+  ]);
 
   const handleMove = useCallback(
     async (nodeId: string, newParentId: string) => {
@@ -389,7 +406,7 @@ function LineageDetailInner({
     if (!canWrite) {
       return false;
     }
-    setSelectedNode(node.id);
+    requestSelectNode(node.id);
     setContextMenu({ node, x, y });
     return true;
   }
@@ -419,11 +436,19 @@ function LineageDetailInner({
   }
 
   function handleCreated(nodeId: string) {
-    setSelectedNode(nodeId);
+    clearSelection();
+    setSelectedNodeRaw(nodeId);
     requestFocus(nodeId);
     router.refresh();
     setCreateDialog(null);
   }
+
+  const deleteConfirmMessage = deleteTarget
+    ? buildDeleteConfirmMessage(
+        deleteTarget,
+        collectSubtreeIds(deleteTarget, nodes).size
+      )
+    : '';
 
   // 未选中人丁时不渲染任何东西；选中后从右侧滑出抽屉（FR-012）。
   const inspector = selectedNode ? (
@@ -432,7 +457,7 @@ function LineageDetailInner({
       modal={false}
       onOpenChange={(open) => {
         if (!open) {
-          setSelectedNode(null);
+          requestSelectNode(null);
         }
       }}
     >
@@ -452,8 +477,9 @@ function LineageDetailInner({
           generationWords={lineage.generationWords}
           node={selectedNode}
           canWrite={canWrite}
-          onClose={() => setSelectedNode(null)}
-          onSelectNode={setSelectedNode}
+          onClose={() => requestSelectNode(null)}
+          onSelectNode={(nodeId) => requestSelectNode(nodeId)}
+          onDirtyChange={markInspectorDirty}
           onAddChild={(nodeId) => {
             const target = index.byId.get(nodeId);
             if (target) {
@@ -596,7 +622,8 @@ function LineageDetailInner({
                 }
               }}
               onCreatePerson={() => setCreateDialog({ mode: 'person' })}
-              onEditNode={(nodeId) => setSelectedNode(nodeId)}
+              onSelectNode={requestSelectNode}
+              onEditNode={(nodeId) => requestSelectNode(nodeId)}
               onNodeContextMenu={(nodeId, x, y) => {
                 const target = index.byId.get(nodeId);
                 return target ? openContextMenu(target, x, y) : false;
@@ -630,8 +657,8 @@ function LineageDetailInner({
                 <div className="relative">
                   <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    value={tableQuery}
-                    onChange={(event) => setTableQuery(event.target.value)}
+                    value={personQuery}
+                    onChange={(event) => setPersonQuery(event.target.value)}
                     placeholder="搜索姓名、字号、生卒、葬地或配偶"
                     size="sm"
                     aria-label="搜索人丁"
@@ -678,7 +705,7 @@ function LineageDetailInner({
                       spousesByBlood={spousesByBlood}
                       showGeneration
                       selectedNodeId={selectedNodeId}
-                      onSelect={setSelectedNode}
+                      onSelect={(nodeId) => requestSelectNode(nodeId)}
                       onContextMenu={openContextMenu}
                     />
                   </Table>
@@ -719,7 +746,7 @@ function LineageDetailInner({
                           spousesByBlood={spousesByBlood}
                           showGeneration={false}
                           selectedNodeId={selectedNodeId}
-                          onSelect={setSelectedNode}
+                          onSelect={(nodeId) => requestSelectNode(nodeId)}
                           onContextMenu={openContextMenu}
                         />
                       </Table>
@@ -732,6 +759,36 @@ function LineageDetailInner({
           {inspector}
         </div>
       )}
+
+      <ConfirmDialog
+        open={discardConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDiscardConfirm(null);
+          }
+        }}
+        title="放弃未保存的修改？"
+        description="族人档案有未保存的修改。关闭或切换后这些修改会丢失。"
+        confirmLabel="放弃修改"
+        cancelLabel="继续编辑"
+        destructive
+        onConfirm={confirmDiscard}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+        title="确认删除人丁"
+        description={deleteConfirmMessage}
+        confirmLabel="删除"
+        cancelLabel="取消"
+        destructive
+        onConfirm={confirmDelete}
+      />
 
       {createDialog ? (
         <NodeCreateDialog
