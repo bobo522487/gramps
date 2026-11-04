@@ -145,10 +145,42 @@
   }
 }
 
-/* 谱文编辑区（FR-018）：这里没有 Tailwind 的 typography 插件，标题与正文的差别
-   必须自己写清楚，否则 Preflight 把 h1/h2 重置成和段落一样，用户看不出层级。
-   颜色只用 @theme 里的 token，不写裸色值。 */
+/* 谱文编辑区（FR-001、FR-004、FR-018）：这里没有 Tailwind 的 typography 插件，
+   标题与正文的差别必须自己写清楚，否则 Preflight 把 h1/h2 重置成和段落一样，
+   用户看不出层级。颜色只用 @theme 里的 token 与 hsl(var(--token) / alpha)，
+   不写裸色值；纸张感只用 token，不引入第三方主题包（FR-004）。 */
 @layer components {
+  /* 浅色桌面：纸张浮在桌面之上，水平居中、非全屏（FR-001）。 */
+  .article-desk {
+    background: hsl(var(--shell));
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  /* 接近 A4 宽的白色纸面：页边距、轻阴影、水平居中（FR-001）。 */
+  .article-paper {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 21cm;
+    min-height: 29.7cm;
+    margin: 0 auto;
+    padding: 2.5cm 2cm;
+    background: hsl(var(--card));
+    color: var(--color-foreground);
+    border: 1px solid hsl(var(--border));
+    border-radius: 2px;
+    box-shadow:
+      0 1px 3px hsl(var(--foreground) / 0.08),
+      0 8px 24px hsl(var(--foreground) / 0.06);
+  }
+
+  /* 窄屏别把纸挤成一条线，页边距收一点（SC-007，功能不缺）。 */
+  @media (max-width: 640px) {
+    .article-paper {
+      min-height: 0;
+      padding: 1.25rem 1rem;
+    }
+  }
+
   .article-canvas {
     line-height: 1.8;
     color: var(--color-foreground);
@@ -170,6 +202,42 @@
 
   .article-canvas p {
     margin: 0.35em 0;
+  }
+
+  /* FR-007：B/I/U 可叠加，显式写出层级，不依赖浏览器默认。 */
+  .article-canvas strong,
+  .article-canvas b {
+    font-weight: 700;
+  }
+
+  .article-canvas em,
+  .article-canvas i {
+    font-style: italic;
+  }
+
+  .article-canvas u {
+    text-decoration: underline;
+  }
+
+  /* FR-008：Preflight 把 ul/ol 的 list-style 清掉了，单层列表要还原项目符号。 */
+  .article-canvas ul {
+    list-style: disc;
+    margin: 0.35em 0;
+    padding-left: 1.6em;
+  }
+
+  .article-canvas ol {
+    list-style: decimal;
+    margin: 0.35em 0;
+    padding-left: 1.6em;
+  }
+
+  .article-canvas li {
+    margin: 0.2em 0;
+  }
+
+  .article-canvas li > p {
+    margin: 0;
   }
 
   .article-canvas img {

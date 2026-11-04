@@ -5,6 +5,7 @@ import {
   ARTICLE_FONT_SIZES,
   ARTICLE_IMAGE_WIDTHS,
   ARTICLE_SCHEMA_VERSION,
+  ARTICLE_TEXT_ALIGNMENTS,
   ARTICLE_TITLE_MAX_LENGTH,
   ARTICLE_TITLE_MIN_LENGTH,
   DEFAULT_ARTICLE_IMAGE_WIDTH,
@@ -32,20 +33,35 @@ const textStyleMarkSchema = z.object({
     .optional(),
 });
 
+/** 无属性内联标记：加粗 / 斜体 / 下划线（FR-012，003 放开）。 */
+const simpleMarkSchema = z.object({
+  type: z.enum(['bold', 'italic', 'underline']),
+});
+
 const textNodeSchema = z.object({
   type: z.literal('text'),
   text: z.string(),
-  marks: z.array(textStyleMarkSchema).optional(),
+  marks: z.array(z.union([textStyleMarkSchema, simpleMarkSchema])).optional(),
 });
 
 const headingNodeSchema = z.object({
   type: z.literal('heading'),
-  attrs: z.object({ level: z.union([z.literal(1), z.literal(2)]) }),
+  attrs: z.object({
+    level: z.union([z.literal(1), z.literal(2)]),
+    // 段落对齐（FR-009）：可作用在标题上（FR-031 边界）。
+    textAlign: z.enum(ARTICLE_TEXT_ALIGNMENTS).nullish(),
+  }),
   content: z.array(textNodeSchema).optional(),
 });
 
 const paragraphNodeSchema = z.object({
   type: z.literal('paragraph'),
+  // 段落对齐（FR-009）：默认不写，跟随纸张容器。
+  attrs: z
+    .object({
+      textAlign: z.enum(ARTICLE_TEXT_ALIGNMENTS).nullish(),
+    })
+    .optional(),
   content: z.array(textNodeSchema).optional(),
 });
 
@@ -61,14 +77,48 @@ const imageNodeSchema = z.object({
 });
 
 /**
- * 一页的正文文档：只允许 doc / paragraph / heading(1|2) / text / articleImage
- * 五种节点，且 doc 顶层只挂块级节点（`text` 只能出现在段落与标题里），mark 只
- * 允许 `textStyle` 里的字体与字号（FR-031、data-model.md §2 不变量 5）。
+ * 列表项（FR-012）：单级。`listItem` 里不能再有列表（嵌套列表由 doc.ts
+ * 在落库前压平，保持文字不丢），所以这里把子内容限制为段落 / 标题 / 图片，
+ * 不再允许嵌套的 bulletList / orderedList（防御第二道，FR-031 边界）。
+ */
+const listItemNodeSchema = z.lazy(() =>
+  z.object({
+    type: z.literal('listItem'),
+    content: z
+      .array(z.union([paragraphNodeSchema, headingNodeSchema, imageNodeSchema]))
+      .optional(),
+  })
+);
+
+const bulletListNodeSchema = z.object({
+  type: z.literal('bulletList'),
+  content: z.array(listItemNodeSchema).optional(),
+});
+
+const orderedListNodeSchema = z.object({
+  type: z.literal('orderedList'),
+  content: z.array(listItemNodeSchema).optional(),
+});
+
+/**
+ * 一页的正文文档：只允许 doc / paragraph / heading(1|2) / text / articleImage /
+ * bulletList / orderedList / listItem 节点，且 doc 顶层只挂块级节点
+ * （`text` 只能出现在段落与标题里）。mark 允许 `textStyle` 的字体字号，以及
+ * 加粗 / 斜体 / 下划线（FR-012，003 放开；FR-031 仍禁止颜色 / 行高 / 表格 /
+ * 引用 / 链接 / 嵌套列表）（data-model.md §2 不变量 5）。
  */
 export const articlePageDocSchema = z.object({
   type: z.literal('doc'),
   content: z
-    .array(z.union([headingNodeSchema, paragraphNodeSchema, imageNodeSchema]))
+    .array(
+      z.union([
+        headingNodeSchema,
+        paragraphNodeSchema,
+        imageNodeSchema,
+        bulletListNodeSchema,
+        orderedListNodeSchema,
+      ])
+    )
     .optional(),
 });
 

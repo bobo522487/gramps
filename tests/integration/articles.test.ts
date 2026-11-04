@@ -519,6 +519,101 @@ describe('saveArticlePageAction', () => {
     expect(JSON.stringify(content.pages[1])).toContain('第二页原文');
   });
 
+  it('003 富文本（加粗/斜体/下划线 + 单级列表 + textAlign）保存后原样读回（FR-017）', async () => {
+    const articleId = await articleWithTwoPages();
+    const pageId = '11111111-1111-4111-8111-111111111111';
+
+    // 一页里混用旧结构（两档 heading、textStyle 字体字号 mark）与 003 新增的
+    // 内联标记、单级 bulletList/orderedList、paragraph/heading 的 textAlign；
+    // 经 saveArticlePageAction 保存后必须逐字读回一致（FR-017），不改 Action 入参、不跑迁移。
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 1, textAlign: 'center' },
+          content: [
+            { type: 'text', text: '陈氏族谱序', marks: [{ type: 'bold' }] },
+          ],
+        },
+        {
+          type: 'paragraph',
+          attrs: { textAlign: 'right' },
+          content: [
+            {
+              type: 'text',
+              text: '加粗斜体下划线',
+              marks: [
+                { type: 'bold' },
+                { type: 'italic' },
+                { type: 'underline' },
+              ],
+            },
+            {
+              type: 'text',
+              text: '宋体大字',
+              marks: [
+                {
+                  type: 'textStyle',
+                  attrs: { fontFamily: 'SimSun', fontSize: '19px' },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: '世系甲' }],
+                },
+              ],
+            },
+            {
+              type: 'listItem',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: '世系乙' }],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'orderedList',
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: '第一项' }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await saveArticlePageAction({
+      orgId: fixture.orgId,
+      articleId,
+      pageId,
+      doc,
+    });
+
+    expect(result).toMatchObject({ success: '已保存' });
+    const stored = parseArticleContent((await readContent(articleId))?.content);
+    const page = stored.pages.find((p) => p.id === pageId);
+    expect(page?.doc).toEqual(doc);
+  });
+
   it('plain_text 由 content 派生并同步更新（FR-038）', async () => {
     const articleId = await articleWithTwoPages();
 

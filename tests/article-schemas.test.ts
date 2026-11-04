@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ARTICLE_FONT_FAMILIES,
   ARTICLE_FONT_SIZES,
+  ARTICLE_TEXT_ALIGNMENTS,
 } from '@/lib/article/constants';
 import { normalizePageDoc } from '@/lib/article/doc';
 import {
@@ -74,17 +75,36 @@ describe('articlePageDocSchema（节点与 mark 白名单）', () => {
     expect(result.success).toBe(false);
   });
 
-  it('拒绝白名单外的 mark（加粗）', () => {
-    const result = articlePageDocSchema.safeParse(
-      doc([
-        {
-          type: 'paragraph',
-          content: [{ type: 'text', text: '重点', marks: [{ type: 'bold' }] }],
-        },
-      ])
-    );
+  // FR-012（003）：加粗 / 斜体 / 下划线重新放开。FR-031 之前这里断言加粗被拒，
+  // 003 改成白名单内；仍禁止颜色 / 行高 / 代码 / 链接等其它 mark。
+  for (const mark of ['bold', 'italic', 'underline']) {
+    it(`接受 FR-012 放开的 mark（${mark}）`, () => {
+      const result = articlePageDocSchema.safeParse(
+        doc([
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: '重点', marks: [{ type: mark }] }],
+          },
+        ])
+      );
 
-    expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
+    });
+  }
+
+  it('拒绝白名单外的 mark（代码 / 高亮 / 颜色 / 链接）', () => {
+    for (const mark of ['code', 'highlight', 'textColor', 'link']) {
+      const result = articlePageDocSchema.safeParse(
+        doc([
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'x', marks: [{ type: mark }] }],
+          },
+        ])
+      );
+
+      expect(result.success).toBe(false);
+    }
   });
 
   it('接受 textStyle 里的白名单字体与字号', () => {
@@ -302,6 +322,106 @@ describe('articlePageDocSchema（节点与 mark 白名单）', () => {
       ])
     );
 
+    expect(result.success).toBe(false);
+  });
+
+  // FR-012（003）：单级项目符号 / 编号列表（嵌套列表由落库压平，这里是不变量兜底）。
+  function bulletList(...items: string[]) {
+    return {
+      type: 'bulletList',
+      content: items.map((text) => ({
+        type: 'listItem',
+        content: [paragraph(text)],
+      })),
+    };
+  }
+
+  function orderedList(...items: string[]) {
+    return {
+      type: 'orderedList',
+      content: items.map((text) => ({
+        type: 'listItem',
+        content: [paragraph(text)],
+      })),
+    };
+  }
+
+  it('接受单级项目符号列表', () => {
+    expect(
+      articlePageDocSchema.safeParse(doc([bulletList('甲', '乙')])).success
+    ).toBe(true);
+  });
+
+  it('接受单级编号列表', () => {
+    expect(
+      articlePageDocSchema.safeParse(doc([orderedList('一', '二')])).success
+    ).toBe(true);
+  });
+
+  it('拒绝 listItem 内的嵌套列表（嵌套由落库压平，这里是不变量兜底）', () => {
+    const result = articlePageDocSchema.safeParse(
+      doc([
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                paragraph('甲'),
+                {
+                  type: 'bulletList',
+                  content: [{ type: 'listItem', content: [paragraph('乙')] }],
+                },
+              ],
+            },
+          ],
+        },
+      ])
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  // FR-009（003）：段落 / 标题的 textAlign 只开放左 / 中 / 右三档；
+  // 直接从常量取，避免测试和实现各写一份清单（ADR 单一事实来源）。
+  for (const align of ARTICLE_TEXT_ALIGNMENTS) {
+    it(`接受段落 textAlign=${align}`, () => {
+      const result = articlePageDocSchema.safeParse(
+        doc([
+          {
+            type: 'paragraph',
+            attrs: { textAlign: align },
+            content: [{ type: 'text', text: '居中' }],
+          },
+        ])
+      );
+      expect(result.success).toBe(true);
+    });
+  }
+
+  it('拒绝非法 textAlign 值', () => {
+    const result = articlePageDocSchema.safeParse(
+      doc([
+        {
+          type: 'paragraph',
+          attrs: { textAlign: 'middle' },
+          content: [{ type: 'text', text: 'x' }],
+        },
+      ])
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it('拒绝两端对齐 justify（不在 FR-009 开放范围，防止范围漂移）', () => {
+    const result = articlePageDocSchema.safeParse(
+      doc([
+        {
+          type: 'paragraph',
+          attrs: { textAlign: 'justify' },
+          content: [{ type: 'text', text: 'x' }],
+        },
+      ])
+    );
     expect(result.success).toBe(false);
   });
 
