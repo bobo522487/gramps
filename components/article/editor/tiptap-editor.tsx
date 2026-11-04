@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useRef } from 'react';
 import { articleImage } from '@/components/article/editor/article-image-node';
 import { sanitizePasteHtml } from '@/components/article/editor/paste-filter';
+import { articleTextAlign } from '@/components/article/editor/text-align';
 import {
   articleFontFamily,
   articleFontSize,
@@ -19,15 +20,20 @@ import {
 } from '@/lib/article/doc';
 
 /**
- * 谱文正文编辑器（FR-012..FR-014、FR-025..FR-031）。
+ * 谱文正文编辑器（FR-001、FR-009、FR-012..FR-014、FR-018、FR-025..FR-031；
+ * FR-031 由 003 修订）。
  *
- * 节点白名单就是规格的那五种：doc / paragraph / heading(1|2) / text /
- * articleImage。**加粗、斜体、列表、引用、表格、代码、链接一律不做**
- * （FR-031），所以直接从 StarterKit 里关掉，而不是「留着但不显示」——
- * 留着就会被快捷键触发，用户会做出存不住的格式。
- *
- * 粘进来的外部内容先过 `sanitizePasteHtml`（三级以上标题降级、标记与外链图剥掉），
- * 再由 schema 兜第二道，保证「文字不丢、格式不落」（US3-AC6）。
+ * 003 放开加粗 / 斜体 / 下划线 / 单级列表与段落对齐：
+ *  - StarterKit 默认就带 B/I/U 与单级列表，直接去掉 FR-031 时的 `false` 开关
+ *    即可（其选项类型只允许 `false | Partial<Options>`，不收显式 `true`）；
+ *    `listKeymap:false` 关掉 Tab/Shift+Tab 的 sink/lift，禁嵌套列表。
+ *  - 引用 / 代码 / 表格 / 链接 / 删除线 / 分隔线仍关闭（FR-012 硬边界）。
+ *  - 对齐用等价本地扩展 `articleTextAlign`（paragraph / heading(1|2) 的块级属性）。
+ *  - 粘贴先过 `sanitizePasteHtml`（三级标题降级、外链图与颜色剥掉、嵌套列表压平），
+ *    再由 schema + doc.ts 落库前兜第二道（FR-013、FR-012）。
+ *  - 查看者（editable=false）**不渲染**工具栏，不是禁用后仍可见（FR-018、SC-006）。
+ *  - 浅色桌面 + 白色纸面用 app/globals.css 的 .article-desk / .article-paper，
+ *    颜色只用 @theme token（FR-001、FR-004），不引入第三方主题包。
  */
 
 export function TipTapEditor({
@@ -55,22 +61,23 @@ export function TipTapEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2] },
-        bold: false,
-        italic: false,
-        // TipTap 3 的 StarterKit 默认带 Underline，且绑了 Ctrl+U：
-        // 不关掉就会被快捷键触发，做出服务端白名单存不住的 mark（FR-031）。
-        underline: false,
+        // FR-012：放开加粗 / 斜体 / 下划线 / 单级列表。
+        // StarterKit 默认就带这些扩展，FR-031 时把它们设成 `false` 关掉；
+        // 003 重新放开——直接去掉 `false` 即可（StarterKit 的选项类型只允许
+        // `false` 或 `Partial<Options>`，不允许显式 `true`）。
         strike: false,
         code: false,
         codeBlock: false,
         blockquote: false,
-        bulletList: false,
-        orderedList: false,
-        listItem: false,
+        // FR-031 边界：禁止嵌套列表——关掉 Tab/Shift+Tab 的 sink/lift 键位，
+        // 嵌套只能靠粘贴带进来，再由 doc.ts 在落库前压平（保留文字）。
+        listKeymap: false,
         horizontalRule: false,
         hardBreak: false,
         link: false,
       }),
+      // FR-009：段落对齐，等价本地实现（见 text-align.ts 注释）。
+      articleTextAlign,
       articleTextStyle,
       articleFontFamily,
       articleFontSize,
@@ -83,7 +90,7 @@ export function TipTapEditor({
     },
     editorProps: {
       attributes: {
-        class: 'article-canvas max-w-none min-h-full focus:outline-none',
+        class: 'article-canvas focus:outline-none',
       },
       transformPastedHTML: (html) => sanitizePasteHtml(html),
     },
@@ -119,24 +126,30 @@ export function TipTapEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <EditorToolbar
-        editor={editor}
-        orgId={orgId}
-        articleId={articleId}
-        mediaMode={mediaMode}
-        disabled={!editable}
-        onNotice={onNotice}
-      />
-      <div className="relative min-h-0 flex-1 overflow-y-auto">
-        {showGuidance ? (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0 text-muted-foreground"
-          >
-            输入文字
-          </span>
-        ) : null}
-        <EditorContent editor={editor} />
+      {/* FR-018 / SC-006：查看者不渲染工具栏（不是禁用后仍可见）。 */}
+      {editable ? (
+        <EditorToolbar
+          editor={editor}
+          orgId={orgId}
+          articleId={articleId}
+          mediaMode={mediaMode}
+          disabled={false}
+          onNotice={onNotice}
+        />
+      ) : null}
+      {/* FR-001：浅色桌面 + 接近 A4 宽的白色纸面，水平居中、非全屏。 */}
+      <div className="article-desk relative min-h-0 flex-1 overflow-y-auto">
+        <div className="article-paper relative">
+          {showGuidance ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute text-muted-foreground"
+            >
+              输入文字
+            </span>
+          ) : null}
+          <EditorContent editor={editor} />
+        </div>
       </div>
     </div>
   );

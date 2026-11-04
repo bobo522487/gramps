@@ -10,9 +10,11 @@
 
 import {
   ARTICLE_SCHEMA_VERSION,
+  ARTICLE_TEXT_ALIGNMENTS,
   DEFAULT_ARTICLE_IMAGE_WIDTH,
   MEDIA_PATH_ROOT,
 } from '@/lib/article/constants';
+import { flattenListItems } from '@/lib/article/flatten-lists';
 
 /** 节点上的标记（本期只允许 `textStyle`，白名单在 schemas.ts）。 */
 export type ArticleMark = {
@@ -41,14 +43,28 @@ export type ArticleContent = {
   pages: ArticlePage[];
 };
 
-/** 正文里允许出现的节点类型（data-model §2 不变量 5）。 */
+/** 正文里允许出现的节点类型（data-model §2 不变量 5，003 放开列表）。 */
 const ALLOWED_NODE_TYPES = new Set([
   'doc',
   'paragraph',
   'heading',
   'text',
   'articleImage',
+  'bulletList',
+  'orderedList',
+  'listItem',
 ]);
+
+/** 正文里允许出现的标记（FR-012 放开加粗/斜体/下划线；FR-031 仍禁颜色等）。 */
+const ALLOWED_MARK_TYPES = new Set([
+  'textStyle',
+  'bold',
+  'italic',
+  'underline',
+]);
+
+/** 块级 `textAlign` 只允许 left/center/right（FR-009；justify 不在开放范围）。 */
+const ALLOWED_TEXT_ALIGNMENTS = new Set<string>(ARTICLE_TEXT_ALIGNMENTS);
 
 export function newArticlePageId(): string {
   return crypto.randomUUID();
@@ -113,6 +129,15 @@ function sanitizeNode(value: unknown): ArticleNode | null {
     // 而 React 的 Server Action 序列化只认带原型的普通对象——直接透传会让服务端
     // 收到一个没有 attrs 的节点（图片路径、标题层级就此丢失）。
     node.attrs = dropNullAttrs(value.attrs);
+    // 与粘贴过滤器、zod 白名单同一口径：块的 textAlign 只能是
+    // left/center/right；`justify` 及其他任何值在此直接丢弃（FR-009 / FR-031）。
+    if (
+      node.attrs &&
+      'textAlign' in node.attrs &&
+      !ALLOWED_TEXT_ALIGNMENTS.has(String(node.attrs.textAlign))
+    ) {
+      delete node.attrs.textAlign;
+    }
   }
   if (typeof value.text === 'string') {
     node.text = value.text;
@@ -121,7 +146,9 @@ function sanitizeNode(value: unknown): ArticleNode | null {
     const marks = value.marks
       .filter(
         (mark): mark is ArticleMark =>
-          isRecord(mark) && typeof mark.type === 'string'
+          isRecord(mark) &&
+          typeof mark.type === 'string' &&
+          ALLOWED_MARK_TYPES.has(mark.type)
       )
       .map((mark) =>
         isRecord(mark.attrs)
@@ -139,7 +166,11 @@ function sanitizeNode(value: unknown): ArticleNode | null {
     const content = value.content
       .map(sanitizeNode)
       .filter((child): child is ArticleNode => child !== null);
-    node.content = content;
+    // 列表：把 sanitize 后的子项压平成单级（嵌套列表提升为同级兄弟项）。
+    node.content =
+      node.type === 'bulletList' || node.type === 'orderedList'
+        ? flattenListItems(content)
+        : content;
   }
   return node;
 }
@@ -236,16 +267,7 @@ function collectBlockTexts(doc: ArticlePageDoc): string[] {
   return texts;
 }
 
-/**
- * 派生 `article.plain_text`：按页序收集文本，块与页之间统一以空行分隔。
- * 这是唯一允许写该列的地方（ADR 0010）。
- */
-/**
- * 单页的文本摘要（页缩略图用，FR-021）。
- *
- * 与 `derivePlainText` 同一套块级规则，只是范围限于一页：图片不贡献文本，
- * 所以新加的页摘要是空串，缩略图上就显示「空页」。
- */
+/** 该页是否含插图（空白页占位提示用，FR-021）。 */
 export function pageHasImage(doc: ArticlePageDoc): boolean {
   return doc.content.some(
     (block) =>
@@ -254,10 +276,15 @@ export function pageHasImage(doc: ArticlePageDoc): boolean {
   );
 }
 
+/**
+ * 单页的文本摘要（页缩略图用，FR-021）。与 `derivePlainText` 同一套块级规则，
+ * 只是范围限于一页：图片不贡献文本，所以新加的页摘要是空串，缩略图显示「空页」。
+ */
 export function pagePlainText(doc: ArticlePageDoc): string {
   return collectBlockTexts(doc).join('\n\n');
 }
 
+/** 派生 `article.plain_text`：按页序收集文本，块与页之间统一以空行分隔（唯一允许写该列的地方，ADR 0010）。 */
 export function derivePlainText(content: ArticleContent): string {
   return content.pages.map((page) => pagePlainText(page.doc)).join('\n\n');
 }

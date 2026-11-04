@@ -1,10 +1,15 @@
 'use client';
 
 import type { Editor } from '@tiptap/react';
+import { useEditorState } from '@tiptap/react';
 import { useRef, useState } from 'react';
 
 import { articleImageNode } from '@/components/article/editor/article-image-node';
 import { uploadArticleImage } from '@/components/article/editor/image-upload';
+import {
+  Separator,
+  ToggleButton,
+} from '@/components/article/editor/toolbar-primitives';
 import {
   ARTICLE_FONT_FAMILIES,
   ARTICLE_FONT_LABELS,
@@ -14,11 +19,18 @@ import {
 } from '@/lib/article/constants';
 
 /**
- * 编辑器工具栏（FR-012、FR-018、FR-025..FR-031）。
+ * 编辑器工具栏（FR-002、FR-007、FR-008、FR-009、FR-012、FR-018）。
  *
- * 只有规格允许的四组动作：段落/两级标题、撤销重做、字体字号（P2）、
- * 插图与图片宽度。没有加粗、颜色、对齐、表格（FR-031），也没有版式与模板
- * 入口（FR-042）——不做就不摆出来，连灰按钮都不给（SC-011）。
+ * 分组（组间用分隔线）：撤销重做｜段落样式（正文 / 两级标题）｜字体字号｜
+ * 加粗 / 斜体 / 下划线｜列表（无序 / 有序）｜对齐（左 / 中 / 右）｜插图与图片宽度。
+ * 没有颜色、行距、表格、引用块、多级大纲、嵌套列表、任务清单、模板 / 导出 /
+ * 分享入口（FR-012 硬边界）——不做就不摆出来（SC-005）。
+ *
+ * 003 在 002 基础上新增（FR-031 由 003 修订）：
+ *  - B / I / U（FR-007）：空选区点击切换「随后输入生效」，走 TipTap 原生的
+ *    stored marks，不改写当前段已有文字；工具栏用 aria-pressed 反映激活态。
+ *  - 单层列表（FR-008）：StarterKit 的 listKeymap 已关闭、没有缩进控件，禁嵌套。
+ *  - 段落 / 标题对齐（FR-009）：仅 left / center / right，justify 不在开放范围。
  */
 
 const WIDTH_LABEL: Record<string, string> = {
@@ -44,13 +56,42 @@ export function EditorToolbar({
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const imageSelected = editor.isActive('articleImage');
-  // getAttributes 返回 Record<string, unknown>：按字符串读，不对未知数据硬转（AGENTS §6）。
-  const styleAttrs: Record<string, unknown> = editor.getAttributes('textStyle');
-  const fontFamily =
-    typeof styleAttrs.fontFamily === 'string' ? styleAttrs.fontFamily : '';
-  const fontSize =
-    typeof styleAttrs.fontSize === 'string' ? styleAttrs.fontSize : '';
+
+  // useEditor 默认不在事务后重渲染，B/I/U/列表/对齐的激活态必须靠 useEditorState
+  // 才能跟随选区变化（FR-007、FR-008、FR-009）。
+  const ui = useEditorState({
+    editor,
+    selector: ({ editor: instance }) => {
+      const style = instance.getAttributes('textStyle') as Record<
+        string,
+        unknown
+      >;
+      const imageAttrs = instance.getAttributes('articleImage') as Record<
+        string,
+        unknown
+      >;
+      return {
+        bold: instance.isActive('bold'),
+        italic: instance.isActive('italic'),
+        underline: instance.isActive('underline'),
+        bulletList: instance.isActive('bulletList'),
+        orderedList: instance.isActive('orderedList'),
+        alignLeft: instance.isActive({ textAlign: 'left' }),
+        alignCenter: instance.isActive({ textAlign: 'center' }),
+        alignRight: instance.isActive({ textAlign: 'right' }),
+        heading: instance.isActive('heading'),
+        h1: instance.isActive('heading', { level: 1 }),
+        h2: instance.isActive('heading', { level: 2 }),
+        image: instance.isActive('articleImage'),
+        imageWidth: imageAttrs.width,
+        fontFamily:
+          typeof style.fontFamily === 'string' ? style.fontFamily : '',
+        fontSize: typeof style.fontSize === 'string' ? style.fontSize : '',
+        canUndo: instance.can().undo(),
+        canRedo: instance.can().redo(),
+      };
+    },
+  });
 
   function imageCountOnPage(): number {
     let count = 0;
@@ -89,7 +130,11 @@ export function EditorToolbar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-b border-border px-2 py-1.5 text-xs">
+    <div
+      role="toolbar"
+      aria-label="格式工具栏"
+      className="flex flex-wrap items-center gap-1 border-b border-border px-2 py-1.5 text-xs"
+    >
       <input
         ref={fileInput}
         type="file"
@@ -107,7 +152,7 @@ export function EditorToolbar({
       <button
         type="button"
         aria-label="撤销"
-        disabled={disabled || !editor.can().undo()}
+        disabled={disabled || !ui.canUndo}
         className="rounded px-2 py-1 hover:bg-muted disabled:opacity-40"
         onClick={() => editor.chain().focus().undo().run()}
       >
@@ -116,7 +161,7 @@ export function EditorToolbar({
       <button
         type="button"
         aria-label="重做"
-        disabled={disabled || !editor.can().redo()}
+        disabled={disabled || !ui.canRedo}
         className="rounded px-2 py-1 hover:bg-muted disabled:opacity-40"
         onClick={() => editor.chain().focus().redo().run()}
       >
@@ -132,37 +177,34 @@ export function EditorToolbar({
         {uploading ? '上传中…' : '插入图片'}
       </button>
 
-      <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+      <Separator />
 
-      <button
-        type="button"
-        aria-label="正文"
+      <ToggleButton
+        label="正文"
+        active={!ui.heading}
         disabled={disabled}
-        className={`rounded px-2 py-1 ${!editor.isActive('heading') ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}
         onClick={() => editor.chain().focus().setParagraph().run()}
       >
         正文
-      </button>
-      <button
-        type="button"
-        aria-label="一级标题"
+      </ToggleButton>
+      <ToggleButton
+        label="一级标题"
+        active={ui.h1}
         disabled={disabled}
-        className={`rounded px-2 py-1 ${editor.isActive('heading', { level: 1 }) ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
       >
         标题
-      </button>
-      <button
-        type="button"
-        aria-label="二级标题"
+      </ToggleButton>
+      <ToggleButton
+        label="二级标题"
+        active={ui.h2}
         disabled={disabled}
-        className={`rounded px-2 py-1 ${editor.isActive('heading', { level: 2 }) ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
       >
         小标题
-      </button>
+      </ToggleButton>
 
-      <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+      <Separator />
 
       <label className="sr-only" htmlFor="article-font-family">
         字体
@@ -171,11 +213,9 @@ export function EditorToolbar({
         id="article-font-family"
         disabled={disabled}
         className="rounded border border-border bg-background px-1 py-0.5"
-        value={fontFamily}
+        value={ui.fontFamily}
         onChange={(event) => {
           const family = event.target.value || null;
-          // 用扩展自带的命令：清掉字体时顺带删掉空的 textStyle span，
-          // 而且不会把同时设置的字号一起抹掉。
           const chain = editor.chain().focus();
           if (family) {
             chain.setFontFamily(family).run();
@@ -199,7 +239,7 @@ export function EditorToolbar({
         id="article-font-size"
         disabled={disabled}
         className="rounded border border-border bg-background px-1 py-0.5"
-        value={fontSize}
+        value={ui.fontSize}
         onChange={(event) => {
           const size = event.target.value || null;
           const chain = editor.chain().focus();
@@ -218,16 +258,93 @@ export function EditorToolbar({
         ))}
       </select>
 
-      {imageSelected ? (
+      <Separator />
+
+      <ToggleButton
+        label="加粗"
+        active={ui.bold}
+        disabled={disabled}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+      >
+        加粗
+      </ToggleButton>
+      <ToggleButton
+        label="斜体"
+        active={ui.italic}
+        disabled={disabled}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+      >
+        斜体
+      </ToggleButton>
+      <ToggleButton
+        label="下划线"
+        active={ui.underline}
+        disabled={disabled}
+        onClick={() => editor.chain().focus().toggleUnderline().run()}
+      >
+        下划线
+      </ToggleButton>
+
+      <Separator />
+
+      <ToggleButton
+        label="无序列表"
+        active={ui.bulletList}
+        disabled={disabled}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+      >
+        列表
+      </ToggleButton>
+      <ToggleButton
+        label="有序列表"
+        active={ui.orderedList}
+        disabled={disabled}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+      >
+        编号
+      </ToggleButton>
+
+      <Separator />
+
+      <ToggleButton
+        label="左对齐"
+        active={ui.alignLeft}
+        disabled={disabled}
+        onClick={() => editor.chain().focus().setArticleTextAlign('left').run()}
+      >
+        左
+      </ToggleButton>
+      <ToggleButton
+        label="居中"
+        active={ui.alignCenter}
+        disabled={disabled}
+        onClick={() =>
+          editor.chain().focus().setArticleTextAlign('center').run()
+        }
+      >
+        中
+      </ToggleButton>
+      <ToggleButton
+        label="右对齐"
+        active={ui.alignRight}
+        disabled={disabled}
+        onClick={() =>
+          editor.chain().focus().setArticleTextAlign('right').run()
+        }
+      >
+        右
+      </ToggleButton>
+
+      {ui.image ? (
         <>
-          <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+          <Separator />
           {ARTICLE_IMAGE_WIDTHS.map((width) => (
             <button
               key={width}
               type="button"
               aria-label={`图片宽度${WIDTH_LABEL[width] ?? width}`}
               disabled={disabled}
-              className={`rounded px-2 py-1 ${editor.isActive('articleImage', { width }) ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+              className={`rounded px-2 py-1 ${ui.imageWidth === width ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}
               onClick={() =>
                 editor
                   .chain()

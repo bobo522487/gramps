@@ -49,6 +49,14 @@ export const ARTICLE_FONT_LABELS: Record<
 /** 字号三档（FR-030）：小 / 常规 / 大。 */
 export const ARTICLE_FONT_SIZES = ['14px', '16px', '19px'] as const;
 
+/**
+ * 段落对齐三档（FR-009：左 / 中 / 右，clarify Q「段落文字对齐（左/中/右）」，
+ * plan R2 明确 `textAlign: left|center|right`）。两端对齐不在本期开放，别顺手加。
+ * 默认不写（跟随纸张容器），仅作用在 paragraph / heading(1|2)（FR-009 / FR-031 边界）。
+ */
+export const ARTICLE_TEXT_ALIGNMENTS = ['left', 'center', 'right'] as const;
+export type ArticleTextAlignment = (typeof ARTICLE_TEXT_ALIGNMENTS)[number];
+
 /** 标题长度上限（FR-001、FR-010）。 */
 export const ARTICLE_TITLE_MIN_LENGTH = 1;
 export const ARTICLE_TITLE_MAX_LENGTH = 60;

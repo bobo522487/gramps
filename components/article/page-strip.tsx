@@ -13,10 +13,12 @@ import {
 } from '@/components/ui/dialog';
 
 /**
- * 编辑器的右侧区域（FR-012、FR-021、FR-023）：页缩略图条。
+ * 编辑器的右侧区域（FR-005、FR-012、FR-021、FR-023）：迷你纸页条。
  *
- * 缩略图是「第几页 + 这一页的前几个字」——用文本摘要而不是渲染整页 DOM，
- * 几十页时不会把编辑器拖慢（SC-003），真正的预览交给中间那一栏。
+ * 每页是一张「迷你纸页」：第几页 + 这一页的前几个字，用文本片段示意而不是
+ * 渲染整页 DOM / 位图缩略（FR-005，SC-003 下几十页也不拖慢编辑器）。
+ * 片段来自上层用 `pagePlainText` 算出的摘要：当前页反映本地草稿，其余页是
+ * 最近一次已知内容，不新建任何缩略图渲染通道。
  * 删除最后一页被拒（FR-022），顺序拖拽后回调给上层落库（FR-023）。
  */
 
@@ -70,6 +72,9 @@ export function PageStrip({
           return (
             <li
               key={pageId}
+              data-testid="mini-page"
+              aria-label={`第 ${index + 1} 页`}
+              aria-current={active ? 'page' : undefined}
               draggable={canWrite}
               onDragStart={() => setDragId(pageId)}
               onDragOver={(event) => event.preventDefault()}
@@ -89,13 +94,15 @@ export function PageStrip({
             >
               <button
                 type="button"
-                className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
+                aria-current={active ? 'true' : undefined}
+                className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
                 onClick={() => onSelect(pageId)}
               >
                 <span className="shrink-0 tabular-nums text-muted-foreground">
                   第 {index + 1} 页
                 </span>
-                <span className="line-clamp-2 w-full break-all text-[11px] text-muted-foreground/80">
+                {/* FR-005：白纸小样，仅文本片段示意，不做整页 DOM / 位图缩略。 */}
+                <span className="line-clamp-3 w-full break-all rounded-sm border border-border bg-card px-1.5 py-1 text-[11px] leading-snug text-foreground/80 shadow-sm">
                   {snippet(summaries[pageId] ?? '')}
                 </span>
               </button>
