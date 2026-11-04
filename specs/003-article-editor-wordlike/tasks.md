@@ -61,8 +61,8 @@
 ### Implementation for User Story 1
 
 - [ ] T010 [US1] `components/article/editor/tiptap-editor.tsx`：StarterKit 打开 bold/italic/underline/bulletList/orderedList；挂 TextAlign（`paragraph`/`heading`）；禁 sink/lift 嵌套；空选区 B/I/U 走 storedMarks
-- [ ] T011 [P] [US1] 可选新增 `components/article/editor/text-align.ts` 封装 TextAlign 配置（控行数 ≤400）
-- [ ] T012 [US1] `components/article/editor/toolbar.tsx`：分组（撤销重做｜段落｜字体字号｜B/I/U｜列表｜对齐｜插图）；`isActive`；无「文件/开始」菜单；必要时拆分组子组件控行数
+- [ ] T011 [US1] 依赖 T010：可选新增 `components/article/editor/text-align.ts` 封装 TextAlign 配置（控行数 ≤400）
+- [ ] T012 [US1] 依赖 T010：`components/article/editor/toolbar.tsx`：分组（撤销重做｜段落｜字体字号｜B/I/U｜列表｜对齐｜插图）；`isActive`；无「文件/开始」菜单；必要时拆分组子组件控行数
 - [ ] T013 [US1] `components/article/editor/paste-filter.ts`：与 schemas/doc 同口径放行与压平
 - [ ] T014 [P] [US1] E2E：`tests/e2e/article-authoring.spec.ts`（或新建 `article-wordlike.spec.ts`）——加粗+列表+对齐 → 保存 → 刷新一致
 
@@ -102,6 +102,8 @@
 
 ## Phase 6: Polish & Cross-Cutting
 
+Polish 验收含「002 回归（T023）+ 查看者 DOM 无工具栏（T019/T022）+ `11` 互链 FR-031（T024）」。
+
 - [ ] T023 [P] 002 回归抽测：多页切页保存、插图三档宽度、撤销重做覆盖新格式 —— 既有 E2E/手工
 - [ ] T024 [P] 文档：`docs/architecture/11-需求与实现状态.md` 互链注明 **FR-031 由 003 修订**（**不改** 002 `spec.md` 全文）
 - [ ] T025 [P] 可选：`docs/decisions/0010-rich-text-editor-selection.md` 短注 003 启用 B/I/U 与单层列表；若 `AGENTS.md` / 实现状态仍写「无加粗」则改掉
@@ -130,7 +132,7 @@
 ### Parallel Opportunities
 
 - T006/T007 可并行；T008/T009 可并行
-- T011 与 T013 可在 T010 配置点明确后并行
+- **T010 必须先于 T011 与 T012**；T011 与 T013 仅在 T010 完成后可并行；T012 不得与 T010 并行
 - T015/T016 在 US1 编辑器稳定后可并行
 - T024/T025 可并行
 
