@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
@@ -261,5 +261,99 @@ describe('documented stack versions', () => {
     // Floor, not equality: adding a migration must not force editing this test,
     // which would make the test a second hand-copied fact.
     expect(journal.entries.length).toBeGreaterThanOrEqual(11);
+  });
+});
+
+/**
+ * 「文档收敛为代码可断言的单一真源」：以下断言全部从文件系统 / schema /
+ * 源码派生，不手抄计数、不列禁用措辞。文档写错路径或数量时 CI 会拦下，
+ * 而不是等下一次架构评审用肉眼发现。
+ *
+ * 扫描范围＝权威在用文档（AGENTS、constitution、docs/README、architecture、
+ * decisions、guides）。archive / specs / superpowers plans / bugs 是按惯例
+ * 冻结的历史与在飞产物，不纳入。
+ */
+const AUTHORITATIVE_DOCS = [
+  'AGENTS.md',
+  '.specify/memory/constitution.md',
+  'docs/README.md',
+  ...['docs/architecture', 'docs/decisions', 'docs/guides'].flatMap(
+    markdownFiles
+  ),
+];
+
+// 反引号里的源码路径。刻意只认这几个扩展名：这是「别把已删文件写回文档」
+// 的窄护栏，不是通用链接检查器（相对链接与锚点由 scripts/check-docs.mjs 管）。
+const CODE_PATH =
+  /`((?:app|components|lib|hooks|scripts|tests|data)\/[^\s`]+?\.(?:ts|tsx|mjs|js|json|sql|md))`/g;
+// `<domain>`、`*`、`{a,b}`、`…` 是占位缩写，不是真实路径。`[projectRef]`
+// 这类动态路由目录是**真实目录名**，必须照常校验，不放行。
+const PLACEHOLDER = /[<*{…]/;
+// 「没有 / 不存在 / 不创建 X」是反面示例，本来就不该存在于仓库里。
+// 否定词必须是路径前的最后一段内容（只允许强调符与空白），否则句子里
+// 任一个无关的「没有」都能赦免真正写错的引用。
+const NEGATION = /(?:没有|不存在|不创建|不要创建|禁止创建)[*\s]*$/;
+
+describe('documentation is checked against code, not against prose', () => {
+  test('authoritative docs do not cite code paths that are absent', () => {
+    const offenders: string[] = [];
+    for (const path of AUTHORITATIVE_DOCS) {
+      const text = read(path);
+      for (const match of text.matchAll(CODE_PATH)) {
+        if (PLACEHOLDER.test(match[1])) continue;
+        if (existsSync(join(root, match[1]))) continue;
+        // 否定词必须紧邻这条路径（「没有 `x.ts`」），而不是句子里任一个
+        // 无关的「没有」——否则会赦免真正写错的引用。
+        const before = text.slice(Math.max(0, match.index! - 12), match.index!);
+        if (NEGATION.test(before)) continue;
+        offenders.push(`${path}: ${match[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('soft-delete inventory is derived from the schema, never retyped', () => {
+    const schemaFiles = readdirSync(join(root, 'lib/db/schema')).filter(
+      (file) => file.endsWith('.ts')
+    );
+    const declared = schemaFiles.reduce(
+      (total, file) =>
+        total +
+        [
+          ...read(`lib/db/schema/${file}`).matchAll(
+            /deletedAt:\s*timestamptz\('deleted_at'\)/g
+          ),
+        ].length,
+      0
+    );
+
+    // Floor, not equality: 新增软删表不该逼人回来改这条断言；ADR 0004 的
+    // 「8 张」就是手抄计数失真的下场，现在名单与数量都以 schema 为准。
+    expect(declared).toBeGreaterThanOrEqual(14);
+    // 活动流是唯一明确不带软删列的组织级表，别让文档把它重新写回去。
+    expect(read('lib/db/schema/activity.ts')).not.toContain('deleted_at');
+    expect(read('AGENTS.md')).toContain('`activity_logs` 是产品活动流');
+  });
+
+  test('the deleted scoped revalidate helpers stay deleted', () => {
+    // 只做减法：零调用者 helper 曾在 revalidate.ts 里放了 21 行解释为何没
+    // 接线。删掉后不许重新导出，收窄应随 Zod 入参一起实装（ADR 0013 修订）。
+    const source = read('lib/console/revalidate.ts');
+    expect(source).toContain('export function revalidateWholeConsole()');
+    expect(source).not.toMatch(/export function revalidate(?:Project|Org)\b/);
+  });
+
+  test('implemented features are not described as placeholders', () => {
+    // 01-架构总览 曾把「谱文编辑、谱书编目编辑」合并成一行占位 EmptyState，
+    // 而谱文三区编辑器早已落地。以磁盘上的页面文件为事实源断言范围表。
+    const articlesPage =
+      'app/(dashboard)/dashboard/project/[projectRef]/articles/page.tsx';
+    expect(existsSync(join(root, articlesPage))).toBe(true);
+
+    const overview = read('docs/architecture/01-架构总览.md');
+    const [inScope, outOfScope = ''] = overview.split('**不在这个系统里**');
+    expect(inScope).toContain('谱文');
+    expect(outOfScope).not.toMatch(/谱文编辑、谱书编目编辑/);
+    expect(outOfScope).not.toMatch(/谱文[^|\n]*没有查询函数与 Action/);
   });
 });
