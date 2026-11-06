@@ -109,7 +109,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 - 写操作用 Server Action，放 `lib/<domain>/actions.ts`；入参用 Zod 校验（认证/组织/项目在 `lib/auth/schemas.ts`，家谱在 `lib/genealogy/schemas.ts`；名字是历史原因）。
 - 用 `validatedAction` / `validatedActionWithUser` 包装，不要手写校验与取用户。
-- 单步 CRUD 调 `lib/db/queries/<domain>.ts`（内部 `withOrg`）；**多步写**（注册、建组织、接受邀请、成员变更、删号）放 `lib/<domain>/*-services.ts` 的单个事务内（现有落点：`lib/org/`、`lib/project/`、`lib/folder/`、`lib/lineage/`、`lib/article/` 下的 services 文件；没有 `lib/db/services.ts`），写前导统一走 `lib/db/write.ts` 的 `withOrgWrite()`，并在事务内锁定读复核权限。不要在 Action 里串联多个独立写操作。
+- 单步 CRUD 调 `lib/db/queries/<domain>.ts`（内部 `withOrg`）；**业务域多步写**放 `lib/<domain>/*-services.ts` 的单个事务内（现有落点：`lib/project/`、`lib/folder/`、`lib/lineage/`、`lib/article/` 下的 services 文件；没有 `lib/db/services.ts`，`lib/org/` 也没有 services 文件），写前导统一走 `lib/db/write.ts` 的 `withOrgWrite()`，并在事务内锁定读复核权限。**认证 / 组织成员流程**（注册、建组织、接受邀请、成员变更、删号）不走 `withOrgWrite()`：由 Better Auth 的 `getAuth().api.*` 与注册触发器在认证连接上完成，见 §5.3 / §5.4 与 [07-运行视图-关键流程](docs/architecture/07-运行视图-关键流程.md) 的注册 / 邀请 / 删号时序。不要在 Action 里串联多个独立写操作。
 - 权限用 `hasPermission(role, '<permission>')`；不要写 `role === 'owner' || role === 'admin'`。
 - 返回 `ActionState`（`error` / `success` / `fieldErrors`），可带稳定 `code`（`lib/errors.ts` 的 `actionError()`）；不把异常堆栈抛给 UI，失败返回中文文案而不是 throw。
 - 写后按需 `revalidatePath`：组织级变化 `/dashboard` 或 `/dashboard/org/${slug}`，项目设置 `/dashboard/project/${ref}`。

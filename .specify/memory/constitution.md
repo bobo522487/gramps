@@ -47,8 +47,10 @@ MUST NOT 把 `BETTER_AUTH_SECRET`、密码哈希或整行用户数据带到客�
 
 ### III. 写路径单事务
 
-多步写 MUST 收敛到 `lib/<domain>/*-services.ts` 的单个事务内（仓库里没有 `lib/db/services.ts`），
-写前导统一走 `lib/db/write.ts` 的 `withOrgWrite()`，并在事务内锁定读复核权限；
+业务域多步写 MUST 收敛到 `lib/<domain>/*-services.ts` 的单个事务内（仓库里没有 `lib/db/services.ts`，
+`lib/org/` 也没有 services 文件），写前导统一走 `lib/db/write.ts` 的 `withOrgWrite()`，并在事务内锁定读复核权限；
+认证 / 组织成员流程（注册、建组织、接受邀请、成员变更、删号）不走 `withOrgWrite()`：由 Better Auth 的
+`getAuth().api.*` 与注册触发器在认证连接上完成，见 `AGENTS.md` §5.3 / §5.4；
 失败 MUST NOT 留下半成品数据；唯一约束/`CHECK` 冲突 MUST 转成中文 `ActionState`，
 不得吞掉或重试成重复数据。
 
