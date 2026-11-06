@@ -98,7 +98,7 @@ MUST NOT 把 `BETTER_AUTH_SECRET`、密码哈希或整行用户数据带到客�
 - **评审顺序**：① 越权 ② 信息泄露 ③ 认证语义 ④ 错误处理（401/403/404）⑤ 迁移（可重复、
   可回滚、影响现有数据）⑥ 命名与风格。
 - **完成定义**：本地门禁全绿 + 集成/E2E（按范围）+ 文档同步（行为或命令变化时更新
-  `docs/setup.md`、`docs/implementation-status.md`，状态只写一处）。
+  `docs/architecture/13-本地开发与命令.md`、`docs/architecture/11-需求与实现状态.md`，状态只写一处）。
 
 ## Governance
 
@@ -108,9 +108,9 @@ MUST NOT 把 `BETTER_AUTH_SECRET`、密码哈希或整行用户数据带到客�
   |---|---|
   | 项目边界、数据规则、禁止清单、提交与评审 | `AGENTS.md` |
   | 架构现状与模块边界 | `docs/architecture/01-架构总览.md` |
-  | 表结构与约束 | `docs/data-model.md` |
-  | 命令与测试分层 | `docs/setup.md`、`docs/guides/testing.md` |
-  | 实现状态（唯一） | `docs/implementation-status.md` |
+  | 表结构与约束 | `docs/architecture/04-数据视图-数据架构.md` |
+  | 命令与测试分层 | `docs/architecture/13-本地开发与命令.md`、`docs/guides/testing.md` |
+  | 实现状态（唯一） | `docs/architecture/11-需求与实现状态.md` |
   | 决策理由 | `docs/decisions/` |
 
 - **优先级**：本文件与 `AGENTS.md` 冲突时以 `AGENTS.md` 与代码为准；`AGENTS.md` 的仓库约定
