@@ -4,7 +4,7 @@
 - **日期**：2026-10-21（原始决策）· 2026-10-22（补记为 ADR）
 - **可逆性**：**单向门**（数据形态；改为硬删需要先确认已存数据中哪些可销毁）
 - **相关**：[04-数据视图 §11](../architecture/04-数据视图-数据架构.md) · [04-数据视图-数据架构](../architecture/04-数据视图-数据架构.md) · [12-风险与演进规划 R4 / R10 / R18](../architecture/12-风险与演进规划.md) · [runbooks](../guides/runbooks.md)
-- **修订**：2026-10-24，表计数与硬删除例外按 ADR 0007 落地后的 schema 校正。
+- **修订**：2026-10-24，硬删除例外按 ADR 0007 落地后的 schema 校正；2026-11-05，删掉手抄的表计数（事实层六表落地后已失真），本文不再写死张数。`tests/docs-consistency.test.ts` 从 `lib/db/schema/` 派生软删列数量并断言下限，防止「名单整体消失」或把 `activity_logs` 写回软删——它不校验任何文档里手写的数字，只保证名单仍活在 schema 里。
 
 ## 背景
 
@@ -14,7 +14,7 @@
 
 ## 决策
 
-- 8 张软删实体表（organization/project/folder/lineage/node/article/book/book_catalog）带 `deleted_at`，非空即已删除。
+- 业务实体表统一带 `deleted_at`，非空即已删除；具体名单与数量以 `lib/db/schema/` 为准（本文不手抄表数，避免早期把数字写死后随事实层落地而失真）。
 - `organization_member` 与 `invite` 由 Better Auth 硬删除，不保留软删列。
 - `activity_logs` 是产品活动流，不带 `deleted_at`。
 - **不做物理删除**。`app_rw` 不授予 `DELETE` 权限，物理删除在数据库层被挡住。

@@ -109,7 +109,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 
 - 写操作用 Server Action，放 `lib/<domain>/actions.ts`；入参用 Zod 校验（认证/组织/项目在 `lib/auth/schemas.ts`，家谱在 `lib/genealogy/schemas.ts`；名字是历史原因）。
 - 用 `validatedAction` / `validatedActionWithUser` 包装，不要手写校验与取用户。
-- 单步 CRUD 调 `lib/db/queries/<domain>.ts`（内部 `withOrg`）；**多步写**（注册、建组织、接受邀请、成员变更、删号）放 `lib/db/services.ts` 或 `lib/<domain>/*-services.ts` 的单个事务内，并在事务内用 `getOrgRoleInTx()` / 锁定读复核权限。不要在 Action 里串联多个独立写操作。
+- 单步 CRUD 调 `lib/db/queries/<domain>.ts`（内部 `withOrg`）；**多步写**（注册、建组织、接受邀请、成员变更、删号）放 `lib/<domain>/*-services.ts` 的单个事务内（现有落点：`lib/org/`、`lib/project/`、`lib/folder/`、`lib/lineage/`、`lib/article/` 下的 services 文件；没有 `lib/db/services.ts`），写前导统一走 `lib/db/write.ts` 的 `withOrgWrite()`，并在事务内锁定读复核权限。不要在 Action 里串联多个独立写操作。
 - 权限用 `hasPermission(role, '<permission>')`；不要写 `role === 'owner' || role === 'admin'`。
 - 返回 `ActionState`（`error` / `success` / `fieldErrors`），可带稳定 `code`（`lib/errors.ts` 的 `actionError()`）；不把异常堆栈抛给 UI，失败返回中文文案而不是 throw。
 - 写后按需 `revalidatePath`：组织级变化 `/dashboard` 或 `/dashboard/org/${slug}`，项目设置 `/dashboard/project/${ref}`。
@@ -142,7 +142,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 - `lib/db/migrations/meta/_journal.json` 是迁移清单的唯一来源，文档不手抄编号；`drizzle.config.ts` 优先用 `POSTGRES_URL_DIRECT`。
 - 主键由 PostgreSQL 18 `uuidv7()` 生成；20 位公开 `slug`/`ref` 只用于 URL，不进入外键。公开 ID 由 `lib/ids.ts` 的 `generatePublicId()` 生成，项目创建遇 `ref` 冲突时重新生成、最多重试 3 次。
 - 约束：成员 `(organization_id, user_id)` 唯一、单组织仅一个 `owner`（部分唯一索引 + 触发器兜底）、角色 `CHECK`、待处理邀请 `(organization_id, lower(email))` 部分唯一、`auth.users` 活动邮箱唯一。捕获 `23505` / `23514` / `23503` 时转成中文提示，不要吞掉、也不要重试成重复数据。
-- 业务表（project、folder、lineage、node、article、book、book_catalog、activity_logs 等）有 `deleted_at` 软删，查询默认 `isNull(deletedAt)`；`organization.deleted_at` 表示归档。`organization_member` 与 `invite` 是**硬删除**，不要假设可恢复。
+- 业务实体表（名单与数量以 `lib/db/schema/` 里声明 `deletedAt` 的表为准）有 `deleted_at` 软删，查询默认 `isNull(deletedAt)`；`organization.deleted_at` 表示归档。`activity_logs` 是产品活动流，**没有**软删列；`organization_member` 与 `invite` 是**硬删除**，不要假设可恢复。
 
 ### 5.6 API Route
 
@@ -173,7 +173,7 @@ pnpm check && pnpm typecheck && pnpm test   # 提交前必须全绿
 | 3 | 角色是 `owner` / `admin` / `editor` / `viewer`；业务代码检查权限字符串，不要直接比较角色名 |
 | 4 | 主键是 UUIDv7；20 位公开 ID 只用于 URL |
 | 5 | RLS 是兜底，不是替代品；应用层仍必须按成员关系过滤 |
-| 6 | 业务表都有 `deleted_at` 软删，查询默认 `isNull(deletedAt)`，没有回收站 UI；`organization_member` 与 `invite` 硬删除 |
+| 6 | 业务实体表有 `deleted_at` 软删（名单以 `lib/db/schema/` 为准），查询默认 `isNull(deletedAt)`，没有回收站 UI；`activity_logs` 是活动流、无软删列；`organization_member` 与 `invite` 硬删除 |
 | 7 | 表结构变更走 Drizzle 迁移，不手改数据库；RLS/角色/函数写在 custom migration |
 | 8 | 迁移生成后必须人工 review；迁移与业务代码分开提交 |
 | 9 | 不要在迁移里夹带数据修复逻辑；迁移必须能在空库一次执行 |

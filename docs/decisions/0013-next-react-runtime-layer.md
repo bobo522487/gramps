@@ -4,6 +4,7 @@
 - **日期**：2026-10-28
 - **可逆性**：双向门
 - **相关**：[ADR 0008（只读 Route Handler）](./0008-read-only-route-handlers.md) · [ADR 0012（编译器开关：同一套「先测再改」）](./0012-typescript7-compiler-flags.md) · [10-24 架构评审 P1-8 / P1-9](../archive/reviews/2026-10-24-linus-architecture-review.md) · [实现状态 §1](../architecture/11-需求与实现状态.md) · [setup §5](../architecture/13-本地开发与命令.md)
+- **修订**：2026-11-05，第 4 条的两个 scoped helper 已按「只做减法」删除（不是接线）；决策「不接线、整树失效仍是唯一入口」不变，需要收窄时随 Zod 入参一起实装。
 
 ## 背景
 
