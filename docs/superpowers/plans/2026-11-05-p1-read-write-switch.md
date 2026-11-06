@@ -22,7 +22,7 @@
 - **事务**：任一写路径仍单事务 + `withOrgWrite`；失败不留半成品；`23505` / `23514` / `23503` 转中文 `ActionState`。
 - **临时冻结会过期**：`tests/fact-layer-freeze.test.ts` 的四条临时断言与 `tests/security-regressions.test.ts` 的 `fact-layer write boundary` 只在切换启动前有效。两处的过期条件都以本计划 **Task 3 / Step 3** 为准：Phase 2「写切换」启动时一起改写或删除，**不能永久禁止读事实层**；`fact-layer tenant invariants` 是跨切换的长期约束，保留。
 - 迁移只由 `pnpm db:generate` 生成后人工 review，迁移与业务代码分开提交。
-- 提交前 `pnpm check && pnpm typecheck && pnpm test` 全绿；`pnpm arch:check`、`pnpm docs:check --strict` 无 issue。
+- 提交前对全部受版本控制文件跑 `pnpm check`（全仓 `pnpm check` 另有未跟踪的 `.magpie/` 基线噪声，不写进完成判据）、`pnpm typecheck && pnpm test` 全绿；`pnpm arch:check`、`pnpm docs:check --strict` 无 issue。
 
 ## 启动闸门（唯一）
 
@@ -34,7 +34,7 @@
 
 | Phase | 目标窗口 | 内容 | 完成判据 |
 |---|---|---|---|
-| 0 · 决策与冻结 | 2026-11-05 ~ 2026-11-06 | 拍板真源、写本计划、冻结门禁、收敛文档、删死代码 | 本计划落地；`pnpm test` / `docs:check --strict` 全绿；事实层表数量与形状被测试钉住 |
+| 0 · 决策与冻结 | 2026-11-05 ~ 2026-11-06 | 拍板真源、写本计划、冻结门禁、收敛文档、删死代码 | 本计划落地；`pnpm test` / `docs:check --strict` 全绿；事实层六表的物理名与列名被测试钉住（索引 / 另起名字的新表 / 纯 SQL 由人工 review 兜底） |
 | 1 · 写路径设计 | 闸门后第 1 周（最早 2026-11-16） | 定写入口与 DTO；把 `node` 的写入面收敛到一处；设计位置投影 | 一份写入口清单 + 每个入口的替换映射；不写库、不改 UI |
 | 2 · 写切换 | 闸门后第 2~3 周 | 按入口逐个把写从 `node` 换到事实层，单事务内维护位置投影 | 每个入口有真实 PG 集成测试（含失败不留半成品）；`node` 不再接受新写 |
 | 3 · 读切换 | 闸门后第 4 周 | `lib/db/queries/` 与 RSC 首屏改读事实层；用 `RECONCILE_CHECKS` 做切换前后对账 | 谱系画布 / 世系表 / 检查器 / 打印视图在真实数据上等价；对账十四项全绿 |
@@ -49,8 +49,8 @@
 | 文件 | 动作 | 职责 |
 |---|---|---|
 | `docs/superpowers/plans/2026-11-05-p1-read-write-switch.md` | 新增（本轮） | 唯一在飞的切换计划 |
-| `tests/security-regressions.test.ts` | 修改（本轮） | 临时冻结注释 + 过期条件，补 `events` 断言 |
-| `tests/fact-layer-freeze.test.ts` | 新增（本轮） | 冻结六表声明 / 形状 / 零 import / 迁移基线 |
+| `tests/security-regressions.test.ts` | 修改（本轮） | 临时冻结注释 + 过期条件；裸词断言换成 import / namespace 模式（窄补位） |
+| `tests/fact-layer-freeze.test.ts` | 新增（本轮） | 冻结六表声明 / 列名 / 零 import 与 namespace 访问 / 迁移基线；注释写明 admitted limitations |
 | `tests/docs-consistency.test.ts` | 修改（本轮） | 文档路径、软删名单、实现的门禁都从代码派生 |
 | `lib/console/revalidate.ts` / `tests/revalidate-paths.test.ts` | 修改（本轮） | 删两个零调用 scoped helper |
 | `lib/lineage/*-services.ts` / `lib/db/queries/nodes.ts` | Phase 2~3 | 写替换与读替换（本轮不动） |
@@ -61,7 +61,7 @@
 **Files:** 本计划、`tests/security-regressions.test.ts`、`tests/fact-layer-freeze.test.ts`、`docs/architecture/11-需求与实现状态.md`、`docs/architecture/04-数据视图-数据架构.md`、`docs/architecture/12-风险与演进规划.md`。
 
 - [x] **Step 1**: 写下真源决策与启动闸门（本文件）。
-- [x] **Step 2**: 把「事实层冻结」写成从代码派生的 Vitest 断言：六表声明存在、形状不变、业务代码零 import；给测试注释写明过期条件。
+- [x] **Step 2**: 把「事实层冻结」写成从代码派生的 Vitest 断言：六表声明存在、列名不变、业务代码零 import 与 namespace 访问；给测试注释写明过期条件与已知边界（不伪装成完备静态分析器）。
 - [x] **Step 3**: 回填 11 / 04 / 12 / 03 里「切换计划尚未编写」的引用，指向本文件；R21 状态**保持 `缓解中`**（[12 §1](../../architecture/12-风险与演进规划.md) 只允许三种状态），在缓解列补真源决策、计划链接与冻结门禁——不改状态枚举，避免把风险登记簿变成第四种状态。
 - [x] **Step 4**: 验证本轮改动：`pnpm typecheck`（0）、`pnpm test`（49 文件 / 379 用例）、`pnpm arch:check`（0 violations）、`pnpm docs:check --strict`（0 issue）全绿；Biome 对全部受版本控制文件 + 两个新文件 `pnpm exec biome check` 为 0。全仓 `pnpm check` 另有**基线噪声**：未跟踪的 `.magpie/*.json` / `.magpie/www/*.js` 有 format 诊断，会话开始前就存在，不属本轮改动，故不修改、不提交——全仓绿是把它清掉之后的事，不写进本计划的完成判据。
 
