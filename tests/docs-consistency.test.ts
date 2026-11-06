@@ -296,22 +296,65 @@ const PLACEHOLDER = /[<*{…]/;
 // 任一个无关的「没有」都能赦免真正写错的引用。
 const NEGATION = /(?:没有|不存在|不创建|不要创建|禁止创建)[*\s]*$/;
 
+// `.specify/.gitignore` 声明的是「机器本地状态」：按设计不随仓库走，干净检出
+// （CI）里必然不存在。spec-driven-workflow.md 的「常见误区」正是把这类路径
+// 当反面示例点名，不算死链。豁免从声明派生，不硬编码单条路径，也不放宽
+// NEGATION（那会赦免真正写错的引用）。
+// 根因 CI run 42182428936：旧护栏用 existsSync 看工作树，开发机恰好有
+// `.specify/feature.json`、CI 干净检出没有，于是本地绿、CI 红。
+const MACHINE_LOCAL_PATHS = read('.specify/.gitignore')
+  .split('\n')
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith('#'))
+  .map((pattern) => {
+    const body = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '[^/]*');
+    return new RegExp(`^\\.specify/${body}$`);
+  });
+
+function isMachineLocal(path: string): boolean {
+  return MACHINE_LOCAL_PATHS.some((pattern) => pattern.test(path));
+}
+
+// `exists` 可注入，让回归测试能模拟「干净检出」而不是依赖本机工作树。
+function absentCitedPaths(exists: (path: string) => boolean): string[] {
+  const offenders: string[] = [];
+  for (const path of AUTHORITATIVE_DOCS) {
+    const text = read(path);
+    for (const match of text.matchAll(CODE_PATH)) {
+      if (PLACEHOLDER.test(match[1])) continue;
+      // `.specify/.gitignore` 声明的机器本地状态按设计不随仓库走；文档把它
+      // 当反面示例点名不算引用了「缺失的代码路径」。豁免从声明派生，所以
+      // 开发机有没有这些文件都不影响判定（CI run 42182428936 的根因）。
+      if (isMachineLocal(match[1])) continue;
+      if (exists(match[1])) continue;
+      // 否定词必须紧邻这条路径（「没有 `x.ts`」），而不是句子里任一个
+      // 无关的「没有」——否则会赦免真正写错的引用。
+      const before = text.slice(Math.max(0, match.index! - 12), match.index!);
+      if (NEGATION.test(before)) continue;
+      offenders.push(`${path}: ${match[1]}`);
+    }
+  }
+  return offenders;
+}
+
 describe('documentation is checked against code', () => {
   test('authoritative docs do not cite code paths that are absent', () => {
-    const offenders: string[] = [];
-    for (const path of AUTHORITATIVE_DOCS) {
-      const text = read(path);
-      for (const match of text.matchAll(CODE_PATH)) {
-        if (PLACEHOLDER.test(match[1])) continue;
-        if (existsSync(join(root, match[1]))) continue;
-        // 否定词必须紧邻这条路径（「没有 `x.ts`」），而不是句子里任一个
-        // 无关的「没有」——否则会赦免真正写错的引用。
-        const before = text.slice(Math.max(0, match.index! - 12), match.index!);
-        if (NEGATION.test(before)) continue;
-        offenders.push(`${path}: ${match[1]}`);
-      }
-    }
-    expect(offenders).toEqual([]);
+    expect(absentCitedPaths((path) => existsSync(join(root, path)))).toEqual(
+      []
+    );
+  });
+
+  test('the verdict is independent of machine-local state (clean checkout)', () => {
+    // 回归 CI run 42182428936：模拟干净检出，机器本地状态一律视为不存在。
+    expect(isMachineLocal('.specify/feature.json')).toBe(true);
+    expect(read('docs/guides/spec-driven-workflow.md')).toContain(
+      '`.specify/feature.json`'
+    );
+    const cleanCheckout = (path: string) =>
+      !isMachineLocal(path) && existsSync(join(root, path));
+    expect(absentCitedPaths(cleanCheckout)).toEqual([]);
   });
 
   test('soft-delete inventory is derived from the schema, never retyped', () => {
