@@ -282,10 +282,12 @@ const AUTHORITATIVE_DOCS = [
   ),
 ];
 
-// 反引号里的源码路径。刻意只认这几个扩展名：这是「别把已删文件写回文档」
-// 的窄护栏，不是通用链接检查器（相对链接与锚点由 scripts/check-docs.mjs 管）。
+// 反引号里的源码 / 文档路径。刻意只认这几个扩展名：这是「别把已删文件写回
+// 文档」的窄护栏，不是通用链接检查器（相对链接与锚点由 scripts/check-docs.mjs
+// 管）。`docs/` 与 `.specify/` 前缀必须纳入——constitution 的权威文本索引就
+// 曾把 11-02 并入前的三份根级文档路径写死在里面（独立评审 I4）。
 const CODE_PATH =
-  /`((?:app|components|lib|hooks|scripts|tests|data)\/[^\s`]+?\.(?:ts|tsx|mjs|js|json|sql|md))`/g;
+  /`((?:app|components|lib|hooks|scripts|tests|data|docs|\.specify)\/[^\s`]+?\.(?:ts|tsx|mjs|js|json|sql|md))`/g;
 // `<domain>`、`*`、`{a,b}`、`…` 是占位缩写，不是真实路径。`[projectRef]`
 // 这类动态路由目录是**真实目录名**，必须照常校验，不放行。
 const PLACEHOLDER = /[<*{…]/;
@@ -294,7 +296,7 @@ const PLACEHOLDER = /[<*{…]/;
 // 任一个无关的「没有」都能赦免真正写错的引用。
 const NEGATION = /(?:没有|不存在|不创建|不要创建|禁止创建)[*\s]*$/;
 
-describe('documentation is checked against code, not against prose', () => {
+describe('documentation is checked against code', () => {
   test('authoritative docs do not cite code paths that are absent', () => {
     const offenders: string[] = [];
     for (const path of AUTHORITATIVE_DOCS) {
@@ -351,9 +353,13 @@ describe('documentation is checked against code, not against prose', () => {
     expect(existsSync(join(root, articlesPage))).toBe(true);
 
     const overview = read('docs/architecture/01-架构总览.md');
-    const [inScope, outOfScope = ''] = overview.split('**不在这个系统里**');
-    expect(inScope).toContain('谱文');
-    expect(outOfScope).not.toMatch(/谱文编辑、谱书编目编辑/);
-    expect(outOfScope).not.toMatch(/谱文[^|\n]*没有查询函数与 Action/);
+    // 分隔符必须存在且唯一；否则 split 返回长度 1、outOfScope='' 会让下面
+    // 两条否定断言空转通过（独立评审 I5）。
+    const parts = overview.split('**不在这个系统里**');
+    expect(parts.length).toBe(2);
+    expect(parts[0]).toContain('谱文');
+    // 两条否定作用于整篇：即使分隔符被改名，也不会靠空串蒙混过关。
+    expect(overview).not.toMatch(/谱文编辑、谱书编目编辑/);
+    expect(overview).not.toMatch(/谱文[^|\n]*没有查询函数与 Action/);
   });
 });

@@ -183,18 +183,30 @@ describe('authorization invariants', () => {
 // code: `node` is only the CURRENT reader/writer. Until the product mainline
 // (book catalog + layout) ships end-to-end, lineage writes must not drift into
 // a second, unsynchronised representation.
-describe('fact-layer write boundary (TEMPORARY — delete at Phase 2)', () => {
+//
+// 这是一条**窄补位**：只看两个最容易长出双写的谱系写服务，不是全库边界。
+// 结构性冻结（六表声明 / 列名 / 全业务目录 import 与 namespace 访问 / 迁移
+// 基线）在 tests/fact-layer-freeze.test.ts。这里不再用裸词 \bpersons\b 之类
+// 断言——它会把注释与同名局部变量误判成违规，反而漏掉 namespace 访问
+// （独立评审 I6）。
+const FACT_SYMBOLS =
+  'persons|personNames|families|familyPartners|familyChildren|events';
+const FACT_IMPORT = new RegExp(
+  `^import[^;]*\\b(?:${FACT_SYMBOLS})\\b[^;]*from\\s*['"][^'"]*(?:schema|db)(?:/(?:index|person|family|event))?['"]`,
+  'm'
+);
+const FACT_ACCESS = new RegExp(
+  `\\b(?:schema|db|tx)\\.(?:query\\.)?(?:${FACT_SYMBOLS})\\b`
+);
+
+describe('fact-layer write boundary (narrow backstop, TEMPORARY — delete at Phase 2)', () => {
   const lineageWriteSources = [
     read('../lib/lineage/node-services.ts'),
     read('../lib/lineage/services.ts'),
   ].join('\n');
 
-  it('lineage write services do not import the fact-layer tables', () => {
-    expect(lineageWriteSources).not.toMatch(/\bpersons\b/);
-    expect(lineageWriteSources).not.toMatch(/\bpersonNames\b/);
-    expect(lineageWriteSources).not.toMatch(/\bfamilies\b/);
-    expect(lineageWriteSources).not.toMatch(/\bfamilyPartners\b/);
-    expect(lineageWriteSources).not.toMatch(/\bfamilyChildren\b/);
-    expect(lineageWriteSources).not.toMatch(/\bevents\b/);
+  it('lineage write services neither import nor reach the fact-layer tables', () => {
+    expect(lineageWriteSources).not.toMatch(FACT_IMPORT);
+    expect(lineageWriteSources).not.toMatch(FACT_ACCESS);
   });
 });
