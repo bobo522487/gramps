@@ -174,9 +174,16 @@ describe('authorization invariants', () => {
   });
 });
 
-describe('fact-layer write boundary', () => {
-  // R21 / 2026-11-03 review: the fact layer is a one-shot backfill snapshot.
-  // Lineage write services must not start dual-writing person/family rows.
+// TEMPORARY FREEZE — expires when the P1 read/write switch starts.
+// Expiry is defined in ONE place: the plan's Global Constraints + Task 3/Step 3
+// (docs/superpowers/plans/2026-11-05-p1-read-write-switch.md). Both this describe
+// and the four temporary assertions in tests/fact-layer-freeze.test.ts are
+// rewritten or deleted together at Phase 2 ("写切换"), never at Phase 1 (design).
+// The fact layer is the TARGET source of truth (decided 2026-11-05), not dead
+// code: `node` is only the CURRENT reader/writer. Until the product mainline
+// (book catalog + layout) ships end-to-end, lineage writes must not drift into
+// a second, unsynchronised representation.
+describe('fact-layer write boundary (TEMPORARY — delete at Phase 2)', () => {
   const lineageWriteSources = [
     read('../lib/lineage/node-services.ts'),
     read('../lib/lineage/services.ts'),
@@ -188,5 +195,6 @@ describe('fact-layer write boundary', () => {
     expect(lineageWriteSources).not.toMatch(/\bfamilies\b/);
     expect(lineageWriteSources).not.toMatch(/\bfamilyPartners\b/);
     expect(lineageWriteSources).not.toMatch(/\bfamilyChildren\b/);
+    expect(lineageWriteSources).not.toMatch(/\bevents\b/);
   });
 });
