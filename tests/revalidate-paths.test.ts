@@ -5,44 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 
 const { revalidatePath } = await import('next/cache');
-const { revalidateOrg, revalidateProject, revalidateWholeConsole } =
-  await import('@/lib/console/revalidate');
-
-const ORG_SLUG = 'orgslug123451789abc';
-const PROJECT_REF = 'projref123456789abc';
+const { revalidateWholeConsole } = await import('@/lib/console/revalidate');
 
 /**
- * 这里只测 helper 本身的形状。**生产调用点仍然全部走 revalidateWholeConsole()**，
- * 所以下面两个 scoped helper 是零调用者的待接线代码——最后一例把这件事钉住，
- * 免得文档再次把它写成「已收窄」（真的接线那天这条会红，是预期信号）。
+ * 唯一存活的失效入口及其调用点。曾经有两个 scoped helper（按 project / org 子树收窄），
+ * 零调用者、只在测试里被引用；2026-11-05 按「只做减法」删掉，需要时随 Zod 入参一起实装。
  */
 describe('revalidate helpers', () => {
-  it('revalidateProject 失效该project 与所属组织两棵子树', () => {
-    vi.mocked(revalidatePath).mockClear();
-    revalidateProject(ORG_SLUG, PROJECT_REF);
-
-    expect(revalidatePath).toHaveBeenCalledTimes(2);
-    expect(revalidatePath).toHaveBeenCalledWith(
-      `/dashboard/project/${PROJECT_REF}`,
-      'layout'
-    );
-    expect(revalidatePath).toHaveBeenCalledWith(
-      `/dashboard/org/${ORG_SLUG}`,
-      'layout'
-    );
-  });
-
-  it('revalidateOrg 只失效该组织一棵子树', () => {
-    vi.mocked(revalidatePath).mockClear();
-    revalidateOrg(ORG_SLUG);
-
-    expect(revalidatePath).toHaveBeenCalledTimes(1);
-    expect(revalidatePath).toHaveBeenCalledWith(
-      `/dashboard/org/${ORG_SLUG}`,
-      'layout'
-    );
-  });
-
   it('revalidateWholeConsole 失效整棵 /dashboard 树', () => {
     vi.mocked(revalidatePath).mockClear();
     revalidateWholeConsole();
@@ -51,7 +20,7 @@ describe('revalidate helpers', () => {
     expect(revalidatePath).toHaveBeenCalledWith('/dashboard', 'layout');
   });
 
-  it('scoped helpers 尚未接线：写入 Action 里没有一处调用', () => {
+  it('写入 Action 全部走统一入口，不引用已删除的 scoped helper', () => {
     const actionFiles = [
       'lib/lineage/actions.ts',
       'lib/folder/actions.ts',
