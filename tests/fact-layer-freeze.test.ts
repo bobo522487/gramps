@@ -37,6 +37,18 @@ function factTables(): string[] {
     .sort();
 }
 
+/**
+ * pgTable('name', { ... }, ...) 的列块，与旧冻结测试同一套解析。
+ * 只用来逐表查租户列与软删列，**不快照列名**（避免第二份真相源）。
+ */
+function tableBlocks(source: string) {
+  return [
+    ...source.matchAll(
+      /(?:export\s+)?const (\w+) = pgTable\(\s*'([a-z_]+)',\s*\{([\s\S]*?)\n {2}\},/g
+    ),
+  ];
+}
+
 describe('S8 阶段 A · 事实层冻结已解除', () => {
   test('六张事实层表仍在（防零断言）', () => {
     expect(factTables()).toEqual(FACT_TABLES);
@@ -53,11 +65,20 @@ describe('S8 阶段 A · 事实层冻结已解除', () => {
     ).toEqual([]);
   });
 
-  test('事实层表仍带租户列（跨阶段约束）', () => {
+  test('每张事实层表仍带租户列与软删列（阶段 B 删软删时同步移除本断言）', () => {
     for (const file of ['person.ts', 'family.ts', 'event.ts']) {
-      const body = read(`lib/db/schema/${file}`);
-      expect(body, file).toContain("uuid('organization_id').notNull()");
-      expect(body, file).toContain("uuid('project_id').notNull()");
+      const blocks = tableBlocks(read(`lib/db/schema/${file}`));
+      expect(blocks.length, file).toBeGreaterThan(0);
+      for (const block of blocks) {
+        const [, , table, body] = block;
+        expect(body, `${file} ${table}`).toContain(
+          "uuid('organization_id').notNull()"
+        );
+        expect(body, `${file} ${table}`).toContain(
+          "uuid('project_id').notNull()"
+        );
+        expect(body, `${file} ${table}`).toContain("timestamptz('deleted_at')");
+      }
     }
   });
 });

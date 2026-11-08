@@ -50,6 +50,15 @@ describe('S8 stage A · 旧回填模型产物已退役', () => {
     );
   });
 
+  test('直测数据库约束的三个集成测试保留', () => {
+    const kept = [
+      'tests/integration/fact-person.test.ts',
+      'tests/integration/fact-family.test.ts',
+      'tests/integration/fact-event.test.ts',
+    ];
+    expect(kept.filter((path) => !exists(path))).toEqual([]);
+  });
+
   test('防零断言：事实层 schema 仍在（本批不改表结构）', () => {
     expect(read('lib/db/schema/person.ts')).toContain('pgTable(');
     expect(read('lib/db/schema/family.ts')).toContain('pgTable(');
