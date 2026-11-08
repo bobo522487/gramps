@@ -147,7 +147,18 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 | 所出之母与子女同家庭且角色为妻 / 妾 | 四列复合 FK → `family_partner` + 成对 CHECK |
 | 库内书没有已出版态、身份表不含关系事实 | 结构上不存在对应列与表 |
 
-**全库用户定义触发器 0、定时任务 0、视图 0。** 上表机制都是主键、外键、CHECK、唯一索引、生成列、路径类型，或一条明确的写入路径契约。仍不由 DDL 保证的（写入路径契约、制品不可变性、组织至少一名 owner）必须写出「谁兜、怎么验、何时算失守」，见 §9。
+**全库用户定义触发器 2 类共 17 条（全是完整性守卫，不含业务逻辑）、定时任务 0、视图 0。** 上表机制都是主键、外键、CHECK、唯一索引、生成列、路径类型，或一条明确的写入路径契约。仍不由 DDL 保证的（写入路径契约、制品不可变性、组织至少一名 owner）必须写出「谁兜、怎么验、何时算失守」，见 §9。
+
+那 2 个触发器是本节的**唯一例外**，共同点是「声明式约束在 PostgreSQL 里表达不出、又必须与写入同事务」：
+
+| 触发器 | 为什么不能用约束或策略表达 | 为什么不能放应用层 |
+| --- | --- | --- |
+| `trg_<table>_tenant_immutable`（16 张组织作用域表，共用 `app.forbid_tenant_move()`） | RLS 的 `USING` 只看 OLD 行、`WITH CHECK` 只看 NEW 行，**任何策略组合都无法比较两行**。同属两个组织的用户执行 `update project set organization_id = <他组织>` 时两半各自成立，行就被搬走——这是 2026-10-29 评审的 P0 项，权限提升而非理论风险 | 应用层没有「所有 UPDATE 都会经过」的单一入口（Server Action、SECDEF 函数、测试工厂都写库），漏一处就是一个洞 |
+| `trg_auth_user_created`（`AFTER INSERT ON auth.user` → `public.handle_new_user()`） | 无约束能表达「插入 auth.user 时同时插入 organization + organization_member」 | Better Auth 的 `databaseHooks.user.create.after` 走 `queueAfterTransactionHook`，**在事务提交之后**才执行；钩子失败只能留下「有账号、无组织」的半截状态，补偿式删除不可靠 |
+
+被拒绝的替代方案是列级权限（`REVOKE UPDATE ON t` + `GRANT UPDATE (可写列)`，实测同样能拦住搬移）：它是**白名单**，而目标态还在继续加列（B3 的 `book_catalog.path`、T27 的 `article.body`），每加一列忘了补 `GRANT` 就是 `42501`，失败形态是「功能坏」而不是「测试红」；触发器是黑名单（枚举不会变的租户键），且 `IS DISTINCT FROM` 让「值不变的自赋值」正常通过，比列级权限更宽容。
+
+除这 2 个之外，`organization.slug` 不可变、组织至少一名 owner、不许往已关停组织加成员——一律走写入路径契约，见 §9。
 
 删除：整棵子树一条 `DELETE ... WHERE path <@ '0010'::ltree`（`<@` 含根自身）；移子树用 `text2ltree` 重写前缀（根上 `subpath(path,1)` 会报 `22023`）；同级交换走三阶段改名。`auth.user` 删除时成员行 `CASCADE`、`created_by` / `invited_by` `SET NULL`；删 `folder` 时内容 `folder_id SET NULL (folder_id)`；**其余一切 `RESTRICT`**，不允许一条 SQL 静默抹掉数据。注意 `RESTRICT` 违反时 SQLSTATE 是 **`23001`** 而非 `23503`（`NO ACTION` 才是 `23503`）。
 
@@ -217,7 +228,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 >
 > 当前代码状态：`lib/folder/services.ts` 的删除已改成**叶→根 BFS 硬删**（每个节点单独 `DELETE`），所以无论最终怎么压平，删除语义都不再依赖软删。
 
-> **另见 B0b**：B0 重建基线时丢了整层隔离机制（`app.forbid_tenant_move()` + 13 张表的 `trg_*_tenant_immutable` 触发器、`auth.has_org_role()` 等 `auth.*` 函数、`public.handle_new_user()` + `on_auth_user_created` 注册自动建个人组织）。已在 B0b 单独立批补齐，集成测试的 `217 failed` 主因在此，不是本批引入的。
+> **B0b 已补齐（2026-11-08）**：B0 重建基线时丢了整层隔离机制。补回的是 `app.forbid_tenant_move()` + **16** 张表的 `trg_*_tenant_immutable`（旧清单里的 `activity_logs` 已退役，换成 B1 带来的 `book_export`）与 `public.handle_new_user()` + `trg_auth_user_created`，两者都是 §5.3 例外表里那类完整性守卫。**没有补** `auth.has_org_role()` 等 `auth.*` 函数：目标态用 `app.visible_org_array()`，而 `verify-deployment.mjs` 里那条「每条策略必须调 `has_org_role`」的断言是旧实现口径，T34 会删掉。注册触发器落地后 `getPersonalOrg()` 不再返回 null。
 
 重构验收时逐条确认差异已消掉：
 
@@ -240,7 +251,10 @@ node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.l
 | --- | --- |
 | 闭包、跨项目引用、格式、唯一性、主体唯一 | DDL：主键 / 外键 / CHECK / 生成列 / 唯一索引 |
 | 隔离与 fail-closed | RLS 策略 + 应用服务在事务内注入 `SET LOCAL`；`verify:deploy` 逐项断言运行期角色 `NOBYPASSRLS` |
-| 角色授权、收录状态、制品不可变性、组织至少一名 owner | **无自动执行者**：靠单一写入路径契约、评审与巡检 SQL；制品不可变性由对象存储负责 |
+| 租户键与成员关系不可搬移 | DDL（§5.3 的例外）：16 条 `trg_<table>_tenant_immutable` + 共用 `app.forbid_tenant_move()`，`IS DISTINCT FROM` 比 OLD/NEW |
+| 注册必建个人组织 | DDL（§5.3 的例外）：`trg_auth_user_created` → `public.handle_new_user()`，与 `auth.user` 行同事务，失败一起回滚 |
+| 已关停组织不再收成员 | `app.accept_invite` 函数体内的 `status <> 'closed'` 谓词（关停即让未消费的邀请失效）；`verify:deploy` 断言函数体含该谓词 |
+| 角色授权、收录状态、制品不可变性、组织至少一名 owner、`slug` 不可变 | **无自动执行者**：靠单一写入路径契约、评审与巡检 SQL；制品不可变性由对象存储负责 |
 | 路径标签稳定、稀疏序号重排、三阶段改名 | 写入路径契约，低频维护操作，靠代码评审 |
 | 迁移已应用、库结构与代码对齐 | `.github/workflows/migrate-production.yml` + `scripts/verify-deployment.mjs` |
 | §7 的验证结论（重构验收） | 当前**无自动执行者**：数字来自独立 PG18 容器的人工验收；重构完成后须落成 CI 或 `verify:deploy` 断言，否则纸面数字不算兑现 |

@@ -360,30 +360,39 @@ describe('row level security', () => {
     );
   });
 
-  it('blocks viewers from writing projects through RLS', async () => {
+  it('leaves role-based write refusal to the application layer, not RLS', async () => {
+    // 目标态的分工写死在 docs/data-model.md §3 与 §9：
+    // **RLS 只做可见性，owner / admin / editor / viewer 的读写授权由
+    // 应用服务在单一写入路径判定**。viewer 是组织成员，visible_org_array()
+    // 含这个组织，所以 DB 层放行 INSERT；拒绝 viewer 写入是 withOrgWrite 的
+    // 职责（tests/integration/with-org-write.test.ts 的
+    // "refuses before running the callback for a viewer"）。
+    //
+    // 这条用例守的正是**这个分工**：谁往 org_isolation 里加角色谓词，就会出现
+    // 第二份「按角色授权」的 DDL 真相源，必须回来改这里并同步 §3/§9，
+    // 而不是悄悄多一道没人知道的防线。
     const viewer = await createUser();
     const organization = await createOrganization();
-    await addMember({ userId: viewer.id, organizationId: organization.id });
+    await addMember({
+      userId: viewer.id,
+      organizationId: organization.id,
+      role: 'viewer',
+    });
 
-    await expect(
-      withOrg(viewer.id, (tx) =>
-        tx.insert(projects).values({
+    const [row] = await withOrg(viewer.id, (tx) =>
+      tx
+        .insert(projects)
+        .values({
           orgId: organization.id,
-          name: '只读越权',
+          name: '只读角色在 DB 层不被拦',
           themeName: '陈实',
           surname: '陈',
           createdBy: viewer.id,
         })
-      )
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '42501' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes(
-            'new row violates row-level security policy for table "project"'
-          )
-        )
+        .returning({ id: projects.id })
     );
+
+    expect(row?.id).toBeTruthy();
   });
 
   it('keeps auth.user unreachable for the runtime role', async () => {
@@ -392,10 +401,13 @@ describe('row level security', () => {
     await expect(
       withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.user`))
     ).rejects.toSatisfy(
+      // 拦住的是 schema 而不是表：app_rw 连 USAGE ON SCHEMA auth 都没有，
+      // 所以报的是 `permission denied for schema auth`。以前断言的是表级
+      // `table users`——那是旧复数表名时代的消息。
       (error) =>
         pgErrorCode(error) === '42501' &&
         pgErrorMessages(error).some((message) =>
-          message.includes('permission denied for table users')
+          message.includes('permission denied for schema auth')
         )
     );
   });

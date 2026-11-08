@@ -49,6 +49,25 @@ export async function grantRuntimeRoles(sql: Sql): Promise<void> {
 
   // 先清空再逐项授予，避免上一次运行留下的过宽授权残留（drop schema 会清表级
   // 权限，但角色成员关系与 schema 级权限是集群 / 库级，不会被 drop 清掉）。
+  //
+  // `REVOKE genealogy_app FROM app_rw` 是**自愈**，不是可有可无的清理：
+  // `SET LOCAL ROLE app_rw` 的语义是收窄权限，一旦 app_rw 反过来成为登录角色
+  // genealogy_app 的成员，它就继承了「ALL TABLES 读写」，下面所有 REVOKE 全部
+  // 失效——实测表现是 organization 的越权 UPDATE 不报 42501、而是被 RLS 静默
+  // 过滤成 0 行，调用方看不出自己被拦了。角色成员关系是集群级的，drop schema
+  // 不清它，所以每次重建都必须显式剥掉。
+  //
+  // 但 `REVOKE <不存在的角色>` 与 `GRANT` 不对称：实测 PG18 下
+  // `revoke t_gone from app_rw` 直接 **ERROR: role "t_gone" does not exist**，
+  // 而 `grant t_gone to app_rw` 只是 WARNING。裸写这一句意味着一个全新集群
+  // （`genealogy_app` 还没建）上整个 setup 在这里中断，所有集成测试连带失败。
+  // 先探一下再决定要不要发。
+  const [genealogyAppExists] = await sql<{ exists: boolean }[]>`
+    select exists(select 1 from pg_roles where rolname = 'genealogy_app') as exists
+  `;
+  if (genealogyAppExists?.exists) {
+    await sql.unsafe('REVOKE genealogy_app FROM app_rw');
+  }
   await sql.unsafe('REVOKE ALL ON SCHEMA app FROM app_rw');
   await sql.unsafe('REVOKE ALL ON SCHEMA public FROM app_rw');
   await sql.unsafe('REVOKE ALL ON SCHEMA app FROM auth_service');

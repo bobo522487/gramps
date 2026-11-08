@@ -612,6 +612,11 @@ BEGIN
   SELECT * INTO v_inv FROM public.invite i
    WHERE i.token_hash = p_token_hash
      AND i.status = 'pending' AND i.expires_at > now()
+     -- 组织关停后其邀请必须失效。目标态没有软删，组织行还在表里，
+     -- 少了这个条件就能往已关停组织里继续塞人（旧实现靠
+     -- trg_invite_active_org 触发器兜，这里改在唯一的写入路径本体内判）。
+     AND EXISTS (SELECT 1 FROM public.organization o
+                  WHERE o.id = i.organization_id AND o.status <> 'closed')
    FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION '邀请无效或已过期' USING ERRCODE = '22023';
@@ -632,6 +637,36 @@ BEGIN
    WHERE organization_id = v_inv.organization_id AND id = v_inv.id;
   RETURN v_inv.organization_id;
 END $$;
+
+-- 供应用层在「接受邀请」入口判断目标组织是否还收人。
+--
+-- SECURITY DEFINER 是必需的：调用者此刻还不是该组织的成员，organization 的
+-- org_isolation 策略让他看不见这一行，而这条判断恰恰要读行本身。
+-- 只返回一个枚举值，不泄漏组织名、成员、时间戳——比放开整行可见性安全得多。
+--
+-- 为什么是三态而不是布尔：`false` 同时覆盖「组织已关停」与「组织不存在」，
+-- 调用方只能给出一句含糊的「无法加入」，用户不知道该找管理员还是邀请已作废。
+-- `text` 而不是 enum：多一个类型就多一处 DDL 迁移，而取值集合由 CHECK 钉住。
+--
+-- 为什么需要它：当前生效的接受邀请路径是 Better Auth 的 `acceptInvitation`，
+-- 它只校验邀请自身的 status / expiresAt，**不看 organization.status**。
+-- `app.accept_invite` 里的同款谓词要到 B2b 邀请流程改造后才成为主路径。
+CREATE OR REPLACE FUNCTION app.organization_join_state(p_org_id uuid) RETURNS text
+  LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT coalesce(
+    (SELECT o.status::text FROM public.organization o WHERE o.id = p_org_id),
+    'missing')
+$$;
+
+-- 兼容壳：B0b 已合入的那一版返回 boolean，保留它可以让迁移重放与
+-- 外部脚本（verify-deployment 的旧断言、运维手敲的探针）不因改名而断。
+-- 语义严格是上面那个函数的投影，不是第二套判断。
+CREATE OR REPLACE FUNCTION app.organization_is_open(p_org_id uuid) RETURNS boolean
+  LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT app.organization_join_state(p_org_id) = 'active'
+$$;
 
 DO $$
 DECLARE
@@ -654,6 +689,152 @@ BEGIN
     'CREATE POLICY org_isolation ON organization FOR ALL USING (%s) WITH CHECK (%s)', q, q);
 END $$;
 
+-- ===== [A.6.1] 租户键不可变守卫 =====
+--
+-- 规格 §5.3「0 业务触发器」的**第 1 类例外**（第 2 类是 A.6.2），
+-- 理由写进 §5.3 的例外表与 §9：
+--
+--   RLS 的 USING 只看 OLD 行、WITH CHECK 只看 NEW 行，PostgreSQL 里不存在
+--   任何策略组合能比较这两行。于是同属两个组织的用户执行
+--   `update project set organization_id = <他组织>` 时，USING（old 属于他的组织 A）
+--   与 WITH CHECK（new 属于他的组织 B）**各自都成立**，行就被搬走了。
+--   这是 2026-10-29 数据模型评审的 P0 项：权限提升路径，不是理论风险。
+--   BEFORE UPDATE 触发器是 PostgreSQL 里唯一同时看得到 OLD 与 NEW 的地方。
+--
+-- 它不是业务逻辑：函数只 RAISE，不写任何数据，一个函数服务全部 16 张表。
+-- 备选方案「列级 REVOKE UPDATE + GRANT UPDATE (可写列)」实测同样能拦住
+-- （改 org_id 报 42501），但那是**白名单**：目标态还要继续加列（B3 的
+-- book_catalog.path、T27 的 article.body），每次加列忘了补 GRANT 就是 42501，
+-- 失败形态是「功能坏」而不是「测试红」。黑名单式（枚举不可变列）维护成本低得多，
+-- 且租户键是稳定集合——一年也不会新增一个。
+--
+-- 新增组织作用域表必须在本清单里加一行，`trg_<table>_tenant_immutable` 由
+-- scripts/verify-deployment.mjs 与 tests/integration/tenant-immutability.test.ts
+-- 双向断言，漏了会红。
+
+CREATE OR REPLACE FUNCTION app.forbid_tenant_move() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+  col text;
+BEGIN
+  -- 零参数 = 零次迭代 = 静默放行整张表。清单里写成 `ARRAY[]`、或某次
+  -- string_agg 因为数组全空而返回 NULL，都会落到这里，所以显式拦掉。
+  IF coalesce(array_length(TG_ARGV, 1), 0) = 0 THEN
+    RAISE EXCEPTION 'guard trigger on % was created without tenant columns', TG_TABLE_NAME
+      USING ERRCODE = '42725',
+            HINT = 'pass at least one column to app.forbid_tenant_move()';
+  END IF;
+
+  FOREACH col IN ARRAY TG_ARGV LOOP
+    -- 手写参数清单的护栏：`to_jsonb(NEW) -> 'typo'` 在两边都是 NULL，
+    -- 下面的比较恒不成立，那张表就被静默放行了。42703 让拼错在第一次
+    -- UPDATE 时就炸出来，而不是留一个看起来有守卫的空壳。
+    IF NOT (to_jsonb(NEW) ? col) THEN
+      RAISE EXCEPTION 'tenant column % does not exist on %', col, TG_TABLE_NAME
+        USING ERRCODE = '42703';
+    END IF;
+
+    -- IS DISTINCT FROM 而非 `<>`：租户列若可空，NULL <> NULL 求值为 NULL，
+    -- 会把 NULL -> 值的搬移放过去。
+    IF to_jsonb(NEW) -> col IS DISTINCT FROM to_jsonb(OLD) -> col THEN
+      RAISE EXCEPTION 'column %.% is immutable', TG_TABLE_NAME, col
+        USING ERRCODE = '42501',
+              HINT = 'tenant and ownership columns cannot be reassigned; create a new row instead';
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END $$;
+
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      -- 边界层：成员行连 user_id 一起钉住——成员身份是「谁在这个组织里」，
+      -- 允许改 user_id 等于允许把成员行改写给任意账号。
+      ('organization_member', ARRAY['organization_id', 'user_id']),
+      ('invite',              ARRAY['organization_id']),
+      -- 项目容器：organization 是租户键，project 是二级键
+      ('project',             ARRAY['organization_id']),
+      ('folder',              ARRAY['organization_id', 'project_id']),
+      -- 谱系层：parent_id / path 可自由移动（挪节点是合法操作），租户键不可。
+      -- node 必须连 project_id 一起钉：lineage 的主键是 (project_id, id)，
+      -- 只钉 lineage_id 时，在一个项目里造一条同 id 的 lineage 就能把节点
+      -- 连同 org 一起搬到那个项目（uuid 由调用方指定，不是碰撞概率问题）。
+      ('lineage',             ARRAY['organization_id', 'project_id']),
+      ('node',                ARRAY['organization_id', 'project_id', 'lineage_id']),
+      -- 事实层：四张表同形状
+      ('person',              ARRAY['organization_id', 'project_id']),
+      ('person_name',         ARRAY['organization_id', 'project_id']),
+      ('family',              ARRAY['organization_id', 'project_id']),
+      ('family_partner',      ARRAY['organization_id', 'project_id']),
+      ('family_child',        ARRAY['organization_id', 'project_id']),
+      ('event',               ARRAY['organization_id', 'project_id']),
+      -- 谱文层：folder_id 是归档位置（可改），project 才是租户键
+      ('article',             ARRAY['organization_id', 'project_id']),
+      ('book',                ARRAY['organization_id', 'project_id']),
+      -- 同理 book 的主键是 (project_id, id)，只钉 book_id 挡不住跨项目搬目录。
+      ('book_catalog',        ARRAY['organization_id', 'project_id', 'book_id']),
+      ('book_export',         ARRAY['organization_id', 'project_id'])
+    ) AS v(tbl, cols)
+  LOOP
+    -- CREATE OR REPLACE（PG14+）：`psql -f` 逐句自动提交，若先 DROP 再 CREATE，
+    -- 两条语句之间有一段「触发器已删、新的还没建」的真空窗口。基线本身在
+    -- 干净 schema 上跑，但重放 / 演练时这个窗口是真实的。
+    EXECUTE format(
+      'CREATE OR REPLACE TRIGGER %I BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION app.forbid_tenant_move(%s)',
+      'trg_' || r.tbl || '_tenant_immutable', r.tbl,
+      (SELECT string_agg(quote_literal(c), ', ') FROM unnest(r.cols) AS c));
+  END LOOP;
+END $$;
+
+-- ===== [A.6.2] 注册即建个人组织 =====
+--
+-- 为什么是触发器而不是应用层钩子：Better Auth 的 `databaseHooks.user.create.after`
+-- 走 `queueAfterTransactionHook`，源码注释写明 "runs the hooks queued ...
+-- once the work commits"——它**在事务提交之后**才跑。钩子一旦失败，用户行已经
+-- 落地，只能留下「有账号、无组织」的半截状态，而 getPersonalOrg 会返回 null，
+-- 用户所有页面都进不去。补偿式删除同样不可靠（进程崩了就没有补偿）。
+-- 同一事务内的 AFTER INSERT 触发器是唯一能做到「要么都成、要么都不成」的位置。
+--
+-- 这不是业务逻辑：它只做两件插入，且插入值全部来自 auth.user 行本身。
+-- 与 A.6.1 一起构成规格 §5.3「0 业务触发器」的两个完整性守卫例外（见 §9）。
+
+CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
+  LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_org  uuid;
+  v_name text;
+BEGIN
+  -- 组织名优先取 Better Auth 写入的 name，其次邮箱本地部分，最后兜底。
+  -- organization.name 有 CHECK (btrim(name) <> '')，所以三级都必须非空。
+  -- 每一级都要 btrim 后再判空：`split_part('  @x','@',1)` 是 `'  '`，
+  -- 非空串，会跳过兜底，然后撞 organization.name 的 CHECK (btrim(name) <> '')，
+  -- 整笔注册回滚——一个格式奇怪的邮箱就能让新用户永远注册不上。
+  v_name := coalesce(
+    nullif(btrim(new.name), ''),
+    nullif(btrim(split_part(coalesce(new.email, ''), '@', 1)), ''),
+    '我的家族');
+
+  INSERT INTO public.organization (name, created_by)
+    VALUES (v_name, new.id)
+    RETURNING id INTO v_org;
+
+  INSERT INTO public.organization_member (organization_id, user_id, role)
+    VALUES (v_org, new.id, 'owner');
+
+  RETURN new;
+END $$;
+
+-- CREATE TRIGGER 没有 OR REPLACE，重跑 `psql -f` 会撞 42710。
+DROP TRIGGER IF EXISTS trg_auth_user_created ON auth.user;
+CREATE TRIGGER trg_auth_user_created
+  AFTER INSERT ON auth.user
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 REVOKE ALL ON SCHEMA app FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app FROM PUBLIC;
 GRANT USAGE ON SCHEMA app TO genealogy_app;
@@ -667,5 +848,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 GRANT EXECUTE ON FUNCTION app.visible_org_array() TO genealogy_app;
 GRANT EXECUTE ON FUNCTION app.create_organization(text) TO genealogy_app;
 GRANT EXECUTE ON FUNCTION app.accept_invite(text) TO genealogy_app;
+GRANT EXECUTE ON FUNCTION app.organization_join_state(uuid) TO genealogy_app;
+GRANT EXECUTE ON FUNCTION app.organization_is_open(uuid) TO genealogy_app;
+-- 触发器执行本身不检查 EXECUTE（实测：has_function_privilege = false 时
+-- UPDATE 照样触发并抛错），这里授权是为了另一件事——部署若用非属主角色
+-- CREATE TRIGGER，PostgreSQL 会在建触发器时检查 EXECUTE 并报 42501。
+GRANT EXECUTE ON FUNCTION app.forbid_tenant_move() TO genealogy_app;
 -- 纵深防御（默认注释：启用后应用角色不能建临时表）
 -- REVOKE TEMPORARY ON DATABASE <db> FROM PUBLIC;

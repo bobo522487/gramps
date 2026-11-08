@@ -51,6 +51,19 @@ function check(condition, label, detail = '') {
   return condition;
 }
 
+// 部署自检的输出会被人读，也会被脚本 grep。`1 triggers` / `1 policies` 这种
+// 单复数错乱说明文案是拼出来的而不是算的，顺手修掉——失败分支里的逗号列表
+// 已经长得离谱，一并按「单项直接打，多项计数 + 列举」收敛。
+function plural(count, one, many) {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function listed(items, render) {
+  return items.length === 1
+    ? render(items[0])
+    : `${items.length}: ${items.map(render).join(', ')}`;
+}
+
 const REQUIRED_HEADERS = [
   ['x-content-type-options', 'nosniff'],
   ['x-frame-options', 'DENY'],
@@ -186,25 +199,28 @@ const BUSINESS_TABLES = [
   'article',
   'book',
   'book_catalog',
-  'activity_logs',
+  'book_export',
 ];
 
-const AUTH_TABLES = ['users', 'session', 'account', 'verification'];
+const AUTH_TABLES = ['user', 'session', 'account', 'verification'];
 
-// Guards that are not the tenant-immutability family: registration, slug
-// immutability, the last-owner rules and the active-organization invariants.
-const TENANT_TRIGGERS = [
-  ['auth', 'users', 'trg_auth_user_created'],
-  ['public', 'organization', 'trg_org_slug_immutable'],
-  ['public', 'organization_member', 'trg_org_member_last_owner_delete'],
-  ['public', 'organization_member', 'trg_org_member_last_owner_update'],
-  ['public', 'organization_member', 'trg_org_member_active_org'],
-  ['public', 'invite', 'trg_invite_active_org'],
-];
+// Guards that are not the tenant-immutability family. Target state keeps
+// exactly one: registration must create the personal organization inside the
+// same transaction as the user row (see docs/data-model.md §9 — Better Auth's
+// `databaseHooks.user.create.after` runs *after* commit, so a hook cannot roll
+// back a half-created account).
+//
+// `slug` immutability, the last-owner rules and the active-organization
+// invariants deliberately have **no trigger**: §9 registers them as
+// write-path contracts, and `app.accept_invite` / `app.create_organization`
+// are the only writers. The former three triggers were part of the old
+// implementation and are not in the target baseline.
+const TENANT_TRIGGERS = [['auth', 'user', 'trg_auth_user_created']];
 
-// Every organization-scoped table must carry `trg_<table>_tenant_immutable`
-// (ADR 0016). The list is the inventory the integration test asserts too, so a
-// new table that forgets the trigger fails here before it reaches production.
+// Every organization-scoped table must carry `trg_<table>_tenant_immutable`.
+// The list is the inventory the integration test asserts too, so a new table
+// that forgets the trigger fails here before it reaches production.
+// `activity_logs` retired in B2a; `book_export` arrived with B1's appendix A.5.
 const TENANT_IMMUTABLE_TABLES = [
   'organization_member',
   'invite',
@@ -221,7 +237,7 @@ const TENANT_IMMUTABLE_TABLES = [
   'article',
   'book',
   'book_catalog',
-  'activity_logs',
+  'book_export',
 ];
 
 function safeDbError(error) {
@@ -312,8 +328,8 @@ async function checkDb() {
       missingTables.length === 0,
       'business tables exist',
       missingTables.length === 0
-        ? `${BUSINESS_TABLES.length} tables`
-        : missingTables.join(', ')
+        ? plural(BUSINESS_TABLES.length, 'table', 'tables')
+        : listed(missingTables, (name) => name)
     );
     const unprotected = BUSINESS_TABLES.filter((name) => {
       const row = byName.get(name);
@@ -322,7 +338,9 @@ async function checkDb() {
     check(
       unprotected.length === 0,
       'RLS enabled and forced',
-      unprotected.length === 0 ? 'all business tables' : unprotected.join(', ')
+      unprotected.length === 0
+        ? `all ${plural(BUSINESS_TABLES.length, 'table', 'tables')}`
+        : listed(unprotected, (name) => name)
     );
 
     const authTables = await sql`
@@ -339,8 +357,8 @@ async function checkDb() {
       missingAuthTables.length === 0,
       'auth tables exist',
       missingAuthTables.length === 0
-        ? `${AUTH_TABLES.length} tables`
-        : missingAuthTables.join(', ')
+        ? plural(AUTH_TABLES.length, 'table', 'tables')
+        : listed(missingAuthTables, (name) => name)
     );
     const unprotectedAuth = AUTH_TABLES.filter((name) => {
       const row = authByName.get(name);
@@ -350,37 +368,52 @@ async function checkDb() {
       unprotectedAuth.length === 0,
       'auth tables FORCE RLS',
       unprotectedAuth.length === 0
-        ? 'all auth tables'
-        : unprotectedAuth.join(', ')
+        ? plural(AUTH_TABLES.length, 'table', 'tables')
+        : listed(unprotectedAuth, (name) => name)
     );
 
-    // F5: every business-table policy must go through auth.has_org_role().
-    // A bare `organization_id IN (SELECT ... FROM organization_member)` policy
-    // is the failure mode data-model.md used to recommend, and it cannot express
-    // "read includes viewer, write excludes viewer" (ADR 0006).
+    // F5（目标态）：每张业务表有且只有一条 `org_isolation` 策略，且可见性
+    // 表达式必须来自 `app.visible_org_array()`。
+    //
+    // 历史坑：旧版这里断言「每条策略都调某个角色判定函数」。目标基线里
+    // 那个函数已经不存在（B2a 换成 app.visible_org_array + SET LOCAL ROLE，
+    // 角色判定归应用服务），这条断言会在 CI 里恒定失败，
+    // 或者更糟——被人改成 `|| true` 悄悄放行。所以断言直接锚定目标态的
+    // 表达式本体，而不是「调用了某个函数」这种间接条件。
+    //
+    // 反向断言的另一半：策略必须 FOR ALL 而不是拆成 FOR SELECT / FOR INSERT，
+    // 且 USING 与 WITH CHECK 同时存在——只写 USING 的 INSERT 会被静默放行
+    // （WITH CHECK 缺省回退到 USING，但 `INSERT ... RETURNING` 的可见性
+    // 与准入是两套判定，拆开写必然漂移）。
     const policies = await sql`
-      select policyname, tablename, roles::text[] as roles, qual, with_check
+      select policyname, tablename, cmd, roles::text[] as roles, qual, with_check
       from pg_policies
       where schemaname = 'public'
     `;
     const appRwPolicies = policies.filter((policy) =>
       (policy.roles ?? []).includes('app_rw')
     );
-    // Strong form: every app_rw policy MUST call has_org_role. Checking only
-    // for the bad text `organization_member` would accept USING (true), which
-    // is the more dangerous bypass (branch review Minor 3).
-    const notViaHasOrgRole = appRwPolicies.filter((policy) => {
-      const expression = `${policy.qual ?? ''} ${policy.with_check ?? ''}`;
-      return !/auth\.has_org_role\(/i.test(expression);
+    const notOrgIsolation = appRwPolicies.filter((policy) => {
+      if (policy.policyname !== 'org_isolation' || policy.cmd !== 'ALL') {
+        return true;
+      }
+      if (!policy.qual || !policy.with_check) {
+        return true;
+      }
+      return !(
+        /app\.visible_org_array\(\)/i.test(policy.qual) &&
+        /app\.visible_org_array\(\)/i.test(policy.with_check)
+      );
     });
     check(
-      notViaHasOrgRole.length === 0,
-      'every app_rw policy calls auth.has_org_role',
-      notViaHasOrgRole.length === 0
-        ? `${appRwPolicies.length} policies via has_org_role`
-        : notViaHasOrgRole
-            .map((policy) => `${policy.tablename}.${policy.policyname}`)
-            .join(', ')
+      notOrgIsolation.length === 0,
+      'every app_rw policy is the target-state org_isolation policy',
+      notOrgIsolation.length === 0
+        ? plural(appRwPolicies.length, 'policy', 'policies')
+        : listed(
+            notOrgIsolation,
+            (policy) => `${policy.tablename}.${policy.policyname}`
+          )
     );
 
     const journal = JSON.parse(
@@ -465,12 +498,13 @@ async function checkDb() {
     );
     check(
       missingTriggers.length === 0,
-      'auth and tenant triggers installed',
+      'registration trigger installed',
       missingTriggers.length === 0
-        ? `${TENANT_TRIGGERS.length} triggers`
-        : missingTriggers
-            .map(([, table, trigger]) => `${table}.${trigger}`)
-            .join(', ')
+        ? plural(TENANT_TRIGGERS.length, 'trigger', 'triggers')
+        : listed(
+            missingTriggers,
+            ([schema, table, trigger]) => `${schema}.${table}.${trigger}`
+          )
     );
 
     const missingImmutable = TENANT_IMMUTABLE_TABLES.filter(
@@ -481,10 +515,21 @@ async function checkDb() {
       missingImmutable.length === 0,
       'tenant columns immutable on every organization-scoped table',
       missingImmutable.length === 0
-        ? `${TENANT_IMMUTABLE_TABLES.length} triggers`
-        : missingImmutable
-            .map((table) => `public.${table}.trg_${table}_tenant_immutable`)
-            .join(', ')
+        ? plural(TENANT_IMMUTABLE_TABLES.length, 'trigger', 'triggers')
+        : listed(missingImmutable, (table) => table)
+    );
+
+    // Target state has no soft delete, so a closed organization's row stays in
+    // the table. The only writer of organization_member for invitations is
+    // app.accept_invite, and the predicate must live in its body (docs/data-model.md §9)
+    // — there is no trg_invite_active_org trigger in the target baseline.
+    const [acceptInvite] = await sql`
+      select pg_get_functiondef('app.accept_invite(text)'::regprocedure) as body
+    `;
+    check(
+      /status\s*<>\s*'closed'/.test(acceptInvite?.body ?? ''),
+      'accept_invite rejects invitations to closed organizations',
+      acceptInvite?.body ? 'predicate present' : 'function not found'
     );
 
     const [app] = await sql`

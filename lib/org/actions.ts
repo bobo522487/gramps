@@ -2,7 +2,7 @@
 
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { headers } from 'next/headers';
 import { getAuth } from '@/lib/auth/better-auth';
 import {
@@ -241,12 +241,50 @@ export const inviteOrgMember = validatedActionWithUser(
 
 export const acceptInviteAction = validatedActionWithUser(
   acceptInviteSchema,
-  async (data, _, _user) => {
-    let _accepted: Awaited<
-      ReturnType<ReturnType<typeof getAuth>['api']['acceptInvitation']>
-    >;
+  async (data, _, user) => {
+    // 先取邀请，拿到目标组织 id。Better Auth 的 acceptInvitation 只校验
+    // 邀请自身（status / expiresAt），**不看 organization.status**；目标态
+    // 又没有软删，已关停组织的行还在表里，少了下面这道判断就能凭一张
+    // 未消费的旧邀请加入已关停的组织。
+    let organizationId: string;
     try {
-      _accepted = await getAuth().api.acceptInvitation({
+      const invitation = await getAuth().api.getInvitation({
+        query: { id: data.invitationId },
+        headers: await authHeaders(),
+      });
+      organizationId = invitation.organizationId;
+    } catch (error) {
+      return mapAuthError(error);
+    }
+
+    // 调用者此刻还不是该组织的成员，organization 的 org_isolation 策略让他
+    // 看不见这一行，所以只能走 SECURITY DEFINER 的函数。
+    //
+    // 用三态而不是布尔：`false` 把「已关停」和「组织不存在」压成同一个答案，
+    // 用户看到「该组织已归档」却找不到任何归档记录。分发一张指向已删除组织的
+    // 旧邀请不是关停问题，得说清楚。
+    //
+    // 这里是**准入检查**，不是防竞争的锁：真正的一致性由 `app.accept_invite`
+    // 在 `SELECT ... FOR UPDATE` 之后重判一次（B2b 起它是主路径）。在那之前，
+    // Better Auth 的 acceptInvitation 与本次检查之间存在毫秒级窗口——档案员
+    // 恰在此刻关停组织的概率可以接受，但把它当「已锁死」会是错的。
+    const rows = await withOrg(user.id, (tx) =>
+      tx.execute(
+        sql`select app.organization_join_state(${organizationId}::uuid) as state`
+      )
+    );
+    const state = (rows[0] as { state?: string } | undefined)?.state;
+    if (state !== 'active') {
+      return {
+        error:
+          state === 'missing'
+            ? '邀请指向的组织已不存在，请让管理员重新邀请'
+            : '该组织已归档，无法加入',
+      };
+    }
+
+    try {
+      await getAuth().api.acceptInvitation({
         body: { invitationId: data.invitationId },
         headers: await authHeaders(),
       });

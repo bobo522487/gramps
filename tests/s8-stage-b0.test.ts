@@ -94,20 +94,25 @@ describe('S8 阶段 B · B0 迁移基线整体重建', () => {
     expect(source).toContain('CREATE TABLE book_export');
   });
 
-  test('B0-7：A.6 四个隔离函数落地', () => {
+  test('B0-7：A.6 四个隔离函数落地（另有 A.6.1 的租户守卫）', () => {
     const source = baseline();
     // `OR REPLACE` 是为了让 `pnpm test:integration` 的 resetAndMigrate（每次都
     // drop schema 后重跑）与 `psql -f` 两条路径都能重复执行；不带它时第二次
     // 建函数报 42723。
+    //
+    // 附录 A.6 是四个函数；A.6.1 的 `app.forbid_tenant_move()` 是 B0b 按规格
+    // §5.3 例外表补的第五个。这里改成「至少 4 个 + 逐个在册」，不再写死总数：
+    // 后续批次（T25 的路径辅助等）还会加 `app.*` 函数，写死总数会持续误伤。
     expect(
       (source.match(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+app\./gi) ?? [])
         .length
-    ).toBe(4);
+    ).toBeGreaterThanOrEqual(4);
     for (const fn of [
       'current_user_id',
       'visible_org_array',
       'create_organization',
       'accept_invite',
+      'forbid_tenant_move',
     ]) {
       expect(source).toContain(`app.${fn}(`);
     }
