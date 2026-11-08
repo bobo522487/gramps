@@ -175,8 +175,7 @@ describe('authorization invariants', () => {
 });
 
 // TEMPORARY FREEZE — expires when the P1 read/write switch starts.
-// Expiry is defined in ONE place: the plan's Global Constraints + Task 3/Step 3
-// (docs/superpowers/plans/2026-11-05-p1-read-write-switch.md). Both this describe
+// Expiry is tracked in ONE place: `docs/roadmap.md` (S5 / S8). Both this describe
 // and the four temporary assertions in tests/fact-layer-freeze.test.ts are
 // rewritten or deleted together at Phase 2 ("写切换"), never at Phase 1 (design).
 // The fact layer is the TARGET source of truth (decided 2026-11-05), not dead

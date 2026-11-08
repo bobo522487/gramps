@@ -3,13 +3,13 @@
  *
  * 2026-11-05 决策：person / person_name / family / family_partner /
  * family_child / event 六表是**目标真源**，`node` 只是「当前」唯一读写源。
- * 见 docs/superpowers/plans/2026-11-05-p1-read-write-switch.md。
+ * 冻结与切换的编排见 `docs/roadmap.md`（`S5` / `S8`）。
  *
  * 这个门禁只说一件事：闸门（谱书编目 + 排版主线端到端跑通）达成之前，
  * 不要再长大第二套人丁模型，也不要给它加第二个读者 / 写者。它不是
  * 「事实层不准被读」——那会和目标真源的决策相反。
  *
- * 过期条件的唯一真源是计划 Task 3 / Step 3：Phase 2「写切换」启动时，
+ * 过期条件登记在 `docs/roadmap.md`（`S5` / `S8`）：Phase 2「写切换」启动时，
  * 把下面四条临时断言连同 tests/security-regressions.test.ts 的
  * `fact-layer write boundary` 一起改写或删除——那时业务代码**应当**写事实层。
  * Phase 1 只是写路径设计，不写库、不改 UI，冻结仍然生效，别提前拆门禁。
@@ -138,7 +138,7 @@ describe('fact-layer freeze (TEMPORARY — rewrite/delete at Phase 2)', () => {
   test('the six fact-layer tables are still the only ones', () => {
     // 从全部 schema 文件派生，而不是只读三个已知文件。范围是按物理表名前缀
     // 识别这六张事实层表；另起名字的新表不在本断言范围（独立评审 I3），由
-    // 计划 Global Constraints 与 AGENTS.md 的迁移人工 review 兜底——不为了
+    // 计划 Global Constraints 与 CONTRIBUTING.md §7 的迁移人工评审兜底——不为了
     // 覆盖它去维护一份全库表清单，那是比这份临时护栏更重、且会失真的第二份事实。
     const declared = readdirSync(join(root, SCHEMA_DIR))
       .filter((file) => file.endsWith('.ts'))
@@ -210,7 +210,7 @@ describe('fact-layer freeze (TEMPORARY — rewrite/delete at Phase 2)', () => {
     // 基线之后当前没有迁移，offenders 为空是**预期**结果；新增 idx>27 的迁移
     // 会被逐行扫描。按行匹配 drizzle 生成的单行 DDL 已足够——跨行手写 SQL、
     // CREATE TRIGGER、字符串字面量里的表名、纯 SQL 新事实表都不在范围内，
-    // 由 AGENTS.md 要求的「迁移人工 review」兜底。不把护栏升级成 SQL parser，
+    // 由 CONTRIBUTING.md §7 的「迁移人工评审」兜底。不把护栏升级成 SQL parser，
     // 也不假装它覆盖了这些形态。
     const factDdl =
       /\b(?:ALTER|CREATE|DROP|TRUNCATE|COMMENT|GRANT|REVOKE)\b[^\n;]*?\b(?:person|person_name|family|family_partner|family_child|event)\b/i;

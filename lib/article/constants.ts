@@ -68,11 +68,11 @@ export const DEFAULT_ARTICLE_FOLDER_NAME = '默认分类';
 
 /**
  * 服务端返回给界面的稳定错误码（全小写）与中文文案。
- * 文案面向业务用户，不回显 SQL/堆栈（AGENTS.md §6）。
+ * 文案面向业务用户，不回显 SQL/堆栈（错误码口径见 `docs/contracts/README.md`）。
  */
 export const ARTICLE_ERRORS = {
   // 与 lib/auth/permissions.ts 的 PERMISSION_DENIED_MESSAGES['article.write'] 同串：
-  // 同一个权限只有一句拒绝话（AGENTS.md §5.2、宪法 V）。
+  // 同一个权限只有一句拒绝话（见 `docs/contracts/README.md`、constitution 原则 V）。
   forbidden: '你没有撰写谱文的权限',
   not_found: '谱文不存在或已删除',
   page_not_found: '这一页已被删除，你的文字仍保留在本地，请刷新后重新添加一页',

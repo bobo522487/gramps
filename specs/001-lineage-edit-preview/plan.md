@@ -41,7 +41,7 @@
 
 ## Constitution Check
 
-*GATE: 设计前与设计后各评估一次。原则正文见 `AGENTS.md`（本仓库唯一来源）。*
+*GATE: 设计前与设计后各评估一次。原则正文见 `.specify/memory/constitution.md`（本仓库唯一来源）。*
 
 | 门 | 判定 | 依据 |
 |---|---|---|
