@@ -51,7 +51,9 @@ const headingCache = new Map();
 function headingsOf(file) {
   if (!headingCache.has(file)) {
     const slugs = new Set();
-    for (const match of readFileSync(file, 'utf8').matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)) {
+    for (const match of readFileSync(file, 'utf8').matchAll(
+      /^#{1,6}\s+(.+?)\s*#*\s*$/gm
+    )) {
       slugs.add(slugify(match[1]));
     }
     headingCache.set(file, slugs);
@@ -72,11 +74,25 @@ for (const file of allDocs) {
     if (!pathPart) continue;
     const resolved = resolve(dirname(file), pathPart);
     if (!existsSync(resolved)) {
-      addIssue(file, lineOf(content, match.index), 'link', `missing link target: ${target}`);
+      addIssue(
+        file,
+        lineOf(content, match.index),
+        'link',
+        `missing link target: ${target}`
+      );
       continue;
     }
-    if (anchor && resolved.endsWith('.md') && !headingsOf(resolved).has(anchor)) {
-      addIssue(file, lineOf(content, match.index), 'link', `missing anchor: ${target}`);
+    if (
+      anchor &&
+      resolved.endsWith('.md') &&
+      !headingsOf(resolved).has(anchor)
+    ) {
+      addIssue(
+        file,
+        lineOf(content, match.index),
+        'link',
+        `missing anchor: ${target}`
+      );
     }
   }
 }
@@ -106,7 +122,12 @@ const SUBDIRS = ['adr', 'contracts', 'runbooks'];
 
 for (const name of ROOT_DOCS) {
   if (!existsSync(join(DOCS, name))) {
-    addIssue(join(DOCS, name), 1, 'doc-set', `missing root document: docs/${name}`);
+    addIssue(
+      join(DOCS, name),
+      1,
+      'doc-set',
+      `missing root document: docs/${name}`
+    );
   }
 }
 for (const entry of readdirSync(DOCS)) {
@@ -143,7 +164,12 @@ for (const file of allDocs) {
   for (const phrase of RETIRED_PATHS) {
     let index = content.indexOf(phrase);
     while (index !== -1) {
-      addIssue(file, lineOf(content, index), 'retired-path', `retired reference: ${phrase}`);
+      addIssue(
+        file,
+        lineOf(content, index),
+        'retired-path',
+        `retired reference: ${phrase}`
+      );
       index = content.indexOf(phrase, index + phrase.length);
     }
   }
@@ -151,7 +177,9 @@ for (const file of allDocs) {
 
 issues.sort(
   (a, b) =>
-    a.file.localeCompare(b.file) || a.line - b.line || a.rule.localeCompare(b.rule)
+    a.file.localeCompare(b.file) ||
+    a.line - b.line ||
+    a.rule.localeCompare(b.rule)
 );
 
 for (const issue of issues) {

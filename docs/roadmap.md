@@ -72,14 +72,19 @@
 
 这是**本次重构的具体影响面**，不是 `CONTRIBUTING.md` §1 通用对照表的副本；通用规则仍以那里为准。
 
-| 文档 | 会被推翻的结论 | 跟改触发点 |
-| --- | --- | --- |
-| `docs/glossary.md` | 「人丁 = `node`」「事实层 = 单向回填快照」「软删 `deleted_at`」「组织成员硬删」 | 事实层语义定稿 |
-| `docs/architecture.md` | 域所有权表（应用读写 `node`）、Better Auth organization 插件、FORCE RLS 与 `app_rw` / `auth_service` 角色、§8 多条结论 | schema 与隔离层落地 |
-| `docs/runbooks/README.md` | RB-1~RB-7 的处置 SQL、§4 值班信号（表、角色、软删口径全变） | 表结构与角色变更 |
-| `docs/nfr.md` | §5 的删除语义（业务表软删 / 组织成员硬删） | 删除语义变更 |
-| `docs/adr/README.md` | 涉及软删、树存储、RLS 的既有决策需标 `superseded` | ADR 新增时 |
-| `CONTRIBUTING.md` | §1 对照表补「数据模型重构」这一行的跟改范围 | 流程落地 |
+| 文档 | 会被推翻的结论 | 跟改触发点 | 何时失效 |
+| --- | --- | --- | --- |
+| `docs/glossary.md` | 「人丁 = `node`」「事实层 = 单向回填快照」「软删 `deleted_at`」「组织成员硬删」 | 事实层语义定稿（T10–T17 / T23） | 根变更落地即失效 |
+| `docs/architecture.md` | 域所有权表（应用读写 `node`）、Better Auth organization 插件、FORCE RLS 与 `app_rw` / `auth_service` 角色、§8 多条结论 | schema 与隔离层落地（T18–T35） | DDL / 隔离层落地即失效 |
+| `docs/runbooks/README.md` | RB-1~RB-7 的处置 SQL、§4 值班信号（表、角色、软删口径全变） | 表结构与角色变更（T32 / T34） | 角色与表名变更即失效 |
+| `docs/nfr.md` | §5 的删除语义（业务表软删 / 组织成员硬删） | 删除语义变更（T23） | `RESTRICT` 落地即失效 |
+| `docs/adr/README.md` | 涉及软删、树存储、RLS 的既有决策需标 `superseded` | ADR 新增时（T48） | 新 ADR 落地即失效 |
+| `CONTRIBUTING.md` | §1 对照表补「数据模型重构」这一行的跟改范围 | 流程落地（T49） | 对照表补齐即失效 |
+| `README.md` | §1 明确不做清单（回收站 UI、谱书编目编辑）、§3.1 目录树里 `data-model.md` 的职责描述 | 目标态范围定稿（T46） | 明确不做清单更新即失效 |
+| `docs/vision.md` | §5「统计口径定义在 `docs/data-model.md`」语义断链；§6.3 缺口 3「并发覆盖」、缺口 4「删了找不回 / 软删兜底」 | 目标态章节重编号（T46 / T47） | 删除语义与章节号变更即失效 |
+| `docs/interfaces.md` | §2「写只走 Server Action，例外只有 3 条图片通道」——目标态 `app.create_organization` / `app.accept_invite` 是库内 SECDEF 写入口 | 隔离层落地（T35） | SECDEF 写入口上线即失效 |
+| `docs/contracts/README.md` | §4 全部谱系 Action（`createRootNode` / `addChild` / `addSpouse` / `nodeId` / `requestId` 幂等键）围绕「`node` 是人丁主体」 | 根变更落地（T13 / T44） | `node` 变纯位置引用即失效 |
+| `docs/data-model.md` | §8 迁移清单在重构完成后整节删除 | 13 条差异逐条消掉（T47） | §8 删除时本行一并删除 |
 
 ### 4.3 连带待复核（本轮不动）
 

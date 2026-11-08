@@ -108,7 +108,9 @@ describe('document set', () => {
   test('code comments do not cite sections of retired specs', () => {
     // 拆开拼接，避免本文件里的字面串被自己的断言命中。
     const legacy = new RegExp(
-      ['AGENTS', 'research', 'contracts', 'data-model'].map((s) => `${s} §`).join('|'),
+      ['AGENTS', 'research', 'contracts', 'data-model']
+        .map((s) => `${s} §`)
+        .join('|')
     );
     const collect = (dir: string): string[] => {
       if (!existsSync(dir)) return [];
@@ -134,7 +136,7 @@ describe('document set', () => {
       'docs/nfr.md',
     ]) {
       expect(read(path), path).toContain(
-        '裁决顺序见 `CONTRIBUTING.md` §2「权威口径」',
+        '裁决顺序见 `CONTRIBUTING.md` §2「权威口径」'
       );
     }
   });
