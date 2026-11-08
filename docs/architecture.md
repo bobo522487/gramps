@@ -91,11 +91,11 @@ PostgreSQL（业务 app_rw / 认证 auth_service）
 | `lineage` | `lineage` / `node` | `lib/lineage/` |
 | `article` | `article` | `lib/article/actions.ts`、`lib/db/queries/articles.ts` |
 | 谱书 / 编目 | `book` / `book_catalog` | **无**：表已落库，无 Action 与查询函数 |
-| 事实层 | `person` / `person_name` / `family` / `family_*` / `event` | **仅** `data/backfill-fact-layer.ts`；页面与 Action 都读 `node` |
+| 事实层 | `person` / `person_name` / `family` / `family_*` / `event` | **当前无应用读写入口**（回填 CLI 已随 `S8` 阶段 A 退役）；页面与 Action 都读 `node` |
 
 **schema 文件名不等于域所有权**：`project.ts` 同时定义 `project` 与 `folder`，但 `folder` 的写入口在 `lib/folder/`；`content.ts` 定义 `article` / `book` / `book_catalog`，但业务域叫 **`article`**，不存在一个叫 `content` 的域。schema 按内容分组，域按写入口划分，两套名字不要互相代入。
 
-事实层六表是 `node` 的**单向回填快照**，只有回填 CLI 写，应用没有任何读写路径，不是第二套读写模型。软删（`deleted_at`）查询默认过滤，没有回收站 UI；`organization_member` 与 `invite` 是硬删除。
+事实层六表建成后尚未接入应用读写路径（`S8` 阶段 A 已退役回填 / 对账 CLI；事实层升为主数据源由阶段 A′ 改写写入层），当前页面与 Action 都读 `node`。软删（`deleted_at`）查询默认过滤，没有回收站 UI；`organization_member` 与 `invite` 是硬删除。
 
 ---
 
