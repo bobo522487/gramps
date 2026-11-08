@@ -124,4 +124,18 @@ describe('document set', () => {
       }
     }
   });
+
+  test('authority rule is stated once and pointed to from all four current-state docs', () => {
+    expect(read('CONTRIBUTING.md')).toContain('权威口径（目标态例外）');
+    for (const path of [
+      'docs/architecture.md',
+      'docs/interfaces.md',
+      'docs/contracts/README.md',
+      'docs/nfr.md',
+    ]) {
+      expect(read(path), path).toContain(
+        '裁决顺序见 `CONTRIBUTING.md` §2「权威口径」',
+      );
+    }
+  });
 });

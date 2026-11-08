@@ -188,6 +188,8 @@ FormData 通道用 `Object.fromEntries(formData)` 拍平，嵌套结构与 `null
 
 ## 7. 以代码为准
 
+适用范围：本节只对 [现状] 成立；[目标] 以 `docs/data-model.md` 为准，裁决顺序见 `CONTRIBUTING.md` §2「权威口径」。
+
 > 文档与代码冲突时**以代码为准**，然后回来改文档。以下三处是合并旧契约时发现的形状不一致，现按代码定性：
 
 | 结论 | 依据 |

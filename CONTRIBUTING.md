@@ -30,6 +30,7 @@
 - 术语只在 `glossary.md`；契约只在 `docs/contracts/`；整体架构只在 `architecture.md`；全局实体只在 `data-model.md`；阈值只在 `nfr.md`；状态与编排只在 `roadmap.md`。feature 文档只引用，不复制。
 - 原则只在 `constitution.md`：`plan.md` 的 Constitution Check 逐条对照原则编号，不把原则原文抄进每个 plan。
 - **roadmap 先改，再改 spec**：范围变化先落到 roadmap 那一行，再动受影响的子 spec；条目 ID 一旦被引用就不可改、不复用。
+- **权威口径（目标态例外）**：`docs/data-model.md` 是 [目标] 规格，代码按它重构，**以本文为准**；`docs/architecture.md`、`docs/interfaces.md`、`docs/contracts/README.md`、`docs/nfr.md` 描述 [现状]，文档与代码冲突时**以代码为准**。两者冲突时按 `docs/roadmap.md` 的编排状态判断意图：`S8` 交付前 [目标] 是意图、[现状] 是待改对象，不得用现状反推规格。现状与目标并存时按 §3 加前缀。
 - ADR 只记「为什么选 A 不选 B、代价是什么」，不记「我们用了 A」——后者属于 `architecture.md`。
 
 ---
