@@ -15,7 +15,11 @@ import {
 import { signInSchema, signUpSchema } from '@/lib/auth/schemas';
 import { logger } from '@/lib/logger';
 
-function inviteId(value: FormDataEntryValue | null): string | null {
+/**
+ * 邀请链接里的明文 token（`/join?token=<43 字符>`）。自建 token 之后不再是
+ * 插件的 invitation id——那个 id 从没打算当 bearer 凭据用。
+ */
+function inviteToken(value: FormDataEntryValue | null): string | null {
   if (typeof value !== 'string') {
     return null;
   }
@@ -58,9 +62,9 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     };
   }
 
-  const invite = inviteId(formData.get('invite'));
+  const invite = inviteToken(formData.get('invite'));
   if (invite) {
-    redirect(`/dashboard/join?invite=${encodeURIComponent(invite)}`);
+    redirect(`/dashboard/join?token=${encodeURIComponent(invite)}`);
   }
 
   const redirectTo = safeRedirectPath(formData.get('redirect'));
@@ -93,7 +97,7 @@ export const signUp = validatedAction(signUpSchema, async (data) => {
   }
 
   if (invite) {
-    return redirect(`/dashboard/join?invite=${encodeURIComponent(invite)}`);
+    return redirect(`/dashboard/join?token=${encodeURIComponent(invite)}`);
   }
   return redirect('/dashboard');
 });

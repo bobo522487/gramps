@@ -29,6 +29,25 @@ function createAuth() {
       database: {
         // UUIDv7 defaults live in PostgreSQL; only session tokens are generated here.
         generateId: false,
+        /**
+         * 关掉 Better Auth 1.7.12 的 Drizzle schema 自检。
+         *
+         * 这不是「嫌告警吵」——自检命中时会**抛异常**，`@better-auth/core` 的
+         * `runWithTransaction` 在开事务前 `await pendingSchemaCheck`，所以
+         * 任何一处 mismatch 都会让每一次写操作失败。实测：插件声明
+         * `invitation.inviterId` 为必填，而目标态（附录 A.1）把它换成了可空
+         * 的 `invited_by`，于是 242 条集成测试里 219 条直接红。
+         *
+         * 自检的前提是「插件拥有它读写的全部表」。目标态不是这样：`invite`
+         * 已经改由本仓自己写（`lib/org/invitations.ts`），列形状以附录 A.1
+         * 为准，插件的 `invitation` 模型只是 T28 拆除前的残留。让一个即将消失
+         * 的模型否决整张表的形状，等于让死代码管活的 schema。
+         *
+         * 关掉之后 self-check 仍在初始化时跑一次并记一条 error 日志
+         * （`better-auth/dist/auth/base.mjs`），所以真出现新的 mismatch 不会
+         * 完全无声；只是它不再阻断请求。T28 拆掉插件后这里可以删掉。
+         */
+        validateSchema: false,
       },
     },
     emailAndPassword: {

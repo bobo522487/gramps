@@ -225,12 +225,24 @@ describe('S8 阶段 B · B0b 隔离层回补', () => {
       /FUNCTION app\.organization_is_open\(p_org_id uuid\)[\s\S]{0,200}?SELECT app\.organization_join_state\(p_org_id\) = 'active'/
     );
 
-    // 应用层必须用三态那个，并分别给出文案；用布尔版就退化回含糊提示。
+    // B0b 当时走的是「应用层先 precheck 再调 Better Auth」：两态布尔压成
+    // 一句话，所以补了三态函数让文案能分开。B2b 之后这条路被更好的方案
+    // 取代——接受邀请直接调 `app.accept_invite`，组织状态判断在函数体内
+    // 与 `FOR UPDATE` 在同一事务里完成，不存在「检查完再调另一个 API」
+    // 的窗口。所以这里不再要求应用层调 join_state。
+    //
+    // 但三态函数本身留着：它是 `organization_is_open` 的唯一实现来源，
+    // 也是运维排查「这个组织到底什么状态」的入口。
     const action = read('lib/org/actions.ts');
-    expect(action).toContain('app.organization_join_state(');
+    expect(action).toContain('app.accept_invite(');
     expect(action).not.toContain('app.organization_is_open(');
-    expect(action).toContain("state === 'missing'");
-    expect(action).toMatch(/state !== 'active'/);
+    // 三种业务失败必须逐条映射：只靠 mapAuthError 会把 22023 / 42501 一律
+    // 压成「操作失败，请稍后重试。」，用户拿着一封过期邀请无从下手。
+    // 走 `sqlStateOf`（沿 cause 链找 SQLSTATE），不是读 `error.code`：
+    // Drizzle 把驱动异常包成 DrizzleQueryError，SQLSTATE 只在 cause 上。
+    expect(action).toContain("sqlStateOf(error, '22023')");
+    expect(action).toContain("sqlStateOf(error, '42501')");
+    expect(action).not.toMatch(/\berror as \{ code\?: unknown \}/);
 
     // 附录 A 是唯一 DDL 真相源，回写不能只改一半。
     const appendix = read('../gramps-S8-目标DDL.sql');

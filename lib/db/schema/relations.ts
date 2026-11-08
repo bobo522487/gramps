@@ -20,7 +20,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   memberships: many(orgMembers),
   sessions: many(sessions),
   accounts: many(accounts),
-  invitationsSent: many(invitations),
+  invitationsSent: many(invitations, { relationName: 'invitedBy' }),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -46,9 +46,12 @@ export const invitationsRelations = relations(invitations, ({ one }) => ({
     fields: [invitations.organizationId],
     references: [organizations.id],
   }),
-  inviter: one(users, {
-    fields: [invitations.inviterId],
+  // `invitedBy` 可空：邀请人注销后邀请行要留着（ON DELETE SET NULL）。
+  // 关系名跟着列名走，`inviter` 会让人以为这条关系永远有值。
+  invitedBy: one(users, {
+    fields: [invitations.invitedBy],
     references: [users.id],
+    relationName: 'invitedBy',
   }),
 }));
 

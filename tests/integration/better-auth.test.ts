@@ -272,7 +272,9 @@ describe('registration and session lifecycle', () => {
 
   it('sends a signed-in invitee to the join page', async () => {
     const user = await createUser({ email: 'invited-signin@example.com' });
-    const invitationId = '0199c0de-0000-7000-8000-000000000001';
+    // 注册 / 登录表单里透传的仍是 `?invite=`（邮件里已经发出去的链接参数名），
+    // 但它现在装的是**明文 token**，跳转过去时要换成 `/join?token=`。
+    const token = 'B'.repeat(43);
 
     const path = await expectRedirect(
       signIn(
@@ -280,12 +282,12 @@ describe('registration and session lifecycle', () => {
         form({
           email: user.email,
           password: TEST_PASSWORD,
-          invite: invitationId,
+          invite: token,
         })
       )
     );
 
-    expect(path).toBe(`/dashboard/join?invite=${invitationId}`);
+    expect(path).toBe(`/dashboard/join?token=${token}`);
   });
 
   it('rejects redirect targets that browsers treat as another origin', async () => {
@@ -563,7 +565,7 @@ describe('organization actions', () => {
     const organizationId = personal?.organization.id as string;
     const invitation = await createInvitation({
       organizationId,
-      inviterId: owner.id,
+      invitedBy: owner.id,
       email: invitee.email,
       role: 'editor',
     });
@@ -585,7 +587,7 @@ describe('organization actions', () => {
     await authenticate(invitee.email);
     const accepted = await acceptInviteAction(
       {},
-      form({ invitationId: invitation.id })
+      form({ token: invitation.token })
     );
     expect(accepted).toMatchObject({ error: expect.any(String) });
     expect(await membership(organizationId, invitee.id)).toBeNull();
@@ -627,18 +629,18 @@ describe('invitations', () => {
       email: 'invitee@example.com',
       role: 'editor',
       status: 'pending',
-      inviterId: owner.id,
+      invitedBy: owner.id,
     });
     const inviteUrl = (created as { inviteUrl?: string }).inviteUrl;
-    expect(inviteUrl).toBe(
-      `http://localhost:3000/sign-up?invite=${rows[0].id}`
+    // 链接带**明文 token**，不是行 id：库里只有 sha256，拿 id 换不出可用链接。
+    expect(inviteUrl).toMatch(
+      /^http:\/\/localhost:3000\/join\?token=[A-Za-z0-9_-]{40,}$/
     );
+    const token = new URL(inviteUrl as string).searchParams.get('token') ?? '';
+    expect(rows[0].tokenHash).not.toBe(token);
 
     await authenticate(invitee.email);
-    const accepted = await acceptInviteAction(
-      {},
-      form({ invitationId: rows[0].id })
-    );
+    const accepted = await acceptInviteAction({}, form({ token }));
     expect(accepted).toMatchObject({ success: '已加入组织' });
     expect((await membership(organization.id, invitee.id))?.role).toBe(
       'editor'
@@ -653,18 +655,18 @@ describe('invitations', () => {
     const other = await createUser({ email: 'other@example.com' });
     const invitation = await createInvitation({
       organizationId: organization.id,
-      inviterId: owner.id,
+      invitedBy: owner.id,
       email: 'intended@example.com',
     });
 
     await authenticate(other.email);
     const result = await acceptInviteAction(
       {},
-      form({ invitationId: invitation.id })
+      form({ token: invitation.token })
     );
 
     expect(result).toMatchObject({
-      error: '该邀请不属于当前登录账号。',
+      error: '该邀请不是发给当前账号的',
     });
     expect(await membership(organization.id, other.id)).toBeNull();
     expect((await invitationRows(organization.id))[0].status).toBe('pending');
@@ -675,7 +677,7 @@ describe('invitations', () => {
     const invitee = await createUser({ email: 'late@example.com' });
     const invitation = await createInvitation({
       organizationId: organization.id,
-      inviterId: owner.id,
+      invitedBy: owner.id,
       email: invitee.email,
       expiresAt: new Date(Date.now() - 60_000),
     });
@@ -683,10 +685,12 @@ describe('invitations', () => {
     await authenticate(invitee.email);
     const result = await acceptInviteAction(
       {},
-      form({ invitationId: invitation.id })
+      form({ token: invitation.token })
     );
 
-    expect(result).toMatchObject({ error: '邀请无效或已过期。' });
+    expect(result).toMatchObject({
+      error: '邀请无效或已过期，请让管理员重新邀请',
+    });
     expect(await membership(organization.id, invitee.id)).toBeNull();
   });
 
@@ -710,17 +714,23 @@ describe('invitations', () => {
       })
     );
 
+    // 目标态（附录 A.1）是 `UNIQUE (organization_id, email)` 全量唯一，
+    // 重发走 A.7 的 `ON CONFLICT … DO UPDATE` **原地更新同一行**——不再像旧
+    // 实现那样「取消旧的 + 插新的」留两行。两个后果都要守住：
+    //   1. 行数恒为 1（旧邀请不是被 canceled，而是被覆盖掉）；
+    //   2. `role` 不随重发改变（A.7 的 SET 里没有 role）——顺手同步角色等于
+    //      让「再发一次邮件」变成一次静默提权。
     const rows = await invitationRows(organization.id);
-    expect(rows).toHaveLength(2);
-    expect(rows.map((row) => row.status)).toEqual(['canceled', 'pending']);
-    expect(rows[1].role).toBe('editor');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe('pending');
+    expect(rows[0].role).toBe('viewer');
   });
 
-  it('cancels an expired invitation before issuing a new one', async () => {
+  it('rotates the token of an expired invitation instead of stacking rows', async () => {
     const { owner, organization } = await setUpOwner();
     const expired = await createInvitation({
       organizationId: organization.id,
-      inviterId: owner.id,
+      invitedBy: owner.id,
       email: 'refresh@example.com',
       expiresAt: new Date(Date.now() - 60_000),
     });
@@ -737,10 +747,14 @@ describe('invitations', () => {
       success: '邀请已创建，请把链接发送给对方。',
     });
 
+    // 过期邀请不需要「先取消」：A.7 的 `DO UPDATE` 会把它覆盖成新的
+    // pending 行，token 换新、expires_at 续期，行 id 不变。
     const rows = await invitationRows(organization.id);
-    expect(rows).toHaveLength(2);
-    expect(rows.find((row) => row.id === expired.id)?.status).toBe('canceled');
-    expect(rows.filter((row) => row.status === 'pending')).toHaveLength(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(expired.id);
+    expect(rows[0].status).toBe('pending');
+    expect(rows[0].tokenHash).not.toBe(expired.tokenHash);
+    expect(rows[0].expiresAt.getTime()).toBeGreaterThan(Date.now());
   });
 });
 

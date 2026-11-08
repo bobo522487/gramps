@@ -68,15 +68,28 @@ export const signUpSchema = z.object({
     .max(100, '姓名不能超过 100 个字符')
     .optional()
     .transform((value) => (value ? value : undefined)),
-  /** Better Auth invitation id from ?invite=<id>. */
-  invite: z.string().trim().max(100).optional(),
+  /**
+   * 注册表单里透传的邀请凭据：链接 `/join?token=<43 字符>` 里的明文 token
+   * （历史上叫 `?invite=`，名字留着是为了不打断已有邮件里的链接参数名）。
+   * 上限 128 与 `acceptInviteSchema.token` 一致。
+   */
+  invite: z.string().trim().max(128).optional(),
 });
 
 export const acceptInviteSchema = z.object({
-  invitationId: z
+  /**
+   * 邀请链接里的**明文 token**（`/join?token=<43 字符 base64url>`）。
+   *
+   * 不再是 uuid：自建 token 之后凭据是 32 字节随机值的 base64url，43 个字符。
+   * 长度上限 128 足够宽松又不留出灌大字符串的口子；不校验字符集——token
+   * 的合法性由 sha256 之后能不能在库里命中决定，在这里加白名单只会让
+   * 「链接被邮件客户端改坏了」表现为一条与真实原因无关的表单错误。
+   */
+  token: z
     .string({ error: '邀请链接无效' })
     .trim()
-    .pipe(z.uuid('邀请链接无效')),
+    .min(16, '邀请链接无效')
+    .max(128, '邀请链接无效'),
 });
 
 export const updatePasswordSchema = z.object({

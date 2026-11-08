@@ -254,6 +254,8 @@ node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.l
 | 租户键与成员关系不可搬移 | DDL（§5.3 的例外）：16 条 `trg_<table>_tenant_immutable` + 共用 `app.forbid_tenant_move()`，`IS DISTINCT FROM` 比 OLD/NEW |
 | 注册必建个人组织 | DDL（§5.3 的例外）：`trg_auth_user_created` → `public.handle_new_user()`，与 `auth.user` 行同事务，失败一起回滚 |
 | 已关停组织不再收成员 | `app.accept_invite` 函数体内的 `status <> 'closed'` 谓词（关停即让未消费的邀请失效）；`verify:deploy` 断言函数体含该谓词 |
+| 邀请凭 `token_hash` 寻址，行 `id` 不当凭据 | DDL：`invite_token_hash_key UNIQUE` + `token_hash` 为 sha256；写入路径：`lib/org/invitations.ts` 只返回一次明文，库里再也取不回。行 `id` 是 uuid 但会出现在列表响应与日志里，一旦当凭据就等于凭据可被抄走——这也是整套流程放弃 Better Auth 邀请插件的原因（插件把 `invitation.id` 当 bearer） |
+| 重发不改角色、不复活已接受的邀请 | 附录 A.7 的 `ON CONFLICT … DO UPDATE`（`role` 不在 `SET` 里）+ `WHERE invite.accepted_at IS NULL`（影响 0 行时应用报「该邮箱已是成员」） |
 | 角色授权、收录状态、制品不可变性、组织至少一名 owner、`slug` 不可变 | **无自动执行者**：靠单一写入路径契约、评审与巡检 SQL；制品不可变性由对象存储负责 |
 | 路径标签稳定、稀疏序号重排、三阶段改名 | 写入路径契约，低频维护操作，靠代码评审 |
 | 迁移已应用、库结构与代码对齐 | `.github/workflows/migrate-production.yml` + `scripts/verify-deployment.mjs` |

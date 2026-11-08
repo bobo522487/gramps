@@ -89,8 +89,20 @@ export async function grantRuntimeRoles(sql: Sql): Promise<void> {
   // --- app_rw：业务表读写 ---
   // 业务表 = public 下除 organization / organization_member / invite 之外的表。
   // 用显式列表而不是 ALL TABLES，才能让上面那几张表保持受限。
+  // `invite` 从 B2a 的「完全无权限」放宽到「读 + 签发 + 撤销」，**仍然不给
+  // DELETE**。理由分三层：
+  //
+  //   1. 读：自建 token 之后成员管理页要自己列待发邀请（旧前提「邀请走
+  //      Better Auth API、业务层不读这张表」在 B2b 被废掉了）。
+  //   2. 写：附录 A.7 的 `INSERT … ON CONFLICT DO UPDATE` 需要 INSERT +
+  //      UPDATE，缺任一个签发就是 42501。
+  //   3. 无 DELETE：撤销是 `status = 'revoked'`，不是删行。删掉之后同一个
+  //      token 会从「已撤销」退化成「无效」，用户拿到的解释与事实不符。
+  //
+  // 接受邀请不在这张表上争权限：`app.accept_invite` 是 SECURITY DEFINER，
+  // 以属主身份写。
   const tenantReadOnly = new Set(['organization_member', 'organization']);
-  const noAccess = new Set(['invite']);
+  const noAccess = new Set<string>([]);
   const tables = await sql<{ tablename: string }[]>`
     select tablename from pg_tables where schemaname = 'public'
   `;
@@ -98,6 +110,12 @@ export async function grantRuntimeRoles(sql: Sql): Promise<void> {
     if (noAccess.has(tablename)) continue;
     if (tenantReadOnly.has(tablename)) {
       await sql.unsafe(`GRANT SELECT ON public.${tablename} TO app_rw`);
+    } else if (tablename === 'invite') {
+      // 无 DELETE：撤销是置 status，不是删行（删了之后同一 token 会从
+      // 「已撤销」变成「无效」，用户拿到的解释与事实不符）。
+      await sql.unsafe(
+        'GRANT SELECT, INSERT, UPDATE ON public.invite TO app_rw'
+      );
     } else {
       await sql.unsafe(
         `GRANT SELECT, INSERT, UPDATE, DELETE ON public.${tablename} TO app_rw`

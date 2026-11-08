@@ -106,7 +106,10 @@ describe('Better Auth schema', () => {
     );
   });
 
-  it('shapes invite as a Better Auth invitation', () => {
+  it('shapes invite to the target model, not to the plugin', () => {
+    // B2b 之前这条断言的是「像一封 Better Auth 邀请」：`inviterId` 必填、
+    // 不许有 `tokenHash` / `acceptedAt`。自建 token 之后方向反了——插件
+    // 不再写这张表，列形状以附录 A.1 为准。
     const keys = columnKeys(invitations);
 
     expect(keys).toEqual(
@@ -116,7 +119,9 @@ describe('Better Auth schema', () => {
         'role',
         'status',
         'expiresAt',
-        'inviterId',
+        'tokenHash',
+        'acceptedAt',
+        'invitedBy',
         'createdAt',
       ])
     );
@@ -124,8 +129,9 @@ describe('Better Auth schema', () => {
       expect.arrayContaining([
         'orgId',
         'createdBy',
-        'tokenHash',
-        'acceptedAt',
+        // 插件的列名：`inviterId` 是 NOT NULL + RESTRICT 的形状，B2b 换成了
+        // 可空 + SET NULL 的 `invited_by`。
+        'inviterId',
         'acceptedBy',
         'deletedAt',
       ])

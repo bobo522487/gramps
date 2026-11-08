@@ -77,26 +77,39 @@ describe('sign-up schema', () => {
 });
 
 describe('invitation acceptance schema', () => {
-  it('accepts a Better Auth invitation id', () => {
+  it('accepts a 43-char base64url token', () => {
+    // 32 字节随机值的 base64url 是 43 个字符，不是 uuid。
     const result = acceptInviteSchema.safeParse({
-      invitationId: '0190a5b0-0000-7000-8000-000000000001',
+      token: 'A'.repeat(43),
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects a token or malformed id with a friendly message', () => {
+  it('rejects anything too short or too long with a friendly message', () => {
+    // 太短：不是合法 token，且留一条 1 字符就能打到数据库的口子没有意义。
     expect(
-      acceptInviteSchema.safeParse({ invitationId: 'abc' }).error?.issues[0]
-        .message
+      acceptInviteSchema.safeParse({ token: 'abc' }).error?.issues[0].message
     ).toBe('邀请链接无效');
+    // 太长：上限 128，超出直接拒，避免灌大字符串进 sha256。
     expect(
-      acceptInviteSchema.safeParse({ token: 'x'.repeat(32) }).success
+      acceptInviteSchema.safeParse({ token: 'x'.repeat(200) }).success
     ).toBe(false);
   });
 
-  it('trims an invitation id before uuid validation', () => {
+  it('rejects the old uuid-shaped payload field name', () => {
+    // 字段名从 invitationId 改成 token。只改值不改名的话，表单会静默传空，
+    // 表现成「链接无效」——一条与真实原因无关的报错。
+    expect(
+      acceptInviteSchema.safeParse({
+        invitationId: '0190a5b0-0000-7000-8000-000000000001',
+      }).success
+    ).toBe(false);
+  });
+
+  it('trims surrounding whitespace before validating', () => {
+    // 邮件客户端会在链接两端加空格或换行。
     const result = acceptInviteSchema.safeParse({
-      invitationId: '  0190a5b0-0000-7000-8000-000000000001  ',
+      token: '  AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  ',
     });
     expect(result.success).toBe(true);
   });

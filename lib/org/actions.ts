@@ -28,10 +28,12 @@ import {
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { withOrg } from '@/lib/db/drizzle';
+import { sqlStateOf } from '@/lib/db/errors';
 import { getOrgById } from '@/lib/db/queries/organizations';
 import { organizations, orgMembers } from '@/lib/db/schema';
 import { generatePublicId } from '@/lib/ids';
 import { logger } from '@/lib/logger';
+import { hashInviteToken, issueInvitation } from '@/lib/org/invitations';
 
 const SLUG_ATTEMPTS = 3;
 
@@ -202,36 +204,28 @@ export const inviteOrgMember = validatedActionWithUser(
     }
 
     try {
-      const pending = await getAuth().api.listInvitations({
-        query: { organizationId: data.orgId },
-        headers: await authHeaders(),
+      // 自建 token 之后没有 `listInvitations`，「顺手清掉过期邀请」这一步
+      // 也不再需要：`app.invite_join_preview` 与 `app.accept_invite` 都带
+      // `expires_at > now()`，过期邀请无论 status 是 pending 还是别的都
+      // 进不去。重发会原地覆盖同一行（附录 A.7），不会堆出多条。
+      const issued = await issueInvitation({
+        actorId: user.id,
+        organizationId: data.orgId,
+        email: data.email,
+        role: data.role,
       });
-      const now = Date.now();
-      for (const invitation of pending) {
-        if (
-          invitation.status === 'pending' &&
-          new Date(invitation.expiresAt).getTime() <= now
-        ) {
-          await getAuth().api.cancelInvitation({
-            body: { invitationId: invitation.id },
-            headers: await authHeaders(),
-          });
-        }
-      }
 
-      const invitation = await getAuth().api.createInvitation({
-        body: {
-          email: data.email,
-          role: data.role,
-          organizationId: data.orgId,
-        },
-        headers: await authHeaders(),
-      });
+      if (!issued.ok) {
+        return issued.reason === 'accepted'
+          ? { error: '该邮箱已是成员，无需重复邀请' }
+          : { error: '邀请链接生成失败，请重试' };
+      }
 
       revalidateWholeConsole();
       return {
         success: '邀请已创建，请把链接发送给对方。',
-        inviteUrl: `${getServerConfig().BETTER_AUTH_URL}/sign-up?invite=${invitation.id}`,
+        // 明文 token 只在这里出现一次。库里只有 sha256——再也取不回来。
+        inviteUrl: `${getServerConfig().BETTER_AUTH_URL}/join?token=${issued.invitation.token}`,
       };
     } catch (error) {
       return mapAuthError(error);
@@ -242,60 +236,50 @@ export const inviteOrgMember = validatedActionWithUser(
 export const acceptInviteAction = validatedActionWithUser(
   acceptInviteSchema,
   async (data, _, user) => {
-    // 先取邀请，拿到目标组织 id。Better Auth 的 acceptInvitation 只校验
-    // 邀请自身（status / expiresAt），**不看 organization.status**；目标态
-    // 又没有软删，已关停组织的行还在表里，少了下面这道判断就能凭一张
-    // 未消费的旧邀请加入已关停的组织。
-    let organizationId: string;
-    try {
-      const invitation = await getAuth().api.getInvitation({
-        query: { id: data.invitationId },
-        headers: await authHeaders(),
-      });
-      organizationId = invitation.organizationId;
-    } catch (error) {
-      return mapAuthError(error);
-    }
-
-    // 调用者此刻还不是该组织的成员，organization 的 org_isolation 策略让他
-    // 看不见这一行，所以只能走 SECURITY DEFINER 的函数。
+    // 凭据是**明文 token**，不是入库行 id。库里只有 sha256（附录 A.1），
+    // 所以先把明文哈希掉，再交给 `app.accept_invite`。
     //
-    // 用三态而不是布尔：`false` 把「已关停」和「组织不存在」压成同一个答案，
-    // 用户看到「该组织已归档」却找不到任何归档记录。分发一张指向已删除组织的
-    // 旧邀请不是关停问题，得说清楚。
-    //
-    // 这里是**准入检查**，不是防竞争的锁：真正的一致性由 `app.accept_invite`
-    // 在 `SELECT ... FOR UPDATE` 之后重判一次（B2b 起它是主路径）。在那之前，
-    // Better Auth 的 acceptInvitation 与本次检查之间存在毫秒级窗口——档案员
-    // 恰在此刻关停组织的概率可以接受，但把它当「已锁死」会是错的。
-    const rows = await withOrg(user.id, (tx) =>
-      tx.execute(
-        sql`select app.organization_join_state(${organizationId}::uuid) as state`
-      )
-    );
-    const state = (rows[0] as { state?: string } | undefined)?.state;
-    if (state !== 'active') {
-      return {
-        error:
-          state === 'missing'
-            ? '邀请指向的组织已不存在，请让管理员重新邀请'
-            : '该组织已归档，无法加入',
-      };
-    }
+    // 三道判断一次性落在数据库函数里：token 有效且未过期、组织未关停、
+    // 邀请邮箱与当前账号一致。放在应用层做会拆成三次往返，中间每一步都
+    // 有窗口；放到函数里，`SELECT ... FOR UPDATE` 之后的重判才是原子的。
+    const tokenHash = hashInviteToken(data.token);
 
     try {
-      await getAuth().api.acceptInvitation({
-        body: { invitationId: data.invitationId },
-        headers: await authHeaders(),
-      });
+      await withOrg(user.id, (tx) =>
+        tx.execute(sql`select app.accept_invite(${tokenHash})`)
+      );
     } catch (error) {
-      return mapAuthError(error);
+      return mapAcceptInviteError(error);
     }
 
     revalidateWholeConsole();
     return { success: '已加入组织' };
   }
 );
+
+/**
+ * `app.accept_invite` 的三种业务失败都带自定义 SQLSTATE，逐条映射成人话。
+ *
+ * 不直接 `mapAuthError`：那一层只认 Better Auth 的 statusCode / error.code，
+ * 碰到 `P0001` 之类的原始 SQLSTATE 会一律压成「操作失败，请稍后重试。」——
+ * 用户拿着一封过期邀请只会看到一句无从下手的兜底文案。
+ */
+function mapAcceptInviteError(error: unknown) {
+  // 必须走 `sqlStateOf` 而不是读 `error.code`：Drizzle 把驱动异常包成
+  // `DrizzleQueryError(query, params, cause)`，SQLSTATE 只在 `cause` 上。
+  // 直接读顶层 `code` 一律是 undefined，三个分支都命中不了，所有失败都会
+  // 退化成「操作失败，请稍后重试。」——实测踩过。
+  if (sqlStateOf(error, '22023')) {
+    return { error: '邀请无效或已过期，请让管理员重新邀请' };
+  }
+  if (sqlStateOf(error, '42501')) {
+    return { error: '该邀请不是发给当前账号的' };
+  }
+  if (sqlStateOf(error, '23505')) {
+    return { error: '当前账号已是该组织成员' };
+  }
+  return mapAuthError(error);
+}
 
 export const removeOrgMember = validatedActionWithUser(
   removeOrgMemberSchema,

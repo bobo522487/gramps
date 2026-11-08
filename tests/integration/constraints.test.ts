@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { folders, invitations, orgMembers } from '@/lib/db/schema';
 import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
@@ -149,7 +149,8 @@ describe('database constraints', () => {
           organizationId: organization.id,
           email: 'owner@example.com',
           role: 'owner',
-          inviterId: owner.id,
+          tokenHash: `constraint-probe-${Date.now()}`,
+          invitedBy: owner.id,
           expiresAt: new Date(Date.now() + 86_400_000),
         })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
@@ -160,63 +161,94 @@ describe('database constraints', () => {
     const organization = await createOrganization();
     await createInvitation({
       organizationId: organization.id,
-      inviterId: invitedBy.id,
+      invitedBy: invitedBy.id,
       email: 'Dup@Example.com',
     });
 
     await expect(
       createInvitation({
         organizationId: organization.id,
-        inviterId: invitedBy.id,
+        invitedBy: invitedBy.id,
         email: 'dup@example.com',
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
   });
 
-  it('allows a new invitation after the previous one is accepted', async () => {
+  /**
+   * 旧实现是「同组织同邮箱只能有一条 pending」的部分唯一索引，所以
+   * 「上一封已接受 / 已撤销后可以再发新邀请」成立。
+   *
+   * 目标态（附录 A.1）改成 `UNIQUE (organization_id, email)` **全量唯一**：
+   * 重发走 A.7 的 `ON CONFLICT … DO UPDATE` 原地更新同一行，而不是插新行。
+   * 下面两条守的是新语义——重发必须是「换 token 续期」，且已消费的邀请
+   * 不给重发（A.7 的 `WHERE accepted_at IS NULL` 影响 0 行）。
+   *
+   * 这条覆盖的是 A.7 SQL 的形状；应用层 `issueInvitation()` 的行为由
+   * `tests/s8-stage-b2b.test.ts` B2b-5 静态断言。
+   */
+  it('reissues by rotating the token on the same row, never a second invite', async () => {
     const invitedBy = await createUser();
     const organization = await createOrganization();
     const first = await createInvitation({
       organizationId: organization.id,
-      inviterId: invitedBy.id,
+      invitedBy: invitedBy.id,
       email: 'again@example.com',
     });
 
-    await getTestDb()
-      .update(invitations)
-      .set({ status: 'accepted' })
-      .where(eq(invitations.id, first.id));
-
-    await expect(
-      createInvitation({
+    const reissued = await getTestDb()
+      .insert(invitations)
+      .values({
         organizationId: organization.id,
-        inviterId: invitedBy.id,
         email: 'again@example.com',
+        role: 'viewer',
+        tokenHash: `reissued-${Date.now()}`,
+        invitedBy: invitedBy.id,
+        expiresAt: new Date(Date.now() + 7 * 86_400_000),
       })
-    ).resolves.toBeDefined();
+      .onConflictDoUpdate({
+        target: [invitations.organizationId, invitations.email],
+        set: { tokenHash: sql`excluded.token_hash`, status: 'pending' },
+        where: sql`${invitations.acceptedAt} is null`,
+      })
+      .returning({ id: invitations.id, tokenHash: invitations.tokenHash });
+
+    // 同一行原地更新，不是插出第二条。
+    expect(reissued).toHaveLength(1);
+    expect(reissued[0].id).toBe(first.id);
+    expect(reissued[0].tokenHash).not.toBe(first.tokenHash);
   });
 
-  it('allows a new invitation after the previous one is canceled', async () => {
+  it('refuses to reopen an invitation that was already accepted', async () => {
     const invitedBy = await createUser();
     const organization = await createOrganization();
-    const first = await createInvitation({
+    const accepted = await createInvitation({
       organizationId: organization.id,
-      inviterId: invitedBy.id,
-      email: 'revoked@example.com',
+      invitedBy: invitedBy.id,
+      email: 'joined@example.com',
+      status: 'accepted',
     });
 
-    await getTestDb()
-      .update(invitations)
-      .set({ status: 'canceled' })
-      .where(eq(invitations.id, first.id));
-
-    await expect(
-      createInvitation({
+    const rows = await getTestDb()
+      .insert(invitations)
+      .values({
         organizationId: organization.id,
-        inviterId: invitedBy.id,
-        email: 'revoked@example.com',
+        email: 'joined@example.com',
+        role: 'viewer',
+        tokenHash: `reopen-${Date.now()}`,
+        invitedBy: invitedBy.id,
+        expiresAt: new Date(Date.now() + 7 * 86_400_000),
       })
-    ).resolves.toBeDefined();
+      .onConflictDoUpdate({
+        target: [invitations.organizationId, invitations.email],
+        set: { tokenHash: sql`excluded.token_hash`, status: 'pending' },
+        where: sql`${invitations.acceptedAt} is null`,
+      })
+      .returning({ id: invitations.id });
+
+    // A.7 的 WHERE 让这条路影响 0 行——应用据此报「该邮箱已是成员」，
+    // 而不是把已加入的人退回 pending（那会与 organization_member 里的成员行矛盾）。
+    expect(rows).toHaveLength(0);
+    expect(accepted.status).toBe('accepted');
   });
 
   it('rejects cross-organization references through composite foreign keys', async () => {

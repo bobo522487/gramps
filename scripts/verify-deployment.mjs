@@ -460,6 +460,8 @@ async function checkDb() {
         has_table_privilege('app_rw', 'public.organization', 'UPDATE') as app_org_update,
         has_table_privilege('app_rw', 'public.organization_member', 'UPDATE') as app_member_update,
         has_table_privilege('app_rw', 'public.invite', 'SELECT') as app_invite_select,
+        has_table_privilege('app_rw', 'public.invite', 'INSERT') as app_invite_insert,
+        has_table_privilege('app_rw', 'public.invite', 'UPDATE') as app_invite_update,
         has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select
     `;
     check(
@@ -473,9 +475,19 @@ async function checkDb() {
       privileges?.app_auth_user_select === false &&
         privileges?.app_org_insert === false &&
         privileges?.app_org_update === false &&
-        privileges?.app_member_update === false &&
-        privileges?.app_invite_select === false,
+        privileges?.app_member_update === false,
       'app_rw cannot read auth or write tenant tables'
+    );
+    // `invite` 的 SELECT 在 B2b 反转为**必须可读**。
+    //
+    // 自建 token 邀请之后，成员管理页、重发与撤销都要业务层自己读这张表；
+    // 旧前提「邀请走 Better Auth API、业务层不读它」已经不成立。写权限
+    // 仍然不给：写入只能走附录 A.7 的 ON CONFLICT 路径与 `app.accept_invite`。
+    check(
+      privileges?.app_invite_select === true &&
+        privileges?.app_invite_insert === false &&
+        privileges?.app_invite_update === false,
+      'app_rw can read pending invitations (member console), not write them'
     );
     check(
       privileges?.auth_project_select === false,

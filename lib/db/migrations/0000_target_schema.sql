@@ -169,7 +169,17 @@ CREATE TABLE invite (
                          AND btrim(email) <> ''
                          AND position('@' IN email) > 1),
   role            member_role_t NOT NULL DEFAULT 'viewer' CHECK (role <> 'owner'),
-  token_hash      text NOT NULL UNIQUE,
+  -- 具名约束，不用 `UNIQUE` 内联：内联时 PostgreSQL 自动起名
+  -- `invite_token_hash_key`，名字一旦成为应用重试分支的判断依据，就必须
+  -- 显式钉住——重新排一次 DDL、换个建表顺序，自动名都可能变。
+  -- 默认值同样不是为了「忘了传 token」：唯一写入路径（lib/org/invitations.ts）
+  -- 每次都显式写它。挂默认值是为了让 Better Auth 1.7.12 的 schema 自检
+  -- 放过这一列——插件的 invitation 模型不写 token_hash，自检遇到
+  -- 「非空 + 无默认值的列」会判定每次插入都失败，并在每个用到 auth 的请求上
+  -- 打一条 ERROR。默认值是一条永远匹配不上任何明文 token 的随机串。
+  token_hash      text NOT NULL
+                  DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '')
+                  CONSTRAINT invite_token_hash_key UNIQUE,
   status          text NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending','accepted','revoked')),
   expires_at      timestamptz NOT NULL,
@@ -668,6 +678,30 @@ CREATE OR REPLACE FUNCTION app.organization_is_open(p_org_id uuid) RETURNS boole
   SELECT app.organization_join_state(p_org_id) = 'active'
 $$;
 
+-- 待加入者在点「加入」之前要看到「我要加入的是哪个组织、以什么角色」。
+-- 此刻他还不是成员，`invite` 的 org_isolation 让他在那张表上一行都看不见，
+-- 而放开 SELECT 等于把同组织**全部待发邀请的邮箱**摆给他看。
+-- 所以只放一个按 token_hash 精确寻址的预览函数，只回该邀请指向的组织名与角色。
+--
+-- 不回 email：调用方自己知道邮箱，回显它只是把「这张邀请是发给谁的」泄漏给
+-- 任何一个拿到链接的人。不回 id：自建 token 之后 id 不该出现在任何对外的
+-- 形状里，否则有人会顺手拿它当凭据（正是 B2b 要废掉的那条路）。
+--
+-- STABLE 而非 VOLATILE：只读一行，可在同一语句内被规划器复用。
+-- 返回 NULL（不是抛错）：调用方要区分「链接无效」与「权限问题」，
+-- 而这里唯一的失败原因就是链接无效。
+CREATE OR REPLACE FUNCTION app.invite_join_preview(p_token_hash text)
+RETURNS TABLE (organization_name text, role text, expires_at timestamptz)
+  LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT o.name, i.role::text, i.expires_at
+    FROM public.invite i
+    JOIN public.organization o ON o.id = i.organization_id
+   WHERE i.token_hash = p_token_hash
+     AND i.status = 'pending'
+     AND i.expires_at > now()
+$$;
+
 DO $$
 DECLARE
   t text;
@@ -850,6 +884,7 @@ GRANT EXECUTE ON FUNCTION app.create_organization(text) TO genealogy_app;
 GRANT EXECUTE ON FUNCTION app.accept_invite(text) TO genealogy_app;
 GRANT EXECUTE ON FUNCTION app.organization_join_state(uuid) TO genealogy_app;
 GRANT EXECUTE ON FUNCTION app.organization_is_open(uuid) TO genealogy_app;
+GRANT EXECUTE ON FUNCTION app.invite_join_preview(text) TO genealogy_app;
 -- 触发器执行本身不检查 EXECUTE（实测：has_function_privilege = false 时
 -- UPDATE 照样触发并抛错），这里授权是为了另一件事——部署若用非属主角色
 -- CREATE TRIGGER，PostgreSQL 会在建触发器时检查 EXECUTE 并报 42501。

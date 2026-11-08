@@ -68,6 +68,19 @@ export function isForeignKeyViolationOf(
   );
 }
 
+/**
+ * 从错误链里取出**某个** SQLSTATE，没命中返回 null。
+ *
+ * 存在的理由：调用方拿到的往往不是 `PostgresError` 本身。Drizzle 会把驱动
+ * 异常包成 `DrizzleQueryError`（`new DrizzleQueryError(query, params, cause)`
+ * ——SQLSTATE 只在 `cause` 上，顶层没有 `code`），Better Auth 可能再包一层。
+ * 直接读 `error.code` 会一律拿到 `undefined`，所有按 SQLSTATE 分支的映射
+ * 都会静默退化成兜底文案。
+ */
+export function sqlStateOf(error: unknown, sqlState: string): boolean {
+  return errorChain(error).some((value) => value.code === sqlState);
+}
+
 /** 从错误链里取出 23503 的约束名，供日志与兜底文案使用。 */
 export function foreignKeyConstraintOf(error: unknown): string | null {
   for (const value of errorChain(error)) {

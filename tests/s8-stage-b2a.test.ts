@@ -95,10 +95,15 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
     // 字样，裸计数会被自己的注释误伤（本批已踩过两次）。
     const source = stripComments(schema('org'));
     // 指向 organization 的两条 FK 一律 RESTRICT（删组织不许带走成员/邀请）；
-    // 第三条 restrict 是 `invite.inviter_id`，随 B2b 的列重写改 SET NULL。
     // 指向 auth.user 的成员行必须 CASCADE（销号要能连带删成员）。
-    expect(source.match(/onDelete: 'restrict'/g) ?? []).toHaveLength(3);
+    //
+    // B2b 已按预期把 `invite.invited_by` 从 `NOT NULL + RESTRICT` 改成
+    // `可空 + SET NULL`：邀请人注销后邀请行要留痕，而「谁邀请的谁不能注销」
+    // 是把邀请记录当成了账号的附属物。所以 restrict 从 3 条降到 2 条，
+    // 并新增 1 条 set null。
+    expect(source.match(/onDelete: 'restrict'/g) ?? []).toHaveLength(2);
     expect(source.match(/onDelete: 'cascade'/g) ?? []).toHaveLength(1);
+    expect(source.match(/onDelete: 'set null'/g) ?? []).toHaveLength(1);
     // 精确定位：cascade 那一条必须挂在 `users.id` 上，且属于 organization_member。
     const memberBlock = block(source, 'organization_member', 'invite');
     expect(memberBlock).toContain("users.id, { onDelete: 'cascade' }");

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { getAuth } from '@/lib/auth/better-auth';
 import type { OrgRole } from '@/lib/auth/permissions';
@@ -483,25 +483,60 @@ export async function createCatalogItem(params: {
     .returning();
   return item;
 }
+/**
+ * 造一封邀请。
+ *
+ * `token` 是**明文**，只在返回值里出现一次——库里存的是它的 sha256
+ * （附录 A.1）。测试要调 `app.accept_invite` 时必须拿这个明文，所以工厂
+ * 把它一并返回，而不是让调用方自己哈希一遍（那样两边口径漂移时测试仍然绿）。
+ *
+ * `status` 只剩基线 CHECK 的三个值：'rejected' / 'canceled' 是 Better Auth
+ * 插件的取值，自建 token 之后没有人会写它们。
+ */
 export async function createInvitation(params: {
   organizationId: string;
-  inviterId: string;
+  invitedBy?: string;
   email: string;
   role?: Exclude<OrgRole, 'owner'>;
   expiresAt?: Date;
-  status?: 'pending' | 'accepted' | 'rejected' | 'canceled';
+  status?: 'pending' | 'accepted' | 'revoked';
 }) {
+  const plaintext = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256')
+    .update(plaintext, 'utf8')
+    .digest('hex');
+  const status = params.status ?? 'pending';
   const [invitation] = await getTestDb()
     .insert(invitations)
     .values({
       organizationId: params.organizationId,
-      email: params.email,
+      // 基线 CHECK 要求 `email = lower(email)`。大小写归一是**写入路径**的
+      // 责任（`issueInvitation()` 里 trim + toLowerCase），测试直插时也得照做，
+      // 否则测出来的是「CHECK 拦住了大写邮箱」而不是被测的那条规则。
+      email: params.email.trim().toLowerCase(),
       role: params.role ?? 'viewer',
-      status: params.status ?? 'pending',
+      status,
+      tokenHash,
       expiresAt:
         params.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      inviterId: params.inviterId,
+      // 基线 CHECK 是 `expires_at > created_at`。只把 expiresAt 设在过去
+      // 造不出「过期邀请」——created_at 默认 now()，于是 expires_at 在它之前，
+      // 直接撞 23514。过期邀请的正确造法是「过去创建、早已到期」：
+      // created_at 显式回填到更早，两个时间点一起前移。
+      ...(params.expiresAt
+        ? {
+            createdAt: new Date(
+              Math.min(
+                params.expiresAt.getTime(),
+                Date.now() - 24 * 60 * 60 * 1000
+              )
+            ),
+          }
+        : {}),
+      // 两条单向蕴含：accepted 必须有时刻，有时刻的只能是 accepted / revoked。
+      acceptedAt: status === 'pending' ? null : new Date(),
+      invitedBy: params.invitedBy ?? null,
     })
     .returning();
-  return invitation;
+  return { ...invitation, token: plaintext };
 }
