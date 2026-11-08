@@ -1,5 +1,6 @@
 import type { activityLogs } from './activity';
 import type { accounts, sessions, users, verifications } from './auth';
+import type { bookExports } from './book-export';
 import type { articles, bookCatalogs, books } from './content';
 import type { events } from './event';
 import type { families, familyChildren, familyPartners } from './family';
@@ -10,6 +11,7 @@ import type { folders, projects } from './project';
 
 export * from './activity';
 export * from './auth';
+export * from './book-export';
 export * from './content';
 export * from './event';
 export * from './family';
@@ -56,3 +58,5 @@ export type NewEvent = typeof events.$inferInsert;
 export type Article = typeof articles.$inferSelect;
 export type Book = typeof books.$inferSelect;
 export type BookCatalog = typeof bookCatalogs.$inferSelect;
+export type BookExport = typeof bookExports.$inferSelect;
+export type NewBookExport = typeof bookExports.$inferInsert;

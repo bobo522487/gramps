@@ -162,16 +162,16 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 > 本文 §1–§7 是**目标态**，代码按本文改。下表是重构前必须逐条消掉的差异，**旧实现是待改对象，不是裁决依据**。第 1 条是根上的变更：事实层从「`node` 的回填快照」变成主数据源，读写路径与术语已随本批同步跟改。取舍已在本文定稿，只需新增一条 ADR 记录这次模型变更，不需要再讨论选哪套。
 
-> **[现状]（2026-11-08 B0 更新）**：`lib/db/migrations/0000_target_schema.sql` 已是附录 A 全量目标态 DDL 的唯一基线，#2 / #3 / #4 / #5 / #9 / #10 的**库结构**已在基线里就位；但 `lib/db/schema/*.ts` 与 `lib/auth/*` 尚未追平（阶段 B 的 T18–T28、阶段 C 的 T29–T34）。下表「现状」列描述的是 TS / 应用侧，逐条消掉指两侧都对齐，不是只看 SQL 文件。
+> **[现状]（2026-11-08 B1 更新）**：`lib/db/migrations/0000_target_schema.sql` 已是附录 A 全量目标态 DDL 的唯一基线，#2 / #3 / #4 / #5 / #9 / #10 的**库结构**已在基线里就位；B1 补上 `book_export` 的 TS 表结构、并让 `project` / `folder` 的复合主键在 TS 侧追平（#6 部分消除、`lineage_folder_fk` 的 42830 隐患解除），但 #2 的 `book_export_book_fk` 目标键仍待 `content.ts` 追平，`lib/db/schema/*.ts` 与 `lib/auth/*` 其余部分也尚未追平（阶段 B 的 T18–T28、阶段 C 的 T29–T34）。下表「现状」列描述的是 TS / 应用侧，逐条消掉指两侧都对齐，不是只看 SQL 文件。
 
 | # | 目标（本文） | 现状（待改） | 现状位置 / 待改文件 |
 | --- | --- | --- | --- |
 | 1 | `person` 是身份与事实的主数据源，谱系只引用它 | **已消除**：事实层六表由应用直接读写为主数据源，`node` 退为位置引用；`docs/architecture.md`「域所有权」与 `docs/glossary.md`「事实层 / 人丁」已同步 | `lib/db/schema/{person,family,event,lineage}.ts` |
-| 2 | `book_export` 登记导出制品 | 全仓 schema 无此表 | `grep -rn "book_export" lib/db/schema/` 为 0 |
+| 2 | `book_export` 登记导出制品 | **B1 已补 TS 表结构**：B0 唯一 SQL 基线按附录 A.5 建 `book_export`；B1 补 `lib/db/schema/book-export.ts`（复合主键、四条 CHECK、两条 FK）与 barrel 类型导出。但 `book_export_book_fk` 的目标键 `book (project_id, id)` 在 TS 侧 `content.ts` 仍是单列主键，须由阶段 B 后续批次追平，**不能称两侧已对齐** | `lib/db/migrations/0000_target_schema.sql`；`lib/db/schema/book-export.ts`；`content.ts` |
 | 3 | `parent_path` 生成列 + 自引用 FK 保证闭包 | **谱系层已消除**（A′）：`node.parent_path` 生成列 + 自引用 FK 已落地；谱书层 `book_catalog` 仍是 `parent_id` + `fk_catalog_parent_same_book`，待 T25 | `lib/db/schema/lineage.ts`；`content.ts` |
 | 4 | `book_catalog.path` 是 `ltree`，用 `section` / `sort` 之外还靠路径排序 | `book_catalog` 用 `parent_id` + `section` + `sort` + `hide`，**没有 ltree 列** | `lib/db/schema/content.ts` |
 | 5 | `article.body` 文本 | `article.content` 是 jsonb + `plain_text` | `lib/db/schema/content.ts` |
-| 6 | 复合主键 `(project_id, id)`，`organization_member` 无 `id` | 单列 `id` 主键 + `uk_*_organization_id` 唯一约束；`organization_member` 有 `id` | `lib/db/schema/shared.ts` 的 `uuidPk()`；`org.ts` |
+| 6 | 复合主键 `(project_id, id)`，`organization_member` 无 `id` | **B1 部分消除**：`project` 改 `(organization_id, id)` + `project_id_global` 全局唯一（替换与主键重复的 `uk_project_organization_id`），`folder` 改 `(project_id, id)`；其余表仍是单列 `id` 主键 + `uk_*_organization_id` 唯一约束，`organization_member` 仍有 `id`，`uuidPk()` 未退役（T18 收尾删） | `lib/db/schema/{shared,org,project,content,auth,activity}.ts` |
 | 7 | 0 个 `updated_at`、无软删、删除走 `RESTRICT` | 6 个 schema 文件有 `updated_at` / `deleted_at`；业务表软删、`organization_member` 与 `invite` 硬删 | `lib/db/schema/*.ts`；`docs/glossary.md`「软删 / 硬删」；`docs/nfr.md` §5 |
 | 8 | 不使用 Better Auth organization 插件；`auth.user` 主键 `text` | 用 organization 插件；`users.id` 是 uuid | `docs/architecture.md` 技术栈；`lib/db/schema/shared.ts` |
 | 9 | 不启用 FORCE RLS（方案 A），角色 `genealogy_app` | `public` schema 启用 FORCE RLS；运行期角色 `app_rw` / `auth_service`，迁移直连角色才 `BYPASSRLS` | `docs/architecture.md` 部署形态；`docs/runbooks/README.md` §1 |
