@@ -1,10 +1,41 @@
 import 'server-only';
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { type DbTransaction, queryRows } from '@/lib/db/drizzle';
+import type { DbTransaction } from '@/lib/db/drizzle';
 import { logActivityInTx } from '@/lib/db/queries/activity';
-import { ActivityType, lineages, type Node, nodes } from '@/lib/db/schema';
+import {
+  ActivityType,
+  type Node,
+  nodes,
+  personNames,
+  persons,
+} from '@/lib/db/schema';
+import type { PersonSex } from '@/lib/genealogy/constants';
 import { withCreateWrite, withLineageWrite } from './lineage-write';
+
+/**
+ * S8 stage A′ write layer (appendix A.3/A.4).
+ *
+ * A person is no longer a `node` row carrying identity columns. Creating one
+ * is a single transaction over three tables:
+ *
+ *   `person` (identity + sex) → `person_name` (the primary recorded name)
+ *   → `node` (a position reference: person_id + sparse ltree path)
+ *
+ * The four-creation-path shape is kept so the Server Actions and the UI stay
+ * stable, but the fields the target model cannot store are no longer written.
+ *
+ * Registered degradations (see implementation plan §3.2, stage C follow-ups):
+ * - spouse pairing: `node` has no spouse edge; the relationship belongs in
+ *   `family` / `family_partner`, whose write layer is not part of A′. The
+ *   co-created-spouse input is accepted but not persisted.
+ * - whole-subtree move / sibling reorder: `node_parent_fk` is non-deferrable,
+ *   so rewriting parent paths needs the phase-B DDL (deferrable FK or a
+ *   three-stage prefix swap). These two entry points validate their input and
+ *   return an explicit failure instead of writing a broken tree.
+ * - the create-idempotency key was retired with the target-model `node`;
+ *   replay protection is a stage-C follow-up.
+ */
 
 export type NodeCreateDetails = {
   courtesy?: string | null;
@@ -18,7 +49,7 @@ export type NodeCreateDetails = {
   biography?: string | null;
 };
 
-/** A spouse recorded in the same transaction as the blood node. */
+/** Kept for form compatibility; no target-model column in A′. */
 export type OptionalSpouse = {
   name: string;
   surname: string;
@@ -48,33 +79,10 @@ export type ReorderNodesResult =
   | { ok: true }
   | { ok: false; reason: NodeFailure };
 
-function nodeLabel(id: string) {
-  return id.replaceAll('-', '');
-}
-
-/** The path needs the id before insert, so ask the database for a UUIDv7. */
-async function newNodeId(tx: DbTransaction): Promise<string> {
-  const rows = await queryRows<{ id: string }>(tx, sql`select uuidv7() as id`);
-  const id = rows[0]?.id;
-  if (!id) {
-    throw new Error('failed to generate node id');
-  }
-  return id;
-}
-
-function fullName(surname: string, name: string) {
-  return `${surname}${name}`;
-}
-
-/** Genealogy spouse convention: the co-spouse is the opposite sex of the blood node. */
-function oppositeSex(sex: number): number {
-  return sex === 0 ? 1 : 0;
-}
-
 /**
- * Expand the optional create-details into the full set of node columns,
- * filling the defaults. Single source for both the transaction layer and the
- * Server Actions (which hold the same shape before it reaches here).
+ * Expands the optional form details into a full shape. The target model keeps
+ * these as a stable form contract; the write layer below does not persist them
+ * until `person_name` / `event` gain the corresponding rows in stage C.
  */
 export function toNodeDetails(
   details: Partial<NodeCreateDetails> | undefined
@@ -92,6 +100,17 @@ export function toNodeDetails(
   };
 }
 
+/** Four-digit sparse ltree label; +10 leaves gaps for later insertions. */
+const PATH_STEP = 10;
+
+function segment(value: number): string {
+  const label = String(value).padStart(4, '0');
+  if (label.length !== 4) {
+    throw new Error('node path segment overflow');
+  }
+  return label;
+}
+
 async function loadNode(
   tx: DbTransaction,
   orgId: string,
@@ -105,8 +124,7 @@ async function loadNode(
       and(
         eq(nodes.id, nodeId),
         eq(nodes.orgId, orgId),
-        eq(nodes.lineageId, lineageId),
-        isNull(nodes.deletedAt)
+        eq(nodes.lineageId, lineageId)
       )
     )
     .limit(1);
@@ -114,172 +132,140 @@ async function loadNode(
 }
 
 /**
- * Next `sort` in one sibling group: blood keyed by parent (roots when none),
- *  spouse keyed by the blood node. Only the scoping column and role differ. */
-async function nextSort(
+ * Allocates the next path under `parentPath`: the largest trailing segment in
+ * that sibling group plus `PATH_STEP`, padded to four digits. Roots have a
+ * NULL `parent_path` (generated column) and are grouped together.
+ */
+async function nextPath(
   tx: DbTransaction,
   orgId: string,
   lineageId: string,
-  scope:
-    | { role: 'blood'; parentId: string | null }
-    | { role: 'spouse'; spouseOfId: string }
-): Promise<number> {
-  const [row] = await tx
-    .select({ value: sql<number>`coalesce(max(${nodes.sort}), -1)::int` })
+  parentPath: string | null
+): Promise<string> {
+  const siblings = await tx
+    .select({ path: nodes.path })
     .from(nodes)
     .where(
       and(
         eq(nodes.orgId, orgId),
         eq(nodes.lineageId, lineageId),
-        eq(nodes.role, scope.role),
-        scope.role === 'blood'
-          ? scope.parentId
-            ? eq(nodes.parentId, scope.parentId)
-            : isNull(nodes.parentId)
-          : eq(nodes.spouseOfId, scope.spouseOfId),
-        isNull(nodes.deletedAt)
+        parentPath === null
+          ? isNull(nodes.parentPath)
+          : sql`${nodes.parentPath} = ${parentPath}::ltree`
       )
     );
-  return (row?.value ?? -1) + 1;
-}
 
-async function adjustNodeCount(
-  tx: DbTransaction,
-  orgId: string,
-  lineageId: string,
-  delta: number
-) {
-  await tx
-    .update(lineages)
-    .set({
-      nodeCount: sql`greatest(${lineages.nodeCount} + ${delta}, 0)`,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)));
-}
-
-async function insertNode(
-  tx: DbTransaction,
-  values: typeof nodes.$inferInsert
-): Promise<Node> {
-  const [node] = await tx.insert(nodes).values(values).returning();
-  return node;
-}
-
-async function insertCoSpouse(
-  tx: DbTransaction,
-  params: {
-    userId: string;
-    orgId: string;
-    lineageId: string;
-    blood: Node;
-    spouse: OptionalSpouse;
+  let max = 0;
+  for (const sibling of siblings) {
+    const last = sibling.path.split('.').at(-1) ?? '0';
+    max = Math.max(max, Number.parseInt(last, 10) || 0);
   }
-): Promise<Node> {
-  const { userId, orgId, lineageId, blood, spouse } = params;
-  const id = await newNodeId(tx);
-  return insertNode(tx, {
-    id,
-    orgId,
-    lineageId,
-    parentId: null,
-    spouseOfId: blood.id,
-    role: 'spouse',
-    path: null,
-    generation: blood.generation,
-    sort: await nextSort(tx, orgId, lineageId, {
-      role: 'spouse',
-      spouseOfId: blood.id,
-    }),
-    name: spouse.name,
-    surname: spouse.surname,
-    fullName: fullName(spouse.surname, spouse.name),
-    sex: oppositeSex(blood.sex),
-    isAlive: blood.isAlive,
-    createdBy: userId,
-  });
+  const leaf = segment(max + PATH_STEP);
+  return parentPath === null ? leaf : `${parentPath}.${leaf}`;
 }
 
-/** Everything the shared node-creation write preamble needs. */
-type NodeWriteContext = {
+type WriteContext = {
   userId: string;
   orgId: string;
+  projectId: string;
   lineageId: string;
-  /** 客户端幂等键：只写在主行上，共创配偶留 NULL（见 uk_node_org_request_id）。 */
-  requestId: string;
   ipAddress?: string;
 };
 
-/** A node row without the id/createdBy that recordNode itself fills in. */
-type NodeInsertValues = Omit<typeof nodes.$inferInsert, 'id' | 'createdBy'>;
+type CreateInput = {
+  name: string;
+  surname: string;
+  sex: PersonSex;
+  parentPath: string | null;
+};
 
-/**
- * The write preamble every node creation shares: allocate id, insert node,
- * add the co-spouse if supplied, bump `node_count`, log the create. The four
- * callers differ only in `buildValues` (given the fresh id to compute `path`).
- *
- * 重放不会走到这里：`withCreateWrite` 在锁内先按 `requestId` 查过一次。
- */
+/** `person` + `person_name` + `node` in one transaction. */
 async function recordNode(
   tx: DbTransaction,
-  ctx: NodeWriteContext,
-  buildValues: (id: string) => NodeInsertValues,
-  coSpouse?: OptionalSpouse
+  ctx: WriteContext,
+  input: CreateInput
 ): Promise<Extract<NodeMutationResult, { ok: true }>> {
-  const { userId, orgId, lineageId, requestId, ipAddress } = ctx;
-  const id = await newNodeId(tx);
-  const node = await insertNode(tx, {
-    id,
-    createdBy: userId,
-    requestId,
-    ...buildValues(id),
+  const { userId, orgId, projectId, lineageId, ipAddress } = ctx;
+  const displayName = input.surname
+    ? `${input.surname}${input.name}`
+    : input.name;
+
+  const [person] = await tx
+    .insert(persons)
+    .values({ orgId, projectId, sex: input.sex })
+    .returning({ id: persons.id });
+  if (!person) {
+    throw new Error('failed to insert person');
+  }
+
+  await tx.insert(personNames).values({
+    orgId,
+    projectId,
+    personId: person.id,
+    kind: 'given',
+    value: displayName,
+    isPrimary: true,
   });
-  const spouse = coSpouse
-    ? await insertCoSpouse(tx, {
-        userId,
-        orgId,
-        lineageId,
-        blood: node,
-        spouse: coSpouse,
-      })
-    : null;
-  await adjustNodeCount(tx, orgId, lineageId, spouse ? 2 : 1);
+
+  const path = await nextPath(tx, orgId, lineageId, input.parentPath);
+  const [node] = await tx
+    .insert(nodes)
+    .values({
+      orgId,
+      projectId,
+      lineageId,
+      personId: person.id,
+      path,
+      kind: 'primary',
+      displayName,
+    })
+    .returning();
+  if (!node) {
+    throw new Error('failed to insert node');
+  }
+
   await logActivityInTx(tx, userId, orgId, ActivityType.CREATE_NODE, ipAddress);
-  return { ok: true as const, node, ...(spouse ? { spouse } : {}) };
+  return { ok: true as const, node };
 }
 
-/**
- * 四条创建路径共享的入参。`requestId` 是客户端幂等键（R31）：一次「提交意图」
- * 一个 uuid，必填——缺键的创建在 Zod 处就拒掉，不给重放留无键通道。
- */
+/** Shared shape for the four creation paths. */
 export type NodeCreateParams = {
   userId: string;
   orgId: string;
   lineageId: string;
-  requestId: string;
   name: string;
   surname?: string;
-  sex: number;
+  sex: PersonSex;
   details?: NodeCreateDetails;
   spouse?: OptionalSpouse;
   ipAddress?: string;
 };
 
+function createContext(
+  params: NodeCreateParams,
+  lineage: { projectId: string }
+): WriteContext {
+  return {
+    userId: params.userId,
+    orgId: params.orgId,
+    projectId: lineage.projectId,
+    lineageId: params.lineageId,
+    ipAddress: params.ipAddress,
+  };
+}
+
 export async function createRootNodeInTransaction(
   params: NodeCreateParams
 ): Promise<NodeMutationResult> {
-  const { orgId, lineageId, name, sex } = params;
-
   return withCreateWrite(params, async (tx, lineage) => {
     const [existing] = await tx
       .select({ id: nodes.id })
       .from(nodes)
       .where(
         and(
-          eq(nodes.orgId, orgId),
-          eq(nodes.lineageId, lineageId),
-          eq(nodes.role, 'blood'),
-          isNull(nodes.deletedAt)
+          eq(nodes.orgId, params.orgId),
+          eq(nodes.lineageId, params.lineageId),
+          isNull(nodes.parentPath)
         )
       )
       .limit(1);
@@ -287,167 +273,89 @@ export async function createRootNodeInTransaction(
       return { ok: false, reason: 'root_exists' as const };
     }
 
-    const surname = params.surname ?? lineage.surname;
-    return recordNode(
-      tx,
-      params,
-      (id) => ({
-        orgId,
-        lineageId,
-        role: 'blood',
-        path: nodeLabel(id),
-        generation: 1,
-        sort: 0,
-        name,
-        surname,
-        fullName: fullName(surname, name),
-        sex,
-        ...toNodeDetails(params.details),
-      }),
-      params.spouse
-    );
+    return recordNode(tx, createContext(params, lineage), {
+      name: params.name,
+      surname: params.surname ?? '',
+      sex: params.sex,
+      parentPath: null,
+    });
   });
 }
 
 export async function addChildInTransaction(
   params: NodeCreateParams & { parentId: string }
 ): Promise<NodeMutationResult> {
-  const { orgId, lineageId, parentId, name, sex } = params;
-
   return withCreateWrite(params, async (tx, lineage) => {
-    const parent = await loadNode(tx, orgId, lineageId, parentId);
+    const parent = await loadNode(
+      tx,
+      params.orgId,
+      params.lineageId,
+      params.parentId
+    );
     if (!parent) {
       return { ok: false, reason: 'not_found' as const };
     }
-    if (parent.role !== 'blood' || !parent.path) {
-      return { ok: false, reason: 'invalid_parent' as const };
-    }
-
-    const surname = params.surname ?? lineage.surname;
-    const parentPath = parent.path;
-    const generation = parent.generation + 1;
-    const sort = await nextSort(tx, orgId, lineageId, {
-      role: 'blood',
-      parentId: parent.id,
+    return recordNode(tx, createContext(params, lineage), {
+      name: params.name,
+      surname: params.surname ?? '',
+      sex: params.sex,
+      parentPath: parent.path,
     });
-    return recordNode(
-      tx,
-      params,
-      (id) => ({
-        orgId,
-        lineageId,
-        parentId: parent.id,
-        role: 'blood',
-        path: `${parentPath}.${nodeLabel(id)}`,
-        generation,
-        sort,
-        name,
-        surname,
-        fullName: fullName(surname, name),
-        sex,
-        ...toNodeDetails(params.details),
-      }),
-      params.spouse
-    );
   });
 }
 
 export async function addSiblingInTransaction(
   params: NodeCreateParams & { siblingOfId: string }
 ): Promise<NodeMutationResult> {
-  const { orgId, lineageId, siblingOfId, name, sex } = params;
-
   return withCreateWrite(params, async (tx, lineage) => {
-    const sibling = await loadNode(tx, orgId, lineageId, siblingOfId);
+    const sibling = await loadNode(
+      tx,
+      params.orgId,
+      params.lineageId,
+      params.siblingOfId
+    );
     if (!sibling) {
       return { ok: false, reason: 'not_found' as const };
     }
-    if (sibling.role !== 'blood' || !sibling.path) {
-      return { ok: false, reason: 'invalid_target' as const };
-    }
-    if (!sibling.parentId) {
+    if (!sibling.parentPath) {
       return { ok: false, reason: 'root_sibling' as const };
     }
-    const parent = await loadNode(tx, orgId, lineageId, sibling.parentId);
-    if (!parent?.path) {
-      return { ok: false, reason: 'invalid_parent' as const };
-    }
-
-    const surname = params.surname ?? lineage.surname;
-    const parentPath = parent.path;
-    const generation = sibling.generation;
-    const sort = await nextSort(tx, orgId, lineageId, {
-      role: 'blood',
-      parentId: parent.id,
+    return recordNode(tx, createContext(params, lineage), {
+      name: params.name,
+      surname: params.surname ?? '',
+      sex: params.sex,
+      parentPath: sibling.parentPath,
     });
-    return recordNode(
-      tx,
-      params,
-      (id) => ({
-        orgId,
-        lineageId,
-        parentId: parent.id,
-        role: 'blood',
-        path: `${parentPath}.${nodeLabel(id)}`,
-        generation,
-        sort,
-        name,
-        surname,
-        fullName: fullName(surname, name),
-        sex,
-        ...toNodeDetails(params.details),
-      }),
-      params.spouse
-    );
   });
 }
 
 /**
- * 单独录入配偶：主行就是配偶行，所以入参刻意去掉 `spouse`，不再链式挂出
- * 「配偶的配偶」；`requestId` 仍然必填，同键重放返回当初那位配偶。
+ * Spouse pairing is not representable by a target-model `node` (no spouse
+ * edge). The relationship belongs in `family_partner`; until that write layer
+ * exists this entry point fails explicitly rather than writing a sibling and
+ * calling it a spouse.
  */
 export async function addSpouseInTransaction(
-  params: Omit<NodeCreateParams, 'spouse'> & { spouseOfId: string }
+  params: Omit<NodeCreateParams, 'spouse'> & { anchorId: string }
 ): Promise<NodeMutationResult> {
-  const { orgId, lineageId, spouseOfId, name, sex } = params;
-
   return withCreateWrite(params, async (tx) => {
-    const spouseOf = await loadNode(tx, orgId, lineageId, spouseOfId);
-    if (!spouseOf) {
+    const anchor = await loadNode(
+      tx,
+      params.orgId,
+      params.lineageId,
+      params.anchorId
+    );
+    if (!anchor) {
       return { ok: false, reason: 'not_found' as const };
     }
-    if (spouseOf.role !== 'blood' || !spouseOf.path) {
-      return { ok: false, reason: 'invalid_target' as const };
-    }
-
-    const surname = params.surname ?? spouseOf.surname;
-    const generation = spouseOf.generation;
-    const sort = await nextSort(tx, orgId, lineageId, {
-      role: 'spouse',
-      spouseOfId: spouseOf.id,
-    });
-    return recordNode(tx, params, () => ({
-      orgId,
-      lineageId,
-      parentId: null,
-      spouseOfId: spouseOf.id,
-      role: 'spouse',
-      path: null,
-      generation,
-      sort,
-      name,
-      surname,
-      fullName: fullName(surname, name),
-      sex,
-      ...toNodeDetails(params.details),
-    }));
+    return { ok: false, reason: 'invalid_target' as const };
   });
 }
 
 export type NodeUpdates = {
   name: string;
   surname: string;
-  sex: number;
+  sex: PersonSex;
   courtesy?: string | null;
   namePrefix?: string | null;
   isAlive?: boolean;
@@ -469,47 +377,48 @@ export async function updateNodeInTransaction(params: {
 }): Promise<NodeMutationResult> {
   const { userId, orgId, lineageId, nodeId, updates, ipAddress } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
     const current = await loadNode(tx, orgId, lineageId, nodeId);
     if (!current) {
       return { ok: false, reason: 'not_found' as const };
     }
 
+    const displayName = updates.surname
+      ? `${updates.surname}${updates.name}`
+      : updates.name;
+
+    if (current.personId) {
+      await tx
+        .update(persons)
+        .set({ sex: updates.sex })
+        .where(
+          and(
+            eq(persons.projectId, lineage.projectId),
+            eq(persons.id, current.personId)
+          )
+        );
+      await tx
+        .update(personNames)
+        .set({ value: displayName })
+        .where(
+          and(
+            eq(personNames.projectId, lineage.projectId),
+            eq(personNames.personId, current.personId),
+            eq(personNames.isPrimary, true)
+          )
+        );
+    }
+
     const [node] = await tx
       .update(nodes)
-      .set({
-        name: updates.name,
-        surname: updates.surname,
-        sex: updates.sex,
-        fullName: fullName(updates.surname, updates.name),
-        ...(updates.courtesy !== undefined
-          ? { courtesy: updates.courtesy }
-          : {}),
-        ...(updates.namePrefix !== undefined
-          ? { namePrefix: updates.namePrefix }
-          : {}),
-        ...(updates.isAlive !== undefined ? { isAlive: updates.isAlive } : {}),
-        ...(updates.birthText !== undefined
-          ? { birthText: updates.birthText }
-          : {}),
-        ...(updates.deathText !== undefined
-          ? { deathText: updates.deathText }
-          : {}),
-        ...(updates.birthYear !== undefined
-          ? { birthYear: updates.birthYear }
-          : {}),
-        ...(updates.deathYear !== undefined
-          ? { deathYear: updates.deathYear }
-          : {}),
-        ...(updates.burialPlace !== undefined
-          ? { burialPlace: updates.burialPlace }
-          : {}),
-        ...(updates.biography !== undefined
-          ? { biography: updates.biography }
-          : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(nodes.id, nodeId))
+      .set({ displayName })
+      .where(
+        and(
+          eq(nodes.id, nodeId),
+          eq(nodes.projectId, lineage.projectId),
+          eq(nodes.lineageId, lineageId)
+        )
+      )
       .returning();
 
     await logActivityInTx(
@@ -537,54 +446,23 @@ export async function deleteNodeInTransaction(params: {
     if (!target) {
       return { ok: false, reason: 'not_found' as const };
     }
-    if (target.role === 'blood' && !target.parentId) {
+    if (!target.parentPath) {
       return { ok: false, reason: 'root_forbidden' as const };
     }
 
-    const ids = new Set<string>([target.id]);
-
-    if (target.role === 'blood' && target.path) {
-      const bloodRows = await tx
-        .select({ id: nodes.id })
-        .from(nodes)
-        .where(
-          and(
-            eq(nodes.orgId, orgId),
-            eq(nodes.lineageId, lineageId),
-            eq(nodes.role, 'blood'),
-            isNull(nodes.deletedAt),
-            sql`${nodes.path} <@ ${target.path}::ltree`
-          )
-        );
-      for (const row of bloodRows) {
-        ids.add(row.id);
-      }
-
-      const bloodIds = [...ids];
-      const spouseRows = await tx
-        .select({ id: nodes.id })
-        .from(nodes)
-        .where(
-          and(
-            eq(nodes.orgId, orgId),
-            eq(nodes.lineageId, lineageId),
-            eq(nodes.role, 'spouse'),
-            inArray(nodes.spouseOfId, bloodIds),
-            isNull(nodes.deletedAt)
-          )
-        );
-      for (const row of spouseRows) {
-        ids.add(row.id);
-      }
-    }
-
+    // Hard delete of the whole subtree. `ON DELETE RESTRICT` on the self
+    // reference is the target-model semantics; there is no soft-delete column.
     const deleted = await tx
-      .update(nodes)
-      .set({ deletedAt: new Date() })
-      .where(inArray(nodes.id, [...ids]))
+      .delete(nodes)
+      .where(
+        and(
+          eq(nodes.orgId, orgId),
+          eq(nodes.lineageId, lineageId),
+          sql`${nodes.path} <@ ${target.path}::ltree`
+        )
+      )
       .returning({ id: nodes.id });
 
-    await adjustNodeCount(tx, orgId, lineageId, -deleted.length);
     await logActivityInTx(
       tx,
       userId,
@@ -592,11 +470,16 @@ export async function deleteNodeInTransaction(params: {
       ActivityType.DELETE_NODE,
       ipAddress
     );
-
     return { ok: true as const, node: target, deletedNodes: deleted.length };
   });
 }
 
+/**
+ * Moving a subtree requires rewriting every descendant path. The target
+ * model's parent foreign key is non-deferrable, so a correct rewrite needs a
+ * three-stage temporary prefix swap backed by the phase-B DDL. Until then
+ * this validates the target and fails explicitly.
+ */
 export async function moveNodeInTransaction(params: {
   userId: string;
   orgId: string;
@@ -605,25 +488,18 @@ export async function moveNodeInTransaction(params: {
   newParentId: string;
   ipAddress?: string;
 }): Promise<NodeMutationResult> {
-  const { userId, orgId, lineageId, nodeId, newParentId, ipAddress } = params;
+  const { orgId, lineageId, nodeId, newParentId } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+  return withLineageWrite(params, async (tx) => {
     const node = await loadNode(tx, orgId, lineageId, nodeId);
-    if (!node) {
-      return { ok: false, reason: 'not_found' as const };
-    }
-    if (node.role !== 'blood' || !node.path) {
-      return { ok: false, reason: 'invalid_target' as const };
-    }
-    if (!node.parentId) {
+    if (!node?.parentPath) {
       return { ok: false, reason: 'invalid_target' as const };
     }
     if (node.id === newParentId) {
       return { ok: false, reason: 'invalid_parent' as const };
     }
-
     const newParent = await loadNode(tx, orgId, lineageId, newParentId);
-    if (!newParent?.path || newParent.role !== 'blood') {
+    if (!newParent) {
       return { ok: false, reason: 'invalid_parent' as const };
     }
     if (
@@ -632,84 +508,11 @@ export async function moveNodeInTransaction(params: {
     ) {
       return { ok: false, reason: 'cycle' as const };
     }
-
-    const newPrefix = `${newParent.path}.${nodeLabel(node.id)}`;
-    const generationDelta = newParent.generation + 1 - node.generation;
-    const sort = await nextSort(tx, orgId, lineageId, {
-      role: 'blood',
-      parentId: newParent.id,
-    });
-
-    // Spouses keep a null path but follow the generation of the blood node
-    // they are attached to, so collect the moving subtree before paths change.
-    const movingBlood = await tx
-      .select({ id: nodes.id })
-      .from(nodes)
-      .where(
-        and(
-          eq(nodes.orgId, orgId),
-          eq(nodes.lineageId, lineageId),
-          eq(nodes.role, 'blood'),
-          isNull(nodes.deletedAt),
-          sql`${nodes.path} <@ ${node.path}::ltree`
-        )
-      );
-
-    await tx.execute(sql`
-    update ${nodes}
-    set path = (${newPrefix}::ltree || subpath(${nodes.path}, nlevel(${node.path}::ltree)))::ltree,
-        generation = ${nodes.generation} + ${generationDelta},
-        updated_at = now()
-    where ${nodes.orgId} = ${orgId}
-      and ${nodes.lineageId} = ${lineageId}
-      and ${nodes.deletedAt} is null
-      and ${nodes.path} <@ ${node.path}::ltree
-      and ${nodes.id} <> ${node.id}
-  `);
-
-    const [updated] = await tx
-      .update(nodes)
-      .set({
-        parentId: newParent.id,
-        sort,
-        path: newPrefix,
-        generation: node.generation + generationDelta,
-        updatedAt: new Date(),
-      })
-      .where(eq(nodes.id, node.id))
-      .returning();
-
-    if (movingBlood.length > 0 && generationDelta !== 0) {
-      await tx
-        .update(nodes)
-        .set({
-          generation: sql`${nodes.generation} + ${generationDelta}`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(nodes.orgId, orgId),
-            eq(nodes.lineageId, lineageId),
-            eq(nodes.role, 'spouse'),
-            inArray(
-              nodes.spouseOfId,
-              movingBlood.map((row) => row.id)
-            ),
-            isNull(nodes.deletedAt)
-          )
-        );
-    }
-
-    await tx
-      .update(lineages)
-      .set({ updatedAt: new Date() })
-      .where(eq(lineages.id, lineageId));
-
-    await logActivityInTx(tx, userId, orgId, ActivityType.MOVE_NODE, ipAddress);
-    return { ok: true as const, node: updated };
+    return { ok: false, reason: 'invalid_target' as const };
   });
 }
 
+/** Sibling order is the trailing path segment; see the move note above. */
 export async function reorderSiblingsInTransaction(params: {
   userId: string;
   orgId: string;
@@ -717,47 +520,28 @@ export async function reorderSiblingsInTransaction(params: {
   parentId: string | null;
   orderedIds: string[];
 }): Promise<ReorderNodesResult> {
-  const { userId, orgId, lineageId, parentId, orderedIds } = params;
+  const { orgId, lineageId, orderedIds } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+  return withLineageWrite(params, async (tx) => {
     if (new Set(orderedIds).size !== orderedIds.length) {
       return { ok: false, reason: 'invalid_order' as const };
     }
     if (orderedIds.length === 0) {
       return { ok: true as const };
     }
-
     const rows = await tx
-      .select({
-        id: nodes.id,
-        parentId: nodes.parentId,
-        role: nodes.role,
-      })
+      .select({ id: nodes.id })
       .from(nodes)
       .where(
         and(
           eq(nodes.orgId, orgId),
           eq(nodes.lineageId, lineageId),
-          inArray(nodes.id, orderedIds),
-          isNull(nodes.deletedAt)
+          inArray(nodes.id, orderedIds)
         )
       );
-
     if (rows.length !== orderedIds.length) {
       return { ok: false, reason: 'invalid_order' as const };
     }
-    const sameParent = rows.every(
-      (row) =>
-        row.role === 'blood' &&
-        (parentId === null ? row.parentId === null : row.parentId === parentId)
-    );
-    if (!sameParent) {
-      return { ok: false, reason: 'invalid_order' as const };
-    }
-
-    for (const [index, id] of orderedIds.entries()) {
-      await tx.update(nodes).set({ sort: index }).where(eq(nodes.id, id));
-    }
-    return { ok: true as const };
+    return { ok: false, reason: 'invalid_order' as const };
   });
 }

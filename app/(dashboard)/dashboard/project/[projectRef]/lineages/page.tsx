@@ -38,12 +38,14 @@ export default async function ProjectLineagesPage({
       lineages={lineages.map((lineage) => ({
         id: lineage.id,
         name: lineage.name,
-        surname: lineage.surname,
-        hallCode: lineage.hallCode,
-        region: lineage.region,
-        notes: lineage.notes,
-        generationWords: lineage.generationWords,
-        nodeCount: lineage.nodeCount,
+        // Neutral values for the columns retired by the target model (A.4);
+        // the workspace still renders them as part of its stable UI contract.
+        surname: '',
+        hallCode: null,
+        region: null,
+        notes: lineage.description,
+        generationWords: null,
+        nodeCount: 0,
         folderId: lineage.folderId,
         createdAt: formatDate(lineage.createdAt),
       }))}

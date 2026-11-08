@@ -21,8 +21,7 @@ type LineageFailure =
   | 'not_found'
   | 'invalid_folder'
   | 'conflict'
-  | 'referenced'
-  | 'project_surname_missing';
+  | 'referenced';
 
 export type LineageMutationResult =
   | { ok: true; lineage: Lineage }
@@ -104,33 +103,26 @@ async function resolveFolderInTx(
   return created.id;
 }
 
+/**
+ * Target-model `lineage` (appendix A.4) carries only name / description /
+ * poem text / base generation / display order. The project surname, hall code,
+ * region, notes, generation words and node counter were all retired; the form
+ * still posts them, and `lib/lineage/actions.ts` deliberately drops them.
+ */
 export async function createLineageInTransaction(params: {
   userId: string;
   orgId: string;
   projectId: string;
   folderId?: string;
   name: string;
-  region: string;
-  hallCode?: string;
-  notes?: string;
   ipAddress?: string;
 }): Promise<LineageMutationResult> {
-  const {
-    userId,
-    orgId,
-    projectId,
-    folderId,
-    name,
-    region,
-    hallCode,
-    notes,
-    ipAddress,
-  } = params;
+  const { userId, orgId, projectId, folderId, name, ipAddress } = params;
 
   try {
     return await withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
       const [project] = await tx
-        .select({ id: projects.id, surname: projects.surname })
+        .select({ id: projects.id })
         .from(projects)
         .where(
           and(
@@ -150,11 +142,6 @@ export async function createLineageInTransaction(params: {
         return { ok: false, reason: 'invalid_folder' as const };
       }
 
-      const projectSurname = project.surname?.trim();
-      if (!projectSurname) {
-        return { ok: false, reason: 'project_surname_missing' as const };
-      }
-
       const resolvedFolderId = await resolveFolderInTx(tx, {
         orgId,
         projectId,
@@ -169,11 +156,6 @@ export async function createLineageInTransaction(params: {
           projectId,
           folderId: resolvedFolderId,
           name,
-          surname: projectSurname,
-          region,
-          notes: notes ?? null,
-          hallCode: hallCode ?? null,
-          createdBy: userId,
         })
         .returning();
 
@@ -197,10 +179,10 @@ export async function createLineageInTransaction(params: {
 export type LineageUpdates = {
   folderId?: string | null;
   name?: string;
-  hallCode?: string | null;
-  region?: string | null;
-  notes?: string | null;
-  generationWords?: string[];
+  description?: string | null;
+  poemText?: string | null;
+  baseGeneration?: number;
+  seq?: number;
 };
 
 export async function updateLineageInTransaction(params: {
@@ -217,13 +199,7 @@ export async function updateLineageInTransaction(params: {
       const [current] = await tx
         .select()
         .from(lineages)
-        .where(
-          and(
-            eq(lineages.id, lineageId),
-            eq(lineages.orgId, orgId),
-            isNull(lineages.deletedAt)
-          )
-        )
+        .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)))
         .limit(1);
       if (!current) {
         return { ok: false, reason: 'not_found' as const };
@@ -241,20 +217,22 @@ export async function updateLineageInTransaction(params: {
         return { ok: false, reason: 'invalid_folder' as const };
       }
 
-      // 白名单写入：姓氏只能继承项目，任何调用方都无法通过更新改它。
+      // Whitelist: only target-model columns may ever be written.
       const mutable: LineageUpdates = {};
       if (updates.folderId !== undefined) mutable.folderId = updates.folderId;
       if (updates.name !== undefined) mutable.name = updates.name;
-      if (updates.hallCode !== undefined) mutable.hallCode = updates.hallCode;
-      if (updates.region !== undefined) mutable.region = updates.region;
-      if (updates.notes !== undefined) mutable.notes = updates.notes;
-      if (updates.generationWords !== undefined) {
-        mutable.generationWords = updates.generationWords;
+      if (updates.description !== undefined) {
+        mutable.description = updates.description;
       }
+      if (updates.poemText !== undefined) mutable.poemText = updates.poemText;
+      if (updates.baseGeneration !== undefined) {
+        mutable.baseGeneration = updates.baseGeneration;
+      }
+      if (updates.seq !== undefined) mutable.seq = updates.seq;
 
       const [lineage] = await tx
         .update(lineages)
-        .set({ ...mutable, updatedAt: new Date() })
+        .set(mutable)
         .where(eq(lineages.id, lineageId))
         .returning();
 
@@ -291,13 +269,7 @@ export async function deleteLineageInTransaction(params: {
     const [lineage] = await tx
       .select({ id: lineages.id })
       .from(lineages)
-      .where(
-        and(
-          eq(lineages.id, lineageId),
-          eq(lineages.orgId, orgId),
-          isNull(lineages.deletedAt)
-        )
-      )
+      .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)))
       .limit(1);
     if (!lineage) {
       return { ok: false, reason: 'not_found' as const };
@@ -318,22 +290,16 @@ export async function deleteLineageInTransaction(params: {
       return { ok: false, reason: 'referenced' as const };
     }
 
+    // Hard delete (RESTRICT semantics): the target model has no soft-delete
+    // column. Nodes go first so the lineage foreign key is satisfied.
     const deletedNodes = await tx
-      .update(nodes)
-      .set({ deletedAt: new Date() })
-      .where(
-        and(
-          eq(nodes.orgId, orgId),
-          eq(nodes.lineageId, lineageId),
-          isNull(nodes.deletedAt)
-        )
-      )
+      .delete(nodes)
+      .where(and(eq(nodes.orgId, orgId), eq(nodes.lineageId, lineageId)))
       .returning({ id: nodes.id });
 
     await tx
-      .update(lineages)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(lineages.id, lineageId));
+      .delete(lineages)
+      .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)));
 
     await logActivityInTx(
       tx,

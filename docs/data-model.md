@@ -160,11 +160,11 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 > **[现状]** 本节是重构前的实现快照，为待改对象；13 条差异逐条消掉后整节删除，不留双写。
 
-> 本文 §1–§7 是**目标态**，代码按本文改。下表是重构前必须逐条消掉的差异，**旧实现是待改对象，不是裁决依据**。第 1 条是根上的变更：事实层从「`node` 的回填快照」变成主数据源，会连带改动读写路径与术语，重构时先动它。取舍已在本文定稿，只需新增一条 ADR 记录这次模型变更，不需要再讨论选哪套。
+> 本文 §1–§7 是**目标态**，代码按本文改。下表是重构前必须逐条消掉的差异，**旧实现是待改对象，不是裁决依据**。第 1 条是根上的变更：事实层从「`node` 的回填快照」变成主数据源，读写路径与术语已随本批同步跟改。取舍已在本文定稿，只需新增一条 ADR 记录这次模型变更，不需要再讨论选哪套。
 
 | # | 目标（本文） | 现状（待改） | 现状位置 / 待改文件 |
 | --- | --- | --- | --- |
-| 1 | `person` 是身份与事实的主数据源，谱系只引用它 | 事实层六表是 `node` 的**单向回填快照**，只有回填 CLI 写，应用读写都走 `node`；同名 `person` 语义不同 | `docs/architecture.md`「域所有权」；`docs/glossary.md`「事实层」 |
+| 1 | `person` 是身份与事实的主数据源，谱系只引用它 | **已消除**：事实层六表由应用直接读写为主数据源，`node` 退为位置引用；`docs/architecture.md`「域所有权」与 `docs/glossary.md`「事实层 / 人丁」已同步 | `lib/db/schema/{person,family,event,lineage}.ts` |
 | 2 | `book_export` 登记导出制品 | 全仓 schema 无此表 | `grep -rn "book_export" lib/db/schema/` 为 0 |
 | 3 | `parent_path` 生成列 + 自引用 FK 保证闭包 | 两棵树用 `parent_id` + 同组织 / 同世系复合 FK；无生成列 | `lib/db/schema/lineage.ts` 的 `fk_node_parent_same_lineage`；`content.ts` 的 `fk_catalog_parent_same_book` |
 | 4 | `book_catalog.path` 是 `ltree`，用 `section` / `sort` 之外还靠路径排序 | `book_catalog` 用 `parent_id` + `section` + `sort` + `hide`，**没有 ltree 列** | `lib/db/schema/content.ts` |

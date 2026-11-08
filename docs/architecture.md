@@ -91,11 +91,11 @@ PostgreSQL（业务 app_rw / 认证 auth_service）
 | `lineage` | `lineage` / `node` | `lib/lineage/` |
 | `article` | `article` | `lib/article/actions.ts`、`lib/db/queries/articles.ts` |
 | 谱书 / 编目 | `book` / `book_catalog` | **无**：表已落库，无 Action 与查询函数 |
-| 事实层 | `person` / `person_name` / `family` / `family_*` / `event` | **当前无应用读写入口**（回填 CLI 已随 `S8` 阶段 A 退役）；页面与 Action 都读 `node` |
+| 事实层 | `person` / `person_name` / `family` / `family_*` / `event` | 应用主数据源：写走 Server Action（`lib/<domain>/actions.ts`）、读走查询层 `lib/db/queries/`；`node` 只是 `person` 在谱系树上的位置引用 |
 
 **schema 文件名不等于域所有权**：`project.ts` 同时定义 `project` 与 `folder`，但 `folder` 的写入口在 `lib/folder/`；`content.ts` 定义 `article` / `book` / `book_catalog`，但业务域叫 **`article`**，不存在一个叫 `content` 的域。schema 按内容分组，域按写入口划分，两套名字不要互相代入。
 
-事实层六表建成后尚未接入应用读写路径（`S8` 阶段 A 已退役回填 / 对账 CLI；事实层升为主数据源由阶段 A′ 改写写入层），当前页面与 Action 都读 `node`。软删（`deleted_at`）查询默认过滤，没有回收站 UI；`organization_member` 与 `invite` 是硬删除。
+事实层六表是身份、姓名、亲属关系与生卒等事实的**主数据源**，由应用直接读写：写走 Server Action、读走查询层，不再有回填 / 对账 CLI。谱系层 `node` 只是 `person` 在树上的位置引用，不再承载完整身份。**[目标]** 事实层六表与 `lineage` / `node` 共八张表一律 `ON DELETE RESTRICT` 硬删、没有软删列；**[现状]** 尚未切换的表（如 `folder`、`project`、`article`、`book_catalog`）仍用 `deleted_at` 软删且查询默认过滤，没有回收站 UI；`organization_member` 与 `invite` 是硬删除。
 
 ---
 
@@ -144,7 +144,6 @@ PostgreSQL（业务 app_rw / 认证 auth_service）
 │   ├── db/migrations/      迁移 SQL 与 meta/_journal.json（唯一清单）
 │   └── config.ts           唯一读 process.env 的地方
 ├── hooks/                  客户端 React hook
-├── data/                   运维 CLI：事实层回填与对账，不经应用运行时
 ├── scripts/                文档 / 架构 / 部署校验脚本
 ├── tests/                  单测 + 真实 PostgreSQL 集成测试 + Playwright E2E
 ├── .github/workflows/      CI 与生产迁移 job
@@ -187,7 +186,6 @@ PostgreSQL（业务 app_rw / 认证 auth_service）
 | 本地 Docker | 仅 PostgreSQL，应用跑 `next dev`；不构建应用镜像、不起反向代理 |
 | CI runner | 构建、单测、集成测试、E2E、部署校验 |
 | 生产迁移 job | `lib/db/migrations/**` 变更时对生产库执行迁移，**不在 Vercel 构建里** |
-| 运维 CLI | 事实层回填与对账，直连角色，不占应用连接池 |
 
 发布顺序：PR 全绿 → 合并 `main`（改了迁移则生产迁移 job 先执行）→ Vercel 构建部署 → `GET /api/health` 自检。回滚 = Vercel 回退上一部署 + Neon 分支 / PITR 恢复数据，**没有应用层回滚脚本**。**迁移必须先于应用启动**：反了会出现「新代码访问旧表」的窗口；塞进构建则会在多次构建或 Preview 中重复执行 DDL。
 

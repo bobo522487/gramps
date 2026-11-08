@@ -106,7 +106,6 @@ describe('folder service', () => {
       projectId: project.id,
       folderId: child.folder.id,
       name: '待分类谱系',
-      region: '中国/福建',
     });
     expect(lineage.ok).toBe(true);
     if (!lineage.ok) return;
@@ -231,15 +230,13 @@ describe('lineage service', () => {
       projectId: project.id,
       folderId: folder.id,
       name: '颍川陈氏',
-      region: '中国/福建/漳州',
-      notes: '光绪年间分谱',
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.lineage.surname).toBe(project.surname);
-    expect(result.lineage.region).toBe('中国/福建/漳州');
-    expect(result.lineage.notes).toBe('光绪年间分谱');
+    expect(result.lineage.name).toBe('颍川陈氏');
+    expect(result.lineage.description).toBeNull();
+    expect(result.lineage.baseGeneration).toBe(1);
   });
 
   it('creates and reuses a default category when the project has none', async () => {
@@ -250,14 +247,12 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '第一本',
-      region: '中国/福建',
     });
     const second = await createLineageInTransaction({
       userId: user.id,
       orgId: organization.id,
       projectId: project.id,
       name: '第二本',
-      region: '中国/福建',
     });
 
     expect(first.ok && second.ok).toBe(true);
@@ -294,10 +289,10 @@ describe('lineage service', () => {
       projectId: bareProject.id,
       folderId: folder.id,
       name: '无姓谱系',
-      region: '中国/福建',
     });
 
-    expect(result).toEqual({ ok: false, reason: 'project_surname_missing' });
+    // 目标态 lineage 不继承项目姓氏，缺姓氏的项目同样可以创建谱系。
+    expect(result.ok).toBe(true);
   });
 
   it('cannot change the surname through an update', async () => {
@@ -320,13 +315,13 @@ describe('lineage service', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
-      updates: { region: '中国/浙江', surname: '李' } as never,
+      updates: { name: '更名后的谱系' },
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.lineage.surname).toBe('王');
-    expect(result.lineage.region).toBe('中国/浙江');
+    expect(result.lineage.name).toBe('更名后的谱系');
+    expect(result.lineage.description).toBeNull();
   });
 
   it('creates a lineage in a lineage folder', async () => {
@@ -348,14 +343,12 @@ describe('lineage service', () => {
       projectId: project.id,
       folderId: folder.folder.id,
       name: '颍川陈氏',
-      region: '中国/福建',
-      hallCode: '颍川堂',
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lineage.folderId).toBe(folder.folder.id);
-    expect(result.lineage.hallCode).toBe('颍川堂');
+    expect(result.lineage.poemText).toBeNull();
   });
 
   it('rejects a folder from another content tree', async () => {
@@ -373,7 +366,6 @@ describe('lineage service', () => {
       projectId: project.id,
       folderId: articleFolder.id,
       name: '错分类谱系',
-      region: '中国/福建',
     });
     expect(result).toEqual({ ok: false, reason: 'invalid_folder' });
   });
@@ -385,7 +377,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '重复谱系',
-      region: '中国/福建',
     });
     expect(first.ok).toBe(true);
 
@@ -394,7 +385,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '重复谱系',
-      region: '中国/福建',
     });
     expect(second).toEqual({ ok: false, reason: 'conflict' });
   });
@@ -419,13 +409,13 @@ describe('lineage service', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
-      updates: { folderId: null, generationWords: [] },
+      updates: { folderId: null, seq: 3 },
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lineage.folderId).toBeNull();
-    expect(result.lineage.generationWords).toEqual([]);
+    expect(result.lineage.seq).toBe(3);
   });
 
   it('refuses to delete a lineage referenced by a catalog item', async () => {
@@ -487,7 +477,7 @@ describe('lineage service', () => {
     const [active] = await getTestDb()
       .select({ value: count() })
       .from(nodes)
-      .where(and(eq(nodes.lineageId, lineage.id), isNull(nodes.deletedAt)));
+      .where(eq(nodes.lineageId, lineage.id));
     expect(active?.value).toBe(0);
   });
 
@@ -515,7 +505,7 @@ describe('lineage service', () => {
     const [stillThere] = await getTestDb()
       .select({ id: lineages.id })
       .from(lineages)
-      .where(and(eq(lineages.id, lineage.id), isNull(lineages.deletedAt)));
+      .where(eq(lineages.id, lineage.id));
     expect(stillThere?.id).toBe(lineage.id);
   });
 
@@ -555,7 +545,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '越权谱系',
-      region: '中国/福建',
     });
     expect(result).toEqual({ ok: false, reason: 'forbidden' });
   });

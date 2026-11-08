@@ -1,282 +1,98 @@
 import { sql } from 'drizzle-orm';
 import {
   check,
-  date,
   foreignKey,
   index,
-  jsonb,
   pgTable,
-  smallint,
+  primaryKey,
   text,
-  unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type {
-  Calendar,
-  DatePrecision,
-  DateQualifier,
-  EventKind,
-  EventType,
-} from '../../genealogy/constants';
-import {
-  ATTRIBUTE_EVENT_TYPE_VALUES,
-  CALENDAR_VALUES,
-  DATE_PRECISION_VALUES,
-  DATE_QUALIFIER_VALUES,
-  EVENT_KIND_VALUES,
-  EVENT_TYPE_VALUES,
-} from '../../genealogy/constants';
+import type { EventKind } from '../../genealogy/constants';
+import { EVENT_KIND_VALUES } from '../../genealogy/constants';
 import { families } from './family';
 import { persons } from './person';
 import { projects } from './project';
-import { timestamptz, uuidPk } from './shared';
+import { scopedUuid, timestamptz } from './shared';
 
-/**
- * Renders a closed value set as a SQL literal list for a CHECK constraint.
- *
- * Same helper as `lib/db/schema/person.ts` and `family.ts`: the values always
- * come from `lib/genealogy/constants.ts`, never from a user, so building the
- * list with `sql.raw` is safe here; copying the literals by hand is exactly what
- * lets the DDL and the TypeScript union drift. `readCheckConstraintValues`
- * asserts the two stay equal.
- */
+/** Renders a closed value set as a SQL literal list for a CHECK constraint. */
 function valueSet(values: readonly string[]) {
   return sql.raw(`(${values.map((value) => `'${value}'`).join(', ')})`);
 }
 
 /**
- * The raw Chinese date structure stored in `date_cn`, as the source wrote it.
+ * One recorded fact about a person or a union (appendix A.3, 242–274).
  *
- * P1 stores it verbatim and normalises nothing: `date_start`/`date_end` come
- * from `date_original` and the Gregorian calendar only. P4 owns the semantics —
- * era → Gregorian mapping, leap-month (闰) resolution, `ganzhi`/`shichen`
- * interpretation — so every component below is optional except `raw`, which is
- * the text the importer always has. Fields the importer cannot fill are
- * deliberately absent rather than declared as maybe-someday.
- */
-export type DateCn = {
-  /** The date exactly as the source wrote it (康熙三十八年三月十二日辰时). */
-  raw: string;
-  /** Era name (康熙, 民国), when the source names one. */
-  era?: string;
-  /** Year within the era; the lunar year number, not a Gregorian year. */
-  year?: number;
-  /** Lunar month, 1-12. */
-  month?: number;
-  /** Whether `month` is the intercalary (闰) repeat of that month. */
-  leap?: boolean;
-  /** Day of the lunar month. */
-  day?: number;
-  /** 干支 pair (己卯), when the source records one. */
-  ganzhi?: string;
-  /** 时辰 name (辰时), when the source records one. */
-  shichen?: string;
-};
-
-/**
- * One recorded fact about a person or a union.
- *
- * ## The subject is a two-way choice in P1
- *
- * `person_id` XOR `family_id` (`ck_event_subject_exactly_one`). The third
- * subject — `placement_id`, the join row between a person and a lineage node —
- * and the generated `subject_type` column that names the winner arrive in P2,
- * together with `person_placement` itself; that migration drops and rebuilds
- * this CHECK and the generated column. The two-way shape here is a phase, not an
- * oversight: a fact with no subject at all cannot be put on a timeline, exported
- * or merged, and a fact with both subjects exists twice.
- *
- * ## Dates are five constraints, not one
- *
- * RLS, the tenant-immutability trigger and the date matrix live in
- * `0021_fact_event_rls.sql`, because the matrix is a hand-written combination
- * rule Drizzle cannot generate. Five separate CHECKs
- * (`ck_event_date_point`, `_before`, `_after`, `_between`, `_unknown`) cover all
- * nine `DATE_QUALIFIER_VALUES` members; they stay separate because `before` and
- * `after` legitimately carry exactly one bound, and a merged constraint would
- * force a fake second bound. `calculated` belongs to the point set alongside
- * `exact`/`about`/`estimated`.
- *
- * `date_original` is nullable and carries no NOT NULL check: an event can be
- * known only by its place or only by its description (葬地已知、卒年失考 is the
- * normal case in Chinese genealogy), and `node` has no burial date at all. The
- * "no date" state is `date_qualifier = 'unknown'` with both bounds NULL;
- * `date_qualifier` is NOT NULL precisely so that state cannot be expressed by
- * leaving the qualifier NULL, which would satisfy every matrix CHECK vacuously.
- * For the same reason `date_qualifier`, `date_precision` and `calendar` each
- * carry an enum CHECK generated from `lib/genealogy/constants.ts`
- * (`ck_event_date_qualifier`, `ck_event_date_precision`, `ck_event_calendar`):
- * a qualifier outside the set satisfies every matrix CHECK just as a NULL one
- * would, and the matrix would guard nothing.
- *
- * ## Kind and type
- *
- * `event_kind` mirrors GEDCOM 7's second axis (event vs attribute) and must
- * agree with `event_type`: `ck_event_kind_matches_type` is
- * `(event_kind = 'attribute') = (event_type IN (ATTRIBUTE_EVENT_TYPE_VALUES))`,
- * generated from the same list as the TypeScript union. `custom` and `other` are
- * type fallbacks, not attributes (see the note on `ATTRIBUTE_EVENT_TYPE_VALUES`),
- * so a custom *event* is `event_type = 'custom'` + `custom_type` (GEDCOM 7
- * EVEN + TYPE) and a custom *attribute* is `event_type = 'fact'` +
- * `custom_type` (FACT + TYPE). `ck_event_custom_type` therefore keys off
- * `event_type` only, never off `event_kind`.
- *
- * The three indexes are non-partial on purpose, like the other business tables:
- * soft-delete filtering lives in the queries (`deleted_at is null`), not in the
- * index definitions.
+ * Exactly one of `personId` / `familyId` is set; the kind additionally decides
+ * which half is legal. `dateText` keeps the date as written while `dateSort`
+ * is the optional ISO-shaped sort key — a sort key without text is forbidden.
+ * Birth and death are at most one per person, enforced by partial unique
+ * indexes rather than application logic.
  */
 export const events = pgTable(
   'event',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
-    /** Subject half one; exactly one of `person_id`/`family_id` is set. */
+    kind: text('kind').$type<EventKind>().notNull(),
     personId: uuid('person_id'),
-    /** Subject half two: 婚配/离婚 and other union facts hang off the family. */
     familyId: uuid('family_id'),
-    eventKind: text('event_kind').$type<EventKind>().notNull().default('event'),
-    /**
-     * NOT NULL with no DEFAULT: a fact row has to state what kind of fact it
-     * is. A defaulted 'event' is how a contentless row gets written — the
-     * writer omits the one column that says what the row means, and the row
-     * still lands. `event_kind` keeps its default because it is derived from
-     * this column by ck_event_kind_matches_type, not a statement of its own.
-     */
-    eventType: text('event_type').$type<EventType>().notNull(),
-    /** Required when `event_type` is `custom` (ck_event_custom_type). */
-    customType: text('custom_type'),
-    /** Original GEDCOM tag, kept so an import can round-trip a fact it cannot map. */
-    gedcomTag: text('gedcom_tag'),
-    title: text('title'),
-    /** The attribute's value (官衔、职业名) or a short event value. */
-    value: text('value'),
-    description: text('description'),
-    /**
-     * The date as the source wrote it (`康熙三十年`). Nullable: an event may be
-     * known only by place or description. `date_start`/`date_end` are the
-     * derived, queryable bounds and never replace this text.
-     */
-    dateOriginal: text('date_original'),
-    dateStart: date('date_start'),
-    dateEnd: date('date_end'),
-    /** Display granularity only; never changes the stored bounds. */
-    datePrecision: text('date_precision').$type<DatePrecision>(),
-    /** NOT NULL: NULL would satisfy every date matrix CHECK vacuously. */
-    dateQualifier: text('date_qualifier')
-      .$type<DateQualifier>()
-      .notNull()
-      .default('unknown'),
-    calendar: text('calendar').$type<Calendar>().notNull().default('gregorian'),
-    /**
-     * The original lunar date structure, stored as written (see `DateCn`). P1
-     * keeps no lunar-to-Gregorian conversion here, so a row may carry `date_cn`
-     * with both bounds NULL and `date_qualifier = 'unknown'`.
-     */
-    dateCn: jsonb('date_cn').$type<DateCn>(),
-    /** `享年七十有三` as recorded, next to the parsed pair below. */
-    ageText: text('age_text'),
-    ageYears: smallint('age_years'),
-    /** How `age_years` was derived (stated/explicit/computed). All-or-nothing. */
-    ageBasis: text('age_basis'),
-    /** Burial place, 迁居 place, …: P1 keeps the text, `place` arrives in P3. */
-    placeOriginal: text('place_original'),
+    dateText: text('date_text'),
+    dateSort: text('date_sort'),
+    placeText: text('place_text'),
+    summary: text('summary'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
-    foreignKey({
-      columns: [t.orgId, t.projectId],
-      foreignColumns: [projects.orgId, projects.id],
-      name: 'fk_event_project',
-    }).onDelete('restrict'),
-    // Composite keys, not plain id references: the subject must be a person (or
-    // family) of the same organization AND the same project. MATCH SIMPLE (the
-    // default) skips the check while the column is NULL, which is what makes the
-    // XOR subject work with two separate keys.
-    foreignKey({
-      columns: [t.orgId, t.projectId, t.personId],
-      foreignColumns: [persons.orgId, persons.projectId, persons.id],
-      name: 'fk_event_person',
-    }).onDelete('restrict'),
-    foreignKey({
-      columns: [t.orgId, t.projectId, t.familyId],
-      foreignColumns: [families.orgId, families.projectId, families.id],
-      name: 'fk_event_family',
-    }).onDelete('restrict'),
-    // Target of the P4 event_participant / P6 association keys: a participant
-    // must belong to the same organization AND the same project as its event.
-    unique('uk_event_organization_project_id').on(t.orgId, t.projectId, t.id),
-    // Timeline query: one person's facts in date order.
-    index('idx_event_subject').on(
-      t.orgId,
-      t.projectId,
-      t.personId,
-      t.dateStart
-    ),
-    // Union facts (婚配/离婚) hang off the family side.
-    index('idx_event_family').on(t.orgId, t.projectId, t.familyId),
-    // Type rollups ("every 科举 event in this project").
-    index('idx_event_type').on(t.orgId, t.projectId, t.eventType),
+    primaryKey({ columns: [t.projectId, t.id] }),
     check(
-      'ck_event_type',
-      sql`${t.eventType} in ${valueSet(EVENT_TYPE_VALUES)}`
-    ),
-    check(
-      'ck_event_kind',
-      sql`${t.eventKind} in ${valueSet(EVENT_KIND_VALUES)}`
-    ),
-    // The three date enums are CHECKed for the same reason `date_qualifier` is
-    // NOT NULL: every constraint in the 0021 matrix is written as
-    // `date_qualifier <> 'x' OR (…)`, so a qualifier outside the closed set
-    // matches none of them and satisfies all five. Without these, a row with
-    // `date_qualifier = 'circa'` could carry any bounds at all — inverted, or
-    // both bounds while claiming `before` — and the date matrix would guard
-    // nothing. The same applies to `date_precision` and `calendar`, which are
-    // otherwise unchecked text columns.
-    check(
-      'ck_event_date_qualifier',
-      sql`${t.dateQualifier} in ${valueSet(DATE_QUALIFIER_VALUES)}`
-    ),
-    // Nullable, and `IN` is NULL-tolerant: a row with no precision passes, a row
-    // with an invented precision does not.
-    check(
-      'ck_event_date_precision',
-      sql`${t.datePrecision} in ${valueSet(DATE_PRECISION_VALUES)}`
-    ),
-    check(
-      'ck_event_calendar',
-      sql`${t.calendar} in ${valueSet(CALENDAR_VALUES)}`
-    ),
-    check(
-      'ck_event_kind_matches_type',
-      sql`(${t.eventKind} = 'attribute') = (${t.eventType} in ${valueSet(ATTRIBUTE_EVENT_TYPE_VALUES)})`
-    ),
-    // "No date" has exactly one encoding: date_original IS NULL. A blank string
-    // is an importer bug, not a second empty form — it renders as an empty date
-    // and compares unequal to NULL in every query. This does not resurrect the
-    // withdrawn NOT NULL rule: an event known only by its place keeps a NULL
-    // date_original (see the file comment).
-    check(
-      'ck_event_date_original_not_blank',
-      sql`${t.dateOriginal} is null or btrim(${t.dateOriginal}) <> ''`
-    ),
-    // XOR subject: a fact needs one owner, and never two.
-    check(
-      'ck_event_subject_exactly_one',
+      'event_one_subject',
       sql`num_nonnulls(${t.personId}, ${t.familyId}) = 1`
     ),
     check(
-      'ck_event_custom_type',
-      sql`${t.eventType} <> 'custom' or ${t.customType} is not null`
+      'event_person_kinds',
+      sql`${t.kind} not in ('birth', 'death', 'burial', 'migration', 'office', 'exam') or ${t.personId} is not null`
     ),
-    // Age is all-or-nothing: "73 years old, basis unknown" is not a recorded
-    // fact, and a basis with no number is a derivation with no result.
     check(
-      'ck_event_age_pair',
-      sql`(${t.ageYears} is null) = (${t.ageBasis} is null)`
+      'event_family_kinds',
+      sql`${t.kind} not in ('marriage', 'divorce') or ${t.familyId} is not null`
     ),
+    check(
+      'event_sort_needs_text',
+      sql`${t.dateSort} is null or ${t.dateText} is not null`
+    ),
+    check(
+      'event_domain_check',
+      sql`${t.kind} in ${valueSet(EVENT_KIND_VALUES)}`
+    ),
+    check(
+      'event_date_sort_format',
+      sql`${t.dateSort} is null or ${t.dateSort} ~ '^[0-9]{4}(-[0-9]{2})?(-[0-9]{2})?$'`
+    ),
+    foreignKey({
+      columns: [t.projectId, t.personId],
+      foreignColumns: [persons.projectId, persons.id],
+      name: 'event_person_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.projectId, t.familyId],
+      foreignColumns: [families.projectId, families.id],
+      name: 'event_family_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.orgId, t.projectId],
+      foreignColumns: [projects.orgId, projects.id],
+      name: 'event_scope_fk',
+    }).onDelete('restrict'),
+    index('event_person_date_idx').on(t.projectId, t.personId, t.dateSort),
+    index('event_family_date_idx').on(t.projectId, t.familyId, t.dateSort),
+    uniqueIndex('event_one_birth')
+      .on(t.projectId, t.personId)
+      .where(sql`${t.kind} = 'birth'`),
+    uniqueIndex('event_one_death')
+      .on(t.projectId, t.personId)
+      .where(sql`${t.kind} = 'death'`),
   ]
 );

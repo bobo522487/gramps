@@ -21,23 +21,7 @@ import {
   persons,
   projects,
 } from '@/lib/db/schema';
-import type { DateCn } from '@/lib/db/schema/event';
-import type {
-  Calendar,
-  DatePrecision,
-  DateQualifier,
-  EventKind,
-  EventType,
-  LivingStatus,
-  NameStatus,
-  ParentageType,
-  PartnerRole,
-  PartnerStatus,
-  PersonNameType,
-  PersonSex,
-  PrivacyLevel,
-  UnionType,
-} from '@/lib/genealogy/constants';
+import type { PersonSex } from '@/lib/genealogy/constants';
 import { generatePublicId } from '@/lib/ids';
 import { getTestDb } from './db';
 
@@ -156,6 +140,12 @@ export async function createFolder(params: {
   return folder;
 }
 
+/**
+ * Target-model `lineage` (appendix A.4) only carries scope + display columns.
+ * `createdBy` / `surname` / `generationWords` remain accepted for backwards
+ * compatibility with the callers that still pass them, but are no longer
+ * columns and are deliberately not written.
+ */
 export async function createLineage(params: {
   orgId: string;
   projectId: string;
@@ -170,32 +160,35 @@ export async function createLineage(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
       folderId: params.folderId ?? null,
       name: params.name ?? '测试谱系',
-      surname: params.surname ?? '陈',
-      generationWords: params.generationWords ?? null,
     })
     .returning();
   return lineage;
 }
 
+/**
+ * A target-model `node` is a tree position, not a person. `projectId` (part of
+ * the composite key) and `personId` are therefore explicit; the old identity
+ * columns (role / generation / sort / name / sex / soft delete / requestId)
+ * are accepted for caller compatibility but are no longer written.
+ */
 export async function createNode(params: {
   orgId: string;
   lineageId: string;
   createdBy: string;
+  projectId?: string;
+  personId?: string | null;
+  kind?: 'primary' | 'repeat' | 'annotation';
   parentId?: string | null;
   spouseOfId?: string | null;
   role?: 'blood' | 'spouse';
   path?: string | null;
-  generation: number;
+  generation?: number;
   sort?: number;
   name?: string;
   surname?: string;
   sex?: number;
-  // Task 7 additions: the fact-layer backfill is only interesting for nodes
-  // that carry the facts node can express (dates, burial place, 字号) or that
-  // were soft-deleted. Every one of them keeps its old default.
   courtesy?: string | null;
   isAlive?: boolean;
   birthText?: string | null;
@@ -205,55 +198,50 @@ export async function createNode(params: {
   burialPlace?: string | null;
   fullName?: string | null;
   deletedAt?: Date | null;
-  /** 创建幂等键（R31）；测试直插时用来撞 uk_node_org_request_id。 */
   requestId?: string | null;
 }) {
   const id = randomUUID();
-  const role = params.role ?? 'blood';
-  const name = params.name ?? '测试人丁';
-  const surname = params.surname ?? '陈';
-  const path =
-    role === 'spouse' ? null : (params.path ?? id.replaceAll('-', ''));
+  // `(project_id, id)` is the key: callers that omit projectId must still get
+  // the scope from their lineage, otherwise the scope FK rejects the row.
+  const projectId =
+    params.projectId ??
+    (
+      await getTestDb()
+        .select({ projectId: lineages.projectId })
+        .from(lineages)
+        .where(eq(lineages.id, params.lineageId))
+        .limit(1)
+    )[0]?.projectId ??
+    '';
   const [node] = await getTestDb()
     .insert(nodes)
     .values({
       id,
       orgId: params.orgId,
+      projectId,
       lineageId: params.lineageId,
-      createdBy: params.createdBy,
-      parentId: params.parentId ?? null,
-      spouseOfId: params.spouseOfId ?? null,
-      role,
-      path,
-      generation: params.generation,
-      sort: params.sort ?? 0,
-      name,
-      surname,
-      fullName: params.fullName ?? `${surname}${name}`,
-      sex: params.sex ?? 0,
-      courtesy: params.courtesy ?? null,
-      isAlive: params.isAlive ?? true,
-      birthText: params.birthText ?? null,
-      birthYear: params.birthYear ?? null,
-      deathText: params.deathText ?? null,
-      deathYear: params.deathYear ?? null,
-      burialPlace: params.burialPlace ?? null,
-      deletedAt: params.deletedAt ?? null,
-      requestId: params.requestId ?? null,
+      personId: params.personId ?? null,
+      path: params.path ?? '0001',
+      kind: params.kind ?? 'annotation',
+      displayName: params.name ?? '测试人丁',
     })
     .returning();
   return node;
 }
 
+/**
+ * Target-model `person` is just an identity plus `sex`; the retired snapshot
+ * columns are accepted but not written.
+ */
 export async function createPerson(params: {
   orgId: string;
   projectId: string;
   createdBy: string;
   sex?: PersonSex;
-  livingStatus?: LivingStatus;
+  livingStatus?: string;
   livingStatusLocked?: boolean;
-  privacyLevel?: PrivacyLevel;
-  nameStatus?: NameStatus;
+  privacyLevel?: string;
+  nameStatus?: string;
   primaryNameId?: string | null;
   mergedIntoId?: string | null;
   sortKey?: string | null;
@@ -264,29 +252,23 @@ export async function createPerson(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
       sex: params.sex ?? 'male',
-      livingStatus: params.livingStatus ?? 'unknown',
-      livingStatusLocked: params.livingStatusLocked ?? false,
-      privacyLevel: params.privacyLevel ?? 'private',
-      nameStatus: params.nameStatus ?? 'known',
-      primaryNameId: params.primaryNameId ?? null,
-      mergedIntoId: params.mergedIntoId ?? null,
-      sortKey: params.sortKey ?? null,
-      legacyNodeId: params.legacyNodeId ?? null,
     })
     .returning();
   return person;
 }
 
+/**
+ * Target-model `person_name` records `(kind, value)`; the retired
+ * fullName/surname/givenName split is accepted but not written.
+ */
 export async function createPersonName(params: {
   orgId: string;
   projectId: string;
   personId: string;
   createdBy: string;
-  nameType?: PersonNameType;
+  nameType?: string;
   customType?: string | null;
-  /** `null` is meaningful here: 名讳失考 has a name row with no full name. */
   fullName?: string | null;
   surname?: string | null;
   givenName?: string | null;
@@ -305,30 +287,20 @@ export async function createPersonName(params: {
       orgId: params.orgId,
       projectId: params.projectId,
       personId: params.personId,
-      createdBy: params.createdBy,
-      nameType: params.nameType ?? 'birth',
-      customType: params.customType ?? null,
-      fullName: params.fullName === undefined ? '陈测试' : params.fullName,
-      surname: params.surname === undefined ? '陈' : params.surname,
-      givenName: params.givenName === undefined ? '测试' : params.givenName,
-      namePrefix: params.namePrefix ?? null,
-      nameSuffix: params.nameSuffix ?? null,
-      surnamePrefix: params.surnamePrefix ?? null,
-      nickname: params.nickname ?? null,
-      pinyin: params.pinyin ?? null,
-      romanized: params.romanized ?? null,
-      language: params.language ?? null,
-      sortOrder: params.sortOrder ?? 0,
+      kind: 'given',
+      value: params.fullName ?? '陈测试',
+      isPrimary: true,
     })
     .returning();
   return name;
 }
 
+/** Target-model `family` is a bare join row. */
 export async function createFamily(params: {
   orgId: string;
   projectId: string;
   createdBy: string;
-  unionType?: UnionType;
+  unionType?: string;
   sort?: number;
   notes?: string | null;
 }) {
@@ -337,24 +309,21 @@ export async function createFamily(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      unionType: params.unionType ?? 'unknown',
-      sort: params.sort ?? 0,
-      notes: params.notes ?? null,
     })
     .returning();
   return family;
 }
 
+/** Target-model `family_partner` uses `role` / `rank`, not status/order. */
 export async function createFamilyPartner(params: {
   orgId: string;
   projectId: string;
   familyId: string;
   personId: string;
   createdBy: string;
-  role?: PartnerRole;
+  role?: string;
   partnerOrder?: number;
-  status?: PartnerStatus;
+  status?: string;
 }) {
   const [partner] = await getTestDb()
     .insert(familyPartners)
@@ -363,22 +332,21 @@ export async function createFamilyPartner(params: {
       projectId: params.projectId,
       familyId: params.familyId,
       personId: params.personId,
-      createdBy: params.createdBy,
-      role: params.role ?? 'blood',
-      partnerOrder: params.partnerOrder ?? 1,
-      status: params.status ?? 'unknown',
+      role: 'husband',
+      rank: 1,
     })
     .returning();
   return partner;
 }
 
+/** Target-model `family_child` uses `kind` and optional mother/origin keys. */
 export async function createFamilyChild(params: {
   orgId: string;
   projectId: string;
   familyId: string;
   personId: string;
   createdBy: string;
-  parentageType?: ParentageType;
+  parentageType?: string;
   isPrimary?: boolean;
   sort?: number;
 }) {
@@ -389,23 +357,26 @@ export async function createFamilyChild(params: {
       projectId: params.projectId,
       familyId: params.familyId,
       personId: params.personId,
-      createdBy: params.createdBy,
-      parentageType: params.parentageType ?? 'birth',
-      isPrimary: params.isPrimary ?? true,
-      sort: params.sort ?? 0,
+      kind: 'biological',
     })
     .returning();
   return child;
 }
 
+/**
+ * Target-model `event` is a single flat domain with one subject. The retired
+ * date/age/title columns are accepted but not written; `kind` defaults to a
+ * person birth so the factory only ever produces a structurally valid row
+ * when the caller supplies a `personId`.
+ */
 export async function createEvent(params: {
   orgId: string;
   projectId: string;
   createdBy: string;
   personId?: string | null;
   familyId?: string | null;
-  eventKind?: EventKind;
-  eventType?: EventType;
+  eventKind?: string;
+  eventType?: string;
   customType?: string | null;
   gedcomTag?: string | null;
   title?: string | null;
@@ -414,10 +385,10 @@ export async function createEvent(params: {
   dateOriginal?: string | null;
   dateStart?: string | null;
   dateEnd?: string | null;
-  datePrecision?: DatePrecision | null;
-  dateQualifier?: DateQualifier;
-  calendar?: Calendar;
-  dateCn?: DateCn | null;
+  datePrecision?: string | null;
+  dateQualifier?: string;
+  calendar?: string;
+  dateCn?: Record<string, unknown> | null;
   ageText?: string | null;
   ageYears?: number | null;
   ageBasis?: string | null;
@@ -428,30 +399,9 @@ export async function createEvent(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      // Deliberately not derived from eventType: the column has to agree with
-      // the type (ck_event_kind_matches_type), and a factory that guessed would
-      // hide a wrong kind instead of letting the database refuse it.
-      eventKind: params.eventKind ?? 'event',
-      eventType: params.eventType ?? 'event',
+      kind: 'birth',
       personId: params.personId ?? null,
       familyId: params.familyId ?? null,
-      customType: params.customType ?? null,
-      gedcomTag: params.gedcomTag ?? null,
-      title: params.title ?? null,
-      value: params.value ?? null,
-      description: params.description ?? null,
-      dateOriginal: params.dateOriginal ?? null,
-      dateStart: params.dateStart ?? null,
-      dateEnd: params.dateEnd ?? null,
-      datePrecision: params.datePrecision ?? null,
-      dateQualifier: params.dateQualifier ?? 'unknown',
-      calendar: params.calendar ?? 'gregorian',
-      dateCn: params.dateCn ?? null,
-      ageText: params.ageText ?? null,
-      ageYears: params.ageYears ?? null,
-      ageBasis: params.ageBasis ?? null,
-      placeOriginal: params.placeOriginal ?? null,
     })
     .returning();
   return event;

@@ -139,10 +139,8 @@ describe('node queries', () => {
       createdBy: user.id,
       generation: 1,
     });
-    await getTestDb()
-      .update(nodes)
-      .set({ deletedAt: new Date() })
-      .where(eq(nodes.id, deleted.id));
+    // 目标态是 RESTRICT 硬删，没有 deleted_at 列。
+    await getTestDb().delete(nodes).where(eq(nodes.id, deleted.id));
 
     const list = await getNodes(user.id, org.id, lineage.id);
     expect(list.map((node) => node.id)).toEqual([root.id, child.id]);
@@ -158,7 +156,7 @@ describe('node queries', () => {
 });
 
 describe('lineage queries', () => {
-  it('scopes lists to the project and hides soft-deleted lineages', async () => {
+  it('scopes lists to the project and excludes deleted lineages', async () => {
     const user = await createUser();
     const org = await personalOrgFor(user.id);
     const project = await createProject({ orgId: org.id, createdBy: user.id });
@@ -182,10 +180,7 @@ describe('lineage queries', () => {
       projectId: otherProject.id,
       createdBy: user.id,
     });
-    await getTestDb()
-      .update(lineages)
-      .set({ deletedAt: new Date() })
-      .where(eq(lineages.id, deleted.id));
+    await getTestDb().delete(lineages).where(eq(lineages.id, deleted.id));
 
     const list = await getLineages(user.id, org.id, project.id);
 

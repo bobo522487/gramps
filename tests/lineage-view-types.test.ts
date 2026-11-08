@@ -5,7 +5,10 @@ import {
   toNodeView,
   toNodeViews,
 } from '@/components/lineage/types';
-import type { Node } from '@/lib/db/schema';
+
+// `NodeRow` is the structural input type of the client-side projection, not
+// the database `Node`: it is deliberately not exported, so derive it here.
+type NodeRow = Parameters<typeof toNodeView>[0];
 
 // A server row: it must carry columns NodeView does not expose, otherwise this
 // test cannot prove the mapping actually narrows the payload.
@@ -36,7 +39,7 @@ const nodeFixture = {
   createdBy: 'u1',
   updatedAt: null,
   deletedAt: null,
-} as unknown as Node;
+} as unknown as NodeRow;
 
 describe('lineage view mapping', () => {
   it('maps every NodeView field explicitly and drops server-only columns', () => {
@@ -68,10 +71,7 @@ describe('lineage view mapping', () => {
   });
 
   it('maps a list of nodes without losing order', () => {
-    const views = toNodeViews([
-      nodeFixture,
-      { ...nodeFixture, id: 'n2' } as Node,
-    ]);
+    const views = toNodeViews([nodeFixture, { ...nodeFixture, id: 'n2' }]);
     expect(views.map((view) => view.id)).toEqual(['n1', 'n2']);
   });
 

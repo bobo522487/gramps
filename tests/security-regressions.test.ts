@@ -174,38 +174,28 @@ describe('authorization invariants', () => {
   });
 });
 
-// TEMPORARY FREEZE — expires when the P1 read/write switch starts.
-// Expiry is tracked in ONE place: `docs/roadmap.md` (S5 / S8). Both this describe
-// and the four temporary assertions in tests/fact-layer-freeze.test.ts are
-// rewritten or deleted together at Phase 2 ("写切换"), never at Phase 1 (design).
-// The fact layer is the TARGET source of truth (decided 2026-11-05), not dead
-// code: `node` is only the CURRENT reader/writer. Until the product mainline
-// (book catalog + layout) ships end-to-end, lineage writes must not drift into
-// a second, unsynchronised representation.
-//
-// 这是一条**窄补位**：只看两个最容易长出双写的谱系写服务，不是全库边界。
-// 结构性冻结（六表声明 / 列名 / 全业务目录 import 与 namespace 访问 / 迁移
-// 基线）在 tests/fact-layer-freeze.test.ts。这里不再用裸词 \bpersons\b 之类
-// 断言——它会把注释与同名局部变量误判成违规，反而漏掉 namespace 访问
-// （独立评审 I6）。
+// A′10 反转：阶段 A 的临时冻结（P1 读写切换前，谱系写服务不得 import/访问
+// 事实层）已随 D2「无生产存量」与回填 CLI 退役而解除。目标态里事实层是唯一
+// 真相源，应用写链路必须直接写事实层——旧断言会把正当重构挡在门外，因此从
+// 「禁止访问」翻转为「写链路已接入事实层」。语义不变：仍以同一组事实层符号
+// 与谱系写文件构成一道护栏，只是方向反过来，防止有人把冻结以别的形式加回
+// （例如把 node-services 改回只写 node 的旧形状）。
 const FACT_SYMBOLS =
   'persons|personNames|families|familyPartners|familyChildren|events';
 const FACT_IMPORT = new RegExp(
   `^import[^;]*\\b(?:${FACT_SYMBOLS})\\b[^;]*from\\s*['"][^'"]*(?:schema|db)(?:/(?:index|person|family|event))?['"]`,
   'm'
 );
-const FACT_ACCESS = new RegExp(
-  `\\b(?:schema|db|tx)\\.(?:query\\.)?(?:${FACT_SYMBOLS})\\b`
+const FACT_WRITE = new RegExp(
+  `\\.(?:insert|update)\\(\\s*(?:${FACT_SYMBOLS})\\b`
 );
 
-describe('fact-layer write boundary (narrow backstop, TEMPORARY — delete at Phase 2)', () => {
-  const lineageWriteSources = [
-    read('../lib/lineage/node-services.ts'),
-    read('../lib/lineage/services.ts'),
-  ].join('\n');
+describe('target-model fact-layer write access (A′10, freeze lifted)', () => {
+  const nodeServices = read('../lib/lineage/node-services.ts');
 
-  it('lineage write services neither import nor reach the fact-layer tables', () => {
-    expect(lineageWriteSources).not.toMatch(FACT_IMPORT);
-    expect(lineageWriteSources).not.toMatch(FACT_ACCESS);
+  it('lineage write path imports and writes the fact-layer tables', () => {
+    // 目标态应用可写事实层：谱系创建既 import 又 insert 身份 / 姓名表。
+    expect(nodeServices).toMatch(FACT_IMPORT);
+    expect(nodeServices).toMatch(FACT_WRITE);
   });
 });

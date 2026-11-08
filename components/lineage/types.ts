@@ -64,14 +64,20 @@ type NodeRow = {
 
 type FolderRow = { id: string; name: string; parentId: string | null };
 
+/**
+ * The target-model `lineage` has no surname / hall code / region / node count
+ * columns. The list item still exposes them because the shell renders them;
+ * they are optional on the way in and `toLineageListItem` supplies neutral
+ * values. This keeps the UI contract stable without reintroducing the columns.
+ */
 type LineageRow = {
   id: string;
   name: string;
-  surname: string;
-  hallCode: string | null;
-  region: string | null;
-  nodeCount: number;
   folderId: string | null;
+  surname?: string | null;
+  hallCode?: string | null;
+  region?: string | null;
+  nodeCount?: number | null;
 };
 
 /**
@@ -115,10 +121,10 @@ export function toLineageListItem(lineage: LineageRow): LineageListItem {
   return {
     id: lineage.id,
     name: lineage.name,
-    surname: lineage.surname,
-    hallCode: lineage.hallCode,
-    region: lineage.region,
-    nodeCount: lineage.nodeCount,
+    surname: lineage.surname ?? '',
+    hallCode: lineage.hallCode ?? null,
+    region: lineage.region ?? null,
+    nodeCount: lineage.nodeCount ?? 0,
     folderId: lineage.folderId,
   };
 }

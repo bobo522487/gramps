@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PERSON_SEX_VALUES } from '@/lib/genealogy/constants';
 import {
   MAX_LINEAGE_HALL_CODE_LENGTH,
   MAX_LINEAGE_NAME_LENGTH,
@@ -15,10 +16,12 @@ const folderId = z.uuid('分类 ID 无效');
 const lineageId = z.uuid('谱系 ID 无效');
 const nodeId = z.uuid('人丁 ID 无效');
 /**
- * 创建幂等键（R31）：一次「提交意图」一个 uuid，由录入对话框在打开时生成一次。
- * 必填——缺少键的创建一律拒绝（返回中文校验文案），不给重放留无键入口。
+ * 表单仍带一个提交标识（历史 R31 幂等键）。S8 A′ 起 R31 已退役：目标态
+ * `node` 没有 `request_id` 列，Server Actions 与写入层都不再使用它。这里保留
+ * 为**可选**字段只为兼容现有录入表单，不做必填校验，也不声称提供重放保护。
+ * 见实施计划 §3.3。
  */
-const requestId = z.uuid('提交标识无效，请重新打开录入表单');
+const requestId = z.uuid('提交标识无效，请重新打开录入表单').optional();
 
 const optionalUuid = (message: string) =>
   z.preprocess(
@@ -56,12 +59,22 @@ const clearableText = (max: number, message: string) =>
       .transform((value) => (value === undefined ? undefined : value || null))
   );
 
+/**
+ * The form still posts the legacy 0/1 flag so the UI stays unchanged, while
+ * the target-model `person.sex` is the four-value text domain. Mapping here
+ * keeps the boundary honest: every Server Action receives a `PersonSex`.
+ */
 const sex = z.preprocess(
-  (value) => (value === '' || value === null ? undefined : Number(value)),
-  z
-    .number({ error: '请选择性别' })
-    .int()
-    .refine((value) => value === 0 || value === 1, '请选择性别')
+  (value) => {
+    if (value === 0 || value === '0') {
+      return 'female';
+    }
+    if (value === 1 || value === '1') {
+      return 'male';
+    }
+    return value === '' || value === null ? undefined : value;
+  },
+  z.enum(PERSON_SEX_VALUES, { error: '请选择性别' })
 );
 
 const clearableYear = z.preprocess(

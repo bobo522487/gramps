@@ -1,146 +1,134 @@
 import { sql } from 'drizzle-orm';
 import {
-  boolean,
   check,
   foreignKey,
   index,
   integer,
-  jsonb,
   pgTable,
-  smallint,
+  primaryKey,
   text,
   unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { projects } from './project';
-import { ltree, timestamptz, uuidPk } from './shared';
+import { persons } from './person';
+import { folders, projects } from './project';
+import { ltree, scopedUuid, timestamptz } from './shared';
 
+/** Appendix A.4 (312–313): a node is a primary entry, a repeat, or an annotation. */
+const nodeKinds = ['primary', 'repeat', 'annotation'] as const;
+
+/** Renders a closed value set as a SQL literal list for a CHECK constraint. */
+function valueSet(values: readonly string[]) {
+  return sql.raw(`(${values.map((value) => `'${value}'`).join(', ')})`);
+}
+
+/**
+ * One genealogy tree inside a project (appendix A.4, 280–299). Display order is
+ * `seq`; `baseGeneration` is the generation number assigned to the tree root.
+ */
 export const lineages = pgTable(
   'lineage',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
     folderId: uuid('folder_id'),
     name: text('name').notNull(),
-    surname: text('surname').notNull(),
-    hallCode: text('hall_code'),
-    generationWords: jsonb('generation_words').$type<string[]>(),
-    region: text('region'),
-    notes: text('notes'),
-    nodeCount: integer('node_count').notNull().default(0),
+    description: text('description'),
+    poemText: text('poem_text'),
+    baseGeneration: integer('base_generation').notNull().default(1),
+    seq: integer('seq').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
+    primaryKey({ columns: [t.projectId, t.id] }),
+    unique('lineage_name_unique').on(t.projectId, t.name),
+    foreignKey({
+      columns: [t.projectId, t.folderId],
+      foreignColumns: [folders.projectId, folders.id],
+      name: 'lineage_folder_fk',
+    }).onDelete('set null'),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
-      name: 'fk_lineage_project',
+      name: 'lineage_scope_fk',
     }).onDelete('restrict'),
-    unique('uk_lineage_organization_id').on(t.orgId, t.id),
-    uniqueIndex('uk_lineage_name')
-      .on(t.orgId, t.projectId, t.name)
-      .where(sql`${t.deletedAt} is null`),
-    index('idx_lineage_project')
-      .on(t.orgId, t.projectId)
-      .where(sql`${t.deletedAt} is null`),
+    index('lineage_folder_idx').on(t.projectId, t.folderId),
+    index('lineage_order_idx').on(t.projectId, t.seq),
+    check('lineage_name_not_blank', sql`btrim(${t.name}) <> ''`),
+    check('lineage_base_generation_positive', sql`${t.baseGeneration} > 0`),
+    check('lineage_seq_nonnegative', sql`${t.seq} >= 0`),
   ]
 );
 
+/**
+ * A position in a tree, not a person (appendix A.4, 301–337). Identity lives in
+ * `person`; this row only says where that person hangs. `path` is a four-digit
+ * sparse ltree label per level (`0001.0010`), and `parent_path` is a stored
+ * generated column derived from it, which is what makes the self-referencing
+ * parent key possible without a second writable copy of the tree position.
+ */
 export const nodes = pgTable(
   'node',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
+    projectId: uuid('project_id').notNull(),
     lineageId: uuid('lineage_id').notNull(),
-    parentId: uuid('parent_id'),
-    spouseOfId: uuid('spouse_of_id'),
-    role: text('role').notNull().default('blood'),
-    /**
-     * The whole tree position. Depth is `nlevel(path) - 1` and is not stored:
-     * a stored copy would be a second answer to the same question, and the only
-     * reader that ever wanted depth (ordering inside one generation) already has
-     * `generation`, which is constant across a generation.
-     */
-    path: ltree('path'),
-    /**
-     * 世次. Deliberately not derived from path: `ck_node_generation_gte_tree_depth`
-     * allows a generation deeper than the tree position (a person recorded a
-     * generation below where they hang), so this one is stored.
-     */
-    generation: integer('generation').notNull(),
-    sort: integer('sort').notNull().default(0),
-    name: text('name').notNull(),
-    surname: text('surname').notNull(),
-    fullName: text('full_name').notNull(),
-    sex: smallint('sex').notNull(),
-    courtesy: text('courtesy'),
-    namePrefix: text('name_prefix'),
-    isAlive: boolean('is_alive').notNull().default(true),
-    birthText: text('birth_text'),
-    deathText: text('death_text'),
-    birthYear: integer('birth_year'),
-    deathYear: integer('death_year'),
-    burialPlace: text('burial_place'),
-    biography: text('biography'),
-    /**
-     * 创建幂等键（R31）：客户端每「一次提交意图」生成一个 uuid，只有创建路径写它。
-     * 同组织内唯一（见 uk_node_org_request_id），重放与并发双飞都落回已有那一行。
-     * 共创配偶不写这个键——它会与血亲撞同一索引，重放时按 spouse_of_id 找回。
-     * 迁移前的历史行为 NULL，部分唯一索引不约束 NULL。
-     */
-    requestId: uuid('request_id'),
+    personId: uuid('person_id'),
+    path: ltree('path').notNull(),
+    parentPath: ltree('parent_path').generatedAlwaysAs(
+      sql.raw(
+        'case when nlevel(path) > 1 then subpath(path, 0, nlevel(path) - 1) end'
+      )
+    ),
+    kind: text('kind')
+      .$type<(typeof nodeKinds)[number]>()
+      .notNull()
+      .default('primary'),
+    displayName: text('display_name'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
-    foreignKey({
-      columns: [t.orgId, t.lineageId],
-      foreignColumns: [lineages.orgId, lineages.id],
-      name: 'fk_node_lineage',
-    }).onDelete('restrict'),
-    unique('uk_node_organization_id').on(t.orgId, t.id),
-    // A parent must live in the same organization AND the same lineage; without
-    // this the database happily lets you hang a person under another tree.
-    unique('uk_node_org_lineage_id').on(t.orgId, t.lineageId, t.id),
-    foreignKey({
-      columns: [t.parentId, t.orgId, t.lineageId],
-      foreignColumns: [t.id, t.orgId, t.lineageId],
-      name: 'fk_node_parent_same_lineage',
-    }).onDelete('restrict'),
-    // A spouse must be attached inside the same tree; the composite unique key
-    // uk_node_org_lineage_id above is what makes this edge constrainable.
-    foreignKey({
-      columns: [t.spouseOfId, t.orgId, t.lineageId],
-      foreignColumns: [t.id, t.orgId, t.lineageId],
-      name: 'fk_node_spouse_same_lineage',
-    }).onDelete('restrict'),
-    check('ck_node_role', sql`${t.role} in ('blood', 'spouse')`),
-    check('ck_node_sex', sql`${t.sex} in (0, 1)`),
+    primaryKey({ columns: [t.projectId, t.id] }),
+    // `[.]` inside a character class, so the pattern does not depend on
+    // standard_conforming_strings.
     check(
-      'ck_node_spouse_has_no_path',
-      sql`(${t.role} = 'spouse' and ${t.path} is null and ${t.spouseOfId} is not null) or (${t.role} = 'blood' and ${t.path} is not null)`
+      'node_path_format',
+      sql`${t.path}::text ~ '^[0-9]{4}([.][0-9]{4})*$'`
     ),
-    // 世次 may exceed tree depth on purpose (see the `generation` comment), but
-    // it may never be shallower than the position the path proves.
     check(
-      'ck_node_generation_gte_tree_depth',
-      sql`${t.generation} >= case when ${t.path} is null then 1 else nlevel(${t.path}) end`
+      'node_annotation_person',
+      sql`(${t.kind} = 'annotation') = (${t.personId} is null)`
     ),
-    index('idx_node_parent').on(t.orgId, t.parentId),
-    // 创建幂等（R31）：同一组织内一个 requestId 只能留下一行未删人丁。
-    // 软删行不在索引里，所以删掉之后同一键可以再次录入。
-    uniqueIndex('uk_node_org_request_id')
-      .on(t.orgId, t.requestId)
-      .where(sql`${t.requestId} is not null and ${t.deletedAt} is null`),
-    index('idx_node_alive')
-      .on(t.orgId, t.lineageId)
-      .where(sql`${t.deletedAt} is null`),
+    check('node_kind_check', sql`${t.kind} in ${valueSet(nodeKinds)}`),
+    unique('node_path_unique').on(t.projectId, t.lineageId, t.path),
+    foreignKey({
+      columns: [t.projectId, t.lineageId],
+      foreignColumns: [lineages.projectId, lineages.id],
+      name: 'node_lineage_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.projectId, t.personId],
+      foreignColumns: [persons.projectId, persons.id],
+      name: 'node_person_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.orgId, t.projectId],
+      foreignColumns: [projects.orgId, projects.id],
+      name: 'node_scope_fk',
+    }).onDelete('restrict'),
+    // Closure: the target is the three-column unique above.
+    foreignKey({
+      columns: [t.projectId, t.lineageId, t.parentPath],
+      foreignColumns: [t.projectId, t.lineageId, t.path],
+      name: 'node_parent_fk',
+    }).onDelete('restrict'),
+    index('node_person_idx').on(t.projectId, t.personId),
+    uniqueIndex('node_one_primary')
+      .on(t.projectId, t.lineageId, t.personId)
+      .where(sql`${t.kind} = 'primary'`),
+    index('node_path_gist').using('gist', t.projectId, t.path),
   ]
 );

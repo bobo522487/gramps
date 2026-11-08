@@ -50,15 +50,16 @@ describe('collectSubtreeIds', () => {
 });
 
 describe('buildDeleteConfirmMessage', () => {
-  it('多人时写明子孙与配偶', () => {
+  // 目标态删除是 RESTRICT 硬删、无回收站，且 node 已无配偶边。
+  it('多人时写明子孙与不可恢复', () => {
     expect(buildDeleteConfirmMessage(root, 4)).toBe(
-      '删除「陈实」及其子孙与配偶？共 4 位人丁会归档。'
+      '删除「陈实」及其子孙？共 4 位人丁会被删除，且不可恢复。'
     );
   });
 
   it('单人时不给人数', () => {
     expect(buildDeleteConfirmMessage(root, 1)).toBe(
-      '删除「陈实」？该人丁会归档。'
+      '删除「陈实」？该人丁会被删除，且不可恢复。'
     );
   });
 });

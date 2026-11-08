@@ -262,8 +262,7 @@ export async function deleteFolderInTransaction(params: {
           and(
             eq(lineages.orgId, orgId),
             eq(lineages.projectId, target.projectId),
-            inArray(lineages.folderId, folderIds),
-            isNull(lineages.deletedAt)
+            inArray(lineages.folderId, folderIds)
           )
         )
         .returning({ id: lineages.id });

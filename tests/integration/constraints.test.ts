@@ -6,7 +6,6 @@ import {
   activityLogs,
   folders,
   invitations,
-  nodes,
   orgMembers,
 } from '@/lib/db/schema';
 import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
@@ -330,53 +329,23 @@ describe('node tree invariants enforced by the database', () => {
     ).resolves.toBeTruthy();
   });
 
-  // R31：创建幂等键的唯一性由数据库兜底。索引是部分的（deleted_at IS NULL），
-  // 所以软删之后同一键可以再录一次；历史行 request_id 为 NULL，NULL 之间不互斥。
-  it('keeps one live node per (organization, request_id)', async () => {
-    const { user, organization, lineage } = await lineageScope();
-    const requestId = randomUUID();
-
-    const first = await createNode({
-      orgId: organization.id,
-      lineageId: lineage.id,
-      createdBy: user.id,
-      generation: 1,
-      requestId,
-    });
+  // 目标态：R31 幂等键随 request_id 退役。闭包外键的目标是
+  // node_path_unique (project_id, lineage_id, path)，同一棵树里不允许两行
+  // 占同一个位置；这取代了旧的部分唯一索引成为直测对象。
+  it('keeps one node per (project, lineage, path)', async () => {
+    const { organization, project, lineage } = await lineageScope();
 
     await expect(
-      createNode({
-        orgId: organization.id,
-        lineageId: lineage.id,
-        createdBy: user.id,
-        generation: 1,
-        requestId,
-      })
+      getTestSql()`
+        insert into node (organization_id, project_id, lineage_id, path, kind)
+        values (${organization.id}, ${project.id}, ${lineage.id}, '0001', 'annotation')`
+    ).resolves.toBeDefined();
+
+    await expect(
+      getTestSql()`
+        insert into node (organization_id, project_id, lineage_id, path, kind)
+        values (${organization.id}, ${project.id}, ${lineage.id}, '0001', 'annotation')`
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
-
-    await expect(
-      createNode({
-        orgId: organization.id,
-        lineageId: lineage.id,
-        createdBy: user.id,
-        generation: 1,
-      })
-    ).resolves.toBeDefined();
-
-    await getTestDb()
-      .update(nodes)
-      .set({ deletedAt: new Date() })
-      .where(eq(nodes.id, first.id));
-
-    await expect(
-      createNode({
-        orgId: organization.id,
-        lineageId: lineage.id,
-        createdBy: user.id,
-        generation: 1,
-        requestId,
-      })
-    ).resolves.toBeDefined();
   });
 });
 

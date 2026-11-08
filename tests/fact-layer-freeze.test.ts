@@ -65,7 +65,9 @@ describe('S8 阶段 A · 事实层冻结已解除', () => {
     ).toEqual([]);
   });
 
-  test('每张事实层表仍带租户列与软删列（阶段 B 删软删时同步移除本断言）', () => {
+  test('每张事实层表仍带租户列，且软删列已随目标态退役', () => {
+    // 阶段 A′ 按附录 A.3 重写事实层，软删列（deleted_at）不再存在；租户列
+    // 与复合主键不变。断言方向随之翻转，钉住「没有第二份软删快照」。
     for (const file of ['person.ts', 'family.ts', 'event.ts']) {
       const blocks = tableBlocks(read(`lib/db/schema/${file}`));
       expect(blocks.length, file).toBeGreaterThan(0);
@@ -77,7 +79,9 @@ describe('S8 阶段 A · 事实层冻结已解除', () => {
         expect(body, `${file} ${table}`).toContain(
           "uuid('project_id').notNull()"
         );
-        expect(body, `${file} ${table}`).toContain("timestamptz('deleted_at')");
+        expect(body, `${file} ${table}`).not.toContain(
+          "timestamptz('deleted_at')"
+        );
       }
     }
   });
