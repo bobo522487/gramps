@@ -43,7 +43,7 @@ export type ArticleContent = {
   pages: ArticlePage[];
 };
 
-/** 正文里允许出现的节点类型（data-model §2 不变量 5，003 放开列表）。 */
+/** 正文里允许出现的节点类型（列表在编辑器 Word 化时放开）。 */
 const ALLOWED_NODE_TYPES = new Set([
   'doc',
   'paragraph',
@@ -250,7 +250,7 @@ function collectBlockTexts(doc: ArticlePageDoc): string[] {
         buffer.push(node.text);
         return;
       }
-      // 图片不贡献文本（data-model §3）。
+      // 图片不贡献文本。
       if (node.type === 'articleImage') {
         return;
       }
@@ -316,7 +316,7 @@ export function countImages(content: ArticleContent): number {
 
 /**
  * 该 pathname 是否还被文档引用着——删页/删篇之后能不能真的清掉字节
- * （同一张图可能被复制到多页，data-model §4）。
+ * （同一张图可能被复制到多页）。
  */
 export function isReferenced(
   pathname: string,

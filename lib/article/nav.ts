@@ -5,7 +5,7 @@ import { countArticlesByFolder, listArticles } from '@/lib/db/queries/articles';
 import { getFolders } from '@/lib/db/queries/folders';
 
 /**
- * 请求级共享的谱文导航数据（AGENTS §5.1：导航查询走带 `cache()` 的请求级共享层）。
+ * 请求级共享的谱文导航数据。
  *
  * 谱文与谱系是并列的两类导航，故不复用 `lib/lineage/nav.ts`（那是谱系模块），
  * 而是按同一模式在本模块提供 `cache()` 包装，避免每次渲染重复查库。

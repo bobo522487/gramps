@@ -37,9 +37,9 @@
 
 | ID | 意图（一句话） | 范围 in | 范围 deferred | 依赖 | 状态 | 子 spec | 归档版本 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `S1` | 谱系录编与实时预览 | 录入闭环、右侧抽屉、底部快捷条 / 右键菜单、删除措辞、谱系删除权限收紧 | 结构编辑（挂接 / 拆支 / 承嗣）、30 秒撤销、房支、导出与导入 | — | `delivered` | `specs/001-lineage-edit-preview/` | — |
-| `S2` | 谱文录入与多页编辑 | 谱文管理与分类树、文本录入、多页、正文配图、自动保存、标题检索 | 正文全文检索、插入人丁引用、模板套用 | — | `delivered` | `specs/002-article-authoring/` | — |
-| `S3` | 谱文编辑器 Word 化与常用格式 | 分组工具栏、纸张感编辑区、迷你页预览、加粗 / 斜体 / 下划线、单层列表、段落对齐 | 颜色、行高、表格、引用、链接、图片 alt / 题注、多级列表、模板套件、导出 / 分享 / 发布 | `S2` | `in_progress` | `specs/003-article-editor-wordlike/` | — |
+| `S1` | 谱系录编与实时预览 | 录入闭环、右侧抽屉、底部快捷条 / 右键菜单、删除措辞、谱系删除权限收紧 | 结构编辑（挂接 / 拆支 / 承嗣）、30 秒撤销、房支、导出与导入 | — | `delivered` | — | — |
+| `S2` | 谱文录入与多页编辑 | 谱文管理与分类树、文本录入、多页、正文配图、自动保存、标题检索 | 正文全文检索、插入人丁引用、模板套用 | — | `delivered` | — | — |
+| `S3` | 谱文编辑器 Word 化与常用格式 | 分组工具栏、纸张感编辑区、迷你页预览、加粗 / 斜体 / 下划线、单层列表、段落对齐 | 颜色、行高、表格、引用、链接、图片 alt / 题注、多级列表、模板套件、导出 / 分享 / 发布 | `S2` | `in_progress` | — | — |
 | `S4` | 谱书编目与成品排版主线 | 编目三栏、引用谱系或谱文、嵌套与拖拽排序、章节分区、隐藏条目、端到端导出一份谱书 | 谱书预览与分享、PDF 排版成书、字体授权 | `S1`、`S2` | `planned` | — | — |
 | `S5` | 事实层读写切换与 `node` 退役 | 定唯一写入路径 → 对账 → 切写 → 切读 → 退役 `node` | 双写、新增事实层表 / 列 / 索引（闸门之前冻结） | `S4`（闸门） | `deferred` | — | — |
 | `S6` | 回收站与数据保留期 | 软删恢复入口、保留期策略、可用的物理删除路径 | 审计能力 | — | `planned` | — | — |
@@ -50,7 +50,7 @@
 
 **「归档版本」全为 `—` 不是漏填**：仓库没有 tag / release，`specs/_archive/` 也尚未建立，所以没有可写的版本标签。归档按 `CONTRIBUTING.md` 的「交付后归档」执行，落地后补标签；口径与 `CHANGELOG.md` 一致，不虚构版本号。
 
-**「子 spec」列写纯文本路径**：三个 feature 目录已在仓库里，但本轮重构中它们尚未迁入新结构，写相对链接会制造断链。路径可被 `grep` 命中，链路一样成立；等 `specs/` 与新结构对齐后再改成链接。
+**「子 spec」列全为 `—` 不是漏填**：旧的 `001`–`003` 规格随旧文档体系一起下线，`S1`–`S3` 的交付事实以 `CHANGELOG.md` 为准；新规格按 `CONTRIBUTING.md` §4 从 `.specify/templates/` 生成，编号不复用旧号。写已删除目录会制造断链，写尚未建立的目录则是虚构。
 
 ---
 
@@ -95,8 +95,8 @@
 
 | 项 | 事实 | 待办 |
 | --- | --- | --- |
-| `S3` 状态 | 格式能力的代码已落地（`components/article/editor/text-align.ts`、`text-style.ts`、`lib/article/flatten-lists.ts`、`toolbar.tsx`），但 `specs/003-article-editor-wordlike/spec.md` 头部仍是 `Status: Draft`，也没有交付附注 | 补交付记录并把状态改 `delivered`，或确认仍有未验收项；本表暂记 `in_progress`，不替 spec 下结论 |
-| 双向回链 | 现有三个 `spec.md` 的 `Input` 行都指向用户描述或附件 PRD，**没有** `Parent roadmap → entry <ID>` | 补回链；`specs/_template/` 与 `specs/_archive/` 在仓库里也尚未建立 |
+| `S3` 状态 | 格式能力的代码已落地（`components/article/editor/text-align.ts`、`text-style.ts`、`lib/article/flatten-lists.ts`、`toolbar.tsx`），但旧 `003` 规格已随文档换代下线，没有留下交付附注 | 由产品 + 测试负责人按代码与 `CHANGELOG.md` 确认是否 `delivered`；本表暂记 `in_progress`，不替 spec 下结论 |
+| 双向回链 | 新规格的 `Input` 行 MUST 写 `Parent roadmap → entry <ID>`（`CONTRIBUTING.md` §4 第 2 步）；模板唯一在 `.specify/templates/`，归档区 `specs/_archive/` 待首个交付后建立 | 首个新 spec 落地时验收回链，不预建空目录 |
 
 这两项都是队列后面的活，按「一次一个补丁」不在本轮改动，但先记在这里，免得被当成已闭环。
 

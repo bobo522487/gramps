@@ -45,7 +45,7 @@ export function refused(
   return failure.ok === false && failure.reason === 'forbidden';
 }
 
-/** 云谱空间必须属于本组织；公开 ID 与 UUID 都算不得授权凭证（AGENTS §5.4）。 */
+/** 云谱空间必须属于本组织；公开 ID 与 UUID 都算不得授权凭证。 */
 export async function projectExists(
   tx: DbTransaction,
   orgId: string,

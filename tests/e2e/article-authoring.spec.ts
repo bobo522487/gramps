@@ -6,8 +6,7 @@ import { seedArticleWithImages } from './fixtures/article';
  * 谱文（US1）：新建 → 输入 → 自动保存后刷新一致 → 改标题 → 移到分类 → 删除。
  *
  * 这是谱文这条线的「入口故事」：只要它成立，用户就能把文字存进云谱并回来改。
- * 手工验证路径见 specs/002-article-authoring/quickstart.md 的 US1 一节，
- * 这里把它固化成可重复的回归。
+ * 这里把它固化成可重复的回归（手工验证路径随旧 feature 规格下线，不再另行维护）。
  */
 
 test.describe.configure({ mode: 'serial' });

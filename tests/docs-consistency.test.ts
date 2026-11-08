@@ -37,6 +37,9 @@ const RETIRED = [
   'docs/guides/testing.md',
   'docs/archive',
   'docs/superpowers',
+  'specs/001-lineage-edit-preview',
+  'specs/002-article-authoring',
+  'specs/003-article-editor-wordlike',
 ];
 
 describe('document set', () => {
@@ -76,18 +79,49 @@ describe('document set', () => {
 
   test('new documents never cite retired authority paths', () => {
     const retired =
-      /docs\/architecture\/|docs\/decisions\/|docs\/guides\/|docs\/README\.md|docs\/archive\/|docs\/superpowers\//;
+      /docs\/architecture\/|docs\/decisions\/|docs\/guides\/|docs\/README\.md|docs\/archive\/|docs\/superpowers\/|specs\/00[1-3]-/;
     for (const path of [...DOC_SET, ENTRY]) {
       expect(read(path), path).not.toMatch(retired);
     }
   });
 
-  test('plan.md gates name the constitution, not AGENTS.md', () => {
+  test('retired feature specs do not come back', () => {
+    const specs = readdirSync(join(root, 'specs'));
+    for (const retired of [
+      '001-lineage-edit-preview',
+      '002-article-authoring',
+      '003-article-editor-wordlike',
+    ]) {
+      expect(specs, retired).not.toContain(retired);
+    }
+  });
+
+  test('any future plan.md names the constitution, not AGENTS.md', () => {
     for (const entry of readdirSync(join(root, 'specs'))) {
       if (!statSync(join(root, 'specs', entry)).isDirectory()) continue;
       const plan = join('specs', entry, 'plan.md');
       if (!existsSync(join(root, plan))) continue;
       expect(read(plan), plan).not.toMatch(/原则正文见 `AGENTS\.md`/);
+    }
+  });
+
+  test('code comments do not cite sections of retired specs', () => {
+    // 拆开拼接，避免本文件里的字面串被自己的断言命中。
+    const legacy = new RegExp(
+      ['AGENTS', 'research', 'contracts', 'data-model'].map((s) => `${s} §`).join('|'),
+    );
+    const collect = (dir: string): string[] => {
+      if (!existsSync(dir)) return [];
+      return readdirSync(dir).flatMap((entry) => {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) return collect(full);
+        return /\.tsx?$/.test(entry) ? [full] : [];
+      });
+    };
+    for (const dir of ['app', 'components', 'lib', 'hooks', 'tests']) {
+      for (const file of collect(join(root, dir))) {
+        expect(readFileSync(file, 'utf8'), file).not.toMatch(legacy);
+      }
     }
   });
 });

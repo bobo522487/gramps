@@ -255,7 +255,7 @@ describe('migrations', () => {
       can_read_users: false,
     });
 
-    // The fact layer has no DELETE grant either (data-model §11.1): physical
+    // The fact layer has no DELETE grant either: physical
     // deletion must go through the runbook, never through the runtime role.
     // Asserting the three positive grants too keeps this from passing
     // vacuously when a table is renamed or the grants are dropped wholesale.

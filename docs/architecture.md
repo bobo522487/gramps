@@ -150,7 +150,7 @@ PostgreSQL（业务 app_rw / 认证 auth_service）
 ├── .github/workflows/      CI 与生产迁移 job
 ├── .specify/               治理层：constitution 与 spec / plan / tasks 模板
 ├── docs/                   项目层长期活文档（本文件所在层）
-├── specs/                  交付层：NNN-xxx/ + _template/ + _archive/
+├── specs/                  交付层：NNN-xxx/ 工作产物（模板在 .specify/templates/）
 └── <根配置>                package.json / tsconfig.json / biome.json / next.config.ts /
                              drizzle.config.ts / proxy.ts / instrumentation.ts /
                              vitest*.config.ts / playwright.config.ts / .env.example

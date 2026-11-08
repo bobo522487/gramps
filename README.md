@@ -69,10 +69,7 @@ pnpm arch:check
 │   ├── roadmap.md                 编排核心：切片顺序、范围、依赖、状态
 │   └── runbooks/                  上线、排障、回滚
 │
-├── specs/                         交付层（每个 feature 自包含，可整目录归档）
-│   ├── _template/                 可复制骨架，不占编号
-│   ├── 001-xxx/
-│   └── _archive/
+├── specs/                         交付层：NNN-xxx/ 工作产物（模板在 .specify/templates/）
 │
 └── tests/                         可执行的验收标准（最终事实来源）
 ```

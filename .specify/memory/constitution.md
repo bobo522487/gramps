@@ -97,14 +97,15 @@
 - **合规复核**：每个 PR 按 `CONTRIBUTING.md` §6 的自查清单逐项勾选并提供命令输出；执行者是那里的清单与 CI，本文件不重抄命令。
 - **没有执行者的原则等于没有原则**：`I`–`V` 每条都已写明证据来源；写不出「怎么验」的新原则，不该进本文。
 
-**Version**: 1.0.0 | **首次落地**: 2026-11-08 | **编号来源**: 已有 `plan.md` 的 `I`–`V` Constitution Check
+**Version**: 1.0.0 | **首次落地**: 2026-11-08 | **编号来源**: 历史 Constitution Check 的 `I`–`V`；编号是治理层契约，不随 feature 工作产物退役而变
 
 ## 6. 追溯
 
 ```bash
-# plan 是否逐条引用编号，而不是抄原则原文
-grep -rn "Constitution Check" specs/
-grep -rn -E "^\| (I|II|III|IV|V) " specs/*/plan.md
+# 新建 spec 后：plan 是否逐条引用编号，而不是抄原则原文
+# 当前 specs/ 为空，无输出属正常；模板是编号口径的常驻依据
+grep -rn "Constitution Check" specs/ .specify/templates/plan-template.md
+grep -rn -E "^\| (I|II|III|IV|V) " specs/ .specify/templates/plan-template.md
 # 偏离原则是否留了 ADR
 grep -rn "偏离\|superseded" docs/adr/README.md
 # 本文被谁引用

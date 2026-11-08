@@ -133,6 +133,10 @@ const RETIRED_PATHS = [
   '00-文档说明.md',
   '11-需求与实现状态.md',
   'AGENTS.md §',
+  'specs/001-lineage-edit-preview',
+  'specs/002-article-authoring',
+  'specs/003-article-editor-wordlike',
+  '.specify/bugs/lineage-generation-order',
 ];
 for (const file of allDocs) {
   const content = readFileSync(file, 'utf8');

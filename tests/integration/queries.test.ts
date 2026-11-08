@@ -307,7 +307,7 @@ describe('activity queries', () => {
 });
 
 /**
- * 谱文查询层（specs/002-article-authoring Task 5）。页数与图片数都从
+ * 谱文查询层。页数与图片数都从
  * `article.content` 的分页文档包现算，不占列；分类篇数只认 `folder.kind = 1`
  * （`article.kind` 恒为 NULL），未分类 = 总数 − 各分类之和。
  */

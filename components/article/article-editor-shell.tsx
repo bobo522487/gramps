@@ -35,8 +35,7 @@ import type {
  * 离开保护走两条路：
  * 1. 应用内跳转（返回、点分类树）：`await saveNow()` 成功才 `router.push`，
  *    失败就停留在当前页并提示（FR-016、FR-003）。
- * 2. 浏览器关闭 / 刷新：只能 `beforeunload` 拦住要求确认，没法等异步保存
- *    （research §14）。
+ * 2. 浏览器关闭 / 刷新：只能 `beforeunload` 拦住要求确认，没法等异步保存。
  */
 
 export function ArticleEditorShell({

@@ -51,12 +51,12 @@
 ## 4. feature 交付流程
 
 1. **roadmap 先改**：在 `docs/roadmap.md` 建行，拿到不可变条目 ID。
-2. **specify**：复制 `specs/_template/` 为 `specs/NNN-xxx/`（编号三位递增、不复用），在 `spec.md` 头部 `Input` 行写 `Parent roadmap → entry <ID>`。
+2. **specify**：从 `.specify/templates/` 的模板生成 `specs/NNN-xxx/`（编号三位递增、旧 `001`–`003` 不复用），在 `spec.md` 头部 `Input` 行写 `Parent roadmap → entry <ID>`。
 3. **写 spec.md**：按 EARS 句式写需求（始终约束 / 事件触发 / 异常处理 / 状态期间 / 可选特性），补齐边界值、异常状态、权限矩阵、数据口径、埋点与可验收标准；每条需求有稳定 `FR-xxx` ID。
 4. **plan**：Constitution Check 逐条引用原则编号；记录技术方案、接口、数据结构、兼容性与风险；选型理由落一条 ADR。
 5. **tasks**：拆到可执行粒度，每条任务标注覆盖的 `FR-xxx`。任务清单只留一份。
 6. **implement**：代码与 `tests/` 同批提交，测试用例 ID 回链 `FR-xxx`。
-7. **归档**：整目录打版本标签（如 `specs/_archive/001-xxx@YYYY-MM-DD/`）移入归档区，归档目录只读；后续行为变化开新目录，不回改历史目录。
+7. **归档**：整目录打版本标签（如 `specs/_archive/NNN-xxx@YYYY-MM-DD/`）移入归档区，归档目录只读；后续行为变化开新目录，不回改历史目录。
 
 `spec.md` 只写「要什么、为什么、怎么验收」；表结构、文件路径、函数名属于 `plan.md`。
 

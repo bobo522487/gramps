@@ -7,7 +7,7 @@ import type { NodeView } from '@/components/lineage/types';
  * 前序，不是 `generation → sort` 的横向对齐。世系表按世次分卡片，卡片内的行序直接
  * 继承 `index.blood`（`lineage-detail.tsx` 的 `groups` 只按世次分桶、组内保序），
  * 所以这里锁 `index.blood` 全序 + 世次切片两处即可。
- * 详见 .specify/bugs/lineage-generation-order/assessment.md。
+ * 原 bug 评估记录随旧文档体系下线，行为约束以本用例为准。
  */
 
 function node(

@@ -12,8 +12,8 @@ import {
 } from '../schema';
 
 /**
- * 谱文读取层（specs/002-article-authoring）。页数与图片数都从 `article.content`
- * 的分页文档包现算——不占列、不会有第二份真相（AGENTS §5.1、research §8）。
+ * 谱文读取层。页数与图片数都从 `article.content`
+ * 的分页文档包现算——不占列、不会有第二份真相。
  * 所有查询都走 `withOrg` 并同时带 `orgId`，外组织一律空结果而不是报错。
  */
 
@@ -321,7 +321,7 @@ export type ArticleScope = {
 /**
  * Resolves an article inside the caller's organization. A foreign `articleId`
  * comes back `null` rather than an error, so callers can answer "not found"
- * without leaking existence (AGENTS §5.4).
+ * without leaking existence.
  */
 export async function getArticleScope(
   userId: string,
