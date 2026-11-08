@@ -15,6 +15,10 @@ import {
  * 谱文读取层。页数与图片数都从 `article.content`
  * 的分页文档包现算——不占列、不会有第二份真相。
  * 所有查询都走 `withOrg` 并同时带 `orgId`，外组织一律空结果而不是报错。
+ *
+ * 目标态（附录 A.5）里 `article` / `book` / `folder` 都没有 `deleted_at`，删除即
+ * 真删，所以本文件不再按软删过滤。唯一例外是 `book_catalog`：它的软删列随
+ * B3 / T25 一起退役，`hasCatalogReference` 仍按它过滤——这一处是登记在案的中间态。
  */
 
 export type ArticleSummary = {
@@ -24,7 +28,6 @@ export type ArticleSummary = {
   pageCount: number;
   createdBy: string;
   createdAt: Date;
-  updatedAt: Date | null;
 };
 
 export type ArticleFolderCounts = {
@@ -63,8 +66,6 @@ const imageCountSql = sql<number>`coalesce(jsonb_array_length(
   )
 ), 0)`;
 
-const lastTouched = sql`coalesce(${articles.updatedAt}, ${articles.createdAt})`;
-
 export async function listArticles(
   userId: string,
   orgId: string,
@@ -78,18 +79,12 @@ export async function listArticles(
         folderId: articles.folderId,
         createdBy: articles.createdBy,
         createdAt: articles.createdAt,
-        updatedAt: articles.updatedAt,
         pageCount: pageCountSql,
       })
       .from(articles)
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          eq(articles.projectId, projectId),
-          isNull(articles.deletedAt)
-        )
-      )
-      .orderBy(desc(lastTouched), asc(articles.id))
+      .where(and(eq(articles.orgId, orgId), eq(articles.projectId, projectId)))
+      // 目标态没有 `updated_at`，「最近动过」的排序键只剩 `created_at`。
+      .orderBy(desc(articles.createdAt), asc(articles.id))
   );
 }
 
@@ -102,13 +97,7 @@ export async function getArticle(
     const rows = await tx
       .select()
       .from(articles)
-      .where(
-        and(
-          eq(articles.id, articleId),
-          eq(articles.orgId, orgId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);
     return rows[0] ?? null;
   });
@@ -127,31 +116,15 @@ export async function countArticlesByFolder(
       .from(articles)
       .innerJoin(
         folders,
-        and(
-          eq(folders.id, articles.folderId),
-          eq(folders.kind, 1),
-          isNull(folders.deletedAt)
-        )
+        and(eq(folders.id, articles.folderId), eq(folders.kind, 1))
       )
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          eq(articles.projectId, projectId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .where(and(eq(articles.orgId, orgId), eq(articles.projectId, projectId)))
       .groupBy(folders.id);
 
     const totalRows = await tx
       .select({ value: sql<number>`count(*)` })
       .from(articles)
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          eq(articles.projectId, projectId),
-          isNull(articles.deletedAt)
-        )
-      );
+      .where(and(eq(articles.orgId, orgId), eq(articles.projectId, projectId)));
     // count(*) arrives as a string over the wire (bigint), same as everywhere else.
     const total = Number(totalRows[0]?.value ?? 0);
 
@@ -179,13 +152,7 @@ export async function getArticleDeletePreview(
         imageCount: imageCountSql,
       })
       .from(articles)
-      .where(
-        and(
-          eq(articles.id, articleId),
-          eq(articles.orgId, orgId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);
     const row = rows[0];
     if (!row) {
@@ -209,14 +176,12 @@ export async function hasCatalogReference(
     const rows = await tx
       .select({ id: bookCatalogs.id })
       .from(bookCatalogs)
-      .innerJoin(
-        books,
-        and(eq(books.id, bookCatalogs.bookId), isNull(books.deletedAt))
-      )
+      .innerJoin(books, eq(books.id, bookCatalogs.bookId))
       .where(
         and(
           eq(bookCatalogs.orgId, orgId),
           eq(bookCatalogs.articleId, articleId),
+          // book_catalog 的软删列 B3 / T25 才删，这一处过滤保留。
           isNull(bookCatalogs.deletedAt)
         )
       )
@@ -246,8 +211,7 @@ export async function getFolderDeletePreview(
         and(
           eq(folders.id, folderId),
           eq(folders.orgId, orgId),
-          eq(folders.kind, 1),
-          isNull(folders.deletedAt)
+          eq(folders.kind, 1)
         )
       )
       .limit(1);
@@ -263,8 +227,7 @@ export async function getFolderDeletePreview(
         and(
           eq(folders.orgId, orgId),
           eq(folders.projectId, root.projectId),
-          eq(folders.kind, 1),
-          isNull(folders.deletedAt)
+          eq(folders.kind, 1)
         )
       );
 
@@ -295,11 +258,7 @@ export async function getFolderDeletePreview(
       .select({ value: sql<number>`count(*)` })
       .from(articles)
       .where(
-        and(
-          eq(articles.orgId, orgId),
-          inArray(articles.folderId, subtree),
-          isNull(articles.deletedAt)
-        )
+        and(eq(articles.orgId, orgId), inArray(articles.folderId, subtree))
       );
 
     return {
@@ -338,13 +297,7 @@ export async function getArticleScope(
         title: articles.title,
       })
       .from(articles)
-      .where(
-        and(
-          eq(articles.id, articleId),
-          eq(articles.orgId, orgId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);
     return rows[0] ?? null;
   });

@@ -27,10 +27,9 @@ function valueSet(values: readonly string[]) {
  * table records its URI, checksum and the fact cutoff it was built from.
  *
  * The `(project_id, id)` composite key keeps exports inside the same scope as
- * the book they belong to. The `book_export_book_fk` target is the target-state
- * `book (project_id, id)` key from the B0 SQL baseline; `content.ts` is still
- * on the single-column key and catches up in a later phase-B batch, so this
- * file deliberately does not restate `book`'s key shape.
+ * the book they belong to. `book_export_book_fk` points at the target-state
+ * `book (project_id, id)` key; `content.ts` now matches it as of batch B2a, so
+ * the foreign key resolves without a 42830.
  */
 export const bookExports = pgTable(
   'book_export',

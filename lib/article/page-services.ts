@@ -23,8 +23,7 @@ import {
   refused,
   validateContent,
 } from '@/lib/article/mutations';
-import { logActivityInTx } from '@/lib/db/queries/activity';
-import { ActivityType, articles } from '@/lib/db/schema';
+import { articles } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
 
 /**
@@ -87,10 +86,8 @@ export async function saveArticlePageInTransaction(params: {
         .set({
           content,
           plainText: derivePlainText(content),
-          updatedAt: savedAt,
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       return {
         ok: true as const,
@@ -134,16 +131,13 @@ export async function addArticlePageInTransaction(params: {
         pages: [...current.pages, page],
       };
 
-      const savedAt = new Date();
       await tx
         .update(articles)
         .set({
           content,
           plainText: derivePlainText(content),
-          updatedAt: savedAt,
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       return {
         ok: true as const,
@@ -190,16 +184,13 @@ export async function deleteArticlePageInTransaction(params: {
         pages,
       };
 
-      const savedAt = new Date();
       await tx
         .update(articles)
         .set({
           content,
           plainText: derivePlainText(content),
-          updatedAt: savedAt,
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       // imagePathsOf 认的是「分页文档包」，单页得先包一层再遍历。
       const pathnames = imagePathsOf({
@@ -248,16 +239,13 @@ export async function reorderArticlePagesInTransaction(params: {
         pages,
       };
 
-      const savedAt = new Date();
       await tx
         .update(articles)
         .set({
-          updatedAt: savedAt,
           plainText: derivePlainText(content),
           content,
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       return { ok: true as const, pageOrder: pageIdsOf(content) };
     }

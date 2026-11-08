@@ -8,7 +8,7 @@ export default defineConfig({
     projects: [
       { extends: './vitest.config.ts', test: { name: 'unit' } },
       {
-        extends: './vitest.integration.config.ts',
+        extends: './vitest.integration.config.mts',
         test: { name: 'integration' },
       },
     ],

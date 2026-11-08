@@ -2,9 +2,7 @@ import 'server-only';
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
-import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
-  ActivityType,
   articles,
   books,
   type Folder,
@@ -32,13 +30,7 @@ async function assertProjectInOrg(
   const [project] = await tx
     .select({ id: projects.id })
     .from(projects)
-    .where(
-      and(
-        eq(projects.id, projectId),
-        eq(projects.orgId, orgId),
-        isNull(projects.deletedAt)
-      )
-    )
+    .where(and(eq(projects.id, projectId), eq(projects.orgId, orgId)))
     .limit(1);
   return Boolean(project);
 }
@@ -56,8 +48,7 @@ async function loadActiveFolders(
       and(
         eq(folders.orgId, orgId),
         eq(folders.projectId, projectId),
-        eq(folders.kind, kind),
-        isNull(folders.deletedAt)
+        eq(folders.kind, kind)
       )
     )
     .orderBy(asc(folders.sort), asc(folders.createdAt));
@@ -95,8 +86,7 @@ export async function nextFolderSort(
         eq(folders.orgId, orgId),
         eq(folders.projectId, projectId),
         eq(folders.kind, kind),
-        parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId),
-        isNull(folders.deletedAt)
+        parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId)
       )
     );
   return (row?.value ?? -1) + 1;
@@ -111,7 +101,7 @@ export async function createFolderInTransaction(params: {
   name: string;
   ipAddress?: string;
 }): Promise<FolderMutationResult> {
-  const { userId, orgId, projectId, kind, parentId, name, ipAddress } = params;
+  const { userId, orgId, projectId, kind, parentId, name } = params;
 
   return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     if (!(await assertProjectInOrg(tx, orgId, projectId))) {
@@ -150,13 +140,6 @@ export async function createFolderInTransaction(params: {
       })
       .returning();
 
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.CREATE_FOLDER,
-      ipAddress
-    );
     return { ok: true as const, folder };
   });
 }
@@ -168,32 +151,19 @@ export async function renameFolderInTransaction(params: {
   name: string;
   ipAddress?: string;
 }): Promise<FolderMutationResult> {
-  const { userId, orgId, folderId, name, ipAddress } = params;
+  const { userId, orgId, folderId, name } = params;
 
   return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     const [folder] = await tx
       .update(folders)
       .set({ name })
-      .where(
-        and(
-          eq(folders.id, folderId),
-          eq(folders.orgId, orgId),
-          isNull(folders.deletedAt)
-        )
-      )
+      .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
       .returning();
 
     if (!folder) {
       return { ok: false, reason: 'not_found' as const };
     }
 
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.RENAME_FOLDER,
-      ipAddress
-    );
     return { ok: true as const, folder };
   });
 }
@@ -208,19 +178,13 @@ export async function deleteFolderInTransaction(params: {
   folderId: string;
   ipAddress?: string;
 }): Promise<DeleteFolderResult> {
-  const { userId, orgId, folderId, ipAddress } = params;
+  const { userId, orgId, folderId } = params;
 
   return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     const rows = await tx
       .select()
       .from(folders)
-      .where(
-        and(
-          eq(folders.id, folderId),
-          eq(folders.orgId, orgId),
-          isNull(folders.deletedAt)
-        )
-      )
+      .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
       .limit(1);
     const target = rows[0];
     if (!target) {
@@ -275,8 +239,7 @@ export async function deleteFolderInTransaction(params: {
           and(
             eq(articles.orgId, orgId),
             eq(articles.projectId, target.projectId),
-            inArray(articles.folderId, folderIds),
-            isNull(articles.deletedAt)
+            inArray(articles.folderId, folderIds)
           )
         )
         .returning({ id: articles.id });
@@ -289,26 +252,19 @@ export async function deleteFolderInTransaction(params: {
           and(
             eq(books.orgId, orgId),
             eq(books.projectId, target.projectId),
-            inArray(books.folderId, folderIds),
-            isNull(books.deletedAt)
+            inArray(books.folderId, folderIds)
           )
         )
         .returning({ id: books.id });
       unfiledContent = updated.length;
     }
 
-    await tx
-      .update(folders)
-      .set({ deletedAt: new Date() })
-      .where(inArray(folders.id, folderIds));
-
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.DELETE_FOLDER,
-      ipAddress
-    );
+    // 目标态无软删：真删。`fk_folder_parent_same_project` 是 RESTRICT，同一条
+    // `DELETE ... WHERE id IN (父, 子)` 会因父先删而失败，所以按 BFS 的反序
+    // （深 → 浅）逐个删，保证每个子都先于它的父。
+    for (const folder of [...subtree].reverse()) {
+      await tx.delete(folders).where(eq(folders.id, folder.id));
+    }
 
     return {
       ok: true as const,

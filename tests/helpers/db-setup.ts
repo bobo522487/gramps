@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
+import { grantRuntimeRoles } from './runtime-roles';
 
 export async function resetAndMigrate(databaseUrl: string): Promise<void> {
   const sql = postgres(databaseUrl, {
@@ -22,6 +23,8 @@ export async function resetAndMigrate(databaseUrl: string): Promise<void> {
     await migrate(drizzle(sql), {
       migrationsFolder: 'lib/db/migrations',
     });
+
+    await grantRuntimeRoles(sql);
   } finally {
     await sql.end({ timeout: 5 });
   }

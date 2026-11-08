@@ -7,20 +7,20 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   smallint,
   text,
   unique,
-  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { lineages } from './lineage';
 import { projects } from './project';
-import { timestamptz, uuidPk } from './shared';
+import { scopedUuid, timestamptz, uuidPk } from './shared';
 
 export const articles = pgTable(
   'article',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
     folderId: uuid('folder_id'),
@@ -30,26 +30,28 @@ export const articles = pgTable(
     plainText: text('plain_text'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
+    // Target state (appendix A.5): composite key, no soft delete, no updated_at.
+    // `uk_article_organization_id` stays until `book_catalog` is rewritten in
+    // B3 / T25 — that FK still resolves against `(organization_id, id)`.
+    primaryKey({ columns: [t.projectId, t.id] }),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
-      name: 'fk_article_project',
+      // 约束名必须与基线 DDL 逐字一致：deleteProject 按约束名精确判定 not_empty，
+      // 名字对不上时那个分支永不命中，删项目会直接 500。
+      name: 'article_scope_fk',
     }).onDelete('restrict'),
     unique('uk_article_organization_id').on(t.orgId, t.id),
-    index('idx_article_project')
-      .on(t.orgId, t.projectId)
-      .where(sql`${t.deletedAt} is null`),
+    index('idx_article_project').on(t.orgId, t.projectId),
   ]
 );
 
 export const books = pgTable(
   'book',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
     folderId: uuid('folder_id'),
@@ -68,19 +70,18 @@ export const books = pgTable(
     sort: integer('sort').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
+    // Target state (appendix A.5). The composite key is also what finally makes
+    // `book_export_book_fk` executable — that FK targets `book (project_id, id)`.
+    primaryKey({ columns: [t.projectId, t.id] }),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
-      name: 'fk_book_project',
+      name: 'book_scope_fk',
     }).onDelete('restrict'),
     unique('uk_book_organization_id').on(t.orgId, t.id),
-    uniqueIndex('uk_book_name')
-      .on(t.orgId, t.projectId, t.name)
-      .where(sql`${t.deletedAt} is null`),
+    unique('uk_book_name').on(t.orgId, t.projectId, t.name),
   ]
 );
 

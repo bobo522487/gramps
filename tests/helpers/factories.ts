@@ -436,8 +436,6 @@ export async function createArticle(params: {
   folderId?: string | null;
   content?: Record<string, unknown>;
   plainText?: string;
-  updatedAt?: Date;
-  deletedAt?: Date;
 }) {
   const title = params.title ?? '测试谱文';
   const [article] = await getTestDb()
@@ -450,19 +448,17 @@ export async function createArticle(params: {
       title,
       content: params.content ?? { type: 'doc', content: [] },
       plainText: params.plainText ?? title,
-      updatedAt: params.updatedAt,
-      deletedAt: params.deletedAt,
     })
     .returning();
   return article;
 }
 
-/** 软删一篇谱文（业务删除就是这个形状：只写 `deleted_at`）。 */
-export async function softDeleteArticle(articleId: string): Promise<void> {
-  await getTestDb()
-    .update(articles)
-    .set({ deletedAt: new Date() })
-    .where(eq(articles.id, articleId));
+/**
+ * 删一篇谱文。目标态 `article` 没有 `deleted_at`（附录 A.5），业务删除就是
+ * 真删，所以这里也只是删行——名字沿用 `softDelete*` 会让后来人以为还有软删。
+ */
+export async function deleteArticle(articleId: string): Promise<void> {
+  await getTestDb().delete(articles).where(eq(articles.id, articleId));
 }
 
 export async function createCatalogItem(params: {

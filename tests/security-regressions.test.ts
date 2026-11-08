@@ -148,7 +148,12 @@ describe('authorization invariants', () => {
     // RLS only protects the app if SET LOCAL role and claims are set in the
     // same transaction; a session-level SET would leak into pooled requests.
     expect(drizzleSource).toContain('set local role app_rw');
-    expect(drizzleSource).toContain("set_config('request.jwt.claims'");
+    // GUC 名必须是 `app.user_id`：`app.current_user_id()` 读的就是它
+    // （docs/data-model.md §3）。旧的 `request.jwt.claims` 没有任何函数读，
+    // 写它等于没写——`visible_org_array()` 恒返回空数组，所有组织查询静默 0 行。
+    expect(drizzleSource).toContain("set_config('app.user_id'");
+    // 用调用形态匹配，避免被解释来龙去脉的注释误伤。
+    expect(drizzleSource).not.toMatch(/set_config\('request\.jwt\.claims'/);
   });
 
   it('keeps organization membership in Better Auth tables only', () => {

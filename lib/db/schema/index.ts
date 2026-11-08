@@ -1,4 +1,3 @@
-import type { activityLogs } from './activity';
 import type { accounts, sessions, users, verifications } from './auth';
 import type { bookExports } from './book-export';
 import type { articles, bookCatalogs, books } from './content';
@@ -9,7 +8,6 @@ import type { invitations, organizations, orgMembers } from './org';
 import type { personNames, persons } from './person';
 import type { folders, projects } from './project';
 
-export * from './activity';
 export * from './auth';
 export * from './book-export';
 export * from './content';
@@ -36,8 +34,6 @@ export type OrgMember = typeof orgMembers.$inferSelect;
 export type NewOrgMember = typeof orgMembers.$inferInsert;
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
-export type ActivityLog = typeof activityLogs.$inferSelect;
-export type NewActivityLog = typeof activityLogs.$inferInsert;
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
 export type Folder = typeof folders.$inferSelect;

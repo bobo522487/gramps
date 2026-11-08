@@ -1,4 +1,4 @@
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { getFolders } from '@/lib/db/queries/folders';
 import { articles, books, folders, lineages, nodes } from '@/lib/db/schema';
@@ -130,9 +130,7 @@ describe('folder service', () => {
     const deleted = await getTestDb()
       .select({ id: folders.id })
       .from(folders)
-      .where(
-        and(eq(folders.orgId, organization.id), isNull(folders.deletedAt))
-      );
+      .where(eq(folders.orgId, organization.id));
     expect(deleted).toHaveLength(0);
   });
 

@@ -2,7 +2,7 @@
 
 import 'server-only';
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { headers } from 'next/headers';
 import { getAuth } from '@/lib/auth/better-auth';
 import {
@@ -16,7 +16,6 @@ import {
   getOrgRole,
   hasPermission,
 } from '@/lib/auth/permissions';
-import { getClientIp } from '@/lib/auth/rate-limit';
 import {
   acceptInviteSchema,
   createOrgSchema,
@@ -29,10 +28,8 @@ import {
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { withOrg } from '@/lib/db/drizzle';
-import { isRaisedException } from '@/lib/db/errors';
-import { logActivity } from '@/lib/db/queries/activity';
 import { getOrgById } from '@/lib/db/queries/organizations';
-import { ActivityType, orgMembers } from '@/lib/db/schema';
+import { organizations, orgMembers } from '@/lib/db/schema';
 import { generatePublicId } from '@/lib/ids';
 import { logger } from '@/lib/logger';
 
@@ -42,19 +39,11 @@ async function authHeaders() {
   return headers();
 }
 
-async function logOrgActivity(
-  userId: string,
-  orgId: string | null,
-  type: ActivityType
-) {
-  try {
-    const ip = await getClientIp();
-    await logActivity(userId, orgId, type, ip === 'unknown' ? undefined : ip);
-  } catch (error) {
-    logger.warn('failed to write activity log', { type, userId, error });
-  }
-}
-
+/**
+ * 成员表仍有代理主键 `id`（要去掉它必须同时去掉 Better Auth organization 插件，
+ * 见 lib/db/schema/org.ts 的说明与 T28），所以这里按 `id` 查，与前端表单传的
+ * `member.id` 一致。`userId` 一并选出，供「不能移除自己」这类判断使用。
+ */
 async function findMember(actorId: string, orgId: string, memberId: string) {
   return withOrg(actorId, async (tx) => {
     const rows = await tx
@@ -74,7 +63,7 @@ async function findMember(actorId: string, orgId: string, memberId: string) {
 
 export const createOrgAction = validatedActionWithUser(
   createOrgSchema,
-  async (data, _, user) => {
+  async (data, _, _user) => {
     let created: Awaited<
       ReturnType<ReturnType<typeof getAuth>['api']['createOrganization']>
     > | null = null;
@@ -100,7 +89,6 @@ export const createOrgAction = validatedActionWithUser(
       return { error: '组织创建失败，请稍后重试。' };
     }
 
-    await logOrgActivity(user.id, created.id, ActivityType.CREATE_ORG);
     revalidateWholeConsole();
     return {
       success: '组织已创建',
@@ -136,7 +124,6 @@ export const renameOrgAction = validatedActionWithUser(
       return mapAuthError(error);
     }
 
-    await logOrgActivity(user.id, data.orgId, ActivityType.RENAME_ORG);
     revalidateWholeConsole();
     return { success: '组织已重命名' };
   }
@@ -160,17 +147,33 @@ export const deleteOrgAction = validatedActionWithUser(
     }
 
     try {
-      await withOrg(user.id, (tx) =>
-        tx.execute(sql`select auth.archive_organization(${data.orgId}::uuid)`)
-      );
-    } catch (error) {
-      if (isRaisedException(error, 'forbidden')) {
-        return { error: '只有所有者可以归档组织' };
+      // 目标态没有软删，「归档」只剩这一个落点：把 status 写成 closed。
+      // 原来这里调的是一个 SECURITY DEFINER 归档函数，它在旧迁移里，B0 重建
+      // 基线后已不存在，按钮必然 500。
+      // 权限已由上面的 `org.settings` 检查兜住，这里再按 status 加一次条件，
+      // 保证并发下只有 `active` 的组织能被归档，避免把 `suspended` 覆盖成
+      // `closed` 而丢失停用原因。
+      const archived = await withOrg(user.id, async (tx) => {
+        const rows = await tx
+          .update(organizations)
+          .set({ status: 'closed' })
+          .where(
+            and(
+              eq(organizations.id, data.orgId),
+              eq(organizations.status, 'active')
+            )
+          )
+          .returning({ id: organizations.id });
+        return rows.length;
+      });
+
+      if (archived === 0) {
+        return { error: '组织已归档或已停用，无需重复操作' };
       }
+    } catch (error) {
       return mapAuthError(error);
     }
 
-    await logOrgActivity(user.id, data.orgId, ActivityType.ARCHIVE_ORG);
     revalidateWholeConsole();
     return { success: '组织已归档' };
   }
@@ -225,7 +228,6 @@ export const inviteOrgMember = validatedActionWithUser(
         headers: await authHeaders(),
       });
 
-      await logOrgActivity(user.id, data.orgId, ActivityType.INVITE_ORG_MEMBER);
       revalidateWholeConsole();
       return {
         success: '邀请已创建，请把链接发送给对方。',
@@ -239,12 +241,12 @@ export const inviteOrgMember = validatedActionWithUser(
 
 export const acceptInviteAction = validatedActionWithUser(
   acceptInviteSchema,
-  async (data, _, user) => {
-    let accepted: Awaited<
+  async (data, _, _user) => {
+    let _accepted: Awaited<
       ReturnType<ReturnType<typeof getAuth>['api']['acceptInvitation']>
     >;
     try {
-      accepted = await getAuth().api.acceptInvitation({
+      _accepted = await getAuth().api.acceptInvitation({
         body: { invitationId: data.invitationId },
         headers: await authHeaders(),
       });
@@ -252,11 +254,6 @@ export const acceptInviteAction = validatedActionWithUser(
       return mapAuthError(error);
     }
 
-    await logOrgActivity(
-      user.id,
-      accepted.member.organizationId,
-      ActivityType.ACCEPT_INVITATION
-    );
     revalidateWholeConsole();
     return { success: '已加入组织' };
   }
@@ -291,6 +288,9 @@ export const removeOrgMember = validatedActionWithUser(
 
     try {
       await getAuth().api.removeMember({
+        // 必须传 `member.id`：插件的 `crud-members` 走 `adapter.findMemberById()`，
+        // 传 userId 只会 MEMBER_NOT_FOUND（uuid 列收到非 uuid 还可能 22P02）。
+        // 成员表仍有代理主键（见 lib/db/schema/org.ts），去主键随 B4 / T28。
         body: { memberIdOrEmail: member.id, organizationId: data.orgId },
         headers: await authHeaders(),
       });
@@ -298,7 +298,6 @@ export const removeOrgMember = validatedActionWithUser(
       return mapAuthError(error);
     }
 
-    await logOrgActivity(user.id, data.orgId, ActivityType.REMOVE_ORG_MEMBER);
     revalidateWholeConsole();
     return { success: '已移除组织成员' };
   }
@@ -338,6 +337,7 @@ export const updateOrgMemberRole = validatedActionWithUser(
       await getAuth().api.updateMemberRole({
         body: {
           role: data.role,
+          // 同 removeMember：插件按 `member.id` 定位，不是 `user_id`。
           memberId: member.id,
           organizationId: data.orgId,
         },
@@ -347,7 +347,6 @@ export const updateOrgMemberRole = validatedActionWithUser(
       return mapAuthError(error);
     }
 
-    await logOrgActivity(user.id, data.orgId, ActivityType.UPDATE_MEMBER_ROLE);
     revalidateWholeConsole();
     return { success: '成员角色已更新' };
   }

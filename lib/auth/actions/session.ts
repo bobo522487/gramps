@@ -5,7 +5,6 @@ import 'server-only';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getAuth } from '@/lib/auth/better-auth';
-import { getSessionUser } from '@/lib/auth/context';
 import { authErrorMessage } from '@/lib/auth/errors';
 import { validatedAction } from '@/lib/auth/middleware';
 import {
@@ -14,8 +13,6 @@ import {
   RATE_LIMIT_ERROR,
 } from '@/lib/auth/rate-limit';
 import { signInSchema, signUpSchema } from '@/lib/auth/schemas';
-import { logActivity } from '@/lib/db/queries/activity';
-import { ActivityType } from '@/lib/db/schema';
 import { logger } from '@/lib/logger';
 
 function inviteId(value: FormDataEntryValue | null): string | null {
@@ -37,18 +34,6 @@ function safeRedirectPath(value: FormDataEntryValue | null): string | null {
   return second === '/' || second === '\\' ? null : value;
 }
 
-async function logBestEffort(
-  userId: string,
-  type: ActivityType,
-  ipAddress?: string
-) {
-  try {
-    await logActivity(userId, null, type, ipAddress);
-  } catch (error) {
-    logger.warn('failed to write activity log', { type, userId, error });
-  }
-}
-
 export const signIn = validatedAction(signInSchema, async (data, formData) => {
   const { email, password } = data;
 
@@ -57,13 +42,11 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     return { error: RATE_LIMIT_ERROR, email };
   }
 
-  let userId: string;
   try {
-    const result = await getAuth().api.signInEmail({
+    await getAuth().api.signInEmail({
       body: { email, password },
       headers: await headers(),
     });
-    userId = result.user.id;
   } catch (error) {
     const message = authErrorMessage(error);
     return {
@@ -74,12 +57,6 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
       email,
     };
   }
-
-  await logBestEffort(
-    userId,
-    ActivityType.SIGN_IN,
-    ip === 'unknown' ? undefined : ip
-  );
 
   const invite = inviteId(formData.get('invite'));
   if (invite) {
@@ -102,9 +79,8 @@ export const signUp = validatedAction(signUpSchema, async (data) => {
     return { error: RATE_LIMIT_ERROR, email };
   }
 
-  let userId: string;
   try {
-    const result = await getAuth().api.signUpEmail({
+    await getAuth().api.signUpEmail({
       body: {
         email,
         password,
@@ -112,16 +88,9 @@ export const signUp = validatedAction(signUpSchema, async (data) => {
       },
       headers: await headers(),
     });
-    userId = result.user.id;
   } catch (error) {
     return { error: authErrorMessage(error), email };
   }
-
-  await logBestEffort(
-    userId,
-    ActivityType.SIGN_UP,
-    ip === 'unknown' ? undefined : ip
-  );
 
   if (invite) {
     return redirect(`/dashboard/join?invite=${encodeURIComponent(invite)}`);
@@ -130,12 +99,6 @@ export const signUp = validatedAction(signUpSchema, async (data) => {
 });
 
 export async function signOut() {
-  const user = await getSessionUser();
-
-  if (user) {
-    await logBestEffort(user.id, ActivityType.SIGN_OUT);
-  }
-
   try {
     await getAuth().api.signOut({ headers: await headers() });
   } catch (error) {

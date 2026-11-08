@@ -11,8 +11,6 @@ import { signIn, signOut, signUp } from '@/lib/auth/actions/session';
 import { getSessionUser } from '@/lib/auth/context';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
 import {
-  ActivityType,
-  activityLogs,
   invitations,
   organizations,
   orgMembers,
@@ -140,7 +138,7 @@ async function expectRedirect(promise: Promise<unknown>): Promise<string> {
 async function countUsers(email: string) {
   const rows = await getTestSql()<
     { count: number }[]
-  >`select count(*)::int as count from auth.users where email = ${email}`;
+  >`select count(*)::int as count from auth.user where email = ${email}`;
   return rows[0]?.count ?? 0;
 }
 
@@ -206,11 +204,6 @@ describe('registration and session lifecycle', () => {
         .from(sessions)
         .where(eq(sessions.userId, user.id))
     ).toHaveLength(1);
-    const logs = await getTestDb()
-      .select()
-      .from(activityLogs)
-      .where(eq(activityLogs.userId, user.id));
-    expect(logs.map((log) => log.action)).toContain(ActivityType.SIGN_UP);
 
     await authenticate(user.email, 'sign-up-password');
     expect(await getSessionUser()).toEqual({
@@ -263,12 +256,6 @@ describe('registration and session lifecycle', () => {
       'id',
       'name',
     ]);
-
-    const logs = await getTestDb()
-      .select()
-      .from(activityLogs)
-      .where(eq(activityLogs.userId, user.id));
-    expect(logs.map((log) => log.action)).toContain(ActivityType.SIGN_IN);
   });
 
   it('returns the Chinese error for a wrong password', async () => {
@@ -343,12 +330,6 @@ describe('registration and session lifecycle', () => {
       .where(eq(sessions.userId, user.id));
     expect(rows).toHaveLength(0);
 
-    const logs = await getTestDb()
-      .select()
-      .from(activityLogs)
-      .where(eq(activityLogs.userId, user.id));
-    expect(logs.map((log) => log.action)).toEqual([ActivityType.SIGN_OUT]);
-
     await expect(signOut()).resolves.toBeUndefined();
   });
 });
@@ -370,14 +351,6 @@ describe('account actions', () => {
       .where(eq(users.id, user.id));
     expect(updated.name).toBe('新名字');
     expect(updated.email).toBe('rename@example.com');
-
-    const logs = await getTestDb()
-      .select()
-      .from(activityLogs)
-      .where(eq(activityLogs.userId, user.id));
-    expect(logs.map((log) => log.action)).toContain(
-      ActivityType.UPDATE_ACCOUNT
-    );
   });
 
   it('requires an authenticated caller', async () => {
@@ -429,14 +402,6 @@ describe('account actions', () => {
     await expect(signSessionFor(user.email, TEST_PASSWORD)).rejects.toThrow();
     applyCookie(await signSessionFor(user.email, 'a-brand-new-password'));
     expect(await getSessionUser()).not.toBeNull();
-
-    const logs = await getTestDb()
-      .select()
-      .from(activityLogs)
-      .where(eq(activityLogs.userId, user.id));
-    expect(logs.map((log) => log.action)).toContain(
-      ActivityType.UPDATE_PASSWORD
-    );
   });
 
   it('rejects a wrong current password without touching sessions', async () => {
@@ -835,7 +800,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.viewerMember.id,
+        memberId: context.viewerMember.userId,
       })
     );
     expect(removed).toMatchObject({ success: '已移除组织成员' });
@@ -847,7 +812,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.editorMember.id,
+        memberId: context.editorMember.userId,
         role: 'admin',
       })
     );
@@ -864,7 +829,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.ownerMember.id,
+        memberId: context.ownerMember.userId,
       })
     );
     expect(self).toMatchObject({
@@ -875,7 +840,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.ownerMember.id,
+        memberId: context.ownerMember.userId,
         role: 'admin',
       })
     );
@@ -888,7 +853,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.ownerMember.id,
+        memberId: context.ownerMember.userId,
       })
     );
     expect(lastOwner).toMatchObject({
@@ -904,7 +869,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.peerAdminMember.id,
+        memberId: context.peerAdminMember.userId,
         role: 'viewer',
       })
     );
@@ -916,7 +881,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.peerAdminMember.id,
+        memberId: context.peerAdminMember.userId,
       })
     );
     expect(removed).toMatchObject({
@@ -927,7 +892,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.editorMember.id,
+        memberId: context.editorMember.userId,
         role: 'admin',
       })
     );
@@ -962,7 +927,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.editorMember.id,
+        memberId: context.editorMember.userId,
         role: 'viewer',
       })
     );
@@ -972,7 +937,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.editorMember.id,
+        memberId: context.editorMember.userId,
       })
     );
     expect(removed).toMatchObject({ error: '组织不存在或已归档' });
@@ -989,7 +954,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.editorMember.id,
+        memberId: context.editorMember.userId,
       })
     );
     expect(removed).toMatchObject({
@@ -1000,7 +965,7 @@ describe('member management', () => {
       {},
       form({
         orgId: context.organization.id,
-        memberId: context.editorMember.id,
+        memberId: context.editorMember.userId,
         role: 'admin',
       })
     );

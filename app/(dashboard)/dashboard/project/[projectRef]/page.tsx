@@ -44,7 +44,6 @@ export default async function ProjectOverviewPage({
     { label: '备注', value: project.notes ?? '—' },
     { label: '郡望 / 堂号', value: project.hallCode ?? '—' },
     { label: '创建时间', value: formatDate(project.createdAt), mono: true },
-    { label: '最近更新', value: formatDate(project.updatedAt), mono: true },
   ];
 
   return (

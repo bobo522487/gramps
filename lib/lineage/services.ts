@@ -3,9 +3,7 @@ import 'server-only';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
 import { isUniqueViolation } from '@/lib/db/errors';
-import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
-  ActivityType,
   bookCatalogs,
   folders,
   type Lineage,
@@ -41,8 +39,7 @@ async function validProjectFolder(
         eq(folders.id, folderId),
         eq(folders.orgId, orgId),
         eq(folders.projectId, projectId),
-        eq(folders.kind, 0),
-        isNull(folders.deletedAt)
+        eq(folders.kind, 0)
       )
     )
     .limit(1);
@@ -76,8 +73,7 @@ async function resolveFolderInTx(
         eq(folders.projectId, projectId),
         eq(folders.kind, 0),
         isNull(folders.parentId),
-        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME),
-        isNull(folders.deletedAt)
+        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME)
       )
     )
     .limit(1);
@@ -117,20 +113,14 @@ export async function createLineageInTransaction(params: {
   name: string;
   ipAddress?: string;
 }): Promise<LineageMutationResult> {
-  const { userId, orgId, projectId, folderId, name, ipAddress } = params;
+  const { userId, orgId, projectId, folderId, name } = params;
 
   try {
     return await withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
       const [project] = await tx
         .select({ id: projects.id })
         .from(projects)
-        .where(
-          and(
-            eq(projects.id, projectId),
-            eq(projects.orgId, orgId),
-            isNull(projects.deletedAt)
-          )
-        )
+        .where(and(eq(projects.id, projectId), eq(projects.orgId, orgId)))
         .limit(1);
       if (!project) {
         return { ok: false, reason: 'not_found' as const };
@@ -159,13 +149,6 @@ export async function createLineageInTransaction(params: {
         })
         .returning();
 
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.CREATE_LINEAGE,
-        ipAddress
-      );
       return { ok: true as const, lineage };
     });
   } catch (error) {
@@ -192,7 +175,7 @@ export async function updateLineageInTransaction(params: {
   updates: LineageUpdates;
   ipAddress?: string;
 }): Promise<LineageMutationResult> {
-  const { userId, orgId, lineageId, updates, ipAddress } = params;
+  const { userId, orgId, lineageId, updates } = params;
 
   try {
     return await withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
@@ -236,13 +219,6 @@ export async function updateLineageInTransaction(params: {
         .where(eq(lineages.id, lineageId))
         .returning();
 
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.UPDATE_LINEAGE,
-        ipAddress
-      );
       return { ok: true as const, lineage };
     });
   } catch (error) {
@@ -263,7 +239,7 @@ export async function deleteLineageInTransaction(params: {
   lineageId: string;
   ipAddress?: string;
 }): Promise<DeleteLineageResult> {
-  const { userId, orgId, lineageId, ipAddress } = params;
+  const { userId, orgId, lineageId } = params;
 
   return withOrgWrite(userId, orgId, 'lineage.delete', async (tx) => {
     const [lineage] = await tx
@@ -300,14 +276,6 @@ export async function deleteLineageInTransaction(params: {
     await tx
       .delete(lineages)
       .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)));
-
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.DELETE_LINEAGE,
-      ipAddress
-    );
 
     return { ok: true as const, deletedNodes: deletedNodes.length };
   });

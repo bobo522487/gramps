@@ -84,7 +84,7 @@ PostgreSQL（业务 app_rw / 认证 auth_service）
 
 | 域 | 拥有的表 | 写入口 |
 | --- | --- | --- |
-| `auth` | `auth.users` / `session` / `account` / `verification` | `lib/auth/`、`auth.api.*`（认证连接） |
+| `auth` | `auth.user` / `session` / `account` / `verification` | `lib/auth/`、`auth.api.*`（认证连接） |
 | `organization` | `organization` / `organization_member` / `invite` / `activity_logs` | `lib/org/` |
 | `project` | `project` | `lib/project/` |
 | `folder` | `folder` | `lib/folder/` |
@@ -228,7 +228,7 @@ grep -n "@tiptap" package.json
 | 单文件 ≤400 行（`app` / `components` / `lib` / `hooks`，存量豁免只许缩不许涨） | `pnpm arch:check` → `scripts/check-file-size.mjs` |
 | `process.env` 只在 `lib/config.ts` 读 | `pnpm arch:check` → `scripts/check-env-access.mjs` |
 | 三条依赖方向 | `pnpm check` → Biome `noRestrictedImports` |
-| 组织隔离与 `app_rw` 读 `auth.users` 被拒 | `tests/integration/org-scope.test.ts` |
+| 组织隔离与 `app_rw` 读 `auth.user` 被拒 | `tests/integration/org-scope.test.ts` |
 | 迁移漂移（生成后无未提交 DDL） | CI：`pnpm db:generate` 后检查 `lib/db/migrations` 无改动 |
 | 生产迁移先于部署 | `.github/workflows/migrate-production.yml` |
 | 文档链接与过期路径 | `pnpm docs:check --strict` |

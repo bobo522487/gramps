@@ -1,13 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import {
-  ActivityType,
-  activityLogs,
-  folders,
-  invitations,
-  orgMembers,
-} from '@/lib/db/schema';
+import { folders, invitations, orgMembers } from '@/lib/db/schema';
 import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
@@ -96,7 +90,12 @@ describe('database constraints', () => {
 
     await getTestDb()
       .delete(orgMembers)
-      .where(eq(orgMembers.id, membership.id));
+      .where(
+        and(
+          eq(orgMembers.organizationId, membership.organizationId),
+          eq(orgMembers.userId, membership.userId)
+        )
+      );
 
     await expect(
       addMember({
@@ -238,22 +237,6 @@ describe('database constraints', () => {
         createdBy: owner.id,
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
-  });
-
-  it('allows account-level activity rows without an organization', async () => {
-    const user = await createUser();
-
-    const [log] = await getTestDb()
-      .insert(activityLogs)
-      .values({
-        orgId: null,
-        userId: user.id,
-        action: ActivityType.SIGN_IN,
-      })
-      .returning();
-
-    expect(log.orgId).toBeNull();
-    expect(log.userId).toBe(user.id);
   });
 
   it('enforces the project status and importance ranges', async () => {

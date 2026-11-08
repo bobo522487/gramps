@@ -1,5 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
+// `.mts` 而不是 `.ts`：Vite 8 的 `configLoader: 'native'` 会把 `.ts` 当 CommonJS
+// 加载，遇到 ESM 语法时报 `code.charCodeAt is not a function`——错误还被
+// source-map 解析吞掉，表面症状是「No test files found」。`.mts` 强制按 ESM 加载。
 export default defineConfig({
   test: {
     environment: 'node',

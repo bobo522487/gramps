@@ -60,7 +60,7 @@ describe('organization and project scope', () => {
     ).toBeNull();
   });
 
-  it('does not resolve an archived organization', async () => {
+  it('does not resolve a closed organization', async () => {
     const alice = await createUser();
     const organization = await createOrganization();
     await addMember({
@@ -69,9 +69,11 @@ describe('organization and project scope', () => {
       role: 'owner',
     });
 
+    // 目标态没有 `deleted_at`（附录 A.1），关停只剩 `status = 'closed'` 这一个信号，
+    // 查询层靠它把组织挡在外面。
     await getTestDb()
       .update(organizations)
-      .set({ status: 'closed', deletedAt: new Date() })
+      .set({ status: 'closed' })
       .where(eq(organizations.id, organization.id));
 
     expect(await getOrgWithRoleBySlug(alice.id, organization.slug)).toBeNull();
@@ -384,11 +386,11 @@ describe('row level security', () => {
     );
   });
 
-  it('keeps auth.users unreachable for the runtime role', async () => {
+  it('keeps auth.user unreachable for the runtime role', async () => {
     const alice = await createUser();
 
     await expect(
-      withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.users`))
+      withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.user`))
     ).rejects.toSatisfy(
       (error) =>
         pgErrorCode(error) === '42501' &&

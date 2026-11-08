@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { withOrg } from '../drizzle';
 import { type Folder, folders } from '../schema';
 
@@ -18,8 +18,7 @@ export async function getFolders(
         and(
           eq(folders.orgId, orgId),
           eq(folders.projectId, projectId),
-          eq(folders.kind, kind),
-          isNull(folders.deletedAt)
+          eq(folders.kind, kind)
         )
       )
       .orderBy(asc(folders.sort), asc(folders.createdAt))

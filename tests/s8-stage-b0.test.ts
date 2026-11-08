@@ -75,15 +75,18 @@ describe('S8 阶段 B · B0 迁移基线整体重建', () => {
     expect(source).not.toMatch(/\$1\b/);
   });
 
-  test('B0-6：A.0–A.5 的表与扩展齐备（18 条建表语句）', () => {
+  test('B0-6：A.0–A.5 的表与扩展齐备（21 条建表语句）', () => {
     const source = baseline();
     // 附录 A.0 有一条注释也含 "CREATE TABLE"，过滤注释行后才是真实语句数：
-    // 17 张 public 表 + auth.user，与 PG18 落库实测一致。
+    // 17 张 public 表 + auth 四表（user / session / account / verification）。
+    // 后三张是 Better Auth 运行期表，附录 A 之外、按规格决议 ② 由 Better Auth
+    // 管理 DDL，但基线必须建出来——缺任一张，登录 / 会话 / 成员管理整条链路
+    // 都会报 `relation "auth.session" does not exist`。与 PG18 落库实测一致。
     const statements = source
       .split('\n')
       .filter((line) => !line.trimStart().startsWith('--'))
       .join('\n');
-    expect((statements.match(/CREATE\s+TABLE/gi) ?? []).length).toBe(18);
+    expect((statements.match(/CREATE\s+TABLE/gi) ?? []).length).toBe(21);
     expect(source).toContain('CREATE EXTENSION IF NOT EXISTS ltree');
     expect(source).toContain('CREATE EXTENSION IF NOT EXISTS btree_gist');
     expect(source).toContain('CREATE SCHEMA IF NOT EXISTS app');
@@ -93,7 +96,13 @@ describe('S8 阶段 B · B0 迁移基线整体重建', () => {
 
   test('B0-7：A.6 四个隔离函数落地', () => {
     const source = baseline();
-    expect((source.match(/CREATE\s+FUNCTION\s+app\./gi) ?? []).length).toBe(4);
+    // `OR REPLACE` 是为了让 `pnpm test:integration` 的 resetAndMigrate（每次都
+    // drop schema 后重跑）与 `psql -f` 两条路径都能重复执行；不带它时第二次
+    // 建函数报 42723。
+    expect(
+      (source.match(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+app\./gi) ?? [])
+        .length
+    ).toBe(4);
     for (const fn of [
       'current_user_id',
       'visible_org_array',

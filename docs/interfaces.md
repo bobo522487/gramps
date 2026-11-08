@@ -50,7 +50,7 @@
 另外两条不能碰的规则：
 
 - **Action 入参只用内部 UUID**（`orgId` / `projectId` / `lineageId` …）；20 位公开 `slug` / `ref` 只用于 URL 定位与成功返回值，**永不作为授权依据**。页面用 `require*Context` 把公开 ID 解析成 scope，事务内仍重新复核成员关系。
-- **只返回显式 DTO，不返回整行**。`GET /api/user` 只给 `{ id, name, email }`，绝不序列化整行 `auth.users`；SQL 文本、堆栈、驱动错误、密码哈希一律不出服务端。
+- **只返回显式 DTO，不返回整行**。`GET /api/user` 只给 `{ id, name, email }`，绝不序列化整行 `auth.user`；SQL 文本、堆栈、驱动错误、密码哈希一律不出服务端。
 
 ---
 

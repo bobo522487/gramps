@@ -32,7 +32,7 @@ import {
   createOrganization,
   createProject,
   createUser,
-  softDeleteArticle,
+  deleteArticle,
 } from '../helpers/factories';
 
 const session = vi.hoisted(() => ({
@@ -188,10 +188,10 @@ describe.skipIf(!hasToken)('media store（真实 Vercel Blob 私有桶）', () =
     expect((await readWithProxy(pathname)).status).toBe(404);
   });
 
-  it('谱文软删之后新的读取一律 404，即便字节还在桶里（FR-029）', async () => {
+  it('谱文删掉之后新的读取一律 404，即便字节还在桶里（FR-029）', async () => {
     session.cookie = await signSessionFor(ownerEmail);
 
-    await softDeleteArticle(articleId);
+    await deleteArticle(articleId);
     const response = await readWithProxy(pathname);
 
     expect(response.status).toBe(404);

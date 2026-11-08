@@ -20,12 +20,29 @@ BEGIN
 END $$;
 
 CREATE SCHEMA IF NOT EXISTS auth;
+-- 附录 A.0 的 `auth.user` 是**最小契约**（`email UNIQUE` 内联，只有 id / email /
+-- name / created_at），因为它只用来满足 `REFERENCES auth.user(id)` 与
+-- `app.accept_invite` 读邮箱两件事。但 Better Auth 的 adapter 对这张表是全字段
+-- 读写：登录查 `email_verified / image / created_at / updated_at`，建号写全列。
+-- 缺列的症状是运行期 `column "email_verified" does not exist`，不是启动报错。
+-- 所以这里按「附录 A.0 的超集」建表：A.0 的四个列语义不变，另补 adapter 必需列。
+-- `email` 的唯一约束改用 lower(email) 表达式索引（保留 A.0 的「邮箱唯一」语义，
+-- 但不区分大小写），故不再内联 UNIQUE。
 CREATE TABLE IF NOT EXISTS auth.user (
-  id         text PRIMARY KEY,
-  email      text NOT NULL UNIQUE,
-  name       text,
-  created_at timestamptz NOT NULL DEFAULT now()
+  -- `id` 在附录 A.0 里是无默认值的 text 主键（它只是让 REFERENCES 成立的最小
+  -- 契约）。但应用侧 advanced.database.generateId = false，ID 一律由数据库生成，
+  -- 所以这里补默认值：缺了它就是建号时 `null value in column "id"`。
+  -- 形状对齐 lib/db/schema/shared.ts 的 uuidPk 默认（uuidv7 转 text）。
+  id             text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  email          text NOT NULL,
+  name           text,
+  email_verified boolean NOT NULL DEFAULT false,
+  image          text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uk_auth_user_email ON auth.user (lower(email));
+CREATE INDEX IF NOT EXISTS idx_auth_user_email ON auth.user (email);
 
 -- 若 auth.* 由别的角色拥有（生产环境由 Better Auth 建表），需由该属主执行：
 --   GRANT USAGE, CREATE ON SCHEMA auth TO <ddl_role>;
@@ -34,6 +51,43 @@ CREATE TABLE IF NOT EXISTS auth.user (
 -- app.accept_invite 的函数属主另需 USAGE ON SCHEMA auth + SELECT ON auth.user，
 -- 否则 SECDEF 内读 auth.user.email 报 42501（permission denied for table user）。
 -- 以 postgres 为属主时天然具备，以上授权可跳过。
+
+-- Better Auth 运行期表（附录 A 之外，按规格决议 ②：DDL 归 Better Auth 管理，
+-- 本仓保留 TS 镜像）。`auth.user` 由 A.0 建为 text 主键骨架，其余三张表 Better
+-- Auth 的 adapter 必需——缺任一张，登录 / 会话 / 成员管理整条链路都不可用
+-- （`relation "auth.session" does not exist`）。列定义对齐 lib/db/schema/auth.ts。
+-- 主键用 text 而非 uuid：外键列必须与 auth.user(id) 的 text 类型一致，否则 42804。
+CREATE TABLE IF NOT EXISTS auth.account (
+  id                      text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  account_id              text NOT NULL,
+  provider_id             text NOT NULL,
+  user_id                 text NOT NULL REFERENCES auth.user(id) ON DELETE CASCADE,
+  access_token            text,
+  refresh_token           text,
+  id_token                text,
+  access_token_expires_at  timestamptz,
+  refresh_token_expires_at timestamptz,
+  scope                   text,
+  password                text,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_auth_account_provider_account
+  ON auth.account (provider_id, account_id);
+CREATE INDEX IF NOT EXISTS idx_auth_account_user ON auth.account (user_id);
+
+CREATE TABLE IF NOT EXISTS auth.verification (
+  id         text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  identifier text NOT NULL,
+  value      text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_auth_verification_identifier
+  ON auth.verification (identifier);
+CREATE INDEX IF NOT EXISTS idx_auth_verification_expires
+  ON auth.verification (expires_at);
 
 -- ===== [A.1] 扩展与域类型 =====
 
@@ -44,23 +98,67 @@ CREATE SCHEMA IF NOT EXISTS app;
 CREATE DOMAIN member_role_t AS text
   CHECK (VALUE IN ('owner','admin','editor','viewer'));
 
+-- `organization.slug` / `project.ref` 的默认值来源（附录 A 之外，但代码与路由
+-- 都依赖它：/dashboard/[orgSlug] 与 /dashboard/[orgSlug]/project/[projectRef]）。
+-- 20 位无连字符十六进制，不暴露 uuid 的版本位。
+CREATE OR REPLACE FUNCTION public.generate_public_id() RETURNS text
+  LANGUAGE sql VOLATILE AS $$
+  SELECT substr(replace(gen_random_uuid()::text, '-', ''), 1, 20);
+$$;
+
 -- ===== [A.2] 边界层 =====
 
 CREATE TABLE organization (
   id          uuid NOT NULL DEFAULT uuidv7(),
+  -- 四条扩展列，附录 A.1 之外，登记在 docs/data-model.md §4「路由键与状态扩展列」：
+  --   slug      URL 第一段 /dashboard/[orgSlug] 的路由键
+  --   status    active / suspended / closed；关停语义（原 deleted_at）靠它表达
+  --   logo      Better Auth organization 模型字段（organization.mjs: schema.organization.fields）
+  --   metadata  同上，Better Auth 以 text 存取（adapter 会 JSON.stringify）
+  slug        text NOT NULL DEFAULT public.generate_public_id(),
+  status      text NOT NULL DEFAULT 'active'
+              CHECK (status IN ('active', 'suspended', 'closed')),
+  logo        text,
+  metadata    text,
   name        text NOT NULL CHECK (btrim(name) <> ''),
   created_by  text REFERENCES auth.user(id) ON DELETE SET NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (id)
 );
+-- 无软删后 slug 是全量唯一，不再是 where deleted_at is null 的部分索引。
+CREATE UNIQUE INDEX uk_organization_slug ON organization (slug);
+
+-- A.0 的 auth.session 需要 organization(id)，所以放在 organization 之后建。
+CREATE TABLE IF NOT EXISTS auth.session (
+  id                     text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  expires_at             timestamptz NOT NULL,
+  token                  text NOT NULL,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  ip_address             text,
+  user_agent             text,
+  user_id                text NOT NULL REFERENCES auth.user(id) ON DELETE CASCADE,
+  active_organization_id uuid REFERENCES organization(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_auth_session_token ON auth.session (token);
+CREATE INDEX IF NOT EXISTS idx_auth_session_user ON auth.session (user_id);
 
 CREATE TABLE organization_member (
+  -- 附录 A.1 的目标态是 PRIMARY KEY (organization_id, user_id)、无代理主键。
+  -- 但 Better Auth 的 organization 插件直接读 `member.id`，缺列时 `createAuth()`
+  -- 初始化即报 `Drizzle schema mismatch — Missing columns: member.id`，232 条
+  -- 集成测试全红。去插件（T28）与去主键是同一约束的两面，整体并入 B4，
+  -- 所以这一批先保留 `id` + 复合唯一约束，等 T28 一并删。
+  id              uuid NOT NULL DEFAULT uuidv7(),
   organization_id uuid NOT NULL REFERENCES organization(id) ON DELETE RESTRICT,
   user_id         text NOT NULL REFERENCES auth.user(id) ON DELETE CASCADE,
   role            member_role_t NOT NULL DEFAULT 'viewer',
   created_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (organization_id, user_id)
+  PRIMARY KEY (id),
+  CONSTRAINT uk_org_member_organization_user UNIQUE (organization_id, user_id)
 );
+CREATE UNIQUE INDEX uk_org_member_single_owner
+  ON organization_member (organization_id) WHERE role = 'owner';
 CREATE INDEX organization_member_user_idx ON organization_member (user_id, organization_id);
 
 CREATE TABLE invite (
@@ -92,29 +190,69 @@ CREATE INDEX invite_status_idx ON invite (organization_id, status);
 CREATE TABLE project (
   organization_id uuid NOT NULL REFERENCES organization(id) ON DELETE RESTRICT,
   id              uuid NOT NULL DEFAULT uuidv7(),
+  -- 文档化扩展列（docs/data-model.md §4）：URL 第二段
+  -- /dashboard/[orgSlug]/project/[projectRef] 的路由键，创建后不可变。
+  ref             text NOT NULL DEFAULT public.generate_public_id(),
   name            text NOT NULL CHECK (btrim(name) <> ''),
+  -- 以下六列同样是扩展列：附录 A.2 的 project 只有 name / description，
+  -- 但产品形态（堂号、郡望、迁徙地域、字辈、编修状态、重要度）都落在这里，
+  -- 且 UI / 查询 / 排序都在用。逐列登记在 docs/data-model.md §4。
+  theme_name      text,
+  surname         text,
+  countries_regions text,
+  hall_code       text,
+  status          text NOT NULL DEFAULT 'in_progress'
+                  CHECK (status IN ('planning','in_progress','completed')),
+  importance      smallint NOT NULL DEFAULT 1
+                  CHECK (importance BETWEEN 1 AND 5),
+  -- 族内婚的项目级开关：为 true 时 app.check_family_blood_side() 不再强制
+  -- 「一个家庭至多一位血亲配偶」。默认 false，因为这条不变量才是本意。
+  allow_consanguineous_marriage boolean NOT NULL DEFAULT false,
+  notes           text,
   description     text,
+  -- 附录 A.2：text REFERENCES auth.user(id) ON DELETE SET NULL——可空，
+  -- 因为销号不该连带卡死项目。
   created_by      text REFERENCES auth.user(id) ON DELETE SET NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (organization_id, id),
   -- 全局唯一：两个组织不能拥有同 id 的项目，否则项目内复合 FK 可跨组织引用（§4.1）
   CONSTRAINT project_id_global UNIQUE (id)
 );
+-- 与 lib/db/schema/project.ts 的 uniqueIndex('uk_project_ref').on(t.ref) 逐字对齐：
+-- `ref` 是全局唯一，不加 organization_id 限定（它由 generate_public_id() 生成，
+-- 20 位十六进制碰撞可忽略，且跨组织撞 ref 只会让一方 409，不会泄漏存在性）。
+CREATE UNIQUE INDEX uk_project_ref ON project (ref);
 CREATE INDEX project_created_idx ON project (organization_id, created_at);
 
 CREATE TABLE folder (
   organization_id uuid NOT NULL,
   project_id      uuid NOT NULL,
   id              uuid NOT NULL DEFAULT uuidv7(),
+  -- 以下四列是**待拍板的规格差异**（docs/data-model.md §8 #14）：附录 A.2 的
+  -- folder 是扁平单层，没有 kind / parent_id / sort / created_by。但当前实现
+  -- 支持多级分类，UI、查询与删除逻辑都在用，基线必须建出来否则运行期 42703。
+  -- 层级去留已升级为独立规格问题，必须在 B3 开工前拍板（三条路见 §8 #14）。
+  kind            smallint NOT NULL CHECK (kind IN (0, 1, 2)),
+  parent_id       uuid,
+  sort            integer NOT NULL DEFAULT 0,
+  created_by      uuid NOT NULL,
   name            text NOT NULL CHECK (btrim(name) <> ''),
+  -- 附录 A.2 的 `seq` 与实现里的 `sort` 语义重复，保留 seq 以免与附录脱节；
+  -- 拍板后二选一。
   seq             integer NOT NULL DEFAULT 0 CHECK (seq >= 0),
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
   CONSTRAINT folder_name_unique UNIQUE (project_id, name),
   CONSTRAINT folder_scope_fk FOREIGN KEY (organization_id, project_id)
-    REFERENCES project (organization_id, id) ON DELETE RESTRICT
+    REFERENCES project (organization_id, id) ON DELETE RESTRICT,
+  -- 父目录必须同组织同项目
+  CONSTRAINT uk_folder_org_project_id UNIQUE (organization_id, project_id, id),
+  CONSTRAINT fk_folder_parent_same_project
+    FOREIGN KEY (parent_id, organization_id, project_id)
+    REFERENCES folder (id, organization_id, project_id) ON DELETE RESTRICT
 );
 CREATE INDEX folder_order_idx ON folder (project_id, seq);
+CREATE INDEX idx_folder_project ON folder (organization_id, project_id, kind);
 
 -- ===== [A.3] 事实层 =====
 
@@ -425,13 +563,13 @@ CREATE INDEX book_export_book_idx ON book_export (project_id, book_id, exported_
 
 -- ===== [A.6] 隔离函数、策略与权限收紧 =====
 
-CREATE FUNCTION app.current_user_id() RETURNS text
+CREATE OR REPLACE FUNCTION app.current_user_id() RETURNS text
   LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('app.user_id', true), '')
 $$;
 
 -- 返回数组而不是 SETOF：标量子查询才能成为 InitPlan（§3.3）
-CREATE FUNCTION app.visible_org_array() RETURNS uuid[]
+CREATE OR REPLACE FUNCTION app.visible_org_array() RETURNS uuid[]
   LANGUAGE sql STABLE SECURITY DEFINER
   SET search_path = pg_catalog, public, pg_temp AS $$
   SELECT coalesce(array_agg(m.organization_id), '{}'::uuid[])
@@ -439,7 +577,7 @@ CREATE FUNCTION app.visible_org_array() RETURNS uuid[]
    WHERE m.user_id = app.current_user_id()
 $$;
 
-CREATE FUNCTION app.create_organization(p_name text) RETURNS uuid
+CREATE OR REPLACE FUNCTION app.create_organization(p_name text) RETURNS uuid
   LANGUAGE plpgsql SECURITY DEFINER
   SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
@@ -459,7 +597,7 @@ BEGIN
   RETURN v_org;
 END $$;
 
-CREATE FUNCTION app.accept_invite(p_token_hash text) RETURNS uuid
+CREATE OR REPLACE FUNCTION app.accept_invite(p_token_hash text) RETURNS uuid
   LANGUAGE plpgsql SECURITY DEFINER
   SET search_path = pg_catalog, public, auth, pg_temp AS $$
 DECLARE

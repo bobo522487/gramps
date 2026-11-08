@@ -19,10 +19,7 @@ import {
 } from '@/lib/auth/schemas';
 import type { ActionState } from '@/lib/auth/types';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
-import { logActivity } from '@/lib/db/queries/activity';
 import { getSoleOwnerOrgNames } from '@/lib/db/queries/organizations';
-import { ActivityType } from '@/lib/db/schema';
-import { logger } from '@/lib/logger';
 
 export const updatePassword = validatedActionWithUser(
   updatePasswordSchema,
@@ -58,15 +55,6 @@ export const updatePassword = validatedActionWithUser(
       return { error: authErrorMessage(error) };
     }
 
-    try {
-      await logActivity(user.id, null, ActivityType.UPDATE_PASSWORD);
-    } catch (error) {
-      logger.warn('failed to write password activity log', {
-        userId: user.id,
-        error,
-      });
-    }
-
     return { success: '密码已更新。' };
   }
 );
@@ -94,15 +82,6 @@ export const deleteAccount = validatedActionWithUser(
     }
 
     try {
-      await logActivity(user.id, null, ActivityType.DELETE_ACCOUNT);
-    } catch (error) {
-      logger.warn('failed to write delete-account activity log', {
-        userId: user.id,
-        error,
-      });
-    }
-
-    try {
       await getAuth().api.deleteUser({
         body: { password },
         headers: await headers(),
@@ -117,7 +96,7 @@ export const deleteAccount = validatedActionWithUser(
 
 export const updateAccount = validatedActionWithUser(
   updateAccountSchema,
-  async (data, _, user): Promise<ActionState> => {
+  async (data, _, _user): Promise<ActionState> => {
     try {
       await getAuth().api.updateUser({
         body: { name: data.name },
@@ -127,14 +106,6 @@ export const updateAccount = validatedActionWithUser(
       return { error: authErrorMessage(error), name: data.name };
     }
 
-    try {
-      await logActivity(user.id, null, ActivityType.UPDATE_ACCOUNT);
-    } catch (error) {
-      logger.warn('failed to write account activity log', {
-        userId: user.id,
-        error,
-      });
-    }
     revalidateWholeConsole();
 
     return { name: data.name, success: '账号信息已更新。' };

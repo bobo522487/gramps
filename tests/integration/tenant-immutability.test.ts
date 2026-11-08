@@ -210,7 +210,6 @@ describe('tenant columns are immutable', () => {
     // typo, a missing project_id, folder_id added back — used to pass as long
     // as the trigger existed.
     const expected: Record<string, string[]> = {
-      activity_logs: ['organization_id'],
       article: ['organization_id', 'project_id'],
       book: ['organization_id', 'project_id'],
       book_catalog: ['organization_id', 'book_id'],

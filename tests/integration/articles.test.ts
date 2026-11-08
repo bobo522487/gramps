@@ -18,7 +18,7 @@ import { parseArticleContent } from '@/lib/article/doc';
 import { fsMediaStore } from '@/lib/article/media/fs-store';
 import { PERMISSION_DENIED_MESSAGES } from '@/lib/auth/permissions';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
-import { articles, books, folders } from '@/lib/db/schema';
+import { articles, bookCatalogs, folders } from '@/lib/db/schema';
 import { signSessionFor } from '../helpers/auth';
 import { getTestDb } from '../helpers/db';
 import {
@@ -109,8 +109,6 @@ async function readContent(articleId: string) {
       plainText: articles.plainText,
       title: articles.title,
       folderId: articles.folderId,
-      deletedAt: articles.deletedAt,
-      updatedAt: articles.updatedAt,
     })
     .from(articles)
     .where(eq(articles.id, articleId))
@@ -350,7 +348,7 @@ describe('updateArticleTitleAction / moveArticleAction', () => {
 });
 
 describe('deleteArticleAction', () => {
-  it('没有引用时软删，谱文不再可查', async () => {
+  it('没有引用时真删，谱文不再可查', async () => {
     await as(fixture.editorId);
     const created = await createArticleAction({
       orgId: fixture.orgId,
@@ -364,7 +362,7 @@ describe('deleteArticleAction', () => {
       articleId,
     });
     expect(deleted).toMatchObject({ success: '谱文已删除' });
-    expect((await readContent(articleId))?.deletedAt).toBeTruthy();
+    expect(await readContent(articleId)).toBeUndefined();
   });
 
   it('被编目引用时拒绝删除，并说明先移除编目，行保持不变', async () => {
@@ -394,7 +392,7 @@ describe('deleteArticleAction', () => {
       articleId,
     });
     expect(blocked).toEqual({ error: ARTICLE_ERRORS.catalog_referenced });
-    expect((await readContent(articleId))?.deletedAt).toBeNull();
+    expect(await readContent(articleId)).toBeDefined();
   });
 
   it('查看者删除一律按不存在处理', async () => {
@@ -414,7 +412,7 @@ describe('deleteArticleAction', () => {
     expect(result).toEqual({
       error: PERMISSION_DENIED_MESSAGES['article.write'],
     });
-    expect((await readContent(articleId))?.deletedAt).toBeNull();
+    expect(await readContent(articleId)).toBeDefined();
   });
 });
 
@@ -888,7 +886,7 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
     expect(after).toMatchObject({ referencedByCatalog: true });
   });
 
-  it('引用它的谱书被软删后，不再算引用', async () => {
+  it('引用它的编目项被删后，不再算引用', async () => {
     await as(fixture.ownerId);
     const article = await createArticle({
       orgId: fixture.orgId,
@@ -909,10 +907,12 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
       articleId: article.id,
     });
 
+    // 目标态 `book` 已无软删列（附录 A.5），删除即真删；`book_catalog` 的软删列
+    // 要到 B3 / T25 才退役，所以这条用例改成删编目项来验证「不再算引用」。
     await getTestDb()
-      .update(books)
+      .update(bookCatalogs)
       .set({ deletedAt: new Date() })
-      .where(eq(books.id, book.id));
+      .where(eq(bookCatalogs.bookId, book.id));
 
     const preview = await getArticleDeletePreviewAction({
       orgId: fixture.orgId,

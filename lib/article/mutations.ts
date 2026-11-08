@@ -54,18 +54,12 @@ export async function projectExists(
   const rows = await tx
     .select({ id: projects.id })
     .from(projects)
-    .where(
-      and(
-        eq(projects.id, projectId),
-        eq(projects.orgId, orgId),
-        isNull(projects.deletedAt)
-      )
-    )
+    .where(and(eq(projects.id, projectId), eq(projects.orgId, orgId)))
     .limit(1);
   return rows.length > 0;
 }
 
-/** 分类必须是本组织、本云谱空间、未删除的**谱文**分类（kind = 1）。 */
+/** 分类必须是本组织、本云谱空间、**谱文**分类（kind = 1）。 */
 export async function articleFolderIdOrNull(
   tx: DbTransaction,
   orgId: string,
@@ -80,18 +74,12 @@ export async function articleFolderIdOrNull(
         eq(folders.id, folderId),
         eq(folders.orgId, orgId),
         eq(folders.projectId, projectId),
-        eq(folders.kind, 1),
-        isNull(folders.deletedAt)
+        eq(folders.kind, 1)
       )
     )
     .limit(1);
   return rows[0]?.id ?? null;
 }
-
-/**
- * 「默认分类」在同一事务里确保存在（FR-001）。分类管理入口属于
- * `project.write`，编辑者看不到新建分类按钮，所以不能要求他先建分类才能写谱文。
- */
 
 /**
  * 「默认分类」在同一事务里确保存在（FR-001）。分类管理入口属于
@@ -112,8 +100,7 @@ export async function ensureDefaultFolder(
         eq(folders.projectId, projectId),
         eq(folders.kind, 1),
         eq(folders.name, DEFAULT_ARTICLE_FOLDER_NAME),
-        isNull(folders.parentId),
-        isNull(folders.deletedAt)
+        isNull(folders.parentId)
       )
     )
     .orderBy(asc(folders.createdAt))
@@ -142,7 +129,7 @@ export async function ensureDefaultFolder(
   return folderId;
 }
 
-/** 锁定谱文行；返回 `null` 表示不存在、已删除或不属于本组织。 */
+/** 锁定谱文行；返回 `null` 表示不存在或不属于本组织。 */
 export async function lockArticle(
   tx: DbTransaction,
   orgId: string,
@@ -151,19 +138,16 @@ export async function lockArticle(
   const rows = await tx
     .select()
     .from(articles)
-    .where(
-      and(
-        eq(articles.id, articleId),
-        eq(articles.orgId, orgId),
-        isNull(articles.deletedAt)
-      )
-    )
+    .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
     .limit(1)
     .for('update');
   return rows[0] ?? null;
 }
 
-/** 活动编目 + 活动谱书都算引用（FR-006、软删语义）。 */
+/**
+ * 活动编目里引用过就不能删（FR-006）。`book_catalog` 的软删列要到 B3 / T25
+ * 才随 `path ltree` 一起删，因此这里仍按它过滤——登记在案的中间态。
+ */
 export async function hasCatalogReferenceInTx(
   tx: DbTransaction,
   orgId: string,
@@ -172,10 +156,7 @@ export async function hasCatalogReferenceInTx(
   const rows = await tx
     .select({ id: bookCatalogs.id })
     .from(bookCatalogs)
-    .innerJoin(
-      books,
-      and(eq(books.id, bookCatalogs.bookId), isNull(books.deletedAt))
-    )
+    .innerJoin(books, eq(books.id, bookCatalogs.bookId))
     .where(
       and(
         eq(bookCatalogs.orgId, orgId),

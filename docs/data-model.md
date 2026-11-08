@@ -80,13 +80,29 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 | 约定 | 规则 |
 | --- | --- |
 | 主键 | `id uuid NOT NULL DEFAULT uuidv7()`，应用层不生成 ID |
-| 复合主键 | `organization (id)`；`invite / project (organization_id, id)`；其余 13 张项目内表 `(project_id, id)`。`organization_member` 例外，直接用 `(organization_id, user_id)` |
+| 复合主键 | `organization (id)`；`invite / project (organization_id, id)`；其余 13 张项目内表 `(project_id, id)`。`organization_member` 例外，目标态用 `(organization_id, user_id)`——但当前受 Better Auth 插件约束暂留代理主键，见下方说明 |
 | 隔离列 | 除 `organization` 外所有业务表都有 `organization_id uuid NOT NULL` |
 | 时间戳 | 只有 `created_at`；**不设 `updated_at`**——没有查询用它，而「每条 UPDATE 显式赋值」是批量路径必然违反的契约 |
 | 外键 | 指向项目内表一律 `(project_id, x_id) REFERENCES t(project_id, id)`；可空 FK 的 `ON DELETE SET NULL` **必须带列清单**，否则复合 FK 把 `NOT NULL` 的 `project_id` 一起置空，报 `23502` |
 | 取值约束 | 只有被多张表共享的取值才抽 DOMAIN（全库 1 个 `member_role_t`）；单用取值就地写列级 CHECK |
+| 路由键扩展列 | `organization.slug` 与 `project.ref` 是**附录 A 之外的文档化扩展列**，两者都是 URL 里的第二段标识，不能删。它们不参与任何主键或外键，只带 `UNIQUE`（无软删后是全量唯一，不再是部分唯一索引）；`project.ref` 由 `public.generate_public_id()` 生成、创建后不可变 |
+| 兼容扩展列 | `organization` 另有 `status / logo / metadata` 三列，同属附录 A 之外的文档化扩展列，见下方说明 |
 
 `organization_id` 是唯一被允许的冗余列：RLS 谓词必须在行内判定隔离、不能 join `project`，而 InitPlan 化又要求谓词不引用其他表——只有把它放行上才能同时满足。复合主键的作用是让 `REFERENCES t(id)` 单列引用语法直接报错，属纵深防御；`project.id` 的全局 `UNIQUE (id)` 才是关闭跨租户引用的那一刀。
+
+`slug` / `ref` 这两列是**唯一的规格外例外**，登记理由是不登记就必须改路由：`/dashboard/[orgSlug]` 与 `/dashboard/[orgSlug]/project/[projectRef]` 都用它们寻址，而目标态其他表一律用 UUID 主键。它们的存在不削弱主键形状——没有它们，`organization` / `project` 的复合主键照样成立。
+
+`organization` 的 `status` / `logo` / `metadata` 三列同理登记，理由各不同：
+
+| 列 | 为什么必须在规格外表里存在 | 谁读它 |
+| --- | --- | --- |
+| `status` | 无软删后「归档」没有别的落点；取值 `active / suspended / closed`，带 `ck_organization_status` | 全部组织查询（`status <> 'closed'` 过滤）、归档动作 |
+| `logo` | Better Auth 的 organization 模型字段，插件 `organization.mjs` 的 `schema.organization.fields` 里有它 | Better Auth 组织适配器 |
+| `metadata` | 同上；适配器对文本列做 `JSON.stringify` / `parse`，所以是 `text` 不是 `jsonb` | Better Auth 组织适配器 |
+
+注意 `organization` **没有** `updated_at`：Better Auth 的 organization 模型也确实没有该字段，删掉不破坏插件契约（已实测 `createAuth()` 初始化不报警）。
+
+> `organization_member` 的**代理主键 `id` 仍是实现差异**：附录 A.1 的目标态是 `PRIMARY KEY (organization_id, user_id)`、无 `id` 列，但 Better Auth 的 organization 插件直接读 `member.id`，缺列时 `createAuth()` 初始化即报 `Drizzle schema mismatch — Missing columns: member.id`，232 条集成测试全红。去插件（T28）与去主键是同一个约束的两面，因此整体并入 B4。当前保留 `id` + 复合唯一约束 `uk_org_member_organization_user`。
 
 **两棵树的路径**（`node.path` / `book_catalog.path`）用 `ltree`，不存父指针：每段 4 位数字点分隔（`0010.0020`），`CHECK (path::text ~ '^[0-9]{4}([.][0-9]{4})*$')`（点必须写字符类 `[.]`，否则 `standard_conforming_strings = off` 时正则变成任意字符）。世次由 `nlevel(path)` 派生、不落可漂移列；兄弟序取末段树遍历序；同级插入用稀疏编号（`0010`/`0020` 之间插 `0015`）。整树读取 `WHERE project_id=$1 AND lineage_id=$2 ORDER BY path`，天然深度优先、祖先在后代之前；子树用 `path <@ '0010'::ltree`（**含根自身**）。
 
@@ -135,6 +151,18 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 删除：整棵子树一条 `DELETE ... WHERE path <@ '0010'::ltree`（`<@` 含根自身）；移子树用 `text2ltree` 重写前缀（根上 `subpath(path,1)` 会报 `22023`）；同级交换走三阶段改名。`auth.user` 删除时成员行 `CASCADE`、`created_by` / `invited_by` `SET NULL`；删 `folder` 时内容 `folder_id SET NULL (folder_id)`；**其余一切 `RESTRICT`**，不允许一条 SQL 静默抹掉数据。注意 `RESTRICT` 违反时 SQLSTATE 是 **`23001`** 而非 `23503`（`NO ACTION` 才是 `23503`）。
 
+**「归档」不是删除，但没有软删之后它是唯一的关停手段**，所以它必须两侧都做，缺一侧就是死锁：
+
+| 侧 | 规则 |
+| --- | --- |
+| 写侧 | 归档 = `UPDATE organization SET status = 'closed'`，且必须带 `status = 'active'` 前置条件（否则会把 `suspended` 覆盖成 `closed`，丢失停用原因）。**只允许这个动作写**；`project` / 文档不允许任何其他路径写 `status`。 |
+| 读侧 | 所有「能不能进」的判定必须带 `status <> 'closed'`：`getOrgsForUser`、`getOrgById`、`getOrgWithRoleBySlug`、`getSoleOwnerOrgNames`、`getProjectScopeByRef`。漏掉任何一处都是真实的绕过。 |
+
+`getSoleOwnerOrgNames` 漏掉过滤会产生一个死锁：组织归档后仍被算作「唯一所有者」，`deleteAccount` 永久拒绝销号，而它提示用户「先把组织归档」，可归档动作又只作用于 `active` 的组织——用户照着做也无路可走。`getProjectScopeByRef` 漏掉过滤则能用 `/project/[ref]` 直达已关停组织的项目，绕过关停闸门。
+
+`deleteProject` 的 `23503` **必须按约束名精确匹配**（13 条 `*_scope_fk`，见 `lib/project/services.ts` 的 `PROJECT_CHILD_CONSTRAINTS`，由门禁 B2a-11 与基线 DDL 交叉校验）。宽匹配任意 `23503` 会把别处的 FK 故障翻译成「项目里还有内容」，用户清空后依然删不掉，错误被静默吞掉；未登记的约束宁可抛错也不猜。
+
+
 ---
 
 ## 7. 取舍、非目标与验证口径
@@ -167,18 +195,29 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 | # | 目标（本文） | 现状（待改） | 现状位置 / 待改文件 |
 | --- | --- | --- | --- |
 | 1 | `person` 是身份与事实的主数据源，谱系只引用它 | **已消除**：事实层六表由应用直接读写为主数据源，`node` 退为位置引用；`docs/architecture.md`「域所有权」与 `docs/glossary.md`「事实层 / 人丁」已同步 | `lib/db/schema/{person,family,event,lineage}.ts` |
-| 2 | `book_export` 登记导出制品 | **B1 已补 TS 表结构**：B0 唯一 SQL 基线按附录 A.5 建 `book_export`；B1 补 `lib/db/schema/book-export.ts`（复合主键、四条 CHECK、两条 FK）与 barrel 类型导出。但 `book_export_book_fk` 的目标键 `book (project_id, id)` 在 TS 侧 `content.ts` 仍是单列主键，须由阶段 B 后续批次追平，**不能称两侧已对齐** | `lib/db/migrations/0000_target_schema.sql`；`lib/db/schema/book-export.ts`；`content.ts` |
+| 2 | `book_export` 登记导出制品 | **B1 已补 TS 表结构**：B0 唯一 SQL 基线按附录 A.5 建 `book_export`；B1 补 `lib/db/schema/book-export.ts`（复合主键、四条 CHECK、两条 FK）与 barrel 类型导出。`book_export_book_fk` 的目标键 `book (project_id, id)` 已由 B2a 在 `content.ts` 追平（`book` 改复合主键），该 FK 的 42830 隐患随之消除 | `lib/db/migrations/0000_target_schema.sql`；`lib/db/schema/book-export.ts`；`content.ts` |
 | 3 | `parent_path` 生成列 + 自引用 FK 保证闭包 | **谱系层已消除**（A′）：`node.parent_path` 生成列 + 自引用 FK 已落地；谱书层 `book_catalog` 仍是 `parent_id` + `fk_catalog_parent_same_book`，待 T25 | `lib/db/schema/lineage.ts`；`content.ts` |
 | 4 | `book_catalog.path` 是 `ltree`，用 `section` / `sort` 之外还靠路径排序 | `book_catalog` 用 `parent_id` + `section` + `sort` + `hide`，**没有 ltree 列** | `lib/db/schema/content.ts` |
 | 5 | `article.body` 文本 | `article.content` 是 jsonb + `plain_text` | `lib/db/schema/content.ts` |
-| 6 | 复合主键 `(project_id, id)`，`organization_member` 无 `id` | **B1 部分消除**：`project` 改 `(organization_id, id)` + `project_id_global` 全局唯一（替换与主键重复的 `uk_project_organization_id`），`folder` 改 `(project_id, id)`；其余表仍是单列 `id` 主键 + `uk_*_organization_id` 唯一约束，`organization_member` 仍有 `id`，`uuidPk()` 未退役（T18 收尾删） | `lib/db/schema/{shared,org,project,content,auth,activity}.ts` |
-| 7 | 0 个 `updated_at`、无软删、删除走 `RESTRICT` | 6 个 schema 文件有 `updated_at` / `deleted_at`；业务表软删、`organization_member` 与 `invite` 硬删 | `lib/db/schema/*.ts`；`docs/glossary.md`「软删 / 硬删」；`docs/nfr.md` §5 |
+| 6 | 复合主键 `(project_id, id)`，`organization_member` 无 `id` | **B1 消除边界层与 folder，B2a 消除项目内内容表**：B1 把 `project` 改 `(organization_id, id)` + `project_id_global` 全局唯一（替换与主键重复的 `uk_project_organization_id`）、`folder` 改 `(project_id, id)`；B2a 把 `article` / `book` 改 `(project_id, id)`、`invite` 改 `(organization_id, id)`。**仍未消除**：`organization_member` 的代理主键 `id` —— Better Auth 插件硬依赖 `member.id`，与 T28 去插件同批（B4），当前保留 `id` + 复合唯一约束；`lineage` / `node` / `person` 等事实层与谱系层表仍是单列 `id` + `uk_*_organization_id`；`book_catalog` 待 T25（同时要加 `project_id` 列）；`uuidPk()` 因此尚未退役（T18 收尾删） | `lib/db/schema/{shared,org,project,content,auth}.ts` |
+| 7 | 0 个 `updated_at`、无软删、删除走 `RESTRICT` | **B2a 已清 3 份**（`content` / `org` / `project`）：`article` / `book` / `folder` / `project` / `organization` / `organization_member` / `invite` 均无 `deleted_at` / `updated_at`；`activity_logs` 已整表退役（原计划 B2c）。**仍留有**：`book_catalog`（随 B3 / T25 退役）、`auth.*` 四表（按决议 ② 由 Better Auth 管，`updated_at` 保留）、事实层 / 谱系层若干表 | `lib/db/schema/*.ts`；`docs/glossary.md`「软删 / 硬删」；`docs/nfr.md` §5 |
 | 8 | 不使用 Better Auth organization 插件；`auth.user` 主键 `text` | 用 organization 插件；`users.id` 是 uuid | `docs/architecture.md` 技术栈；`lib/db/schema/shared.ts` |
 | 9 | 不启用 FORCE RLS（方案 A），角色 `genealogy_app` | `public` schema 启用 FORCE RLS；运行期角色 `app_rw` / `auth_service`，迁移直连角色才 `BYPASSRLS` | `docs/architecture.md` 部署形态；`docs/runbooks/README.md` §1 |
 | 10 | `app.visible_org_array()` + InitPlan 谓词 | 全仓 schema 无该函数与 `app.*` 命名空间 | `grep -rn "visible_org_array\|genealogy_app" lib/db/schema/` 为 0 |
 | 11 | 世次由 `nlevel(path)` 派生 | **谱系层已消除**（A′）：`node.generation` 存储列与两条 CHECK 已删，世次由 `path` 的段数（`segments.length`）在查询投影层派生 | `lib/db/queries/nodes.ts` |
 | 12 | `path ltree NOT NULL`、树不可能成环 | **谱系层已消除**（A′）：`path ltree NOT NULL`；`parent_id` / `spouse_of_id` / `role` / `is_alive` 等身份字段已不再内嵌于 `node`（姓名在 `person_name`、生卒由 `event` 派生、性别在 `person.sex`） | `lib/db/schema/lineage.ts` |
 | 13 | PG18 `uuidv7()` 是硬下限 | **已满足，无需改动**：`uuidPk()` = `uuid('id').primaryKey().default(sql\`uuidv7()\`)` | `lib/db/schema/shared.ts` |
+| 14 | `folder` 扁平单层（附录 A.2），**无 `kind`、无 `parent_id`** | 已拍板按附录 A 扁平化，未开工。`folder` 现有 `kind smallint` + `parent_id` + `fk_folder_parent_same_project`（多级），基线暂按超集建表以免运行期 42703；压平见下方说明 | `lib/db/schema/project.ts`；`lib/db/queries/{articles,folders}.ts`；`lib/folder/services.ts`；`lib/article/mutations.ts` |
+
+> **#14 已拍板：按附录 A 扁平化。** `folder` 的目标态就是附录 A.2 的扁平单层，没有 `kind` / `parent_id`。当前实现的分类层级是要拆掉的对象，不是要补进规格的既有能力。
+>
+> 拆分落在独立批次，不在 B2a：代码里层级用得比想象中深——`lib/db/queries/articles.ts` 按 `kind = 1` 过滤活动分类并按 `parent_id` 组装树、`lib/folder/services.ts` 按 `kind` 分组并按父链 BFS 删除、`lib/article/mutations.ts` 用 `kind` + `parent_id` 定位分类。压平不是删几行，要先把这几处业务语义翻译成单层模型，并定好 `folder_name_unique (project_id, name)` 在压平撞名时怎么办。
+>
+> 因此在 B2a 的基线里 `folder` 暂时按「附录 A.2 + 实现列」的超集建表（否则这些代码运行期直接 42703），等扁平化批次落地后收回。`seq` 与实现里的 `sort` 语义重复，扁平化时二选一。
+>
+> 当前代码状态：`lib/folder/services.ts` 的删除已改成**叶→根 BFS 硬删**（每个节点单独 `DELETE`），所以无论最终怎么压平，删除语义都不再依赖软删。
+
+> **另见 B0b**：B0 重建基线时丢了整层隔离机制（`app.forbid_tenant_move()` + 13 张表的 `trg_*_tenant_immutable` 触发器、`auth.has_org_role()` 等 `auth.*` 函数、`public.handle_new_user()` + `on_auth_user_created` 注册自动建个人组织）。已在 B0b 单独立批补齐，集成测试的 `217 failed` 主因在此，不是本批引入的。
 
 重构验收时逐条确认差异已消掉：
 

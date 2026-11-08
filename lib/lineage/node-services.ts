@@ -2,14 +2,7 @@ import 'server-only';
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
-import { logActivityInTx } from '@/lib/db/queries/activity';
-import {
-  ActivityType,
-  type Node,
-  nodes,
-  personNames,
-  persons,
-} from '@/lib/db/schema';
+import { type Node, nodes, personNames, persons } from '@/lib/db/schema';
 import type { PersonSex } from '@/lib/genealogy/constants';
 import { withCreateWrite, withLineageWrite } from './lineage-write';
 
@@ -185,7 +178,7 @@ async function recordNode(
   ctx: WriteContext,
   input: CreateInput
 ): Promise<Extract<NodeMutationResult, { ok: true }>> {
-  const { userId, orgId, projectId, lineageId, ipAddress } = ctx;
+  const { orgId, projectId, lineageId } = ctx;
   const displayName = input.surname
     ? `${input.surname}${input.name}`
     : input.name;
@@ -224,7 +217,6 @@ async function recordNode(
     throw new Error('failed to insert node');
   }
 
-  await logActivityInTx(tx, userId, orgId, ActivityType.CREATE_NODE, ipAddress);
   return { ok: true as const, node };
 }
 
@@ -375,7 +367,7 @@ export async function updateNodeInTransaction(params: {
   updates: NodeUpdates;
   ipAddress?: string;
 }): Promise<NodeMutationResult> {
-  const { userId, orgId, lineageId, nodeId, updates, ipAddress } = params;
+  const { userId, orgId, lineageId, nodeId, updates } = params;
 
   return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
     const current = await loadNode(tx, orgId, lineageId, nodeId);
@@ -421,13 +413,6 @@ export async function updateNodeInTransaction(params: {
       )
       .returning();
 
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.UPDATE_NODE,
-      ipAddress
-    );
     return { ok: true as const, node };
   });
 }
@@ -439,7 +424,7 @@ export async function deleteNodeInTransaction(params: {
   nodeId: string;
   ipAddress?: string;
 }): Promise<DeleteNodeResult> {
-  const { userId, orgId, lineageId, nodeId, ipAddress } = params;
+  const { userId, orgId, lineageId, nodeId } = params;
 
   return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
     const target = await loadNode(tx, orgId, lineageId, nodeId);
@@ -463,13 +448,6 @@ export async function deleteNodeInTransaction(params: {
       )
       .returning({ id: nodes.id });
 
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.DELETE_NODE,
-      ipAddress
-    );
     return { ok: true as const, node: target, deletedNodes: deleted.length };
   });
 }

@@ -23,7 +23,7 @@ describe('Better Auth schema', () => {
     }
   });
 
-  it('shapes auth.users for Better Auth', () => {
+  it('shapes auth.user for Better Auth', () => {
     const keys = columnKeys(users);
 
     expect(keys).toEqual(
@@ -86,9 +86,13 @@ describe('Better Auth schema', () => {
   });
 
   it('adds Better Auth organization fields', () => {
+    // 已核对 better-auth 的 organization 模型字段表（organization.mjs 的
+    // `schema.organization.fields`）：只有 name / slug / logo / createdAt /
+    // metadata，**没有 updatedAt**，所以目标态删掉它是安全的。
     expect(columnKeys(organizations)).toEqual(
-      expect.arrayContaining(['logo', 'metadata', 'updatedAt'])
+      expect.arrayContaining(['logo', 'metadata', 'createdAt'])
     );
+    expect(columnKeys(organizations)).not.toContain('updatedAt');
   });
 
   it('renames member fields and drops soft delete', () => {

@@ -80,7 +80,7 @@ COMMIT;
 
 ### RB-2 忘记密码 / 强制下线
 
-M1 无邮件通道、无自助找回。先**线下验证身份**（家族联系人、邀请人、组织 owner 之一），没验证就不重置。密码存 `auth.account`（`provider_id = 'credential'`），不在 `auth.users`；运行时业务角色没有 `auth.*` 权限，此操作必须用直连：
+M1 无邮件通道、无自助找回。先**线下验证身份**（家族联系人、邀请人、组织 owner 之一），没验证就不重置。密码存 `auth.account`（`provider_id = 'credential'`），不在 `auth.user`；运行时业务角色没有 `auth.*` 权限，此操作必须用直连：
 
 ```bash
 node --input-type=module -e "import { hashPassword } from 'better-auth/crypto'; console.log(await hashPassword(process.argv[1]))" '临时密码'
@@ -89,9 +89,9 @@ node --input-type=module -e "import { hashPassword } from 'better-auth/crypto'; 
 ```sql
 BEGIN;
 UPDATE auth.account a SET password = '<scrypt-hash>', updated_at = now()
-  FROM auth.users u WHERE a.user_id = u.id AND a.provider_id = 'credential'
+  FROM auth.user u WHERE a.user_id = u.id AND a.provider_id = 'credential'
     AND lower(u.email) = lower('user@example.com');
-DELETE FROM auth.session s USING auth.users u
+DELETE FROM auth.session s USING auth.user u
  WHERE s.user_id = u.id AND lower(u.email) = lower('user@example.com');
 COMMIT;
 ```

@@ -13,24 +13,34 @@ import { timestamptz, uuidPk } from './shared';
 export const authSchema = pgSchema('auth');
 
 /**
- * Self-hosted Better Auth user table. Not reachable by app_rw directly; the
- * auth runtime reads it through auth_service and the SECURITY DEFINER
- * functions in the `auth` schema.
+ * Better Auth 用户表。目标态（附录 A.0）的表名是**单数** `auth.user`、
+ * 主键是 **`text`**——所有引用它的列（`organization.created_by`、
+ * `project.created_by`、`team_member.user_id` 等）都是 `text`，基线 DDL 依此建表。
+ *
+ * 这张表曾经叫 `users` 且主键是 `uuid`，是 B0 重建基线前的形状；两边不一致时
+ * 症状是运行期 `relation "auth.users" does not exist`（adapter 从 Drizzle 表对象
+ * 取表名，不会去读基线），所以这里必须跟基线逐字对齐，不能各写各的。
+ *
+ * `app_rw` 读不到它；认证连接经 `auth_service`，业务侧读邮箱走 SECURITY DEFINER
+ * 函数（附录 A.6）。
  */
 export const users = authSchema.table(
-  'users',
+  'user',
   {
-    id: uuidPk(),
+    // 附录 A.0 里这是无默认值的 `text PRIMARY KEY`，但应用侧
+    // `advanced.database.generateId = false`，ID 一律由数据库生成，所以要有
+    // 默认值——缺了它就是建号时 `null value in column "id"`。
+    id: text('id').primaryKey().default(sql`gen_random_uuid()::text`),
     email: text('email').notNull(),
-    name: text('name').notNull(),
+    name: text('name'),
     emailVerified: boolean('email_verified').notNull().default(false),
     image: text('image'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('uk_auth_users_email').on(sql`lower(${t.email})`),
-    index('idx_auth_users_email').on(t.email),
+    uniqueIndex('uk_auth_user_email').on(sql`lower(${t.email})`),
+    index('idx_auth_user_email').on(t.email),
   ]
 );
 
@@ -44,7 +54,7 @@ export const sessions = authSchema.table(
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
-    userId: uuid('user_id')
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     activeOrganizationId: uuid('active_organization_id').references(
@@ -64,7 +74,7 @@ export const accounts = authSchema.table(
     id: uuidPk(),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
-    userId: uuid('user_id')
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     accessToken: text('access_token'),

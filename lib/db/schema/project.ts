@@ -14,6 +14,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import type { ProjectStatus } from '../../project/constants';
+import { users } from './auth';
 import { organizations } from './org';
 import { scopedUuid, timestamptz } from './shared';
 
@@ -47,22 +48,21 @@ export const projects = pgTable(
       .default(false),
     notes: text('notes'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
+    // 附录 A.2：`text REFERENCES auth.user(id) ON DELETE SET NULL`——可空，
+    // 因为销号不该连带卡死项目。原来写 uuid + not null，与 auth.user(id) 的
+    // text 类型不一致（建表 42804），且销号会撞 not-null。
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     // Target state (appendix A.2): PRIMARY KEY (organization_id, id) plus a
-    // global UNIQUE (id). The composite key is what every `<t>_scope_fk`
-    // resolves against, so the old redundant `uk_project_organization_id`
-    // unique on the same two columns is replaced by the key itself; the global
-    // unique closes the "two orgs sharing one project id" RI bypass (§4.1).
+    // global UNIQUE (id). `ref` is a documented target-state extension column
+    // (docs/data-model.md §4); with soft delete gone its uniqueness is total.
     primaryKey({ columns: [t.orgId, t.id] }),
     unique('project_id_global').on(t.id),
-    uniqueIndex('uk_project_ref').on(t.ref).where(sql`${t.deletedAt} is null`),
-    index('idx_project_organization')
-      .on(t.orgId)
-      .where(sql`${t.deletedAt} is null`),
+    uniqueIndex('uk_project_ref').on(t.ref),
+    index('idx_project_organization').on(t.orgId),
     check(
       'ck_project_status',
       sql`${t.status} in ('planning', 'in_progress', 'completed')`
@@ -83,7 +83,6 @@ export const folders = pgTable(
     sort: integer('sort').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
     // Target state (appendix A.2): PRIMARY KEY (project_id, id). This also
@@ -93,7 +92,7 @@ export const folders = pgTable(
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
-      name: 'fk_folder_project',
+      name: 'folder_scope_fk',
     }).onDelete('restrict'),
     // Target of the self-referencing parent key below: a parent must live in
     // the same organization AND the same project. Kept until phase B2 retires
@@ -104,9 +103,7 @@ export const folders = pgTable(
       foreignColumns: [t.id, t.orgId, t.projectId],
       name: 'fk_folder_parent_same_project',
     }).onDelete('restrict'),
-    index('idx_folder_project')
-      .on(t.orgId, t.projectId, t.kind)
-      .where(sql`${t.deletedAt} is null`),
+    index('idx_folder_project').on(t.orgId, t.projectId, t.kind),
     check('ck_folder_kind', sql`${t.kind} in (0, 1, 2)`),
   ]
 );

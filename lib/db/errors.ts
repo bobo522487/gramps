@@ -1,4 +1,4 @@
-type PgError = { code?: string; message?: string };
+type PgError = { code?: string; message?: string; constraint?: string };
 
 /**
  * Drizzle wraps driver failures and Better Auth may wrap those again, so the
@@ -35,6 +35,47 @@ function errorChain(error: unknown, maxDepth = 8): PgError[] {
 /** PostgreSQL SQLSTATE 23505 (unique_violation). */
 export function isUniqueViolation(error: unknown): boolean {
   return errorChain(error).some((value) => value.code === '23505');
+}
+
+/**
+ * PostgreSQL SQLSTATE 23503 (foreign_key_violation). Target state has no soft
+ * delete and every project-internal FK is RESTRICT, so a delete that still has
+ * children fails here instead of silently marking a row.
+ */
+export function isForeignKeyViolation(error: unknown): boolean {
+  return errorChain(error).some((value) => value.code === '23503');
+}
+
+/**
+ * 23503 但只看某几条约束名。删除类操作必须用它而不是上面的宽匹配：
+ * 一个 `DELETE` 上挂了多种 FK，其中只有一部分代表「还有内容，不能删」，
+ * 其余（比如历史遗留的 ON DELETE SET NULL 之外的可空引用）是真正的故障，
+ * 宽匹配会把故障伪装成业务提示，用户照着提示清空内容也删不掉。
+ *
+ * PostgreSQL 在错误报文里带 `constraint`（约束名，不是列名），所以这里按
+ * 约束名精确比对，不做前缀 / 模糊匹配。
+ */
+export function isForeignKeyViolationOf(
+  error: unknown,
+  constraints: readonly string[]
+): boolean {
+  const names = new Set(constraints);
+  return errorChain(error).some(
+    (value) =>
+      value.code === '23503' &&
+      typeof value.constraint === 'string' &&
+      names.has(value.constraint)
+  );
+}
+
+/** 从错误链里取出 23503 的约束名，供日志与兜底文案使用。 */
+export function foreignKeyConstraintOf(error: unknown): string | null {
+  for (const value of errorChain(error)) {
+    if (value.code === '23503' && typeof value.constraint === 'string') {
+      return value.constraint;
+    }
+  }
+  return null;
 }
 
 /**

@@ -41,9 +41,7 @@ export default async function ProjectArticlesPage({
     title: article.title,
     folderId: article.folderId,
     pageCount: article.pageCount,
-    lastTouchedAt: (article.updatedAt ?? article.createdAt)
-      .toISOString()
-      .slice(0, 10),
+    lastTouchedAt: article.createdAt.toISOString().slice(0, 10),
   }));
 
   return (

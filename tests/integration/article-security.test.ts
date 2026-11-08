@@ -151,8 +151,6 @@ async function rowOf(articleId: string) {
       title: articles.title,
       content: articles.content,
       plainText: articles.plainText,
-      deletedAt: articles.deletedAt,
-      updatedAt: articles.updatedAt,
     })
     .from(articles)
     .where(eq(articles.id, articleId))
@@ -236,7 +234,6 @@ describe('未登录', () => {
     expect(await articleCount()).toBe(before);
     const row = await rowOf(articleId);
     expect(row?.title).toBe('安全回归用谱文');
-    expect(row?.deletedAt).toBeNull();
   });
 });
 
@@ -291,8 +288,7 @@ describe('只读角色（viewer）', () => {
 
     const after = await rowOf(articleId);
     expect(after?.content).toEqual(before?.content);
-    expect(after?.deletedAt).toBeNull();
-    expect(after?.updatedAt?.getTime()).toBe(before?.updatedAt?.getTime());
+    expect(after?.plainText).toBe(before?.plainText);
   });
 
   it('查看者能取到删除预览，但预览只给计数、不给正文（读能力，不是写口子）', async () => {
@@ -364,7 +360,6 @@ describe('组织隔离', () => {
     const after = await rowOf(articleId);
     expect(after?.content).toEqual(before?.content);
     expect(after?.title).toBe('安全回归用谱文');
-    expect(after?.deletedAt).toBeNull();
   });
 
   it('外组织的 projectId 建不出谱文，也不会多出一行', async () => {

@@ -39,6 +39,11 @@ export function getTestDb() {
 }
 
 export async function resetDatabase() {
+  // SQL 注释不写在模板字符串里：`--` 在 TS 模板里是被允许的字符，但放在表达式
+  // 之后容易被误读成运算符，且这里注释会随 TRUNCATE 一起发给服务端，没必要。
+  // 顺序要点：auth.session 带 active_organization_id → organization 的 FK，
+  // 所以 auth 三表必须排在 organization 之前，否则 TRUNCATE 取锁顺序会报
+  // `relation "organization" does not exist`。
   await getTestSql().unsafe(
     `TRUNCATE TABLE
        event,
@@ -47,7 +52,6 @@ export async function resetDatabase() {
        family,
        person_name,
        person,
-       activity_logs,
        book_catalog,
        book,
        article,
@@ -57,11 +61,11 @@ export async function resetDatabase() {
        project,
        invite,
        organization_member,
-       organization,
        auth.session,
        auth.account,
        auth.verification,
-       auth.users
+       auth.user,
+       organization
      RESTART IDENTITY CASCADE`
   );
 }

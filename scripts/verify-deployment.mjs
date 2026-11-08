@@ -263,7 +263,7 @@ async function checkRuntimeRls() {
 
     let denied = false;
     try {
-      await app`select 1 from auth.users limit 1`;
+      await app`select 1 from auth.user limit 1`;
     } catch (error) {
       denied =
         Boolean(error) &&
@@ -271,7 +271,7 @@ async function checkRuntimeRls() {
         'code' in error &&
         error.code === '42501';
     }
-    check(denied, 'runtime cannot read auth.users');
+    check(denied, 'runtime cannot read auth.user');
   } catch (error) {
     fail('runtime connection', safeDbError(error));
   } finally {
@@ -418,11 +418,11 @@ async function checkDb() {
 
     const [privileges] = await sql`
       select
-        has_table_privilege('auth_service', 'auth.users', 'SELECT') as auth_users_select,
-        has_table_privilege('auth_service', 'auth.users', 'INSERT') as auth_users_insert,
+        has_table_privilege('auth_service', 'auth.user', 'SELECT') as auth_user_select,
+        has_table_privilege('auth_service', 'auth.user', 'INSERT') as auth_user_insert,
         has_table_privilege('auth_service', 'public.organization', 'INSERT') as auth_org_insert,
         has_table_privilege('auth_service', 'public.organization_member', 'UPDATE') as auth_member_update,
-        has_table_privilege('app_rw', 'auth.users', 'SELECT') as app_auth_users_select,
+        has_table_privilege('app_rw', 'auth.user', 'SELECT') as app_auth_user_select,
         has_table_privilege('app_rw', 'public.organization', 'INSERT') as app_org_insert,
         has_table_privilege('app_rw', 'public.organization', 'UPDATE') as app_org_update,
         has_table_privilege('app_rw', 'public.organization_member', 'UPDATE') as app_member_update,
@@ -430,14 +430,14 @@ async function checkDb() {
         has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select
     `;
     check(
-      privileges?.auth_users_select === true &&
-        privileges?.auth_users_insert === true &&
+      privileges?.auth_user_select === true &&
+        privileges?.auth_user_insert === true &&
         privileges?.auth_org_insert === true &&
         privileges?.auth_member_update === true,
       'auth_service owns identity and tenant writes'
     );
     check(
-      privileges?.app_auth_users_select === false &&
+      privileges?.app_auth_user_select === false &&
         privileges?.app_org_insert === false &&
         privileges?.app_org_update === false &&
         privileges?.app_member_update === false &&

@@ -1,12 +1,10 @@
 import { relations } from 'drizzle-orm';
-import { activityLogs } from './activity';
 import { accounts, sessions, users } from './auth';
 import { invitations, organizations, orgMembers } from './org';
 import { projects } from './project';
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   members: many(orgMembers),
-  activityLogs: many(activityLogs),
   invitations: many(invitations),
   projects: many(projects),
 }));
@@ -61,13 +59,6 @@ export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
   }),
   organization: one(organizations, {
     fields: [orgMembers.organizationId],
-    references: [organizations.id],
-  }),
-}));
-
-export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
-  organization: one(organizations, {
-    fields: [activityLogs.orgId],
     references: [organizations.id],
   }),
 }));
