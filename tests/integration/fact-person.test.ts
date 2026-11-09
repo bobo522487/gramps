@@ -224,8 +224,9 @@ const enumConstraints = [
     values: PERSON_SEX_VALUES,
   },
   {
+    // 内联无名 CHECK 的 PG 默认名是 <table>_<column>_check。
     table: 'person_name',
-    constraint: 'person_name_kind',
+    constraint: 'person_name_kind_check',
     values: PERSON_NAME_TYPE_VALUES,
   },
 ];

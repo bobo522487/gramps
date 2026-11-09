@@ -7,7 +7,9 @@ import { getTestSql } from '../helpers/db';
 //     carries no trigram index;
 //   - article title search also runs in memory over the fully loaded list, so
 //     article carries no trigram index until FR-ART-5 body search ships a query;
-//   - pg_trgm stays installed so that day is one CREATE INDEX, not CREATE EXTENSION.
+//   - the S8 target baseline installs only ltree + btree_gist. pg_trgm is NOT
+//     preinstalled: when FR-ART-5 ships, CREATE EXTENSION is an explicit deploy
+//     step (ADR 0011's "keep it resident" premise was retired by the B0 squash).
 
 describe('search boundary', () => {
   it('keeps no trigram index on node', async () => {
@@ -30,11 +32,15 @@ describe('search boundary', () => {
     expect(articleTrgm).toEqual([]);
   });
 
-  it('keeps the pg_trgm extension for the day FR-ART-5 body search ships', async () => {
+  it('installs only the target-model extensions, not pg_trgm', async () => {
     const extensions = await getTestSql()<
       { extname: string }[]
-    >`select extname from pg_extension where extname = 'pg_trgm'`;
+    >`select extname from pg_extension
+      where extname in ('ltree', 'btree_gist', 'pg_trgm') order by extname`;
 
-    expect(extensions).toEqual([{ extname: 'pg_trgm' }]);
+    expect(extensions.map((row) => row.extname)).toEqual([
+      'btree_gist',
+      'ltree',
+    ]);
   });
 });

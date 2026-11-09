@@ -197,7 +197,7 @@ describe('event (target-model DDL constraints)', () => {
       await sqlState(
         () => getTestSql()`
         insert into event (organization_id, project_id, kind, person_id)
-        values (${organization.id}, ${'00000000-0000-0000-0000-000000000000'}, ${person.id}, 'birth')`
+        values (${organization.id}, ${'00000000-0000-0000-0000-000000000000'}, 'birth', ${person.id})`
       )
     ).toBe('23503');
   });
@@ -222,9 +222,11 @@ describe('event (target-model DDL constraints)', () => {
 
 // 值域常量与数据库 CHECK 不能漂移：任何一边单独加值都会被这条钉住。
 describe('event enum column matches the TypeScript constant', () => {
-  it('event_domain_check', async () => {
+  it('event_kind_check', async () => {
+    // 基线的 event.kind 是内联无名 CHECK，PG 自动命名为 event_kind_check；
+    // 旧测试写的 event_domain_check 从来不是落库对象名。
     await expect(
-      readCheckConstraintValues(getTestSql(), 'event', 'event_domain_check')
+      readCheckConstraintValues(getTestSql(), 'event', 'event_kind_check')
     ).resolves.toEqual([...EVENT_KIND_VALUES].sort());
   });
 });
