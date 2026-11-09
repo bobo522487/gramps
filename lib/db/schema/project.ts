@@ -47,6 +47,11 @@ export const projects = pgTable(
       .notNull()
       .default(false),
     notes: text('notes'),
+    /**
+     * 附录 A.2 的产品形态列：SQL 基线一直保留它，但 TS schema 在 B1 追平时漏了。
+     * T39 的 TS ↔ 基线直接对比会抓到这处漂移；应用当前不读写，补列只为结构对齐。
+     */
+    description: text('description'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     // 附录 A.2：`text REFERENCES auth.user(id) ON DELETE SET NULL`——可空，
     // 因为销号不该连带卡死项目。原来写 uuid + not null，与 auth.user(id) 的
@@ -81,6 +86,12 @@ export const folders = pgTable(
     parentId: uuid('parent_id'),
     name: text('name').notNull(),
     sort: integer('sort').notNull().default(0),
+    /**
+     * 附录 A.2 的 `seq` 与 `sort` 语义重复，基线两列都保留（docs/data-model.md
+     * §4 的 folder 层级规格待拍板）。应用只用 `sort`，但 TS 必须与唯一 DDL
+     * 真相源对齐，否则 T39 parity 会一直报列漂移。
+     */
+    seq: integer('seq').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     createdBy: uuid('created_by').notNull(),
   },
@@ -104,6 +115,8 @@ export const folders = pgTable(
       name: 'fk_folder_parent_same_project',
     }).onDelete('restrict'),
     index('idx_folder_project').on(t.orgId, t.projectId, t.kind),
+    index('folder_order_idx').on(t.projectId, t.seq),
     check('ck_folder_kind', sql`${t.kind} in (0, 1, 2)`),
+    check('folder_seq_nonnegative', sql`${t.seq} >= 0`),
   ]
 );

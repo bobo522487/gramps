@@ -1,5 +1,5 @@
 {
-  "id": "3b72ba73-07f9-4df6-bf59-7b7c4656eeae",
+  "id": "022e68f6-104b-4dc0-8f9f-d4658216a268",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -3086,6 +3086,13 @@
           "notNull": true,
           "default": 0
         },
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3118,6 +3125,27 @@
             },
             {
               "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "folder_order_idx": {
+          "name": "folder_order_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3188,6 +3216,10 @@
         "ck_folder_kind": {
           "name": "ck_folder_kind",
           "value": "\"folder\".\"kind\" in (0, 1, 2)"
+        },
+        "folder_seq_nonnegative": {
+          "name": "folder_seq_nonnegative",
+          "value": "\"folder\".\"seq\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -3269,6 +3301,12 @@
         },
         "notes": {
           "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
           "type": "text",
           "primaryKey": false,
           "notNull": false

@@ -32,3 +32,17 @@ on conflict do nothing;
 insert into book (organization_id, project_id, id, title) values
   ('11111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333', '99999999-9999-9999-9999-999999999999', '验收谱书')
 on conflict do nothing;
+
+-- RLS / SECDEF 场景账号。auth.user 的 AFTER INSERT 触发器会给每个账号自动建
+-- 个人组织 + owner 成员行，所以这里只补它们与 ORG_A / ORG_B 的成员关系：
+-- u-verify-a 可见 ORG_A、u-verify-b 可见 ORG_B，用于 P16 跨组织不可见与 N19
+-- 邮箱不匹配。两个组织各自只有一个 owner，不与 uk_org_member_single_owner 冲突。
+insert into auth.user (id, email, name) values
+  ('u-verify-a', 'a@example.com', '验收账号 A'),
+  ('u-verify-b', 'b@example.com', '验收账号 B')
+on conflict (id) do nothing;
+
+insert into organization_member (organization_id, user_id, role) values
+  ('11111111-1111-1111-1111-111111111111', 'u-verify-a', 'owner'),
+  ('22222222-2222-2222-2222-222222222222', 'u-verify-b', 'owner')
+on conflict do nothing;

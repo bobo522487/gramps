@@ -8,6 +8,13 @@
  *
  * T40 的 EXPLAIN 性能数字必须在 G1 书面确认的目标环境重跑（实施计划 §6 / §9
  * 「纸面数字不算兑现」），本地容器值不作验收依据，所以 --explain 恒为 SKIP。
+ *
+ * --parity 是 T39 后半：把 0000_snapshot.json（drizzle-kit 从 schema TS 导出的
+ * 结构化镜像，由 CI 的 db:generate 零漂移反向钉住）与本次落库的真实 catalog
+ * 逐表对比「表集合 / 列集合 / 主键列组 / 外键定义」。只比结构、不比约束名——
+ * TS 具名 CHECK、FK 与基线的内联无名约束天然同名不了，命名差异由 B1 评审登记，
+ * 约束的**行为**由 T38 正反例的 SQLSTATE 断言覆盖。auth.* 四表按规格决议 ②
+ * 由 Better Auth 管理 DDL，仓内只有 TS 镜像，不纳入对比。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -24,13 +31,15 @@ const VERIFY_DB = 'gramps_s8_verify';
 const HELP = `用法: node scripts/verify-target-schema.mjs [选项]
 
 在自建干净库 ${VERIFY_DB} 上重建 S8 目标基线并验收。
-默认执行 --ddl / --assertions / --security；--explain 恒为 SKIP（T40 需目标环境）。
+默认执行 --ddl / --assertions / --parity / --security；--explain 恒为 SKIP
+（T40 需目标环境）。
 
 选项:
   --help                 显示本帮助
-  --all                  默认；DDL + 反例断言 + 安全用例
+  --all                  默认；DDL + 正反例 + 结构对比 + 安全用例
   --ddl                  T37：执行唯一基线，断言 0 ERROR 与对象数量
-  --assertions           T38：逐条执行反例并比对期望 SQLSTATE
+  --assertions           T38：逐条执行正例 / 反例并比对期望结果
+  --parity               T39 后半：schema TS ↔ SQL 基线落库 catalog 直接对比
   --security             T41：fail-closed 三项断言
   --explain              T40：显式 SKIP（需目标环境，不沿用容器旧数字）
   --url <postgres-url>   superuser 连接串（默认 VERIFY_POSTGRES_URL / POSTGRES_URL）
@@ -38,8 +47,13 @@ const HELP = `用法: node scripts/verify-target-schema.mjs [选项]
 
 输出 PASS / FAIL / SKIP 与汇总；有 FAIL 时退出码 1。
 
-覆盖范围（诚实声明）：本批只落地 T38 反例第一批。P1–P32 正例与其余 N 场景
-尚未编写，脚本会打印 SKIP，不把「本批通过」伪装成「全量验收通过」。`;
+T38 夹具用 -- @case / @expect / @desc 三行标注：
+  @expect <5 位 SQLSTATE>  该语句必须报指定 SQLSTATE
+  @expect OK               必须无错返回；语义断言写在 SQL 的 DO 块里
+  @expect SKIP             结构性不可表达或依赖 T40 目标环境，显式登记不计 PASS
+
+覆盖范围（诚实声明）：P1–P32 / N1–N31 已全量编号落地，其中需目标环境
+EXPLAIN 数字的 P21 / P22 与结构性不可表达的 N20 显式 SKIP；T40 恒 SKIP。`;
 
 function argValue(name) {
   const index = args.indexOf(name);
@@ -50,6 +64,7 @@ const has = (flag) => args.includes(flag);
 const runAll = args.length === 0 || has('--all');
 const wantDdl = runAll || has('--ddl');
 const wantAssertions = runAll || has('--assertions');
+const wantParity = runAll || has('--parity');
 const wantSecurity = runAll || has('--security');
 
 let passed = 0;
@@ -191,30 +206,236 @@ async function seed(sql) {
   await sql.unsafe(read('tests/fixtures/target-schema-seed.sql'));
 }
 
-async function verifyAssertions(sql) {
-  const cases = parseCases(read('tests/fixtures/target-schema-negative.sql'));
+/**
+ * 跑一份 T38 夹具。@expect 三种形态：
+ *   5 位 SQLSTATE —— 该语句必须失败且报对应码（反例）
+ *   OK            —— 必须无错返回；语义断言写在 SQL 的 DO 块里（正例）
+ *   SKIP          —— 结构性不可表达 / 依赖 T40 目标环境，显式登记不计 PASS
+ */
+async function runFixture(sql, file, tag) {
+  const cases = parseCases(read(file));
+  let checked = 0;
+  let skipped = 0;
   let mismatch = 0;
   for (const item of cases) {
-    if (!(item.expect && item.sql)) {
-      fail(`T38 ${item.id} 夹具元数据不全`, '@expect / SQL 缺失');
+    const label = `T38-${tag} ${item.id}`;
+    if (!item.expect) {
+      fail(`${label} 夹具元数据不全`, '@expect 缺失');
+      mismatch += 1;
+      continue;
+    }
+    if (item.expect === 'SKIP') {
+      skip(label, item.desc || '结构性不可表达 / 依赖 T40 目标环境');
+      skipped += 1;
+      continue;
+    }
+    if (!item.sql || (item.expect !== 'OK' && !/^\d{5}$/.test(item.expect))) {
+      fail(`${label} 夹具元数据不全`, `SQL / @expect 非法：${item.expect}`);
       mismatch += 1;
       continue;
     }
     const { code, message } = await runIsolated(sql, item.sql);
-    if (code === item.expect) {
-      pass(`T38 ${item.id} ${item.expect}`, item.desc);
+    const expected = item.expect === 'OK' ? null : item.expect;
+    checked += 1;
+    if (code === expected) {
+      pass(`${label} ${item.expect}`, item.desc);
     } else {
-      fail(
-        `T38 ${item.id} 期望 ${item.expect}`,
-        `实际 ${code ?? '无错误'}${code ? '' : ` · ${message.slice(0, 120)}`} · ${item.desc}`
-      );
+      const actual =
+        code === null
+          ? '无错误（语句成功返回）'
+          : `${code} · ${message.slice(0, 120)}`;
+      fail(`${label} 期望 ${item.expect}`, `实际 ${actual} · ${item.desc}`);
       mismatch += 1;
     }
   }
-  check(mismatch === 0, 'T38 反例 0 mismatch', `${cases.length} 条`);
-  skip(
-    'T38 P1–P32 正例与其余 N 场景',
-    '本批只落地反例第一批，正例夹具与剩余场景待后续批次'
+  return { total: cases.length, checked, skipped, mismatch };
+}
+
+async function verifyAssertions(sql) {
+  const negative = await runFixture(
+    sql,
+    'tests/fixtures/target-schema-negative.sql',
+    'N'
+  );
+  const positive = await runFixture(
+    sql,
+    'tests/fixtures/target-schema-positive.sql',
+    'P'
+  );
+  for (const [tag, result] of [
+    ['反例', negative],
+    ['正例', positive],
+  ]) {
+    check(
+      result.mismatch === 0,
+      `T38 ${tag} 0 mismatch`,
+      `${result.checked} 条执行 / ${result.skipped} 条 SKIP / 共 ${result.total} 条`
+    );
+  }
+}
+
+/** pg_constraint.confdeltype → drizzle snapshot 的 onDelete 取值。 */
+const DELETE_ACTION = {
+  a: 'no action',
+  r: 'restrict',
+  c: 'cascade',
+  n: 'set null',
+  d: 'set default',
+};
+
+/** 归一化一条外键：只比结构（目标表 / 两组列 / 删除动作），不比约束名。 */
+function fkKey(shape) {
+  return JSON.stringify([
+    shape.tableTo,
+    shape.columnsFrom ?? [],
+    shape.columnsTo ?? [],
+    (shape.onDelete ?? 'no action').toLowerCase(),
+  ]);
+}
+
+function sameSet(a, b) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * T39 后半：schema TS ↔ SQL 基线落库 catalog 的直接对比。
+ *
+ * 用 0000_snapshot.json 作为 TS schema 的结构化镜像（CI 的 db:generate 零漂移
+ * 反向钉住它 ≡ TS），对比对象却是本次真实执行 DDL 后的 pg_catalog，而不是
+ * snapshot 自身——所以这不是「TS ↔ snapshot」的间接自证。
+ *
+ * 只比结构：TS 具名 CHECK / FK 与基线内联无名约束天然同名不了（B1 评审 Minor
+ * ① 已登记），逐名比对只会制造假红；约束的行为由 T38 的 SQLSTATE 断言覆盖。
+ * auth.* 四表按规格决议 ② DDL 归 Better Auth，仓内仅 TS 镜像，故排除。
+ */
+async function verifyParity(sql) {
+  const snapshot = JSON.parse(
+    read('lib/db/migrations/meta/0000_snapshot.json')
+  );
+  const snapTables = Object.entries(snapshot.tables)
+    .filter(([key]) => key.startsWith('public.'))
+    .map(([, value]) => value)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const tables = await sql`
+    select tablename as name from pg_tables where schemaname = 'public' order by 1
+  `;
+  const columns = await sql`
+    select table_name as tbl, column_name as name
+      from information_schema.columns
+     where table_schema = 'public'
+     order by table_name, ordinal_position
+  `;
+  const primaryKeys = await sql`
+    select c.relname as tbl,
+           (select array_agg(a.attname order by x.ord)
+              from unnest(con.conkey) with ordinality x(attnum, ord)
+              join pg_attribute a
+                on a.attrelid = con.conrelid and a.attnum = x.attnum) as cols
+      from pg_constraint con
+      join pg_class c on c.oid = con.conrelid
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and con.contype = 'p'
+  `;
+  const foreignKeys = await sql`
+    select c.relname as tbl, r.relname as ref_tbl, con.confdeltype as del,
+           (select array_agg(a.attname order by x.ord)
+              from unnest(con.conkey) with ordinality x(attnum, ord)
+              join pg_attribute a
+                on a.attrelid = con.conrelid and a.attnum = x.attnum) as cols_from,
+           (select array_agg(a.attname order by x.ord)
+              from unnest(con.confkey) with ordinality x(attnum, ord)
+              join pg_attribute a
+                on a.attrelid = con.confrelid and a.attnum = x.attnum) as cols_to
+      from pg_constraint con
+      join pg_class c on c.oid = con.conrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_class r on r.oid = con.confrelid
+     where n.nspname = 'public' and con.contype = 'f'
+  `;
+
+  const groupBy = (rows) => {
+    const map = new Map();
+    for (const row of rows) {
+      if (!map.has(row.tbl)) map.set(row.tbl, []);
+      map.get(row.tbl).push(row);
+    }
+    return map;
+  };
+  const colMap = groupBy(columns);
+  const pkMap = groupBy(primaryKeys);
+  const fkMap = groupBy(foreignKeys);
+
+  const snapNames = snapTables.map((t) => t.name).sort();
+  const dbNames = tables.map((t) => t.name).sort();
+  check(
+    sameSet(snapNames, dbNames),
+    'T39 parity 表集合',
+    `${snapNames.length} 张 public 表 · TS-only: ${snapNames.filter((n) => !dbNames.includes(n))} · DDL-only: ${dbNames.filter((n) => !snapNames.includes(n))}`
+  );
+
+  let badTables = 0;
+  for (const t of snapTables) {
+    const problems = [];
+
+    const snapCols = Object.keys(t.columns).sort();
+    const dbCols = (colMap.get(t.name) ?? []).map((c) => c.name).sort();
+    if (!sameSet(snapCols, dbCols)) {
+      problems.push(
+        `列 TS-only=[${snapCols.filter((c) => !dbCols.includes(c))}] DDL-only=[${dbCols.filter((c) => !snapCols.includes(c))}]`
+      );
+    }
+
+    const snapPk = [
+      ...Object.values(t.columns)
+        .filter((c) => c.primaryKey)
+        .map((c) => c.name),
+      ...Object.values(t.compositePrimaryKeys ?? {}).flatMap(
+        (pk) => pk.columns ?? []
+      ),
+    ].sort();
+    const dbPk = [
+      ...new Set((pkMap.get(t.name) ?? []).flatMap((r) => r.cols ?? [])),
+    ].sort();
+    if (!sameSet(snapPk, dbPk)) {
+      problems.push(`主键 TS=[${snapPk}] DDL=[${dbPk}]`);
+    }
+
+    const snapFk = Object.values(t.foreignKeys ?? {})
+      .map((fk) =>
+        fkKey({
+          tableTo: fk.tableTo,
+          columnsFrom: fk.columnsFrom,
+          columnsTo: fk.columnsTo,
+          onDelete: fk.onDelete,
+        })
+      )
+      .sort();
+    const dbFk = (fkMap.get(t.name) ?? [])
+      .map((r) =>
+        fkKey({
+          tableTo: r.ref_tbl,
+          columnsFrom: r.cols_from,
+          columnsTo: r.cols_to,
+          onDelete: DELETE_ACTION[r.del] ?? r.del,
+        })
+      )
+      .sort();
+    if (!sameSet(snapFk, dbFk)) {
+      problems.push(
+        `外键 TS-only=[${snapFk.filter((k) => !dbFk.includes(k))}] DDL-only=[${dbFk.filter((k) => !snapFk.includes(k))}]`
+      );
+    }
+
+    if (problems.length > 0) {
+      badTables += 1;
+      fail(`T39 parity ${t.name}`, problems.join(' | '));
+    }
+  }
+  check(
+    badTables === 0,
+    'T39 parity 逐表结构',
+    `${snapTables.length} 张表的列 / 主键 / 外键全部一致`
   );
 }
 
@@ -350,6 +571,9 @@ async function main() {
     }
     if (wantAssertions) {
       await verifyAssertions(sql);
+    }
+    if (wantParity) {
+      await verifyParity(sql);
     }
     if (wantSecurity) {
       await verifySecurity(sql);
