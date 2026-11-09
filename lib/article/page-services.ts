@@ -9,10 +9,10 @@ import {
 import type { ArticleContent, ArticlePage } from '@/lib/article/doc';
 import {
   createEmptyPageDoc,
-  derivePlainText,
   isReferenced,
   newArticlePageId,
   parseArticleContent,
+  serializeArticleContent,
 } from '@/lib/article/doc';
 import {
   type ArticleResult,
@@ -50,7 +50,7 @@ export async function saveArticlePageInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       const index = current.pages.findIndex((page) => page.id === pageId);
       if (index < 0) {
         // 页已被删除：拒绝整次提交，不凭空造页、不动其他页（FR-021）。
@@ -84,8 +84,7 @@ export async function saveArticlePageInTransaction(params: {
       await tx
         .update(articles)
         .set({
-          content,
-          plainText: derivePlainText(content),
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
 
@@ -117,7 +116,7 @@ export async function addArticlePageInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       if (current.pages.length >= MAX_PAGES_PER_ARTICLE) {
         return { ok: false, reason: 'max_pages' } as const;
       }
@@ -134,8 +133,7 @@ export async function addArticlePageInTransaction(params: {
       await tx
         .update(articles)
         .set({
-          content,
-          plainText: derivePlainText(content),
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
 
@@ -169,7 +167,7 @@ export async function deleteArticlePageInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       const removed = current.pages.find((page) => page.id === pageId);
       if (!removed) {
         return { ok: false, reason: 'page_not_found' } as const;
@@ -187,8 +185,7 @@ export async function deleteArticlePageInTransaction(params: {
       await tx
         .update(articles)
         .set({
-          content,
-          plainText: derivePlainText(content),
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
 
@@ -222,7 +219,7 @@ export async function reorderArticlePagesInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       const byId = new Map(current.pages.map((page) => [page.id, page]));
       const isSameSet =
         pageIds.length === byId.size &&
@@ -242,8 +239,7 @@ export async function reorderArticlePagesInTransaction(params: {
       await tx
         .update(articles)
         .set({
-          plainText: derivePlainText(content),
-          content,
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
 

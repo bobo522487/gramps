@@ -12,7 +12,7 @@ import {
 } from '../schema';
 
 /**
- * 谱文读取层。页数与图片数都从 `article.content`
+ * 谱文读取层。页数与图片数都从 `article.body`
  * 的分页文档包现算——不占列、不会有第二份真相。
  * 所有查询都走 `withOrg` 并同时带 `orgId`，外组织一律空结果而不是报错。
  *
@@ -26,7 +26,6 @@ export type ArticleSummary = {
   title: string;
   folderId: string | null;
   pageCount: number;
-  createdBy: string;
   createdAt: Date;
 };
 
@@ -54,14 +53,14 @@ export type FolderDeletePreview = {
 
 /** 旧的单文档形状没有 `pages`，兜底显示 1 页，与 `parseArticleContent` 一致。 */
 const pageCountSql = sql<number>`case
-  when jsonb_typeof(${articles.content} -> 'pages') = 'array'
-  then jsonb_array_length(${articles.content} -> 'pages')
+  when jsonb_typeof(((${articles.body})::jsonb -> 'pages')) = 'array'
+  then jsonb_array_length((${articles.body})::jsonb -> 'pages')
   else 1
 end`;
 
 const imageCountSql = sql<number>`coalesce(jsonb_array_length(
   jsonb_path_query_array(
-    ${articles.content},
+    (${articles.body})::jsonb,
     '$.pages[*].doc.content[*] ? (@.type == "articleImage")'
   )
 ), 0)`;
@@ -77,7 +76,6 @@ export async function listArticles(
         id: articles.id,
         title: articles.title,
         folderId: articles.folderId,
-        createdBy: articles.createdBy,
         createdAt: articles.createdAt,
         pageCount: pageCountSql,
       })

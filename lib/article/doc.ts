@@ -1,9 +1,11 @@
 /**
- * 谱文分页文档的唯一实现处（ADR 0010：`plain_text` 只能由这里派生）。
+ * 谱文分页文档的唯一实现处（ADR 0010：纯文本摘要只能由这里派生）。
  *
- * `article.content` 的形状是 `{ schemaVersion: 1, pages: [{ id, doc }] }`：
- * 一篇谱文 = 一串页，每页装一个 ProseMirror 文档。页序就是数组顺序，
- * 没有独立的 sort 列（data-model.md §2 不变量 4）。
+ * `article.body` 是分页文档包 `ArticleContent` 的**文本化序列化**
+ * （`JSON.stringify`），落库为 `text`（data-model.md §8 #5）。读取时
+ * `parseArticleContent` 把 `body` 解析回 `ArticleContent`。一篇谱文 = 一串页，
+ * 每页装一个 ProseMirror 文档。页序就是数组顺序，没有独立的 sort 列
+ * （data-model.md §2 不变量 4）。
  *
  * 这里的函数全是纯函数，不碰数据库、不碰 Next。
  */
@@ -37,7 +39,7 @@ export type ArticlePageDoc = { type: 'doc'; content: ArticleNode[] };
 /** 一页：稳定标识 + 正文文档。 */
 export type ArticlePage = { id: string; doc: ArticlePageDoc };
 
-/** `article.content` 的分页文档包。 */
+/** `article.body` 的分页文档包（序列化进 `text` 列）。 */
 export type ArticleContent = {
   schemaVersion: number;
   pages: ArticlePage[];
@@ -80,6 +82,15 @@ export function createEmptyArticleContent(): ArticleContent {
     schemaVersion: ARTICLE_SCHEMA_VERSION,
     pages: [{ id: newArticlePageId(), doc: createEmptyPageDoc() }],
   };
+}
+
+/**
+ * 把分页文档包序列化进 `article.body`（`text`）。落库前调用，读取端用
+ * `parseArticleContent` 还原。空谱文也是一段合法 JSON（非空），满足
+ * `ck_article_body` 的非空检查。
+ */
+export function serializeArticleContent(content: ArticleContent): string {
+  return JSON.stringify(content);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -211,19 +222,30 @@ function sanitizePage(value: unknown): ArticlePage | null {
 }
 
 /**
- * 把库里的 `content` 读成分页文档包。
+ * 把库里的 `body` 读成分页文档包。入参是 `article.body` 的序列化文本，也兼容
+ * 已经解析过的 `ArticleContent` 对象（页级写入逻辑会就地构造后者再读回）。
  *
  * 读取路径 MUST NOT 抛错：`article` 表若有旧形状的行（本期功能未上线，理论上
  * 为 0 行），一律兜底成「一页空文档」并记日志，让用户能正常打开、下次保存即写
  * 成新结构（data-model.md §8）。白名单外的节点在这里被丢弃。
  */
 export function parseArticleContent(value: unknown): ArticleContent {
+  // `body` 落库为 `text`：先尝试按 JSON 解析序列化文本。
+  let source = value;
+  if (typeof value === 'string') {
+    try {
+      source = JSON.parse(value) as unknown;
+    } catch {
+      source = null;
+    }
+  }
+
   if (
-    isRecord(value) &&
-    value.schemaVersion === ARTICLE_SCHEMA_VERSION &&
-    Array.isArray(value.pages)
+    isRecord(source) &&
+    source.schemaVersion === ARTICLE_SCHEMA_VERSION &&
+    Array.isArray(source.pages)
   ) {
-    const pages = value.pages
+    const pages = source.pages
       .map(sanitizePage)
       .filter((page): page is ArticlePage => page !== null);
     if (pages.length > 0) {
@@ -234,7 +256,7 @@ export function parseArticleContent(value: unknown): ArticleContent {
   const fallback = createEmptyArticleContent();
   if (value !== null && value !== undefined) {
     // 只在真的读到过时形状内容时提示，新建谱文的第一次解析不刷屏。
-    console.warn('[article] content 不是分页文档包，已兜底为一页空文档', {
+    console.warn('[article] body 不是分页文档包，已兜底为一页空文档', {
       shape: typeof value,
     });
   }
@@ -284,7 +306,7 @@ export function pagePlainText(doc: ArticlePageDoc): string {
   return collectBlockTexts(doc).join('\n\n');
 }
 
-/** 派生 `article.plain_text`：按页序收集文本，块与页之间统一以空行分隔（唯一允许写该列的地方，ADR 0010）。 */
+/** 派生 `article` 纯文本摘要：按页序收集文本，块与页之间统一以空行分隔（ADR 0010：纯文本只能由这里派生，不再落库）。 */
 export function derivePlainText(content: ArticleContent): string {
   return content.pages.map((page) => pagePlainText(page.doc)).join('\n\n');
 }

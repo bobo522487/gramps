@@ -22,6 +22,11 @@ import {
   projects,
 } from '@/lib/db/schema';
 import type { PersonSex } from '@/lib/genealogy/constants';
+import {
+  type ArticleContent,
+  createEmptyArticleContent,
+  serializeArticleContent,
+} from '@/lib/article/doc';
 import { generatePublicId } from '@/lib/ids';
 import { getTestDb } from './db';
 
@@ -431,11 +436,11 @@ export async function createBook(params: {
 export async function createArticle(params: {
   orgId: string;
   projectId: string;
-  createdBy: string;
+  /** 历史参数：目标态 `article` 不再有 `created_by` 列，接受但忽略。 */
+  createdBy?: string;
   title?: string;
   folderId?: string | null;
-  content?: Record<string, unknown>;
-  plainText?: string;
+  content?: ArticleContent;
 }) {
   const title = params.title ?? '测试谱文';
   const [article] = await getTestDb()
@@ -444,10 +449,8 @@ export async function createArticle(params: {
       orgId: params.orgId,
       projectId: params.projectId,
       folderId: params.folderId ?? null,
-      createdBy: params.createdBy,
       title,
-      content: params.content ?? { type: 'doc', content: [] },
-      plainText: params.plainText ?? title,
+      body: serializeArticleContent(params.content ?? createEmptyArticleContent()),
     })
     .returning();
   return article;

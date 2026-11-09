@@ -6,7 +6,7 @@
  * 错误文案口径见 `docs/contracts/README.md`（单一事实来源）。
  */
 
-/** `article.content` 的分页文档包版本。 */
+/** `article.body` 的分页文档包版本（序列化进 `text` 列）。 */
 export const ARTICLE_SCHEMA_VERSION = 1;
 
 /** 一篇谱文最多多少页（FR-021）。 */

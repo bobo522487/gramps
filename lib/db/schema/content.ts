@@ -14,7 +14,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { lineages } from './lineage';
-import { projects } from './project';
+import { folders, projects } from './project';
+import { persons } from './person';
 import { scopedUuid, timestamptz, uuidPk } from './shared';
 
 export const articles = pgTable(
@@ -25,16 +26,20 @@ export const articles = pgTable(
     projectId: uuid('project_id').notNull(),
     folderId: uuid('folder_id'),
     title: text('title').notNull(),
-    kind: text('kind'),
-    content: jsonb('content').$type<Record<string, unknown>>().notNull(),
-    plainText: text('plain_text'),
+    kind: text('kind').notNull().default('other').$type<ArticleKind>(),
+    // `body` 是分页文档包（ArticleContent）的**文本化序列化**：取代旧的
+    // `content` jsonb + `plain_text`。`plain_text` 不再落库，读取时由
+    // `pagePlainText` / `derivePlainText` 现算（ADR 0010）。NOT NULL + 非空
+    // 检查保证空谱文也是一段合法 JSON，而不是空串（data-model.md §8 #5）。
+    body: text('body').notNull(),
+    authorText: text('author_text'),
+    dateText: text('date_text'),
+    subjectPersonId: uuid('subject_person_id'),
+    lineageId: uuid('lineage_id'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
   },
   (t) => [
     // Target state (appendix A.5): composite key, no soft delete, no updated_at.
-    // `uk_article_organization_id` stays until `book_catalog` is rewritten in
-    // B3 / T25 — that FK still resolves against `(organization_id, id)`.
     primaryKey({ columns: [t.projectId, t.id] }),
     foreignKey({
       columns: [t.orgId, t.projectId],
@@ -43,10 +48,41 @@ export const articles = pgTable(
       // 名字对不上时那个分支永不命中，删项目会直接 500。
       name: 'article_scope_fk',
     }).onDelete('restrict'),
-    unique('uk_article_organization_id').on(t.orgId, t.id),
-    index('idx_article_project').on(t.orgId, t.projectId),
+    foreignKey({
+      columns: [t.projectId, t.folderId],
+      foreignColumns: [folders.projectId, folders.id],
+      name: 'article_folder_fk',
+    }).onDelete('set null'),
+    foreignKey({
+      columns: [t.projectId, t.subjectPersonId],
+      foreignColumns: [persons.projectId, persons.id],
+      name: 'article_person_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.projectId, t.lineageId],
+      foreignColumns: [lineages.projectId, lineages.id],
+      name: 'article_lineage_fk',
+    }).onDelete('restrict'),
+    index('article_folder_idx').on(t.projectId, t.folderId),
+    index('article_person_idx').on(t.projectId, t.subjectPersonId),
+    index('article_lineage_idx').on(t.projectId, t.lineageId),
+    check(
+      'ck_article_kind',
+      sql`${t.kind} in ('preface','biography','epitaph','rules','research','verse','other')`
+    ),
+    check('ck_article_body', sql`btrim(${t.body}) <> ''`),
   ]
 );
+
+/** `article.kind` 的合法值域（附录 A.5 `ck_article_kind`）。 */
+export type ArticleKind =
+  | 'preface'
+  | 'biography'
+  | 'epitaph'
+  | 'rules'
+  | 'research'
+  | 'verse'
+  | 'other';
 
 export const books = pgTable(
   'book',

@@ -1,6 +1,10 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import {
+  type ArticleContent,
+  serializeArticleContent,
+} from '@/lib/article/doc';
+import {
   countArticlesByFolder,
   getArticle,
   getArticleDeletePreview,
@@ -288,13 +292,16 @@ describe('article queries', () => {
     return { user, org, project };
   }
 
-  function articleDoc(pageCount: number, imagesPerPage: number[] = []) {
+  function articleDoc(
+    pageCount: number,
+    imagesPerPage: number[] = []
+  ): ArticleContent {
     return {
       schemaVersion: 1,
       pages: Array.from({ length: pageCount }, (_, index) => ({
         id: `page-${index}`,
         doc: {
-          type: 'doc',
+          type: 'doc' as const,
           content: [
             {
               type: 'paragraph',
@@ -323,7 +330,8 @@ describe('article queries', () => {
       projectId: project.id,
       createdBy: user.id,
       title: '旧数据',
-      content: { type: 'doc', content: [] },
+      // 旧的单文档形状（无 schemaVersion/pages），用于验证页数兜底为 1。
+      content: { type: 'doc', content: [] } as unknown as ArticleContent,
     });
     const threePages = await createArticle({
       orgId: org.id,
@@ -470,7 +478,7 @@ describe('article queries', () => {
     const loaded = await getArticle(user.id, org.id, article.id);
 
     expect(loaded?.title).toBe(article.title);
-    expect(loaded?.content).toEqual(content);
+    expect(loaded?.body).toBe(serializeArticleContent(content));
     expect(await getArticle(user.id, org.id, crypto.randomUUID())).toBeNull();
   });
 

@@ -14,7 +14,12 @@ import {
   updateArticleTitleAction,
 } from '@/lib/article/actions';
 import { ARTICLE_ERRORS } from '@/lib/article/constants';
-import { parseArticleContent } from '@/lib/article/doc';
+import {
+  type ArticleNode,
+  type ArticlePageDoc,
+  parseArticleContent,
+  serializeArticleContent,
+} from '@/lib/article/doc';
 import { fsMediaStore } from '@/lib/article/media/fs-store';
 import { PERMISSION_DENIED_MESSAGES } from '@/lib/auth/permissions';
 import { resetRateLimitStore } from '@/lib/auth/rate-limit';
@@ -105,8 +110,7 @@ function contentOf(...pages: { id: string; text: string }[]) {
 async function readContent(articleId: string) {
   const [row] = await getTestDb()
     .select({
-      content: articles.content,
-      plainText: articles.plainText,
+      body: articles.body,
       title: articles.title,
       folderId: articles.folderId,
     })
@@ -424,13 +428,13 @@ describe('saveArticlePageAction', () => {
       .values({
         orgId: fixture.orgId,
         projectId: fixture.projectId,
-        createdBy: fixture.editorId,
         title: '两页谱文',
-        content: contentOf(
-          { id: '11111111-1111-4111-8111-111111111111', text: '第一页原文' },
-          { id: '22222222-2222-4222-8222-222222222222', text: '第二页原文' }
+        body: serializeArticleContent(
+          contentOf(
+            { id: '11111111-1111-4111-8111-111111111111', text: '第一页原文' },
+            { id: '22222222-2222-4222-8222-222222222222', text: '第二页原文' }
+          )
         ),
-        plainText: '第一页原文',
       })
       .returning({ id: articles.id });
     return row.id;
@@ -509,9 +513,7 @@ describe('saveArticlePageAction', () => {
     expect(saved?.savedAt).toMatch(/Z$/);
     expect(saved?.page?.id).toBe('11111111-1111-4111-8111-111111111111');
 
-    const content = (await readContent(articleId))?.content as {
-      pages: { id: string; doc: unknown }[];
-    };
+    const content = parseArticleContent((await readContent(articleId))?.body);
     expect(content.pages).toHaveLength(2);
     expect(JSON.stringify(content.pages[0])).toContain('改过的第一页');
     expect(JSON.stringify(content.pages[1])).toContain('第二页原文');
@@ -607,24 +609,9 @@ describe('saveArticlePageAction', () => {
     });
 
     expect(result).toMatchObject({ success: '已保存' });
-    const stored = parseArticleContent((await readContent(articleId))?.content);
+    const stored = parseArticleContent((await readContent(articleId))?.body);
     const page = stored.pages.find((p) => p.id === pageId);
     expect(page?.doc).toEqual(doc);
-  });
-
-  it('plain_text 由 content 派生并同步更新（FR-038）', async () => {
-    const articleId = await articleWithTwoPages();
-
-    await saveArticlePageAction({
-      orgId: fixture.orgId,
-      articleId,
-      pageId: '22222222-2222-4222-8222-222222222222',
-      doc: paragraphDoc('改过的第二页'),
-    });
-
-    expect((await readContent(articleId))?.plainText).toBe(
-      '第一页原文\n\n改过的第二页'
-    );
   });
 
   it('提交服务端已不存在的页 → 拒绝整次提交且不动内容（FR-021）', async () => {
@@ -639,9 +626,8 @@ describe('saveArticlePageAction', () => {
 
     expect(result).toEqual({ error: ARTICLE_ERRORS.page_not_found });
     const row = await readContent(articleId);
-    const pages = (row?.content as { pages?: unknown[] } | undefined)?.pages;
+    const pages = parseArticleContent(row?.body).pages;
     expect(pages).toHaveLength(2);
-    expect(row?.plainText).toBe('第一页原文');
   });
 
   it('白名单外的节点被拒绝，不落库', async () => {
@@ -669,7 +655,7 @@ describe('saveArticlePageAction', () => {
 
     expect(result).toMatchObject({ error: expect.any(String) });
     const row = await readContent(articleId);
-    expect(JSON.stringify(row?.content ?? '')).not.toContain('table');
+    expect(row?.body ?? '').not.toContain('table');
   });
 
   it('图片 pathname 属于别家谱文时拒绝（组织隔离）', async () => {
@@ -713,7 +699,7 @@ describe('saveArticlePageAction', () => {
     });
 
     expect(result).toMatchObject({ success: '已保存' });
-    const stored = parseArticleContent((await readContent(articleId))?.content);
+    const stored = parseArticleContent((await readContent(articleId))?.body);
     expect(stored.pages[0]?.doc.content?.[1]).toMatchObject({
       type: 'articleImage',
       attrs: { pathname, width: 'medium' },
@@ -741,8 +727,7 @@ describe('saveArticlePageAction', () => {
 
     expect(result).toMatchObject({ error: ARTICLE_ERRORS.too_many_images });
     const after = await readContent(articleId);
-    expect(after?.content).toEqual(before?.content);
-    expect(after?.plainText).toBe(before?.plainText);
+    expect(after?.body).toEqual(before?.body);
   });
 
   it('查看者保存按不存在处理，内容不变', async () => {
@@ -760,8 +745,8 @@ describe('saveArticlePageAction', () => {
       error: PERMISSION_DENIED_MESSAGES['article.write'],
     });
     const row = await readContent(articleId);
-    expect(JSON.stringify(row?.content ?? '')).toContain('第一页原文');
-    expect(JSON.stringify(row?.content ?? '')).not.toContain('查看者写不进去');
+    expect(row?.body ?? '').toContain('第一页原文');
+    expect(row?.body ?? '').not.toContain('查看者写不进去');
   });
 });
 
@@ -774,10 +759,8 @@ describe('字体与字号的真实序列化（FR-030）', () => {
       .values({
         orgId: fixture.orgId,
         projectId: fixture.projectId,
-        createdBy: fixture.editorId,
         title: '字体测试',
-        content: contentOf({ id: pageId, text: '原来的正文' }),
-        plainText: '原来的正文',
+        body: serializeArticleContent(contentOf({ id: pageId, text: '原来的正文' })),
       })
       .returning({ id: articles.id });
 
@@ -810,10 +793,10 @@ describe('字体与字号的真实序列化（FR-030）', () => {
 
     expect(result).toMatchObject({ success: '已保存' });
     const row = await readContent(inserted.id);
-    const stored = JSON.stringify(row?.content);
+    const stored = row?.body ?? '';
     expect(stored).toContain('KaiTi');
     expect(stored).not.toContain('null');
-    expect(row?.plainText).toBe('楷体正文');
+    expect(stored).toContain('楷体正文');
   });
 });
 
@@ -828,8 +811,8 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
     };
   }
 
-  function docWith(...nodes: Record<string, unknown>[]) {
-    return { type: 'doc' as const, content: nodes };
+  function docWith(...nodes: ArticleNode[]): ArticlePageDoc {
+    return { type: 'doc', content: nodes };
   }
 
   it('给出页数、图片数，并标记是否被谱书编目引用', async () => {
@@ -1020,11 +1003,9 @@ describe('页操作（加页 / 删页 / 重排）', () => {
       .values({
         orgId: fixture.orgId,
         projectId: fixture.projectId,
-        createdBy: fixture.editorId,
         title: '两页谱文',
-        content: contentOf(
-          { id: PAGE_A, text: '甲页' },
-          { id: PAGE_B, text: '乙页' }
+        body: serializeArticleContent(
+          contentOf({ id: PAGE_A, text: '甲页' }, { id: PAGE_B, text: '乙页' })
         ),
       })
       .returning({ id: articles.id });
@@ -1032,9 +1013,7 @@ describe('页操作（加页 / 删页 / 重排）', () => {
   }
 
   async function pageIdsOf(articleId: string) {
-    const content = (await readContent(articleId))?.content as {
-      pages: { id: string }[];
-    };
+    const content = parseArticleContent((await readContent(articleId))?.body);
     return content.pages.map((page) => page.id);
   }
 
@@ -1065,9 +1044,8 @@ describe('页操作（加页 / 删页 / 重排）', () => {
       .values({
         orgId: fixture.orgId,
         projectId: fixture.projectId,
-        createdBy: fixture.editorId,
         title: '满页谱文',
-        content: contentOf(...full),
+        body: serializeArticleContent(contentOf(...full)),
       })
       .returning({ id: articles.id });
 
@@ -1084,9 +1062,8 @@ describe('页操作（加页 / 删页 / 重排）', () => {
       .values({
         orgId: fixture.orgId,
         projectId: fixture.projectId,
-        createdBy: fixture.editorId,
         title: '单页谱文',
-        content: contentOf({ id: PAGE_A, text: '唯一一页' }),
+        body: serializeArticleContent(contentOf({ id: PAGE_A, text: '唯一一页' })),
       })
       .returning({ id: articles.id });
 
@@ -1114,7 +1091,6 @@ describe('页操作（加页 / 删页 / 重排）', () => {
       (result as { data?: { pageOrder: string[] } }).data?.pageOrder
     ).toEqual([PAGE_B]);
     expect(await pageIdsOf(articleId)).toEqual([PAGE_B]);
-    expect((await readContent(articleId))?.plainText).toBe('乙页');
   });
 
   it('重排集合不一致（多了未知页）整次拒绝且顺序不变（FR-023）', async () => {
@@ -1130,7 +1106,7 @@ describe('页操作（加页 / 删页 / 重排）', () => {
     expect(await pageIdsOf(articleId)).toEqual([PAGE_A, PAGE_B]);
   });
 
-  it('重排后页序真的落库，plain_text 跟着新顺序派生（FR-023、FR-038）', async () => {
+  it('重排后页序真的落库（FR-023）', async () => {
     const articleId = await twoPageArticle();
 
     const result = await reorderArticlePagesAction({
@@ -1141,7 +1117,6 @@ describe('页操作（加页 / 删页 / 重排）', () => {
 
     expect(result).toMatchObject({ success: '页序已保存' });
     expect(await pageIdsOf(articleId)).toEqual([PAGE_B, PAGE_A]);
-    expect((await readContent(articleId))?.plainText).toBe('乙页\n\n甲页');
   });
 
   it('viewer 不能加页，editor 可以（FR-033）', async () => {

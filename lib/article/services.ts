@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import {
   createEmptyArticleContent,
   parseArticleContent,
+  serializeArticleContent,
 } from '@/lib/article/doc';
 import {
   type ArticleResult,
@@ -61,10 +62,7 @@ export async function createArticleInTransaction(params: {
           projectId,
           folderId,
           title,
-          kind: null,
-          content,
-          plainText: '',
-          createdBy: userId,
+          body: serializeArticleContent(content),
         })
         .returning({ id: articles.id });
 
@@ -186,7 +184,7 @@ export async function deleteArticleInTransaction(params: {
 
       return {
         ok: true as const,
-        pathnames: imagePathsOf(parseArticleContent(article.content)),
+        pathnames: imagePathsOf(parseArticleContent(article.body)),
       };
     }
   );

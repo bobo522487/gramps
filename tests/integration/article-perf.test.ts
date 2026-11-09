@@ -163,9 +163,7 @@ describe('谱文性能夹具（SC-003 / SC-010）', () => {
     // 页标识由服务端分配（FR-021）：先补到 20 页，再逐页写入正文与图片。
     const first = await getArticle(fixture.userId, fixture.orgId, articleId);
     if (!first) throw new Error('建篇后读不到谱文');
-    const pageIds = parseArticleContent(first.content).pages.map(
-      (page) => page.id
-    );
+    const pageIds = parseArticleContent(first.body).pages.map((page) => page.id);
     const addStart = performance.now();
     while (pageIds.length < 20) {
       const added = await addArticlePageAction({
@@ -192,9 +190,9 @@ describe('谱文性能夹具（SC-003 / SC-010）', () => {
 
     const stored = await getArticle(fixture.userId, fixture.orgId, articleId);
     if (!stored) throw new Error('保存后读不到谱文');
-    const storedContent = parseArticleContent(stored.content);
+    const storedContent = parseArticleContent(stored.body);
     expect(storedContent.pages).toHaveLength(20);
-    expect(stored.plainText).toContain('第 20 页正文');
+    expect(stored.body).toContain('第 20 页正文');
     expect(countImages(storedContent)).toBe(40);
 
     console.info(
@@ -226,7 +224,6 @@ describe('谱文性能夹具（SC-003 / SC-010）', () => {
             },
           ],
         },
-        plainText: `第 ${index} 篇正文。`,
       });
     }
     const seedMs = Date.now() - start;

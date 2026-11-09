@@ -238,7 +238,7 @@ export const reorderArticlePagesAction = validatedActionWithUserObject(
  * 删除确认框的预览读取（FR-004/005/006、SC-005）。
  *
  * 只读：不写库、不失效缓存。数字只有服务端算得准——页数与图片数来自
- * `article.content` 的分页文档包，引用状态要跨 `book_catalog`/`book` 的软删判断。
+ * `article.body` 的分页文档包，引用状态要跨 `book_catalog`/`book` 的软删判断。
  * 看不见（含跨组织）一律按不存在处理，不泄露存在性（FR-034）。
  */
 

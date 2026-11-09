@@ -56,7 +56,7 @@ export default async function ArticleEditorPage({
       projectRegion={project.countriesRegions ?? '中国'}
       canWrite={hasPermission(role, 'article.write')}
       canManageFolders={hasPermission(role, 'project.write')}
-      initial={parseArticleContent(article.content)}
+      initial={parseArticleContent(article.body)}
       folders={folderNodes}
       unfiledCount={counts.unfiled}
       folderOptions={folderPickerOptions(folderNodes)}
