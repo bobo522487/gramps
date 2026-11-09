@@ -74,6 +74,13 @@ jobs:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
         run: pnpm db:migrate
 
+      # 基线只管业务侧（genealogy_app）；认证侧角色与授权由这一步补齐，
+      # 与 CI 用同一个脚本，避免两套权限矩阵各写各的。
+      - name: Provision auth-side runtime roles
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: pnpm db:provision-auth-roles --apply
+
       # 迁移完立刻用同一份 journal 校验生产库，失败即红：不留下「迁移跑了一半」的静默状态。
       # 这条不信任 drizzle 的 "applied successfully" —— 2026-11-09 就是那句字面量为真、
       # 库里却什么都没建成。

@@ -77,23 +77,13 @@ jobs:
       # The split is deliberate, not transitional: auth.user / auth.session /
       # auth.account / auth.verification have no RLS (verified on PG18), while
       # every public business table does. Giving the business role auth.*
-      # access would let it read password hashes and session tokens. The
-      # integration-test helper re-applies the auth-side grants after each
-      # schema reset.
+      # access would let it read password hashes and session tokens.
+      #
+      # 2026-11-09：原先这里内联了一段 SQL，生产迁移 job 另有一份，两边容易漂。
+      # 现在统一调 scripts/provision-auth-roles.mjs（带 --apply），
+      # 与生产共用同一张权限矩阵。集成测试 helper 每次 reset 后仍会重放一遍。
       - name: Provision auth-side runtime roles
-        run: |
-          psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_service') THEN
-              CREATE ROLE auth_service NOLOGIN NOSUPERUSER NOBYPASSRLS;
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_runtime') THEN
-              CREATE ROLE auth_runtime LOGIN PASSWORD 'auth' NOSUPERUSER NOBYPASSRLS;
-            END IF;
-          END $$;
-          GRANT auth_service TO auth_runtime;
-          SQL
+        run: pnpm db:provision-auth-roles --apply
 
       - name: Unit + integration tests with coverage
         run: pnpm test:coverage

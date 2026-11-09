@@ -72,4 +72,18 @@ describe('R5 迁移 job 不再相信 drizzle 的 success 字面量', () => {
       "if: github.event_name == 'workflow_dispatch' && inputs.reset"
     );
   });
+
+  test('R6 迁移后补认证侧授权：基线只管业务侧，缺这步校验必红', () => {
+    // 基线 0000 完全不含 auth_service（grep 应为 0 命中），所以 job 必须自己补。
+    const baseline = read('lib/db/migrations/0000_target_schema.sql');
+    expect(baseline).not.toContain('auth_service');
+    const migrateAt = workflow.indexOf('pnpm db:migrate');
+    const provisionAt = workflow.indexOf(
+      'pnpm db:provision-auth-roles --apply'
+    );
+    expect(provisionAt, '缺少认证侧授权步骤').toBeGreaterThan(migrateAt);
+    // 授权步骤必须在结构校验之前，否则校验看到的是没授权过的库。
+    const verifyAt = workflow.indexOf('verify-deployment.mjs');
+    expect(verifyAt).toBeGreaterThan(provisionAt);
+  });
 });
