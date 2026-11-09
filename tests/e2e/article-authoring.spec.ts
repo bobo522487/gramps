@@ -284,6 +284,8 @@ test('multi-page: add, switch commits first, reorder persists, cannot delete las
   // 再删一次并确认。
   await deleteButton.click();
   await confirm.getByRole('button', { name: '删除' }).click();
+  // 等确认框真正卸载再操作末页按钮，避免点到上一帧仍以为有两页的状态。
+  await expect(confirm).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^第 2 页/ })).toHaveCount(0);
   // 只剩一页：给入口但拒绝执行，并说明原因（FR-022「被拒绝并提示」）。
   await strip.getByRole('button', { name: '删除第 1 页' }).click();
