@@ -180,7 +180,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 ## 7. 取舍、非目标与验证口径
 
-> **[目标]** 本节验证口径是重构验收条件，数字须在目标环境重跑刷新后才算兑现。
+> **[目标]** 本节验证口径就是重构验收条件，数字由 `pnpm verify:target-schema` 每次重测。
 
 | 取舍 | 换来了什么 / 代价 |
 | --- | --- |
@@ -193,7 +193,18 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 **非目标**（不建模，也不预留空表）：史料引用链 / 断言体系 / 异说与考据备注；库内成书内容快照、不可变版本行、版本图、回看与 diff；邀请历史流水；媒体资产与附件；地点字典与历史地名隶属；跨项目身份对齐与自动合并；行级乐观锁版本号；用户自定义触发器、定时任务、常驻对账视图。
 
-**性能口径**：整树查询的 < 100ms 只指**服务端 `EXPLAIN (ANALYZE)` 的 Execution Time**，以应用角色连接、10 万行 `node`、指定两条查询，实测 Q1 26.454 ms / Q3 42.930 ms；客户端 wall clock 187.5–215.4 ms 不在该 NFR 内。属主绕过 RLS，其计划不能作验收依据。**重构验收条件**：全量 DDL 在干净 PG18 库执行 0 ERROR、正反例逐条断言 SQLSTATE、计划形状为 `InitPlan 1 -> Result (loops=1)` + `Index Scan` + 无 Sort、伪造 `pg_temp` 提权被拦住。这些数字来自设计阶段的独立容器验收，**重构完成后必须在目标环境重跑并刷新本节**；在那之前它们不是仓库已兑现的能力。
+**性能口径**：整树查询的 < 100ms 只指**服务端 `EXPLAIN (ANALYZE)` 的 Execution Time**，以应用角色连接（`genealogy_app` + `SET LOCAL app.user_id`，真走 RLS）、10 万行 `node`，跑两条查询；客户端 wall clock（设计阶段实测 187.5–215.4 ms）不在该 NFR 内。属主连接绕过 RLS，其计划不能作验收依据。
+
+**实测（2026-11-09，PG 18.6，`verify-target-schema --explain`）**：
+
+| 查询 | 语义 | 计划形状 | Execution Time |
+| --- | --- | --- | --- |
+| Q1 | 整树：按 `project_id` + `lineage_id` 取全谱系、`order by path` | `Index Scan using node_path_unique` + `InitPlan 1` + **无 Sort** | 18.795 ms（10 万行） |
+| Q3 | 子树：同一谱系内 `path <@ prefix`、`order by path` | `Seq Scan` + `Sort` + `InitPlan 1` | 16.777 ms（1 万行，10% 选择率） |
+
+Q1 的 `Index Scan` 与「无 Sort」是**硬断言**：整树按 path 有序，索引顺序就是结果顺序，出现 Sort 说明有序扫描丢了。Q3 只硬断言 `InitPlan` 生效、`path <@` 谓词被下推、耗时 < 100 ms——10% 选择率下 planner 选 `Seq Scan` 是合理的，硬断言 `Index Scan` 只能靠关 `enable_seqscan` 凑出来，那是给验收造假；`node_path_gist` 的作用是让 `path <@` 在不带排序、选择率更低时可用，它的选中取决于数据分布，因此不作为稳定断言。数字每次运行重测，本节只是最近一次快照，不是常量。
+
+**重构验收条件**：全量 DDL 在干净 PG18 库执行 0 ERROR、正反例逐条断言 SQLSTATE、Q1 计划形状为 `InitPlan 1 -> Result (loops=1)` + `Index Scan` + 无 Sort、伪造 `pg_temp` 提权被拦住。以上全部由 `pnpm verify:target-schema` 在 CI 里执行，历史设计阶段数字（Q1 26.454 ms / Q3 42.930 ms）只作对照。
 
 ---
 
@@ -213,6 +224,6 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 | 角色授权、收录状态、制品不可变性、组织至少一名 owner、`slug` 不可变 | **无自动执行者**：靠单一写入路径契约、评审与巡检 SQL；制品不可变性由对象存储负责 |
 | 路径标签稳定、稀疏序号重排、三阶段改名 | 写入路径契约，低频维护操作，靠代码评审 |
 | 迁移已应用、库结构与代码对齐 | `.github/workflows/migrate-production.yml` + `scripts/verify-deployment.mjs`；`pnpm db:generate` 保证 TS ↔ snapshot 零漂移，`pnpm verify:target-schema --parity` 再把 snapshot（≡ TS）与**真实执行 DDL 后的 catalog** 逐表对比表集合 / 列 / 主键 / 外键（T39 后半，排除按规格决议 ② 由 Better Auth 管 DDL 的 `auth.*`）。本批据该对比发现并追平了两处真实漂移：`project.description`、`folder.seq` |
-| §7 的验证结论（重构验收） | DDL / **P1–P32 正例 + N1–N31 反例** / fail-closed / TS ↔ 基线结构对比 已有自动执行者：`.github/workflows/ci.yml` 的 `pnpm verify:target-schema`（T36–T42，自建干净库重建唯一基线后逐条执行）。正例用 DO 块做真实语义断言而非「只检查没报错」，反例逐条比对 SQLSTATE；结构性不可表达的 N20 与依赖目标环境的 P21 / P22 显式 `SKIP`。**§7 的 Q1 / Q3 EXPLAIN 数字仍无自动执行者**：须在 G1 书面确认的目标环境重跑，脚本里显式 `SKIP`，本地容器旧数字不算兑现（T40） |
+| §7 的验证结论（重构验收） | DDL / **P1–P32 正例 + N1–N31 反例** / fail-closed / TS ↔ 基线结构对比 已有自动执行者：`.github/workflows/ci.yml` 的 `pnpm verify:target-schema`（T36–T42，自建干净库重建唯一基线后逐条执行）。正例用 DO 块做真实语义断言而非「只检查没报错」，反例逐条比对 SQLSTATE；结构性不可表达的 N20 显式 `SKIP`。**§7 的 Q1 / Q3 EXPLAIN 已有自动执行者**：`--explain` 自建 10 万行压测集（独立 org / project / lineage + 10 万 person），以 `genealogy_app` + `SET LOCAL app.user_id` 真走 RLS 跑 Q1 / Q3，断言计划形状与 < 100 ms（T40，随 CI 每次重测） |
 
 重构前的自动执行者清单在 `docs/architecture.md` 的「约束要有执行者」，本文不重抄，它会随本次重构同步更新。把本文从纸面变成现实靠的是迁移 + 断言，不是再写一份文档。逐条落地过程见 `CHANGELOG.md` 的 `S8` 段落。

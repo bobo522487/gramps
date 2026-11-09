@@ -42,7 +42,7 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_use
 
 **没有 down 迁移**。目标态是一次性停服 big-bang 切换：唯一全量 SQL 基线整份执行，旧迁移与 snapshot 退役、journal 重置为 1 条。因此「三段式变更（加列 → 回填 → 加约束）」与「回滚应用版本让旧代码兼容新列」都不成立——旧代码读不了目标态表。数据层只有 Neon 分支 / PITR 恢复点，**没有应用层回滚脚本，也没有 down 迁移**；失败按 §2.1 整体恢复。
 
-**明确不承诺**：没有 RPO / RTO 承诺，恢复演练的输出须在切换日 `T50` 留档，完整缺口在 `docs/nfr.md` §5。别把目标值当成已验证能力对外说。
+**明确不承诺**：没有 RPO / RTO 承诺。`T50` 的恢复演练已在 §2.2 留档（本地 `pg_dump`/`pg_restore` 等价演练，**托管 Neon 分支 / PITR 仍未演练**），完整缺口在 `docs/nfr.md` §5。别把目标值当成已验证能力对外说。
 
 | 阶段 | 验证方式 | 执行者 |
 | --- | --- | --- |
@@ -55,7 +55,7 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_use
 
 **触发条件**：`pnpm db:migrate` 报错、应用启动后 `/api/health` 不健康、`pnpm verify:deploy` 任一 FAIL、或切换后发现数据形状不对。
 
-**前置**：切换前已按 G4 从生产 Neon 分支拉好恢复点并实际验证可恢复（`T50` 留命令输出）；没有恢复点就不允许开始切换。
+**前置**：切换前必须有一个**实际验证过可恢复**的恢复点（`T50` 留命令输出，见 §2.2）；只有备份文件、没做过恢复演练，不算恢复点。
 
 1. **立即停服**，不再发任何写请求；不要尝试 down 迁移，也不要在目标库上手工 `DROP` / `ALTER` 修补。
 2. **记录失败点**：迁移器输出、应用日志、`pnpm verify:deploy` 的 FAIL 项、UTC 时间窗。
@@ -65,6 +65,55 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_use
 6. **收尾验证**：`/api/health` 健康、`pnpm verify:deploy` 全 PASS、journal 条数为 1、`git status --short` 干净，跑关键路径 E2E，把命令输出附到切换记录。
 
 **失败即回到恢复点，不在目标库上试第二次修补**；这也是 §1.2「先备份再动手」在 big-bang 下的具体形态。
+
+### 2.2 切换演练记录（2026-11-09，T50–T52）
+
+**环境如实声明**：本轮无托管生产环境（G1：单一环境、库内无正式业务数据、明确可删），演练在**本地 PG 18.6 容器**上做，不是生产 Neon。因此 T50 用 `pg_dump` / `pg_restore` 做等价的可恢复性演练，**Neon 原生分支 / PITR 的演练仍未做**——上生产前必须补一次，别把本文当成托管侧已演练的证明。
+
+**T50（G4）备份 + 可恢复性演练**
+
+```bash
+# 1) 目标库：应用唯一基线 + 构造 1 万行抽样数据（node 父子分层插入，满足 node_parent_fk）
+psql -d gramps_target -f lib/db/migrations/0000_target_schema.sql
+# person 10000 行 / node 10000 行（根 '0001' + 9999 个子节点）
+
+# 2) 备份
+pg_dump -Fc -f /tmp/gramps_target.dump gramps_target
+# -rw-r--r-- 366139 bytes
+# sha256 2ccf407ba3b9aa5572ed2abcb21d0b1aaff9ea8ca8f37ae172e86c5e1046cd6a
+
+# 3) 恢复到全新库
+createdb gramps_restore
+pg_restore -d gramps_restore --no-owner --exit-on-error /tmp/gramps_target.dump   # exit=0
+psql -d gramps_restore -tAc "select 1"                # 1
+psql -d gramps_restore -tAc "show server_version"     # 18.6
+
+# 4) 抽样比对（源库 vs 恢复库，逐表相等）
+# organization=2  project=1  person=10000  node=10000   → SAMPLING MATCH
+# 恢复库对象：public 表 17 / RLS 策略 17 / app.* 函数 12（结构与策略一并还原）
+```
+
+**T51 切换前一次性复跑 G5**
+
+```bash
+POSTGRES_URL=<目标环境> pnpm verify:target-schema      # 96 PASS, 0 FAIL, 1 SKIP
+# SKIP 只有 N20（结构性不可表达）；T40 的 Q1 / Q3 已实跑：
+#   Q1 18.795 ms（Index Scan node_path_unique + InitPlan + 无 Sort，10 万行）
+#   Q3 16.777 ms（Seq Scan + Sort + InitPlan，1 万行 / 10% 选择率）
+```
+
+**T52 执行切换 + 切换后核对**
+
+```bash
+dropdb gramps_target && createdb gramps_target
+POSTGRES_URL_DIRECT=<目标环境> pnpm db:migrate        # migrations applied successfully
+psql -d gramps_target -tAc 'select count(*) from drizzle."__drizzle_migrations"'   # 1
+# public_tables=17  policies=17  app_fns=12  extensions=ltree,btree_gist
+# 关键约束/索引：folder_name_unique / folder_order_idx / node_parent_fk /
+#                node_path_gist / node_path_unique / project_id_global
+```
+
+**切换后仍待补**：应用侧 `pnpm verify:deploy` + `/api/health` + 关键路径 E2E 要在真实应用实例上跑（本地演练只覆盖数据层）；托管侧恢复点（Neon 分支 / PITR）上生产前补一次。
 
 ## 3. 故障处置
 
@@ -203,7 +252,7 @@ cat .env.example
 
 | 待办 | 触发条件 | 说明 |
 | --- | --- | --- |
-| 恢复演练 | 每季度一次 | 目前无 RPO / RTO 承诺；`T50` 已在切换前要求用 Neon 分支留命令输出，`S7` 会补外部探针 |
+| 恢复演练 | 每季度一次 | 无 RPO / RTO 承诺；`T50` 的本地等价演练已留档（§2.2），托管 Neon 分支 / PITR 演练上生产前补；`S7` 会补外部探针 |
 | 在目标基线注入三条 `rolconfig` 超时 | G1 目标环境书面确认后 | T34 已完成自检侧：`verify:deploy` 读 `rolconfig` 并把缺失显式报 `SKIP`，不再是假 PASS；注入三条超时属环境配置决策，待技术负责人确认 |
 | `docs:check` 检查范围同步 | **已完成（阶段 E）** | 头部四项改为按结构只约束根级 7 份 + 3 份子目录 README；ADR 正文按自己的模板不再被误报，17 份正文逐份迁入不会被挡 |
 | 删除二次确认 | 出现真实误删工单后 | 目标态无软删、无回收站 UI，不能靠运维 `UPDATE` 恢复；见 RB-1 |

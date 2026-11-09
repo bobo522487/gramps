@@ -81,16 +81,21 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     ).toBe(true);
   });
 
-  test('E-8 挂起台账：T40 / #14 / T47 / T49 显式登记，S8 不写假 delivered', () => {
+  test('E-8 收口台账：挂起项已换成收口记录，S8 为 delivered 且有实证', () => {
     const roadmap = read('docs/roadmap.md');
-    expect(roadmap).toContain('阶段 E 挂起项');
+    // 阶段 E 收口后，原来的「挂起项」表已替换为逐项收口记录。
+    expect(roadmap).not.toContain('阶段 E 挂起项');
+    expect(roadmap).toContain('阶段 E 收口记录');
     expect(roadmap).toContain('T40');
     expect(roadmap).toContain('#14');
+    // 首列精确匹配：S4 的「依赖」列也会出现 `S8`，substring 命中会取错行。
     const s8 =
-      roadmap.split('\n').find((line) => line.includes('| `S8` |')) ?? '';
+      roadmap.split('\n').find((line) => /^\|\s*`S8`\s*\|/.test(line)) ?? '';
     expect(s8, 'S8 条目行缺失').not.toBe('');
-    expect(s8).toContain('in_progress');
-    expect(s8).not.toContain('delivered');
+    expect(s8).toContain('delivered');
+    // delivered 不算嘴说：行内必须给出可复核的实证口径。
+    expect(s8).toContain('verify:target-schema');
+    expect(s8).not.toContain('in_progress');
   });
 
   test('E-9 配套文档旧语义清理，差异清单已随 T47 删除', () => {
