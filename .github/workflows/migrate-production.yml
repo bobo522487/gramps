@@ -68,6 +68,8 @@ jobs:
           echo "::warning::重建会清空 $DB 的 public / auth / app / drizzle 四个 schema。"
           pnpm db:reset-target
           pnpm db:reset-target --apply --confirm="$DB"
+          echo "== 清空后库状态 =="
+          node scripts/diagnose-drizzle-state.mjs
 
       - name: Apply migrations
         env:
@@ -80,7 +82,9 @@ jobs:
         if: failure()
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
-        run: node scripts/diagnose-migration.mjs
+        run: |
+          node scripts/diagnose-drizzle-state.mjs
+          node scripts/diagnose-migration.mjs
 
       # 基线只管业务侧（genealogy_app）；认证侧角色与授权由这一步补齐，
       # 与 CI 用同一个脚本，避免两套权限矩阵各写各的。
