@@ -126,9 +126,26 @@ describe('阶段 D / T39 迁移漂移门禁', () => {
     assertFixtureShape(fixture);
   });
 
-  test('D-6 T40：性能数字不得作为本地验收结论', () => {
+  test('D-6 T40：EXPLAIN 已实跑，Q1 硬断言索引，Q3 只记形状不造假', () => {
     const script = read('scripts/verify-target-schema.mjs');
-    expect(script).toMatch(/skip\(\s*'T40 EXPLAIN \/ Q1 \/ Q3 数字'/);
+    // T40 收口后不再是 SKIP 占位：--explain 段真建数据集、真跑 explain analyze。
+    expect(script).toContain("has('--explain')");
+    expect(script).toContain('verifyExplain');
+    expect(script).toMatch(/explain \(analyze, format text\)/);
+    expect(script).not.toMatch(/skip\(\s*'T40 EXPLAIN \/ Q1 \/ Q3 数字'/);
+
+    // 必须在应用角色下跑：属主连接绕过 RLS，其计划不作验收依据。
+    expect(script).toContain('set local role genealogy_app');
+    expect(script).toContain("set_config('app.user_id'");
+
+    // Q1 整树：走索引 + 无 Sort + < 100ms，三条都是硬断言。
+    expect(script).toMatch(/Index Scan using node_path_unique/);
+    expect(script).toMatch(/Q1 整树 10 万行 < 100ms/);
+    // Q3 只断言 InitPlan + 谓词下推 + 耗时；不许硬断言 Index Scan（10% 选择率下
+    // planner 选 Seq Scan 是合理的，硬凑开关等于造假）。
+    expect(script).not.toMatch(/Q3[^\n]*Index Scan/);
+
+    // 附录里的旧性能数字一律不得回潮。
     expect(script).not.toMatch(/26\.454|42\.930/);
   });
 
@@ -148,7 +165,12 @@ describe('阶段 D / T39 迁移漂移门禁', () => {
     const cases = [...fixture.matchAll(/^--\s*@case\s+(P\d+)/gm)].map(
       (m) => m[1]
     );
+    // T40 收口后 P21 / P22 是「性能类」场景：静态 SQL 夹具表达不了计划形状，
+    // 改由 verify-target-schema.mjs 的 --explain 段建 10 万行压测集实跑。
+    // 因此这两条允许没有 @case，但必须在上面的 D-6 里有对应的硬断言。
+    const explained = new Set(['P21', 'P22']);
     for (const id of known) {
+      if (explained.has(id)) continue;
       expect(cases, `附录 B.1 的 ${id} 没有可执行夹具`).toContain(id);
     }
     assertFixtureShape(fixture);
@@ -157,11 +179,15 @@ describe('阶段 D / T39 迁移漂移门禁', () => {
     expect((fixture.match(/\bdo \$\$/g) ?? []).length).toBeGreaterThanOrEqual(
       20
     );
-    // T40 硬前置：P21 / P22 必须显式 SKIP，附录里的旧性能数字不得写进夹具。
+    // P21 / P22 彻底退出 SKIP 占位：既不在夹具里挂 SKIP，也不偷偷留空 @case。
     const skipped = [
       ...fixture.matchAll(/^--\s*@case\s+(P\d+)\s*\n--\s*@expect\s+SKIP/gm),
     ].map((m) => m[1]);
-    expect(skipped).toEqual(expect.arrayContaining(['P21', 'P22']));
+    expect(skipped).not.toContain('P21');
+    expect(skipped).not.toContain('P22');
+    expect(cases).not.toContain('P21');
+    expect(cases).not.toContain('P22');
+    expect(fixture).toMatch(/verifyExplain\(\)/);
     expect(fixture).not.toMatch(/26\.454|42\.930/);
   });
 

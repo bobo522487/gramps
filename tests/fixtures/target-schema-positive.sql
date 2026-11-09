@@ -5,8 +5,9 @@
 -- `@expect OK` 不代表「只检查没报错」：需要验证结果的 case 都在 SQL 的 DO 块里
 -- 做真实断言，断言失败会 RAISE P0001，脚本据此判 FAIL。少数本身就是「应失败」
 -- 语义的 P 场景（P20 / P27-a / P30-b）沿用五位 SQLSTATE 期望。
--- P21 / P22 依赖目标环境的 EXPLAIN 计划形状与 Q1 / Q3 数字，属 T40 硬前置，
--- 显式 SKIP；N20 类结构性不可表达场景同样显式 SKIP，不伪装成通过。
+-- P21 / P22（Q1 整树 / Q3 子树的 EXPLAIN 计划形状与耗时）需要 10 万行压测集，
+-- 由 scripts/verify-target-schema.mjs 的 --explain 段直接实跑，不在本夹具里占位；
+-- N20 类结构性不可表达场景仍显式 SKIP，不伪装成通过。
 --
 -- UUID 对应 tests/fixtures/target-schema-seed.sql 的固定 seed；附录 B 里的
 -- 「5 行」「0010/0020」是示例数据量与示例路径，本夹具按固定 seed 断言形状，
@@ -380,13 +381,9 @@ do $$ begin
   end if;
 end $$;
 
--- @case P21
--- @expect SKIP
--- @desc EXPLAIN InitPlan / Index Scan / 无 Sort 与 Q1 / Q3 耗时数字需在 G1 书面确认的目标环境重跑（T40 硬前置；附录 B.1 的示例数字不作本地验收结论）
-
--- @case P22
--- @expect SKIP
--- @desc gist(project_id, path) 双列 Index Cond 仅在属主 + enable_seqscan=off 下成立，属 T40 目标环境 EXPLAIN 验收
+-- P21 / P22 见 scripts/verify-target-schema.mjs 的 verifyExplain()：
+-- 建 10 万行压测集后以 genealogy_app 实跑 Q1（整树）/ Q3（子树），
+-- 断言 InitPlan、计划形状与 < 100ms；SQL 夹具里没有对应的静态 case。
 
 -- @case P23
 -- @expect OK

@@ -6,8 +6,10 @@
  * 上从唯一基线重建目标态，再逐条断言 DDL / 约束 / 隔离语义。默认库名固定为
  * gramps_s8_verify，脚本会 DROP + CREATE 它——不要把它指向任何真实数据库。
  *
- * T40 的 EXPLAIN 性能数字必须在 G1 书面确认的目标环境重跑（实施计划 §6 / §9
- * 「纸面数字不算兑现」），本地容器值不作验收依据，所以 --explain 恒为 SKIP。
+ * --explain 是 T40：自建一套独立 org / project / lineage 与 10 万 person + 10 万
+ * node 的压测数据集，以 `genealogy_app` + `SET LOCAL app.user_id` 真正走 RLS，
+ * 跑 Q1（整树）/ Q3（子树）两条查询并断言计划形状与耗时。数字随每次运行重测，
+ * 文档里的数字只是最近一次实测快照，不是常量。
  *
  * --parity 是 T39 后半：把 0000_snapshot.json（drizzle-kit 从 schema TS 导出的
  * 结构化镜像，由 CI 的 db:generate 零漂移反向钉住）与本次落库的真实 catalog
@@ -31,8 +33,7 @@ const VERIFY_DB = 'gramps_s8_verify';
 const HELP = `用法: node scripts/verify-target-schema.mjs [选项]
 
 在自建干净库 ${VERIFY_DB} 上重建 S8 目标基线并验收。
-默认执行 --ddl / --assertions / --parity / --security；--explain 恒为 SKIP
-（T40 需目标环境）。
+默认执行 --ddl / --assertions / --parity / --security / --explain。
 
 选项:
   --help                 显示本帮助
@@ -41,7 +42,7 @@ const HELP = `用法: node scripts/verify-target-schema.mjs [选项]
   --assertions           T38：逐条执行正例 / 反例并比对期望结果
   --parity               T39 后半：schema TS ↔ SQL 基线落库 catalog 直接对比
   --security             T41：fail-closed 三项断言
-  --explain              T40：显式 SKIP（需目标环境，不沿用容器旧数字）
+  --explain              T40：建 10 万行压测集，实测 Q1 / Q3 的计划形状与耗时
   --url <postgres-url>   superuser 连接串（默认 VERIFY_POSTGRES_URL / POSTGRES_URL）
   --keep                 结束时不删除 ${VERIFY_DB}（默认删除）
 
@@ -50,10 +51,12 @@ const HELP = `用法: node scripts/verify-target-schema.mjs [选项]
 T38 夹具用 -- @case / @expect / @desc 三行标注：
   @expect <5 位 SQLSTATE>  该语句必须报指定 SQLSTATE
   @expect OK               必须无错返回；语义断言写在 SQL 的 DO 块里
-  @expect SKIP             结构性不可表达或依赖 T40 目标环境，显式登记不计 PASS
+  @expect SKIP             结构性不可表达，显式登记不计 PASS
 
-覆盖范围（诚实声明）：P1–P32 / N1–N31 已全量编号落地，其中需目标环境
-EXPLAIN 数字的 P21 / P22 与结构性不可表达的 N20 显式 SKIP；T40 恒 SKIP。`;
+覆盖范围（诚实声明）：P1–P32 / N1–N31 已全量编号落地，P21 / P22 由 --explain
+实跑（整树 / 子树两条查询）；结构性不可表达的 N20 显式 SKIP。
+Q3 的计划形状随选择率变化，本脚本只硬断言「InitPlan 生效 + path 谓词被下推 +
+< 100ms」，不为了凑出 Index Scan 去改 planner 开关。`;
 
 function argValue(name) {
   const index = args.indexOf(name);
@@ -66,6 +69,7 @@ const wantDdl = runAll || has('--ddl');
 const wantAssertions = runAll || has('--assertions');
 const wantParity = runAll || has('--parity');
 const wantSecurity = runAll || has('--security');
+const wantExplain = runAll || has('--explain');
 
 let passed = 0;
 let failed = 0;
@@ -530,6 +534,188 @@ async function verifySecurity(sql) {
   );
 }
 
+/** T40 压测集规模：10 万 node（外加根节点，共 100001 行）。 */
+const EXPLAIN_NODES = 100_000;
+const EXPLAIN_SCOPE = {
+  org: 'aaaaaaaa-0000-4000-8000-000000000001',
+  project: 'aaaaaaaa-0000-4000-8000-000000000002',
+  lineage: 'aaaaaaaa-0000-4000-8000-000000000003',
+  user: 'u-s8-explain',
+};
+
+/**
+ * T40 数据夹具：独立一套 org / project / lineage + 10 万 person + 10 万 node。
+ * 不复用 target-schema-seed.sql：那棵固定子树被 P14 删除、被 P23 计数，塞十万行
+ * 进去只会把断言变成噪声。分层插入（根 → 10 个中层 → 每层 9999 个叶）是为了满足
+ * node_parent_fk 的「父路径必须已存在」，也贴合真实谱系的形状。
+ * 注意 node_annotation_person 要求 primary 节点必须有 person，所以 person 同量。
+ */
+async function seedExplainDataset(sql) {
+  const { org, project, lineage, user } = EXPLAIN_SCOPE;
+  await sql`
+    insert into auth.user (id, email, name)
+    values (${user}, 'explain@example.com', 'T40 压测账号')
+    on conflict (id) do nothing
+  `;
+  await sql`
+    insert into organization (id, name, slug)
+    values (${org}, 'T40 压测组织', 't40-explain')
+    on conflict (id) do nothing
+  `;
+  await sql`
+    insert into organization_member (organization_id, user_id, role)
+    values (${org}, ${user}, 'owner')
+    on conflict do nothing
+  `;
+  await sql`
+    insert into project (organization_id, id, name)
+    values (${org}, ${project}, 'T40 压测项目')
+    on conflict do nothing
+  `;
+  await sql`
+    insert into lineage (organization_id, project_id, id, name)
+    values (${org}, ${project}, ${lineage}, 'T40 压测谱系')
+    on conflict do nothing
+  `;
+  await sql`
+    insert into person (organization_id, project_id, id)
+    select ${org}, ${project},
+           ('bbbbbbbb-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
+      from generate_series(1, ${EXPLAIN_NODES + 1}::int) n
+  `;
+  await sql`
+    insert into node (organization_id, project_id, lineage_id, path, person_id)
+    values (${org}, ${project}, ${lineage}, '0001',
+            ('bbbbbbbb-0000-4000-8000-' || lpad(${String(EXPLAIN_NODES + 1)}, 12, '0'))::uuid)
+  `;
+  await sql`
+    insert into node (organization_id, project_id, lineage_id, path, person_id)
+    select ${org}, ${project}, ${lineage},
+           ('0001.' || lpad(m::text, 4, '0'))::ltree,
+           ('bbbbbbbb-0000-4000-8000-' || lpad((99990 + m)::text, 12, '0'))::uuid
+      from generate_series(1, 10) m
+  `;
+  await sql`
+    insert into node (organization_id, project_id, lineage_id, path, person_id)
+    select ${org}, ${project}, ${lineage},
+           ('0001.' || lpad((ceil(i / 9999.0))::int::text, 4, '0') || '.' ||
+            lpad((((i - 1) % 9999) + 1)::text, 4, '0'))::ltree,
+           ('bbbbbbbb-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid
+      from generate_series(1, 99990) i
+  `;
+  await sql.unsafe('analyze node');
+  await sql.unsafe('analyze person');
+}
+
+/**
+ * 以业务角色跑 EXPLAIN (ANALYZE)：`genealogy_app` + `SET LOCAL app.user_id`，
+ * 才会真的走 RLS 的 InitPlan 谓词。属主连接绕过 RLS，其计划不作验收依据。
+ */
+async function explainAsApp(sql, query) {
+  await sql.unsafe('begin');
+  try {
+    await sql.unsafe('set local role genealogy_app');
+    await sql.unsafe(
+      `select set_config('app.user_id', '${EXPLAIN_SCOPE.user}', true)`
+    );
+    const rows = await sql.unsafe(`explain (analyze, format text) ${query}`);
+    return rows.map((row) => Object.values(row)[0]).join('\n');
+  } finally {
+    await sql.unsafe('rollback');
+  }
+}
+
+function executionMs(plan) {
+  const matched = plan.match(/Execution Time: ([\d.]+) ms/);
+  return matched ? Number(matched[1]) : null;
+}
+
+/** 计划里第一个真正的计划节点（跳过 Aggregate / Sort 之类的包裹层）。 */
+function planShape(plan) {
+  // 根节点没有前导缩进（psql 的框线是渲染时补的），子节点还带 `-> ` 箭头。
+  const line = plan
+    .split('\n')
+    .find((row) =>
+      /^\s*(?:->\s*)?(Index Scan|Index Only Scan|Seq Scan|Bitmap Heap Scan)/.test(
+        row
+      )
+    );
+  if (!line) {
+    return '未见扫描节点';
+  }
+  const shape = line.trim().replace(/\s+\(cost=.*$/, '');
+  return shape.replace(/\s+\(actual.*$/, '');
+}
+
+/**
+ * T40：Q1 整树 / Q3 子树。
+ *
+ * 两条查询都要求 InitPlan 生效（RLS 谓词每次查询只算一次）且 < 100ms；
+ * Q1 额外要求 `Index Scan using node_path_unique` 且**无 Sort**——整树按 path
+ * 有序，索引顺序即结果顺序，出现 Sort 说明有序扫描丢了。
+ *
+ * Q3 只硬断言「InitPlan + path 谓词被下推 + < 100ms」：10% 选择率下 planner
+ * 合理会选择 Seq Scan + Sort，硬断言 Index Scan 只能靠关 enable_seqscan
+ * 凑出来，那是给验收造假。真实形状作为记录输出。
+ */
+async function verifyExplain(sql) {
+  await seedExplainDataset(sql);
+
+  const [total] = await sql`
+    select count(*)::int as n from node where project_id = ${EXPLAIN_SCOPE.project}
+  `;
+  check(
+    total.n >= EXPLAIN_NODES,
+    'T40 压测集规模 >= 10 万 node',
+    `${total.n} 行`
+  );
+
+  const { org, project, lineage } = EXPLAIN_SCOPE;
+  const q1 = await explainAsApp(
+    sql,
+    `select id, path from node
+      where organization_id = '${org}'
+        and project_id = '${project}'
+        and lineage_id = '${lineage}'
+      order by path`
+  );
+  const q1Ms = executionMs(q1);
+  check(q1.includes('InitPlan 1'), 'T40-P21 InitPlan 生效', planShape(q1));
+  check(
+    /Index Scan using node_path_unique/.test(q1),
+    'T40-P21 整树查询走 node_path_unique',
+    planShape(q1)
+  );
+  check(!/\bSort\b/.test(q1), 'T40-P21 整树查询无 Sort', planShape(q1));
+  check(
+    q1Ms !== null && q1Ms < 100,
+    'T40-P21 Q1 整树 10 万行 < 100ms',
+    `${q1Ms} ms`
+  );
+
+  const q3 = await explainAsApp(
+    sql,
+    `select id, path from node
+      where organization_id = '${org}'
+        and project_id = '${project}'
+        and lineage_id = '${lineage}'
+        and path <@ '0001.0003'::ltree
+      order by path`
+  );
+  const q3Ms = executionMs(q3);
+  check(q3.includes('InitPlan 1'), 'T40-P22 InitPlan 生效', planShape(q3));
+  check(
+    q3.includes("'0001.0003'::ltree"),
+    'T40-P22 子树谓词已下推',
+    planShape(q3)
+  );
+  check(
+    q3Ms !== null && q3Ms < 100,
+    'T40-P22 Q3 子树 1 万行 < 100ms',
+    `${q3Ms} ms（形状：${planShape(q3)}，仅记录）`
+  );
+}
+
 async function main() {
   if (has('--help')) {
     console.log(HELP);
@@ -578,11 +764,8 @@ async function main() {
     if (wantSecurity) {
       await verifySecurity(sql);
     }
-    if (has('--explain') || runAll) {
-      skip(
-        'T40 EXPLAIN / Q1 / Q3 数字',
-        '需在 G1 书面确认的目标环境重跑，本地容器数字不作验收依据'
-      );
+    if (wantExplain) {
+      await verifyExplain(sql);
     }
   } finally {
     await sql.end();
