@@ -11,7 +11,8 @@
 - 文档结构重构：进行中，逐文件评审后合入；合入时按实际提交改写本条。
 - **S8 目标数据模型重构（进行中，非交付声明）**：按 G0① 把 `lib/db/migrations/` 重建为唯一全量 SQL 基线（journal 1 条），事实层六表升为主数据源、`node` 退为 `ltree` 位置引用；`book_export` / `article.body` / 复合主键与全局 `project.id` 落地；拆除 Better Auth organization 插件，组织 / 成员写入收敛到 12 个 `app.*` SECURITY DEFINER 函数；业务角色统一 `genealogy_app`、认证侧保留独立 `auth_service`；新增 `pnpm verify:target-schema`（T36–T42）在干净库重建基线并跑 P1–P32 正例 / N1–N31 反例 / fail-closed / TS ↔ 基线结构 parity，已进 CI。
 - 配套文档跟改（阶段 E 第一批）：架构 / 契约 / 运维 / 产品意图 / 术语 / 阈值 / 入口文件按目标态重写，新增 ADR `0020` 并把 `0003` / `0004` / `0006` / `0018` 标 `superseded`。
-- **未兑现，不写成已交付**：§7 的 Q1 / Q3 EXPLAIN 数字须在 G1 书面确认的目标环境重跑（T40，`SKIP`）；`folder` 层级去留未拍板（差异清单 #14）；切换日 T50–T52 与 G0–G5 全绿留档尚未执行，故 `S8` 仍为 `in_progress`。详见 `docs/roadmap.md`「阶段 E 挂起项」。
+- **未兑现，不写成已交付**：§7 的 Q1 / Q3 EXPLAIN 数字须在 G1 书面确认的目标环境重跑（T40，`SKIP`）；`folder` 扁平化**决策已定、实现未开工**（差异清单 #14，独立批次）；切换日 T50–T52 与 G0–G5 全绿留档尚未执行，故 `S8` 仍为 `in_progress`。详见 `docs/roadmap.md`「阶段 E 挂起项」。
+- 阶段 E 口径复核：把 #14 从误记为「待拍板」更正为「已按附录 A 拍板扁平化、实现拆在独立批次」，同步 8 处文档与基线注释并补 `#14 独立批次影响面` 清单；`tests/s8-stage-e.test.ts` 新增 E-12 门禁防回退。
 
 <!-- 条目模板
 ## YYYY-MM-DD · 主题

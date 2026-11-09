@@ -13,7 +13,7 @@ function read(path: string): string {
  * 不 import 待测模块：文档被改回旧语义时 CI 必须变红。
  *
  * T47 删差异清单 / T49 标 delivered 有硬闸门（T40 目标环境数字、folder
- * 层级拍板、G0–G5 与切换日），本批不假交付，改为断言「挂起台账显式登记」。
+ * 扁平化独立批次、G0–G5 与切换日），本批不假交付，改为断言「挂起台账显式登记」。
  */
 describe('S8 阶段 E：文档跟改与 ADR', () => {
   test('E-1 T43：架构文档按目标态重写，旧角色 / 插件 / 软删语义 0 命中', () => {
@@ -117,5 +117,48 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     expect(script).toContain('isSubdirReadme');
     expect(script).toMatch(/if \(!isRootDoc && !isSubdirReadme\) continue;/);
     expect(script).toContain('ADR 正文');
+  });
+
+  test('E-12 #14 口径复核：决策已定按附录 A.2 扁平化，不是「待拍板」', () => {
+    const dm = read('docs/data-model.md');
+    // 方向依据是目标态规格里的书面决议 + 附录 A.2 的目标 DDL，不是待开拍板会。
+    // 钉住 §8 的书面决议原文，不用裸子串——顶部说明也会复述这句话，
+    // 只断言裸子串时把决议块删掉仍能蒙混过关。
+    expect(dm).toContain('> **#14 已拍板：按附录 A 扁平化。**');
+    expect(dm).toContain('拆分落在独立批次');
+
+    // 阶段 E 第一批把「决策已定、实现未开工」误写成「从未拍板」，并扩散到
+    // 台账 / ADR / 架构 / CHANGELOG / 基线注释。以下旧文字一律不许回潮。
+    const stale = [
+      /从未拍板/,
+      /去留未拍板/,
+      /层级去留待产品 \+ 技术负责人拍板/,
+      /#14 拍板(并迁出|迁出前)/,
+      /必须在 B3 开工前拍板/,
+      /待拍板的规格差异/,
+      /层级去留已升级为独立规格问题/,
+    ];
+    for (const file of [
+      'docs/data-model.md',
+      'docs/roadmap.md',
+      'docs/architecture.md',
+      'docs/adr/README.md',
+      'docs/adr/0020-目标数据模型整体重建.md',
+      'CHANGELOG.md',
+      'lib/db/migrations/0000_target_schema.sql',
+    ]) {
+      const text = read(file);
+      for (const pattern of stale) {
+        expect(text, `${file} 仍有 #14 错误口径 ${pattern}`).not.toMatch(
+          pattern
+        );
+      }
+    }
+
+    const roadmap = read('docs/roadmap.md');
+    expect(roadmap).toContain('决策已定、实现未开工');
+    expect(roadmap).toContain('#14 独立批次影响面');
+    // ADR 待办表不再把「层级去留拍板」列为待办。
+    expect(read('docs/adr/README.md')).not.toContain('`folder` 层级去留拍板');
   });
 });

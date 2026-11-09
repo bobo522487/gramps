@@ -109,9 +109,22 @@
 | 挂起项 | 事实 | 解除条件 |
 | --- | --- | --- |
 | `T40` / §7 数字 | Q1 / Q3 的 `EXPLAIN` 计划形状与耗时须在 G1 书面确认的目标环境重跑；`pnpm verify:target-schema` 对 P21 / P22 恒显式 `SKIP`，本地 Docker PG18 的旧数字不作验收依据 | 目标环境实测并留命令输出，刷新数据模型文档 §7 |
-| `#14` folder 层级 | 附录 A.2 的扁平单层与实现多级分类的取舍**从未拍板**：唯一 SQL 基线与 TS 都按「扁平 + 实现层级列」超集建表，基线注释仍要求「B3 开工前拍板」，而 B3 已完成。它不在 `S8` 的范围 in 里，属被跳过的独立规格问题 | 产品 + 技术负责人拍板层级去留，单独批次改 DDL / TS / 查询与验收夹具 |
-| `T47` 删差异清单 | 数据模型文档 §8 的 #1–#13 实质已消除（#6 / #7 / #10 的表格文字是 B1 / B2a 时期的过时快照，本批已更正），但 #14 仍被该节登记为待改对象；整节删除会让唯一遗留项失去归属地 | #14 拍板并迁出后整节删除；§9 编号不重排，避免所有引用断链 |
+| `#14` folder 层级 | **决策已定、实现未开工**：`docs/data-model.md` §8 已书面拍板「按附录 A 扁平化」，附录 A.2 目标 DDL 只有 6 列；唯一 SQL 基线与 TS 仍按「扁平 + 实现层级列」超集建表以免运行期 42703，基线里要求「B3 前拍板」的注释是 B2a 时期的过时残留、本批已更正。它不在 `S8` 的范围 in 里，扁平化拆在独立批次，被跳过的是**实现**而非待拍板问题 | 开 `#14` 独立批次实现扁平化（DDL / TS / 三个服务 / 查询 / 夹具），把 #14 从本节迁出 |
+| `T47` 删差异清单 | 数据模型文档 §8 的 #1–#13 实质已消除（#6 / #7 / #10 的表格文字是 B1 / B2a 时期的过时快照，本批已更正），但 #14 仍被该节登记为待改对象；整节删除会让唯一遗留项失去归属地 | #14 独立批次实现并迁出后整节删除；§9 编号不重排，避免所有引用断链 |
 | `T49` / `S8` 状态 | 完成定义要求 G0–G5 全绿 + 切换日 T50–T52 执行完毕并留档 + §7 数字刷新；当前 G5 的 EXPLAIN 未兑现、切换日未执行，故本表 `S8` 继续记 `in_progress` | T50–T52 执行完毕并留档后再改 `delivered` |
+
+#### #14 独立批次影响面（决策已定、实现未开工）
+
+方向以 `docs/data-model.md` §8「已拍板：按附录 A 扁平化」与附录 A.2 的目标 DDL 为准，**不需要重新拍板**；本批只更正事实口径，不动 DDL / TS / 应用代码。扁平化不在 `S8` 范围 in 里，开工前需单独排期：
+
+| 面 | 目标态（附录 A.2） | 当前超集 / 待收回 | 落点 |
+| --- | --- | --- | --- |
+| 列 | `organization_id` / `project_id` / `id` / `name` / `seq` / `created_at` 6 列 | 多出 `kind` / `parent_id` / `sort` / `created_by` | `lib/db/migrations/0000_target_schema.sql`、`lib/db/schema/project.ts` |
+| 约束 / 索引 | `folder_name_unique (project_id, name)`、`folder_order_idx (project_id, seq)` | 多出 `uk_folder_org_project_id`、`fk_folder_parent_same_project`、`idx_folder_project(kind)`、`ck_folder_kind` | 同上；收回时须同时重生成 T39 parity snapshot（`pnpm db:generate` 零漂移） |
+| 查询 | 单层按 `project_id` + `seq` 列目录 | `lib/db/queries/articles.ts` 按 `kind = 1` 过滤并按 `parent_id` 组装子树；`lib/db/queries/folders.ts` 按 `kind` 过滤、按 `sort` 排序 | 两个查询文件 + 调用它们的页面 |
+| 写入 | 单条 `insert` / `update` / `delete`，无父链 | `lib/folder/services.ts`：`loadActiveFolders(kind)`、`folderDepth` 深度上限 3、父链 BFS 叶→根硬删、`nextFolderSort(kind, parentId)`；`lib/article/mutations.ts`：`kind = 1` + `isNull(parentId)` 定位「默认分类」、创建时写 `kind` / `sort` | 两个服务 + `lib/article/*` 的 folder 入参 |
+| 待定细节 | — | `folder_name_unique (project_id, name)` 在压平撞名时怎么合并；`seq` 与 `sort` 二选一（基线两列都在）；`created_by` 是否保留 | 需在独立批次里定方案，§8 已登记 |
+| 验收夹具 | — | `tests/helpers/factories.ts`、`tests/integration/folders-lineages.test.ts`、`tests/folder-options.test.ts`、`tests/fixtures/target-schema-*.sql`、`tests/s8-stage-*.test.ts` 里对 folder 列的断言 | 与 DDL / TS 同批跟改，避免 CI 假绿 |
 
 `S4` / `S5` / `S6` 三行按 §4.3 仍是「本轮不改」，需产品 + 技术负责人确认后单独一个补丁；ID 不复用、行不删。本段是核对结论与待办台账，不是交付声明。
 
