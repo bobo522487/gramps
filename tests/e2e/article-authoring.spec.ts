@@ -258,9 +258,20 @@ test('multi-page: add, switch commits first, reorder persists, cannot delete las
   }).toPass({ timeout: 20_000 });
 
   // 拖拽重排（FR-023）：把第 2 页拖到第 1 页前面，刷新后页序保持。
+  //
+  // `dragTo` 只派发一次 HTML5 drag 序列。若 `dragstart` 落在 React 完成
+  // hydration 之前，`setDragId` 那一次就丢了，`drop` 时 dragId 仍是 null，
+  // 重排被静默跳过——DOM 顺序压根没变，后续断言只能等到超时。实测三次里
+  // 红一次（2026-11-09 main CI），所以拖拽本身要重试，不能只重试断言。
   const items = strip.getByRole('listitem');
-  await items.nth(1).dragTo(items.nth(0));
-  // 重排成功后右区顺序按服务端返回的页序立刻更新（FR-023）。
+  await expect(async () => {
+    // 每次都重新取：重排成功会重建列表节点。
+    const row = strip.getByRole('listitem');
+    await row.nth(1).dragTo(row.nth(0));
+    await expect(strip.getByRole('listitem').nth(0)).toContainText('次房支系', {
+      timeout: 2_000,
+    });
+  }).toPass({ timeout: 20_000 });
   await expect(items.nth(0)).toContainText('次房支系', { timeout: 15_000 });
   await page.reload();
   await expect(strip.getByText('第 1 页')).toBeVisible();
