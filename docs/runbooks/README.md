@@ -153,6 +153,23 @@ PR #13 合并后，main 的 `Migrate production database` job 红了一次。读
 
 **生产环境必须配置的 secret**：`APP_DB_PASSWORD`（`genealogy_app` 的口令，≥20 位、含大小写+数字+符号）、`AUTH_DB_PASSWORD`（`auth_runtime`）。缺 `APP_DB_PASSWORD` 时 workflow 第一步就报 `::error::APP_DB_PASSWORD secret is missing` 并退出，不会跑到清库那一步。
 
+**事故记录：Neon 只放行 `ALTER ROLE … PASSWORD`，属性 DDL 一律 42501（2026-11-09）**
+
+接着上一条。角色建出来之后，`alter role auth_service …` 报 `42501 permission denied to alter role`。排查走了两个弯路，记下来省下次的时间：
+
+- **`pg_has_role(…,'MEMBER')` 与 `rolcreaterole` 在 Neon 上会骗人**。诊断显示 `neondb_owner` 带 `CREATEROLE`、对三个角色都判「可」，真跑全 42501。理论权限不等于实际权限——诊断脚本因此改成在 savepoint 里**逐条真跑再回滚**，实测结论：
+  ```
+  ✗ genealogy_app 属性不可改 → 42501
+  ✗ auth_service  属性不可改 → 42501
+  ✗ auth_runtime  属性不可改 → 42501
+  ✓ genealogy_app 口令可改
+  ```
+- **PG 的角色没有「属主」概念**。第一版闸门用了 `pg_roles.rolowner`，本地一跑就是 `42703 column r.rolowner does not exist`。只有「谁创建的」，那是审计信息，不决定权限。
+
+**修法**：不猜哪句能过，改成**只改真正需要改的**——先读 `rolcanlogin` / `rolsuper` / `rolbypassrls` 与目标值比对，合规就完全不发属性 DDL。生产上这两个角色由控制面创建、属性本就正确，整段属性 DDL 自然消失，只剩一条 `ALTER ROLE … PASSWORD`。口令改不动仍然致命（应用侧用的是同一份 secret，否则全线 `28P01`）。
+
+> 判断「能不能改」不要靠 `has_role` 猜，跑 `node scripts/diagnose-drizzle-state.mjs`，看「ALTER 实测」那一段。
+
 > ⚠️ 改 `APP_DB_PASSWORD` 之后要同步更新应用侧的连接串（`APP_POSTGRES_URL` 等），两边不一致就是全线 28P01。
 
 **切换后仍待补**：应用侧 `pnpm verify:deploy` + `/api/health` + 关键路径 E2E 要在真实应用实例上跑（本地演练只覆盖数据层）；托管侧恢复点（Neon 分支 / PITR）上生产前补一次。
