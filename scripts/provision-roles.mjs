@@ -59,70 +59,81 @@ function literal(value) {
 
 const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
 
-async function roleExists(name) {
-  const [row] = await sql`select 1 as ok from pg_roles where rolname = ${name}`;
-  return Boolean(row);
+/**
+ * 读角色当前属性。
+ *
+ * 2026-11-09 生产实测的教训：Neon 对 `ALTER ROLE` 的限制**比原生 PG 严**——
+ * `pg_has_role(…,'MEMBER')` / `rolcreaterole` 全判「可」，真跑仍 42501；
+ * 但同一事务里 `ALTER ROLE … PASSWORD '…'` 却能过。
+ * 也就是说托管库只放行改口令，不放行改属性。
+ *
+ * 对策不是去猜哪句能过，而是**只改真正需要改的**：属性本来就对就别发这条
+ * 语句。生产上这两个角色是控制面建的，LOGIN / NOSUPERUSER / NOBYPASSRLS
+ * 本来就是正确配置，于是整段 ALTER 可以完全跳过。
+ */
+async function describeRole(name) {
+  const [row] = await sql`
+    select rolcanlogin, rolsuper, rolbypassrls
+    from pg_roles where rolname = ${name}
+  `;
+  return row ?? null;
+}
+
+/** 需要改的属性和目标值，空数组表示已经合规。 */
+function roleFixups(current, want) {
+  const fixes = [];
+  if (current.rolcanlogin !== want.login) {
+    fixes.push(want.login ? 'login' : 'nologin');
+  }
+  if (current.rolsuper !== false) fixes.push('nosuperuser');
+  if (current.rolbypassrls !== false) fixes.push('nobypassrls');
+  return fixes;
 }
 
 /**
- * 当前连接能否改这个角色？
+ * 建角色或把它修到目标属性。
  *
- * `ALTER ROLE x …` 要求执行者是 x 的成员，或拥有 CREATEROLE / 超级用户。
- * 注意 PG 的角色**没有「属主」概念**（`pg_roles` 里没有 rolowner 列）——
- * 只有「谁创建的」，那是审计信息，不决定权限。真正决定 alter 权限的是：
- * 超级用户、CREATEROLE、或者是目标角色的成员。
- *
- * Neon 上 `auth_service` / `auth_runtime` 可能由控制面角色创建，
- * 迁移连接不在其成员里，alter 直接 42501。本地 PG 用超级用户连接，
- * 永远看不出来——这是「本地全绿、生产必红」的第二处。
+ * 已存在且属性合规 → 直接返回 `ok（属性已合规）`，不发 ALTER（见 describeRole）。
+ * 已存在且属性不合规 → 尝试修；改不动就如实报「修不了」，由调用方决定是否致命。
  */
-async function canAlter(name) {
-  const [row] = await sql`
-    select pg_has_role(current_user, ${name}, 'MEMBER') as member,
-           (select rolsuper from pg_roles where rolname = current_user) as super,
-           (select rolcreaterole from pg_roles where rolname = current_user) as createrole
-    from pg_roles r where r.rolname = ${name}
-  `;
-  if (!row) return { ok: true, reason: 'not-exists' };
-  if (row.super || row.createrole || row.member)
-    return { ok: true, reason: '' };
-  return {
-    ok: false,
-    reason: `当前连接不是 ${name} 的成员，且无 CREATEROLE / 超级用户权限`,
-  };
-}
+async function ensureRole(name, { login, password }) {
+  const current = await describeRole(name);
+  if (!current) {
+    const attrs = `${login ? 'login' : 'nologin'} nosuperuser nobypassrls`;
+    const pwd = password ? ` password ${literal(password)}` : '';
+    await sql.unsafe(`create role "${name}" ${attrs}${pwd}`);
+    return { status: 'created', canSetPassword: Boolean(password) };
+  }
 
-/** 建或更新 LOGIN 角色；口令只出现在 SQL 文本的这一处，不进日志。 */
-async function upsertLoginRole(name, password) {
-  const exists = await roleExists(name);
-  if (exists) {
-    const gate = await canAlter(name);
-    if (!gate.ok) return `已存在，跳过（无权改：${gate.reason}）`;
-    if (password) {
-      await sql.unsafe(
-        `alter role "${name}" login nosuperuser nobypassrls password ${literal(password)}`
-      );
+  const fixes = roleFixups(current, { login });
+  if (fixes.length > 0) {
+    try {
+      await sql.unsafe(`alter role "${name}" ${fixes.join(' ')}`);
+    } catch (error) {
+      // 属性改不动不是致命的：可能是托管库禁止，也可能角色本就该这样。
+      // 真正的合规判定交给 verify-deployment.mjs，那里会红。
+      const code = error?.code ?? '?';
+      return {
+        status: `属性不合规且改不动（需要 ${fixes.join(' ')}，SQLSTATE ${code}）`,
+        canSetPassword: false,
+      };
     }
-    return 'updated';
   }
-  await sql.unsafe(
-    `create role "${name}" login nosuperuser nobypassrls password ${literal(password)}`
-  );
-  return 'created';
-}
 
-async function upsertNologinRole(name) {
-  const exists = await roleExists(name);
-  if (exists) {
-    const gate = await canAlter(name);
-    if (!gate.ok) return `已存在，跳过（无权改：${gate.reason}）`;
+  // 属性已合规，剩下的只有口令。托管库通常允许这一条。
+  if (password) {
+    try {
+      await sql.unsafe(`alter role "${name}" password ${literal(password)}`);
+      return { status: 'ok（属性已合规，口令已更新）', canSetPassword: true };
+    } catch (error) {
+      const code = error?.code ?? '?';
+      return {
+        status: `属性已合规，但口令改不动（SQLSTATE ${code}）`,
+        canSetPassword: false,
+      };
+    }
   }
-  await sql.unsafe(
-    exists
-      ? `alter role "${name}" nologin nosuperuser nobypassrls`
-      : `create role "${name}" nologin nosuperuser nobypassrls`
-  );
-  return exists ? 'updated' : 'created';
+  return { status: 'ok（属性已合规）', canSetPassword: false };
 }
 
 const authGrants = [
@@ -161,34 +172,31 @@ try {
   }
 
   if (!grantsOnly) {
-    if (appPassword) {
-      const outcome = await upsertLoginRole('genealogy_app', appPassword);
-      console.log(`genealogy_app: ${outcome}（口令来自 APP_DB_PASSWORD）`);
-      // 改不动口令就必须停：应用侧连接串里的口令来自同一份 secret，
-      // 两边不一致就是全线 28P01，而且要到运行时才暴露。
-      if (outcome.startsWith('已存在，跳过')) {
-        console.error(
-          '拒绝继续：genealogy_app 的口令无法更新，应用侧连接会与库里不一致（28P01）。'
-        );
-        await sql.end({ timeout: 5 });
-        process.exit(1);
-      }
-    } else if (await roleExists('genealogy_app')) {
-      console.log('genealogy_app: 已存在，未改口令（APP_DB_PASSWORD 未设置）');
-    } else {
+    const app = await ensureRole('genealogy_app', {
+      login: true,
+      password: appPassword || null,
+    });
+    console.log(`genealogy_app: ${app.status}（口令来自 APP_DB_PASSWORD）`);
+
+    // 口令必须与 APPLY_DB_PASSWORD 一致，否则应用侧连接全线 28P01，
+    // 而且只在运行时才暴露。改不动就停，但只在给了口令、确实需要改时才算失败。
+    if (appPassword && !app.canSetPassword) {
       console.error(
-        'genealogy_app 不存在且未提供 APP_DB_PASSWORD；拒绝用弱口令兜底。'
+        '拒绝继续：genealogy_app 的口令无法更新，应用侧连接会与库里不一致（28P01）。'
       );
       await sql.end({ timeout: 5 });
       process.exit(1);
     }
 
-    // 认证侧两个角色改不动不算致命：授权才是权限矩阵的实质，
-    // 角色存在与否由下面的 grants 阶段和 verify-deployment 兜。
-    console.log(`auth_service: ${await upsertNologinRole('auth_service')}`);
-    console.log(
-      `auth_runtime: ${await upsertLoginRole('auth_runtime', runtimePassword)}`
-    );
+    // 认证侧两个角色改不动属性不算致命：授权才是权限矩阵的实质，
+    // 角色属性是否合规由 verify-deployment.mjs 兜底判定。
+    const svc = await ensureRole('auth_service', { login: false });
+    console.log(`auth_service: ${svc.status}`);
+    const rt = await ensureRole('auth_runtime', {
+      login: true,
+      password: runtimePassword,
+    });
+    console.log(`auth_runtime: ${rt.status}`);
   }
 
   // 授权必须在迁移之后：`app` schema 与业务表都是基线建的。

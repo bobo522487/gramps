@@ -22,18 +22,18 @@ const stripComments = (source: string) =>
 describe('P1–P3 角色 provisioning 的权限闸门', () => {
   const script = stripComments(read('scripts/provision-roles.mjs'));
 
-  test('P1 改角色前先判断权限，且不依赖 PG 不存在的「角色属主」概念', () => {
-    expect(script).toContain('async function canAlter');
-    // ALTER ROLE 的真实判定依据：超级用户 / CREATEROLE / 是该角色成员。
-    expect(script).toMatch(/pg_has_role\(current_user, \$\{name\}, 'MEMBER'\)/);
-    expect(script).toContain('rolcreaterole');
+  test('P1 先读角色属性再决定改什么，不依赖 PG 不存在的「角色属主」概念', () => {
+    expect(script).toContain('async function describeRole');
+    expect(script).toContain('function roleFixups');
+    expect(script).toMatch(/select rolcanlogin, rolsuper, rolbypassrls/);
     // `pg_roles` 里没有 rolowner 列——写过一次就是 42703，且只有跑起来才发现。
     expect(script).not.toContain('rolowner');
   });
 
-  test('P2 改不动时返回可读理由，不抛原始 SQLSTATE', () => {
-    expect(script).toMatch(/if \(!gate\.ok\)/);
-    expect(script).toContain('无权改');
+  test('P2 属性改不动时返回可读理由，不抛原始 SQLSTATE', () => {
+    // 托管库禁止 ROL 属性 DDL，但这不是「脚本写错了」，要如实说清需要什么。
+    expect(script).toMatch(/需要 \$\{fixes\.join\(' '\)\}/);
+    expect(script).toContain('SQLSTATE ${code}');
   });
 
   test('P3 genealogy_app 口令改不动必须失败：否则应用侧连接全线 28P01', () => {
@@ -60,5 +60,25 @@ describe('P5 诊断脚本能回答「这个角色改不改得动」', () => {
     expect(script).toContain('pg_has_role(current_user');
     expect(script).toContain('rolcreaterole');
     expect(script).not.toContain('rolowner');
+  });
+});
+
+describe('P6 只改真正需要改的属性（Neon 禁 ROL 属性 DDL）', () => {
+  const script = stripComments(read('scripts/provision-roles.mjs'));
+
+  test('P6 属性已合规时绝不发 ALTER ROLE 属性语句', () => {
+    // 2026-11-09 生产实测：Neon 上所有 `alter role … login/…` 都是 42501，
+    // 但 `alter role … password` 能过。所以只改必需项才不会被无谓地拦下。
+    expect(script).toContain('function roleFixups');
+    expect(script).toMatch(/if \(fixes\.length > 0\)/);
+    // 属性合规时直接进口令分支，不拼 ALTER 属性语句。
+    expect(script).toMatch(
+      /if \(password\) \{[\s\S]{0,160}alter role "\$\{name\}" password/
+    );
+  });
+
+  test('P7 属性不合规且改不动时如实报告，不伪装成功', () => {
+    expect(script).toContain('属性不合规且改不动');
+    expect(script).toContain('属性已合规，但口令改不动');
   });
 });
