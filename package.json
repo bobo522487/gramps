@@ -13,6 +13,7 @@
     "db:seed": "npx tsx --conditions=react-server lib/db/seed.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:reset-target": "node scripts/reset-target-db.mjs",
     "db:studio": "drizzle-kit studio",
     "check": "biome check .",
     "lint": "biome lint .",

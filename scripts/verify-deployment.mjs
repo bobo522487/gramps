@@ -496,12 +496,18 @@ async function checkDb() {
         has_table_privilege('genealogy_app', 'auth.user', 'SELECT') as app_auth_user_select,
         has_table_privilege('genealogy_app', 'auth.account', 'SELECT') as app_auth_account_select
     `;
+    // 2026-11-09 更正：这条原先断言 `auth_service` 对 `auth.user` 有
+    // SELECT / INSERT、对业务表有 INSERT / UPDATE，是「业务侧认证侧全量统一」
+    // 时期的旧口径。修订后的规格（ADR 0020）是「业务侧统一 genealogy_app、
+    // 认证侧独立 auth_service」，基线里根本不 GRANT `auth_service` 任何
+    // public 表权限——业务表写入口是 SECURITY DEFINER 的 app.* 函数。
+    // 旧断言因此在一个完全正确的库上必然报红，等于把合规当成故障。
+    // 现在断言真正的边界：认证角色拿不到业务表写权限。
     check(
-      privileges?.auth_user_select === true &&
-        privileges?.auth_user_insert === true &&
-        privileges?.auth_org_insert === true &&
-        privileges?.auth_member_update === true,
-      'auth_service owns identity and tenant writes'
+      privileges?.auth_org_insert === false &&
+        privileges?.auth_member_update === false &&
+        privileges?.auth_project_select === false,
+      'auth_service cannot write business tables (writes go through app.* SECURITY DEFINER)'
     );
     check(
       privileges?.app_invite_select === true &&

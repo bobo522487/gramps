@@ -4,12 +4,22 @@ name: Migrate production database
 # 新代码访问旧表，Server Component 抛错，页面只剩 React #441 与 digest。
 # 这个 job 就是 ops-target §5.3 说的「独立受保护步骤」，只是改成由 push 触发，
 # 不再依赖有人记得去点。
+#
+# 2026-11-09 补充：G0① 把迁移体系整体重建为「唯一基线 0000_target_schema」。
+# 该基线对 auth.* 用 CREATE TABLE IF NOT EXISTS，遇到旧库会整表跳过，
+# drizzle-kit 仍报 applied successfully —— 生产 job 就是这么假绿过一次。
+# 因此迁移前必须先清空目标库（G1 条件：库内无正式业务数据、明确可删）。
 on:
   push:
     branches: [main]
     paths:
       - 'lib/db/migrations/**'
   workflow_dispatch:
+    inputs:
+      reset:
+        description: '重建模式：先清空目标库再执行基线（G0① 需要；日常迁移不要勾）'
+        type: boolean
+        default: false
 
 # 迁移不能并发，也不能被新提交取消：一个只跑到一半的迁移比没跑更糟。
 concurrency:
@@ -47,12 +57,26 @@ jobs:
             exit 1
           fi
 
+      # 只由人工触发的重建模式。默认 dry-run 打印范围，确认参数正确才动库。
+      - name: Reset target database (rebuild mode only)
+        if: github.event_name == 'workflow_dispatch' && inputs.reset
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: |
+          DB=$(node -e "console.log(decodeURIComponent(new URL(process.env.POSTGRES_URL_DIRECT).pathname.slice(1)))")
+          echo "重建模式：目标库 $DB"
+          echo "::warning::重建会清空 $DB 的 public / auth / app / drizzle 四个 schema。"
+          pnpm db:reset-target
+          pnpm db:reset-target --apply --confirm="$DB"
+
       - name: Apply migrations
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
         run: pnpm db:migrate
 
       # 迁移完立刻用同一份 journal 校验生产库，失败即红：不留下「迁移跑了一半」的静默状态。
+      # 这条不信任 drizzle 的 "applied successfully" —— 2026-11-09 就是那句字面量为真、
+      # 库里却什么都没建成。
       - name: Verify production schema
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}

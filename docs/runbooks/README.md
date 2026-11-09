@@ -105,13 +105,32 @@ POSTGRES_URL=<目标环境> pnpm verify:target-schema      # 96 PASS, 0 FAIL, 1 
 **T52 执行切换 + 切换后核对**
 
 ```bash
-dropdb gramps_target && createdb gramps_target
+# 1) 清空（G0① 重建前置）。默认 dry-run，必须 --apply + --confirm=<库名>。
+POSTGRES_URL_DIRECT=<目标环境> pnpm db:reset-target
+POSTGRES_URL_DIRECT=<目标环境> pnpm db:reset-target --apply --confirm=<库名>
+#    清空后 public schema 会被重建为空（不保留原 schema 会丢 search_path 目标）
+
+# 2) 建表：唯一基线
 POSTGRES_URL_DIRECT=<目标环境> pnpm db:migrate        # migrations applied successfully
 psql -d gramps_target -tAc 'select count(*) from drizzle."__drizzle_migrations"'   # 1
 # public_tables=17  policies=17  app_fns=12  extensions=ltree,btree_gist
 # 关键约束/索引：folder_name_unique / folder_order_idx / node_parent_fk /
 #                node_path_gist / node_path_unique / project_id_global
+
+# 3) 结构校验（不信任 drizzle 的 "applied successfully"，见下方事故）
+POSTGRES_URL_DIRECT=<目标环境> node scripts/verify-deployment.mjs --skip-http
 ```
+
+**事故记录：drizzle 的 `applied successfully` 说过谎（2026-11-09）**
+
+PR #13 合并后，main 的 `Migrate production database` job 红了一次。读日志要先知道这个陷阱：
+
+- `pnpm db:migrate` 打了 `✓ migrations applied successfully!`，**库里几乎什么都没变**。drizzle 只判断「迁移记录表里有没有这条」，`0000_target_schema` 插一条记录就算跑完。
+- 该基线对 `auth.*` 用 `CREATE TABLE IF NOT EXISTS`（为了测试库可重复执行）。生产库里已有同名旧表 → **整表跳过**，结构留旧，后续索引 / 策略对着旧表建。
+- 校验阶段的报错文案也有坑：`FAIL RLS enabled: 17: organization, ...` 读起来像「17 张表全都不存在」，实际是「这 17 张表全都在，只是没启用 RLS」。该文案已改为 `all 17 tables: ...`，并抽到 `scripts/lib/deployment-report.mjs` 加单测。
+- 另一条假红：`auth_service owns identity and tenant writes` 断言认证角色拥有业务表写权限，是「业务侧认证侧全量统一」时期的旧口径。ADR 0020 已修订为「业务侧统一、认证侧独立」，基线根本不给 `auth_service` 任何 public 表权限——这条断言在**正确**的库上必然报红。已改为断言真正的边界（认证角色写不了业务表）。
+
+**结论**：判定迁移成败只看 `verify-deployment.mjs` 的结构校验，不看 drizzle 的日志。重建路径见上面第 1 步；`db:reset-target` 有 `R1–R5` 五条门槛（dry-run 默认、`--confirm` 逐字匹配库名、拒绝系统库、public 必须重建、CI 里清空只允许人工重建模式）。
 
 **切换后仍待补**：应用侧 `pnpm verify:deploy` + `/api/health` + 关键路径 E2E 要在真实应用实例上跑（本地演练只覆盖数据层）；托管侧恢复点（Neon 分支 / PITR）上生产前补一次。
 
