@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { withOrg } from '../drizzle';
 import {
@@ -178,9 +178,7 @@ export async function hasCatalogReference(
       .where(
         and(
           eq(bookCatalogs.orgId, orgId),
-          eq(bookCatalogs.articleId, articleId),
-          // book_catalog 的软删列 B3 / T25 才删，这一处过滤保留。
-          isNull(bookCatalogs.deletedAt)
+          eq(bookCatalogs.articleId, articleId)
         )
       )
       .limit(1);

@@ -464,24 +464,34 @@ export async function deleteArticle(articleId: string): Promise<void> {
   await getTestDb().delete(articles).where(eq(articles.id, articleId));
 }
 
+/**
+ * 目标态 `book_catalog`（附录 A.5）：主键 (project_id, id)，层级用 `path ltree`
+ * 表达，没有 created_by / section / sort / 软删列。
+ *
+ * `path` 默认 `0001`（满足 path_format 且 nlevel=1，parent_path 生成列为 NULL，
+ * 自引用 `book_catalog_parent_fk` 不生效，无需先建父行）。同书同路径会撞
+ * `book_catalog_path_unique`，需要多级 / 兄弟节点时显式传 `path`，并保证父段
+ * 已存在（父路径 FK 是 RESTRICT）。
+ */
 export async function createCatalogItem(params: {
   orgId: string;
+  projectId: string;
   bookId: string;
-  createdBy: string;
-  lineageId?: string | null;
+  path?: string;
+  title?: string;
   articleId?: string | null;
-  name?: string;
+  lineageId?: string | null;
 }) {
   const [item] = await getTestDb()
     .insert(bookCatalogs)
     .values({
       orgId: params.orgId,
+      projectId: params.projectId,
       bookId: params.bookId,
-      createdBy: params.createdBy,
+      path: params.path ?? '0001',
+      title: params.title ?? '测试编目',
       lineageId: params.lineageId ?? null,
       articleId: params.articleId ?? null,
-      name: params.name ?? '测试编目',
-      section: 2,
     })
     .returning();
   return item;

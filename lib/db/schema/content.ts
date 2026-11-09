@@ -1,14 +1,13 @@
 import { sql } from 'drizzle-orm';
 import {
-  boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
   jsonb,
   pgTable,
   primaryKey,
-  smallint,
   text,
   unique,
   uuid,
@@ -16,7 +15,15 @@ import {
 import { lineages } from './lineage';
 import { folders, projects } from './project';
 import { persons } from './person';
-import { scopedUuid, timestamptz, uuidPk } from './shared';
+import { scopedUuid, timestamptz } from './shared';
+
+/**
+ * Postgres `ltree`（基线 95 行的 btree_gist 扩展在 DDL 基线里开）。
+ * Drizzle 没有内建类型，用 customType 桥接；驱动侧按字符串收发。
+ */
+const ltree = customType<{ data: string; driverData: string }>({
+  dataType: () => 'ltree',
+});
 
 export const articles = pgTable(
   'article',
@@ -124,60 +131,72 @@ export const books = pgTable(
 export const bookCatalogs = pgTable(
   'book_catalog',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
-    // Composite FK below: a catalog row must hang off a book in the same org.
-    // The old single-column REFERENCES book(id) ON DELETE CASCADE is gone —
-    // app_rw has no DELETE grant, so cascade never fired, and it allowed the
-    // catalog's organization_id to disagree with the book's.
+    projectId: uuid('project_id').notNull(),
+    // Composite FK below: a catalog row must hang off a book in the same
+    // project — single-column REFERENCES book(id) would let the catalog's
+    // project disagree with the book's.
     bookId: uuid('book_id').notNull(),
-    parentId: uuid('parent_id'),
-    name: text('name').notNull(),
-    section: smallint('section').notNull(),
+    // 层级路径（T25）：`0001.0002` 形态，见 book_catalog_path_format。
+    // 父路径由库生成（nlevel=1 时为 NULL，自引用 FK 随之不生效——顶层无父）。
+    path: ltree('path').notNull(),
+    parentPath: ltree('parent_path').generatedAlwaysAs(
+      sql`case when nlevel(path) > 1 then subpath(path, 0, nlevel(path) - 1) end`
+    ),
+    title: text('title').notNull(),
     articleId: uuid('article_id'),
     lineageId: uuid('lineage_id'),
-    sort: integer('sort').notNull().default(0),
-    hide: boolean('hide').notNull().default(false),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
-    foreignKey({
-      columns: [t.orgId, t.articleId],
-      foreignColumns: [articles.orgId, articles.id],
-      name: 'fk_catalog_article',
-    }).onDelete('restrict'),
-    foreignKey({
-      columns: [t.orgId, t.lineageId],
-      foreignColumns: [lineages.orgId, lineages.id],
-      name: 'fk_catalog_lineage',
-    }).onDelete('restrict'),
-    unique('uk_book_catalog_org_book_id').on(t.orgId, t.bookId, t.id),
-    foreignKey({
-      columns: [t.orgId, t.bookId],
-      foreignColumns: [books.orgId, books.id],
-      name: 'fk_catalog_book',
-    }).onDelete('restrict'),
-    // Same book AND same organization.
-    foreignKey({
-      columns: [t.parentId, t.orgId, t.bookId],
-      foreignColumns: [t.id, t.orgId, t.bookId],
-      name: 'fk_catalog_parent_same_book',
-    }).onDelete('restrict'),
-    check('ck_catalog_section', sql`${t.section} in (1, 2, 3)`),
+    primaryKey({ columns: [t.projectId, t.id] }),
     check(
-      'ck_catalog_one_target',
+      'book_catalog_path_format',
+      sql`${t.path}::text ~ '^[0-9]{4}([.][0-9]{4})*$'`
+    ),
+    unique('book_catalog_path_unique').on(t.projectId, t.bookId, t.path),
+    check(
+      'book_catalog_one_content',
       sql`num_nonnulls(${t.articleId}, ${t.lineageId}) <= 1`
     ),
-    index('idx_catalog_book')
-      .on(t.orgId, t.bookId, t.sort)
-      .where(sql`${t.deletedAt} is null`),
-    index('idx_catalog_article')
-      .on(t.orgId, t.articleId)
+    unique('book_catalog_article_once').on(t.projectId, t.bookId, t.articleId),
+    unique('book_catalog_lineage_once').on(t.projectId, t.bookId, t.lineageId),
+    foreignKey({
+      columns: [t.projectId, t.bookId],
+      foreignColumns: [books.projectId, books.id],
+      name: 'book_catalog_book_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.projectId, t.articleId],
+      foreignColumns: [articles.projectId, articles.id],
+      name: 'book_catalog_article_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [t.projectId, t.lineageId],
+      foreignColumns: [lineages.projectId, lineages.id],
+      name: 'book_catalog_lineage_fk',
+    }).onDelete('restrict'),
+    // Same project AND same organization.
+    foreignKey({
+      columns: [t.orgId, t.projectId],
+      foreignColumns: [projects.orgId, projects.id],
+      name: 'book_catalog_scope_fk',
+    }).onDelete('restrict'),
+    // 父路径 FK（自引用）：path 为生成列，nlevel=1 时为 NULL，复合 FK 有 NULL
+    // 即不校验，所以顶层编目无需父行。已通过 t 引用本表，无循环导入问题。
+    foreignKey({
+      columns: [t.projectId, t.bookId, t.parentPath],
+      foreignColumns: [t.projectId, t.bookId, t.path],
+      name: 'book_catalog_parent_fk',
+    }).onDelete('restrict'),
+    // (uuid, ltree) 上的 GiST 需要 btree_gist（基线 95 行已开）。
+    index('book_catalog_path_gist').using('gist', t.projectId, t.path),
+    index('book_catalog_article_idx')
+      .on(t.projectId, t.articleId)
       .where(sql`${t.articleId} is not null`),
-    index('idx_catalog_lineage')
-      .on(t.orgId, t.lineageId)
+    index('book_catalog_lineage_idx')
+      .on(t.projectId, t.lineageId)
       .where(sql`${t.lineageId} is not null`),
   ]
 );

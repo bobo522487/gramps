@@ -257,8 +257,7 @@ export async function deleteLineageInTransaction(params: {
       .where(
         and(
           eq(bookCatalogs.orgId, orgId),
-          eq(bookCatalogs.lineageId, lineageId),
-          isNull(bookCatalogs.deletedAt)
+          eq(bookCatalogs.lineageId, lineageId)
         )
       )
       .limit(1);

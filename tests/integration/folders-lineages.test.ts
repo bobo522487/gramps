@@ -430,8 +430,8 @@ describe('lineage service', () => {
     });
     await createCatalogItem({
       orgId: organization.id,
+      projectId: project.id,
       bookId: book.id,
-      createdBy: user.id,
       lineageId: lineage.id,
     });
 

@@ -145,8 +145,8 @@ export async function lockArticle(
 }
 
 /**
- * 活动编目里引用过就不能删（FR-006）。`book_catalog` 的软删列要到 B3 / T25
- * 才随 `path ltree` 一起删，因此这里仍按它过滤——登记在案的中间态。
+ * 活动编目里引用过就不能删（FR-006）。目标态 `book_catalog` 已无软删列
+ * （B3 / T25 退役），这里不再过滤 `deleted_at`。
  */
 export async function hasCatalogReferenceInTx(
   tx: DbTransaction,
@@ -157,13 +157,12 @@ export async function hasCatalogReferenceInTx(
     .select({ id: bookCatalogs.id })
     .from(bookCatalogs)
     .innerJoin(books, eq(books.id, bookCatalogs.bookId))
-    .where(
-      and(
-        eq(bookCatalogs.orgId, orgId),
-        eq(bookCatalogs.articleId, articleId),
-        isNull(bookCatalogs.deletedAt)
+      .where(
+        and(
+          eq(bookCatalogs.orgId, orgId),
+          eq(bookCatalogs.articleId, articleId)
+        )
       )
-    )
     .limit(1);
   return rows.length > 0;
 }

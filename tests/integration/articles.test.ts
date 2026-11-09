@@ -386,8 +386,8 @@ describe('deleteArticleAction', () => {
     });
     await createCatalogItem({
       orgId: fixture.orgId,
+      projectId: fixture.projectId,
       bookId: book.id,
-      createdBy: fixture.ownerId,
       articleId,
     });
 
@@ -857,8 +857,8 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
     });
     await createCatalogItem({
       orgId: fixture.orgId,
+      projectId: fixture.projectId,
       bookId: book.id,
-      createdBy: fixture.ownerId,
       articleId: article.id,
     });
 
@@ -885,16 +885,15 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
     });
     await createCatalogItem({
       orgId: fixture.orgId,
+      projectId: fixture.projectId,
       bookId: book.id,
-      createdBy: fixture.ownerId,
       articleId: article.id,
     });
 
-    // 目标态 `book` 已无软删列（附录 A.5），删除即真删；`book_catalog` 的软删列
-    // 要到 B3 / T25 才退役，所以这条用例改成删编目项来验证「不再算引用」。
+    // 目标态 `book` 与 `book_catalog` 均已无软删列（附录 A.5），删除即真删，
+    // 所以这条用例删编目项来验证「不再算引用」。
     await getTestDb()
-      .update(bookCatalogs)
-      .set({ deletedAt: new Date() })
+      .delete(bookCatalogs)
       .where(eq(bookCatalogs.bookId, book.id));
 
     const preview = await getArticleDeletePreviewAction({

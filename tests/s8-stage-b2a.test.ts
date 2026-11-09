@@ -6,8 +6,8 @@
  * 实施计划 §4「阶段 B 批次划分与规格决议」的 B2a。
  *
  * `activity_logs` 已按拍板提前到 B2a 整表退役（原计划归 B2c），见 B2a-9。
- * `book_catalog` 的 `path ltree` / `project_id` 归 B3 / T25，本文件对它只做
- * 「未被动过」的保护断言，不要求它已改。
+ * `book_catalog` 的 `path ltree` / `project_id` 已由 B3 / T25 完成，本文件对它
+ * 只保留「软删列不回潮」的反向保护断言；正向断言在 s8-stage-b3。
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -127,16 +127,13 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
         name
       ).not.toContain('deletedAt');
     }
-    // `article` 自己已无软删列，唯一允许留下的 `deletedAt` 是 `book_catalog`
-    // 那一条——它随 B3 / T25 退役，所以这里按「恰好一处且必须写明原因」钉住，
-    // 免得将来有人顺手又加回来，也免得 B3 做完忘了删。
+    // `article` 与 `book_catalog` 的软删列均已退役（后者随 B3 / T25），
+    // 查询层不允许再有任何 `deletedAt` 引用。
     const raw = read('lib/db/queries/articles.ts');
-    // 计数看代码（剥注释），「为什么留着」的证据看注释原文——两者不能混用：
-    // 只剥注释会让注释断言永远失败，只读原文会让注释里的词污染计数。
+    // 计数看代码（剥注释），别让注释里的词污染计数。
     const code = stripComments(raw);
-    expect(code.match(/deletedAt/g) ?? []).toHaveLength(1);
-    expect(code).toContain('bookCatalogs.deletedAt');
-    expect(raw).toMatch(/B3 \/ T25/);
+    expect(code.match(/deletedAt/g) ?? []).toHaveLength(0);
+    expect(code).not.toContain('bookCatalogs.deletedAt');
   });
 
   test('B2a-7：成员增删改一律按 member.id 传给 Better Auth', () => {
@@ -179,9 +176,9 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
       expect(read(`lib/${name}.ts`), name).not.toMatch(/logActivity/);
     }
     expect(read('tests/helpers/db.ts')).not.toContain('activity_logs');
-    // 反向保护：B3 / T25 才动的 book_catalog 必须原样。
+    // 反向保护：B3 / T25 已把 book_catalog 的软删列退役，不许回潮。
     const catalog = block(schema('content'), 'book_catalog');
-    expect(catalog).toContain("timestamptz('deleted_at')");
+    expect(catalog).not.toContain("timestamptz('deleted_at')");
   });
 
   test('B2a-10：§8 #6 登记 B2a 已消项目内表主键差异', () => {

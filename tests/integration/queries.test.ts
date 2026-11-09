@@ -496,25 +496,15 @@ describe('article queries', () => {
     });
     const item = await createCatalogItem({
       orgId: org.id,
+      projectId: project.id,
       bookId: book.id,
-      createdBy: user.id,
       articleId: article.id,
     });
 
     expect(await hasCatalogReference(user.id, org.id, article.id)).toBe(true);
 
-    await getTestDb()
-      .update(bookCatalogs)
-      .set({ deletedAt: new Date() })
-      .where(eq(bookCatalogs.id, item.id));
-    expect(await hasCatalogReference(user.id, org.id, article.id)).toBe(false);
-
-    // 目标态 `book` 没有软删列（附录 A.5），删谱书会先把编目项一起带走（RESTRICT
-    // 下需按叶→根删），所以这条改验「编目项被删即不再算引用」。
-    await getTestDb()
-      .update(bookCatalogs)
-      .set({ deletedAt: null })
-      .where(eq(bookCatalogs.id, item.id));
+    // 目标态 `book_catalog` 无软删列（附录 A.5 / B3 T25），删除即真删；
+    // 编目项被删即不再算引用。
     await getTestDb().delete(bookCatalogs).where(eq(bookCatalogs.id, item.id));
     expect(await hasCatalogReference(user.id, org.id, article.id)).toBe(false);
   });

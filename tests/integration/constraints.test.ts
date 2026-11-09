@@ -577,6 +577,10 @@ describe('book_catalog book edges belong to exactly one organization', () => {
       throw new Error('registration trigger did not create an org');
     }
 
+    const projectA = await createProject({
+      orgId: personalA.organization.id,
+      createdBy: ownerA.id,
+    });
     const projectB = await createProject({
       orgId: personalB.organization.id,
       createdBy: ownerB.id,
@@ -590,8 +594,8 @@ describe('book_catalog book edges belong to exactly one organization', () => {
     await expect(
       createCatalogItem({
         orgId: personalA.organization.id,
+        projectId: projectA.id,
         bookId: foreignBook.id,
-        createdBy: ownerA.id,
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
@@ -615,8 +619,8 @@ describe('book_catalog book edges belong to exactly one organization', () => {
     await expect(
       createCatalogItem({
         orgId: personal.organization.id,
+        projectId: project.id,
         bookId: book.id,
-        createdBy: user.id,
       })
     ).resolves.toBeTruthy();
   });
