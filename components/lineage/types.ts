@@ -27,7 +27,6 @@ export type NodeView = {
 export type FolderOption = {
   id: string;
   name: string;
-  parentId: string | null;
 };
 
 export type LineageListItem = {
@@ -62,7 +61,7 @@ type NodeRow = {
   biography: string | null;
 };
 
-type FolderRow = { id: string; name: string; parentId: string | null };
+type FolderRow = { id: string; name: string };
 
 /**
  * The target-model `lineage` has no surname / hall code / region / node count
@@ -114,7 +113,7 @@ export function toNodeViews(nodes: NodeRow[]): NodeView[] {
 }
 
 export function toFolderOption(folder: FolderRow): FolderOption {
-  return { id: folder.id, name: folder.name, parentId: folder.parentId };
+  return { id: folder.id, name: folder.name };
 }
 
 export function toLineageListItem(lineage: LineageRow): LineageListItem {
@@ -129,28 +128,9 @@ export function toLineageListItem(lineage: LineageRow): LineageListItem {
   };
 }
 
-/** Depth-first options for a folder picker; orphans surface at the top level. */
+/** 扁平单层：按名称排序后的选项列表，没有父子缩进。 */
 export function folderOptions(folders: FolderOption[]) {
-  const byId = new Map(folders.map((folder) => [folder.id, folder]));
-  const childrenByParent = new Map<string | null, FolderOption[]>();
-  for (const folder of folders) {
-    const parentId =
-      folder.parentId && byId.has(folder.parentId) ? folder.parentId : null;
-    const bucket = childrenByParent.get(parentId) ?? [];
-    bucket.push(folder);
-    childrenByParent.set(parentId, bucket);
-  }
-
-  const options: { id: string; label: string }[] = [];
-  function walk(parentId: string | null, depth: number) {
-    for (const folder of childrenByParent.get(parentId) ?? []) {
-      options.push({
-        id: folder.id,
-        label: `${'— '.repeat(depth)}${folder.name}`,
-      });
-      walk(folder.id, depth + 1);
-    }
-  }
-  walk(null, 0);
-  return options;
+  return [...folders]
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    .map((folder) => ({ id: folder.id, label: folder.name }));
 }

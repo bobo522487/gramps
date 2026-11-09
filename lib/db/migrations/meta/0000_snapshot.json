@@ -3061,30 +3061,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "kind": {
-          "name": "kind",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "parent_id": {
-          "name": "parent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "sort": {
-          "name": "sort",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "seq": {
           "name": "seq",
@@ -3099,42 +3080,9 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
         }
       },
       "indexes": {
-        "idx_folder_project": {
-          "name": "idx_folder_project",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "kind",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "folder_order_idx": {
           "name": "folder_order_idx",
           "columns": [
@@ -3172,23 +3120,6 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
-        },
-        "fk_folder_parent_same_project": {
-          "name": "fk_folder_parent_same_project",
-          "tableFrom": "folder",
-          "tableTo": "folder",
-          "columnsFrom": [
-            "parent_id",
-            "organization_id",
-            "project_id"
-          ],
-          "columnsTo": [
-            "id",
-            "organization_id",
-            "project_id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -3201,22 +3132,17 @@
         }
       },
       "uniqueConstraints": {
-        "uk_folder_org_project_id": {
-          "name": "uk_folder_org_project_id",
+        "folder_name_unique": {
+          "name": "folder_name_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "organization_id",
             "project_id",
-            "id"
+            "name"
           ]
         }
       },
       "policies": {},
       "checkConstraints": {
-        "ck_folder_kind": {
-          "name": "ck_folder_kind",
-          "value": "\"folder\".\"kind\" in (0, 1, 2)"
-        },
         "folder_seq_nonnegative": {
           "name": "folder_seq_nonnegative",
           "value": "\"folder\".\"seq\" >= 0"

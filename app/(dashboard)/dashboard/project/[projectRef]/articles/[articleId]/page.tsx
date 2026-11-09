@@ -41,7 +41,6 @@ export default async function ArticleEditorPage({
   const folderNodes: ArticleFolderNode[] = folders.map((folder) => ({
     id: folder.id,
     name: folder.name,
-    parentId: folder.parentId,
     count: counts.byFolder.get(folder.id) ?? 0,
   }));
 

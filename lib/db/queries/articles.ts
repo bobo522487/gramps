@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 import { withOrg } from '../drizzle';
 import {
@@ -30,9 +30,9 @@ export type ArticleSummary = {
 };
 
 export type ArticleFolderCounts = {
-  /** 只含 `folder.kind = 1` 的活动分类；没有谱文的分类不出现在里面。 */
+  /** 只含至少有一篇谱文的分类；没有谱文的分类不出现在里面。 */
   byFolder: Map<string, number>;
-  /** 总数减去各分类之和：挂在已删分类或错种类分类下的都算未分类。 */
+  /** 总数减去各分类之和：未分类的谱文算在这里。 */
   unfiled: number;
   total: number;
 };
@@ -112,10 +112,7 @@ export async function countArticlesByFolder(
       // innerJoin 之后 folderId 不可能为 null：取 folders.id，免得留个走不到的分支。
       .select({ folderId: folders.id, value: sql<number>`count(*)` })
       .from(articles)
-      .innerJoin(
-        folders,
-        and(eq(folders.id, articles.folderId), eq(folders.kind, 1))
-      )
+      .innerJoin(folders, eq(folders.id, articles.folderId))
       .where(and(eq(articles.orgId, orgId), eq(articles.projectId, projectId)))
       .groupBy(folders.id);
 
@@ -187,8 +184,8 @@ export async function hasCatalogReference(
 }
 
 /**
- * 删分类前的确认口径（FR-005）：连带消失的分类数，与会转入「未分类」的谱文数。
- * 只统计谱文分类（kind = 1）的子树，与 `deleteFolderInTransaction` 的级联一致。
+ * 删分类前的确认口径：这一条分类下会转入「未分类」的谱文数。
+ * 扁平单层没有子树，`folderCount` 恒为 1（删的就是这一条）。
  */
 export async function getFolderDeletePreview(
   userId: string,
@@ -196,70 +193,23 @@ export async function getFolderDeletePreview(
   folderId: string
 ): Promise<FolderDeletePreview | null> {
   return withOrg(userId, async (tx) => {
-    const roots = await tx
-      .select({
-        id: folders.id,
-        name: folders.name,
-        projectId: folders.projectId,
-      })
+    const [root] = await tx
+      .select({ id: folders.id, name: folders.name })
       .from(folders)
-      .where(
-        and(
-          eq(folders.id, folderId),
-          eq(folders.orgId, orgId),
-          eq(folders.kind, 1)
-        )
-      )
+      .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
       .limit(1);
-    const root = roots[0];
     if (!root) {
       return null;
     }
 
-    const siblings = await tx
-      .select({ id: folders.id, parentId: folders.parentId })
-      .from(folders)
-      .where(
-        and(
-          eq(folders.orgId, orgId),
-          eq(folders.projectId, root.projectId),
-          eq(folders.kind, 1)
-        )
-      );
-
-    const childrenOf = new Map<string, string[]>();
-    for (const folder of siblings) {
-      if (!folder.parentId) {
-        continue;
-      }
-      const list = childrenOf.get(folder.parentId);
-      if (list) {
-        list.push(folder.id);
-      } else {
-        childrenOf.set(folder.parentId, [folder.id]);
-      }
-    }
-
-    // 分类最多 3 层（FR-005），递归到底也不会深；比 while+shift 少一个走不到的分支。
-    const subtree: string[] = [];
-    const collect = (folderId: string) => {
-      subtree.push(folderId);
-      for (const childId of childrenOf.get(folderId) ?? []) {
-        collect(childId);
-      }
-    };
-    collect(root.id);
-
     const counted = await tx
       .select({ value: sql<number>`count(*)` })
       .from(articles)
-      .where(
-        and(eq(articles.orgId, orgId), inArray(articles.folderId, subtree))
-      );
+      .where(and(eq(articles.orgId, orgId), eq(articles.folderId, folderId)));
 
     return {
       name: root.name,
-      folderCount: subtree.length,
+      folderCount: 1,
       articleCount: Number(counted[0]?.value ?? 0),
     };
   });

@@ -231,32 +231,17 @@ CREATE TABLE folder (
   organization_id uuid NOT NULL,
   project_id      uuid NOT NULL,
   id              uuid NOT NULL DEFAULT uuidv7(),
-  -- 以下四列是**已拍板要收回的超集列**（docs/data-model.md §8 #14）：附录 A.2 的
-  -- folder 是扁平单层，没有 kind / parent_id / sort / created_by；§8 已书面拍板
-  -- 「按附录 A 扁平化」。但当前实现支持多级分类，UI、查询与删除逻辑都在用，
-  -- 基线必须建出来否则运行期 42703。状态是决策已定、实现未开工：扁平化拆在
-  -- S8 范围外的独立批次，影响面见 docs/roadmap.md「#14 独立批次影响面」。
-  kind            smallint NOT NULL CHECK (kind IN (0, 1, 2)),
-  parent_id       uuid,
-  sort            integer NOT NULL DEFAULT 0,
-  created_by      uuid NOT NULL,
+  -- 附录 A.2：项目内扁平单层分类。谱系 / 谱文 / 谱书共用同一套分类，
+  -- 因此 `folder_name_unique` 是全项目唯一，不只是「同类内唯一」。
   name            text NOT NULL CHECK (btrim(name) <> ''),
-  -- 附录 A.2 的 `seq` 与实现里的 `sort` 语义重复，保留 seq 以免与附录脱节；
-  -- 扁平化独立批次落地时二选一。
   seq             integer NOT NULL DEFAULT 0 CHECK (seq >= 0),
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
   CONSTRAINT folder_name_unique UNIQUE (project_id, name),
   CONSTRAINT folder_scope_fk FOREIGN KEY (organization_id, project_id)
-    REFERENCES project (organization_id, id) ON DELETE RESTRICT,
-  -- 父目录必须同组织同项目
-  CONSTRAINT uk_folder_org_project_id UNIQUE (organization_id, project_id, id),
-  CONSTRAINT fk_folder_parent_same_project
-    FOREIGN KEY (parent_id, organization_id, project_id)
-    REFERENCES folder (id, organization_id, project_id) ON DELETE RESTRICT
+    REFERENCES project (organization_id, id) ON DELETE RESTRICT
 );
 CREATE INDEX folder_order_idx ON folder (project_id, seq);
-CREATE INDEX idx_folder_project ON folder (organization_id, project_id, kind);
 
 -- ===== [A.3] 事实层 =====
 

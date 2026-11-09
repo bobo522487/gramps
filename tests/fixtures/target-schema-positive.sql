@@ -255,8 +255,8 @@ end $$;
 -- @case P15
 -- @expect OK
 -- @desc 删除 folder 后 lineage / article / book 三个内容根 folder_id 置 NULL，project_id 保持非空
-insert into folder (organization_id, project_id, id, kind, name, created_by) values
-  ('11111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000030', 0, '验收目录', '00000000-0000-0000-0000-000000000031');
+insert into folder (organization_id, project_id, id, name) values
+  ('11111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000030', '验收目录');
 update lineage set folder_id = '00000000-0000-0000-0000-000000000030' where id = '77777777-7777-7777-7777-777777777777';
 update article set folder_id = '00000000-0000-0000-0000-000000000030' where id = '88888888-8888-8888-8888-888888888888';
 update book set folder_id = '00000000-0000-0000-0000-000000000030' where id = '99999999-9999-9999-9999-999999999999';

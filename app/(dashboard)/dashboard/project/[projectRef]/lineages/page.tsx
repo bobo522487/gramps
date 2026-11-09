@@ -33,7 +33,6 @@ export default async function ProjectLineagesPage({
       folders={folders.map((folder) => ({
         id: folder.id,
         name: folder.name,
-        parentId: folder.parentId,
       }))}
       lineages={lineages.map((lineage) => ({
         id: lineage.id,

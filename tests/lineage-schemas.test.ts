@@ -257,15 +257,15 @@ describe('node creation schemas', () => {
 });
 
 describe('field-level validation messages', () => {
-  it('keeps schema-specific messages for folder kind and sex', () => {
+  it('keeps schema-specific messages for folder name and sex', () => {
+    // 扁平单层后分类不再有 kind，剩下要钉的是名字校验与性别枚举的文案。
     expect(
       createFolderSchema.safeParse({
         orgId,
         projectId,
-        kind: '9',
-        name: '谱系',
+        name: '   ',
       }).error?.issues[0].message
-    ).toBe('分类类型无效');
+    ).toBe('请输入分类名称');
     expect(
       createRootNodeSchema.safeParse({
         orgId,

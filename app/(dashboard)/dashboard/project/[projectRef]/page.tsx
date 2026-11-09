@@ -31,7 +31,6 @@ export default async function ProjectOverviewPage({
   const folderNodes: ArticleFolderNode[] = folders.map((folder) => ({
     id: folder.id,
     name: folder.name,
-    parentId: folder.parentId,
     count: 0,
   }));
   const facts: { label: string; value: string; mono?: boolean }[] = [

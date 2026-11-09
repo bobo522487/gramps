@@ -121,25 +121,29 @@ export async function createProject(params: {
   return project;
 }
 
+/**
+ * Target-model `folder` (appendix A.2) is a flat, single-level classification:
+ * only scope + `name` / `seq` remain. `createdBy` / `kind` / `parentId` / `sort`
+ * stay accepted for backwards compatibility with existing callers but are no
+ * longer columns and are deliberately not written.
+ */
 export async function createFolder(params: {
   orgId: string;
   projectId: string;
-  createdBy: string;
+  createdBy?: string;
   kind?: number;
   parentId?: string | null;
   name?: string;
   sort?: number;
+  seq?: number;
 }) {
   const [folder] = await getTestDb()
     .insert(folders)
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      kind: params.kind ?? 0,
-      parentId: params.parentId ?? null,
       name: params.name ?? '测试分类',
-      sort: params.sort ?? 0,
+      seq: params.seq ?? params.sort ?? 0,
     })
     .returning();
   return folder;

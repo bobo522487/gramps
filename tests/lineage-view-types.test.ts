@@ -75,10 +75,15 @@ describe('lineage view mapping', () => {
     expect(views.map((view) => view.id)).toEqual(['n1', 'n2']);
   });
 
-  it('keeps a null folder parent for a folder without one', () => {
+  it('keeps a folder option down to id and name', () => {
     expect(
-      toFolderOption({ id: 'f1', name: '甲', parentId: null } as never)
-    ).toEqual({ id: 'f1', name: '甲', parentId: null });
+      toFolderOption({
+        id: 'f1',
+        name: '甲',
+        parentId: null,
+        kind: 0,
+      } as never)
+    ).toEqual({ id: 'f1', name: '甲' });
   });
 
   it('keeps a null folder id for a lineage outside every folder', () => {

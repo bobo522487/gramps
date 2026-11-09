@@ -15,7 +15,7 @@ export const FORBIDDEN = { ok: false, reason: 'forbidden' } as const;
 
 import 'server-only';
 
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { ArticleErrorCode } from '@/lib/article/constants';
 import { DEFAULT_ARTICLE_FOLDER_NAME } from '@/lib/article/constants';
 import { type ArticleContent, eachImageAttrs } from '@/lib/article/doc';
@@ -29,7 +29,7 @@ import {
   folders,
   projects,
 } from '@/lib/db/schema';
-import { nextFolderSort } from '@/lib/folder/services';
+import { nextFolderSeq } from '@/lib/folder/services';
 
 /**
  * `withOrgWrite` 的拒绝和业务自己的失败都是 `{ ok: false }` 形状，只有 `reason`
@@ -59,7 +59,7 @@ export async function projectExists(
   return rows.length > 0;
 }
 
-/** 分类必须是本组织、本云谱空间、**谱文**分类（kind = 1）。 */
+/** 分类必须属于本组织、本云谱空间。扁平单层不再区分 kind。 */
 export async function articleFolderIdOrNull(
   tx: DbTransaction,
   orgId: string,
@@ -73,8 +73,7 @@ export async function articleFolderIdOrNull(
       and(
         eq(folders.id, folderId),
         eq(folders.orgId, orgId),
-        eq(folders.projectId, projectId),
-        eq(folders.kind, 1)
+        eq(folders.projectId, projectId)
       )
     )
     .limit(1);
@@ -84,28 +83,27 @@ export async function articleFolderIdOrNull(
 /**
  * 「默认分类」在同一事务里确保存在（FR-001）。分类管理入口属于
  * `project.write`，编辑者看不到新建分类按钮，所以不能要求他先建分类才能写谱文。
+ *
+ * 压平后「默认分类」全项目只有一条，谱系侧与谱文侧共用；并发创建靠
+ * `folder_name_unique` 收敛，空返回即别人刚插过，重查即可。
  */
 export async function ensureDefaultFolder(
   tx: DbTransaction,
   orgId: string,
   projectId: string,
-  userId: string
+  _userId: string
 ): Promise<string> {
-  const existing = await tx
+  const [found] = await tx
     .select({ id: folders.id })
     .from(folders)
     .where(
       and(
         eq(folders.orgId, orgId),
         eq(folders.projectId, projectId),
-        eq(folders.kind, 1),
-        eq(folders.name, DEFAULT_ARTICLE_FOLDER_NAME),
-        isNull(folders.parentId)
+        eq(folders.name, DEFAULT_ARTICLE_FOLDER_NAME)
       )
     )
-    .orderBy(asc(folders.createdAt))
     .limit(1);
-  const found = existing[0];
   if (found) {
     return found.id;
   }
@@ -115,18 +113,31 @@ export async function ensureDefaultFolder(
     .values({
       orgId,
       projectId,
-      kind: 1,
-      parentId: null,
       name: DEFAULT_ARTICLE_FOLDER_NAME,
-      sort: await nextFolderSort(tx, orgId, projectId, 1, null),
-      createdBy: userId,
+      seq: await nextFolderSeq(tx, orgId, projectId),
     })
+    .onConflictDoNothing({ target: [folders.projectId, folders.name] })
     .returning({ id: folders.id });
-  const folderId = created[0]?.id;
-  if (!folderId) {
+
+  if (created[0]) {
+    return created[0].id;
+  }
+
+  const [raced] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(
+      and(
+        eq(folders.orgId, orgId),
+        eq(folders.projectId, projectId),
+        eq(folders.name, DEFAULT_ARTICLE_FOLDER_NAME)
+      )
+    )
+    .limit(1);
+  if (!raced) {
     throw new Error('创建默认分类失败');
   }
-  return folderId;
+  return raced.id;
 }
 
 /** 锁定谱文行；返回 `null` 表示不存在或不属于本组织。 */

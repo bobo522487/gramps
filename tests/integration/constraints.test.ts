@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { folders, invitations, orgMembers } from '@/lib/db/schema';
@@ -264,9 +263,7 @@ describe('database constraints', () => {
       getTestDb().insert(folders).values({
         orgId: otherOrg.id,
         projectId: project.id,
-        kind: 0,
         name: '跨组织文件夹',
-        createdBy: owner.id,
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
@@ -445,52 +442,63 @@ describe('tree edges belong to exactly one parent scope', () => {
       })
     ).resolves.toBeTruthy();
   });
+});
 
-  it('rejects a folder whose parent belongs to another project', async () => {
-    const { user, organization } = await orgScope();
-    const projectA = await createProject({
-      orgId: organization.id,
-      createdBy: user.id,
-    });
-    const projectB = await createProject({
-      orgId: organization.id,
-      createdBy: user.id,
-    });
-    const folderInA = await createFolder({
-      orgId: organization.id,
-      projectId: projectA.id,
-      createdBy: user.id,
-      kind: 0,
-      name: '甲',
-    });
-    await expect(
-      createFolder({
-        orgId: organization.id,
-        projectId: projectB.id,
-        createdBy: user.id,
-        parentId: folderInA.id,
-        kind: 0,
-        name: '乙',
-      })
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
-  });
-
-  it('rejects a dangling folder parent that names no folder at all', async () => {
-    const { user, organization } = await orgScope();
+describe('folder names are unique inside a project', () => {
+  async function projectScope() {
+    const user = await createUser();
+    const personal = await getPersonalOrg(user.id);
+    if (!personal)
+      throw new Error('registration trigger did not create an org');
+    const organization = personal.organization;
     const project = await createProject({
       orgId: organization.id,
       createdBy: user.id,
     });
+    return { user, organization, project };
+  }
+
+  it('rejects a duplicate name in the same project', async () => {
+    const { user, organization, project } = await projectScope();
+    await createFolder({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      name: '谱序',
+    });
+    // folder_name_unique (project_id, name)：扁平单层后三类内容共用一套分类，
+    // 所以同名分类在项目内只能有一条。
     await expect(
       createFolder({
         orgId: organization.id,
         projectId: project.id,
         createdBy: user.id,
-        parentId: randomUUID(),
-        kind: 0,
-        name: '丙',
+        name: '谱序',
       })
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
+    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23505');
+  });
+
+  it('allows the same name in two different projects', async () => {
+    const { user, organization, project } = await projectScope();
+    const other = await createProject({
+      orgId: organization.id,
+      createdBy: user.id,
+    });
+    const inFirst = await createFolder({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      name: '谱序',
+    });
+    const inOther = await createFolder({
+      orgId: organization.id,
+      projectId: other.id,
+      createdBy: user.id,
+      name: '谱序',
+    });
+    // 唯一键是 (project_id, name)，跨项目可以重名。
+    expect(inOther.projectId).toBe(other.id);
+    expect(inOther.id).not.toBe(inFirst.id);
   });
 });
 

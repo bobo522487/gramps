@@ -11,10 +11,11 @@ import {
  * 所以把它单独钉住，免得「显示成空白」这种问题只在浏览器里看得见。
  */
 
+/** 扁平单层：分类没有层级，picker label 就是分类名本身。 */
 const folders: ArticleFolderNode[] = [
-  { id: 'f1', name: '谱序', parentId: null, count: 2 },
-  { id: 'f2', name: '旧谱序', parentId: 'f1', count: 1 },
-  { id: 'f3', name: '传记', parentId: null, count: 0 },
+  { id: 'f1', name: '谱序', count: 2 },
+  { id: 'f2', name: '旧谱序', count: 1 },
+  { id: 'f3', name: '传记', count: 0 },
 ];
 const options = folderPickerOptions(folders);
 
@@ -26,10 +27,8 @@ describe('folderLabel（列表行分类标签）', () => {
 
   it('命中分类时显示不带缩进的名字', () => {
     expect(folderLabel(options, 'f3')).toBe('传记');
-    // 子分类的 picker label 带全角空格缩进，标签里不该带。
-    expect(options.find((option) => option.id === 'f2')?.label).toContain(
-      '\u3000'
-    );
+    // 分类已扁平，picker label 不应再带全角空格缩进。
+    expect(options.find((option) => option.id === 'f2')?.label).toBe('旧谱序');
     expect(folderLabel(options, 'f2')).toBe('旧谱序');
   });
 

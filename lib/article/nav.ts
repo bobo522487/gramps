@@ -13,7 +13,7 @@ import { getFolders } from '@/lib/db/queries/folders';
 
 export const getNavArticleFolders = cache(
   async (userId: string, orgId: string, projectId: string) =>
-    getFolders(userId, orgId, projectId, 1)
+    getFolders(userId, orgId, projectId)
 );
 
 export const getNavArticleList = cache(

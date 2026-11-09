@@ -307,10 +307,8 @@ describe('updateArticleTitleAction / moveArticleAction', () => {
       .values({
         orgId: fixture.orgId,
         projectId: fixture.projectId,
-        kind: 1,
         name: '传记',
-        createdBy: fixture.editorId,
-        sort: 99,
+        seq: 99,
       })
       .returning({ id: folders.id });
 
@@ -905,52 +903,32 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
     expect(preview).toMatchObject({ referencedByCatalog: false });
   });
 
-  it('分类预览把子孙分类一并计入（FR-005）', async () => {
+  it('分类预览统计该分类下的谱文数（FR-005）', async () => {
     await as(fixture.ownerId);
-    const root = await createFolder({
+    const folder = await createFolder({
       orgId: fixture.orgId,
       projectId: fixture.projectId,
       createdBy: fixture.ownerId,
-      kind: 1,
       name: '谱序',
     });
-    const child = await createFolder({
-      orgId: fixture.orgId,
-      projectId: fixture.projectId,
-      createdBy: fixture.ownerId,
-      kind: 1,
-      parentId: root.id,
-      name: '旧谱序',
-    });
-    await createArticle({
-      orgId: fixture.orgId,
-      projectId: fixture.projectId,
-      createdBy: fixture.ownerId,
-      folderId: root.id,
-      title: '根下的一篇',
-    });
-    await createArticle({
-      orgId: fixture.orgId,
-      projectId: fixture.projectId,
-      createdBy: fixture.ownerId,
-      folderId: child.id,
-      title: '子下的一篇',
-    });
-    await createArticle({
-      orgId: fixture.orgId,
-      projectId: fixture.projectId,
-      createdBy: fixture.ownerId,
-      folderId: child.id,
-      title: '子下的又一篇',
-    });
+    for (const title of ['甲篇', '乙篇', '丙篇']) {
+      await createArticle({
+        orgId: fixture.orgId,
+        projectId: fixture.projectId,
+        createdBy: fixture.ownerId,
+        folderId: folder.id,
+        title,
+      });
+    }
 
     const preview = await getFolderDeletePreviewAction({
       orgId: fixture.orgId,
-      folderId: root.id,
+      folderId: folder.id,
     });
+    // 扁平单层：没有子树，folderCount 恒为 1。
     expect(preview).toMatchObject({
       name: '谱序',
-      folderCount: 2,
+      folderCount: 1,
       articleCount: 3,
     });
   });
@@ -967,7 +945,6 @@ describe('删除预览（FR-004、FR-005、FR-006、SC-005）', () => {
       orgId: fixture.orgId,
       projectId: fixture.projectId,
       createdBy: fixture.ownerId,
-      kind: 1,
       name: '别人家的分类',
     });
 

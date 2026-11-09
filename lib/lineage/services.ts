@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
 import { isUniqueViolation } from '@/lib/db/errors';
 import {
@@ -38,8 +38,7 @@ async function validProjectFolder(
       and(
         eq(folders.id, folderId),
         eq(folders.orgId, orgId),
-        eq(folders.projectId, projectId),
-        eq(folders.kind, 0)
+        eq(folders.projectId, projectId)
       )
     )
     .limit(1);
@@ -48,18 +47,18 @@ async function validProjectFolder(
 
 /**
  * 创建谱系时确定归属分类。项目还没有分类时，在同一事务内创建或复用
- * 「默认分类」，让只有 lineage.write 的编辑者也不会卡死。
+ * 「默认分类」。压平后它和谱文侧共用同一条，`folder_name_unique` 保证
+ * 全项目只有一条，并发插入靠 `onConflictDoNothing` + 重查收敛。
  */
 async function resolveFolderInTx(
   tx: DbTransaction,
   params: {
     orgId: string;
     projectId: string;
-    userId: string;
     folderId?: string;
   }
 ): Promise<string> {
-  const { orgId, projectId, userId, folderId } = params;
+  const { orgId, projectId, folderId } = params;
   if (folderId) {
     return folderId;
   }
@@ -71,8 +70,6 @@ async function resolveFolderInTx(
       and(
         eq(folders.orgId, orgId),
         eq(folders.projectId, projectId),
-        eq(folders.kind, 0),
-        isNull(folders.parentId),
         eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME)
       )
     )
@@ -81,22 +78,37 @@ async function resolveFolderInTx(
     return existing.id;
   }
 
-  const [created] = await tx
+  const created = await tx
     .insert(folders)
     .values({
       orgId,
       projectId,
-      kind: 0,
-      parentId: null,
       name: DEFAULT_LINEAGE_FOLDER_NAME,
-      createdBy: userId,
+      seq: 0,
     })
+    .onConflictDoNothing({ target: [folders.projectId, folders.name] })
     .returning({ id: folders.id });
 
-  if (!created) {
-    throw new Error('failed to create the default lineage folder');
+  if (created[0]) {
+    return created[0].id;
   }
-  return created.id;
+
+  // 并发下另一条事务刚插进去：重查一次拿它的 id。
+  const [raced] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(
+      and(
+        eq(folders.orgId, orgId),
+        eq(folders.projectId, projectId),
+        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME)
+      )
+    )
+    .limit(1);
+  if (!raced) {
+    throw new Error('failed to resolve the default folder');
+  }
+  return raced.id;
 }
 
 /**
@@ -135,7 +147,6 @@ export async function createLineageInTransaction(params: {
       const resolvedFolderId = await resolveFolderInTx(tx, {
         orgId,
         projectId,
-        userId,
         folderId,
       });
 

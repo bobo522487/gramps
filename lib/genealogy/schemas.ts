@@ -7,9 +7,6 @@ import {
   MAX_LINEAGE_REGION_LENGTH,
 } from '@/lib/lineage/constants';
 
-export const FOLDER_KINDS = [0, 1, 2] as const;
-export type FolderKind = (typeof FOLDER_KINDS)[number];
-
 const orgId = z.uuid('组织 ID 无效');
 const projectId = z.uuid('云谱空间 ID 无效');
 const folderId = z.uuid('分类 ID 无效');
@@ -105,14 +102,6 @@ const booleanField = z.preprocess(
 export const createFolderSchema = z.object({
   orgId,
   projectId,
-  kind: z.coerce
-    .number({ error: '分类类型无效' })
-    .int()
-    .refine(
-      (value) => FOLDER_KINDS.includes(value as FolderKind),
-      '分类类型无效'
-    ),
-  parentId: optionalUuid('上级分类无效'),
   name: text('分类名称', 100),
 });
 

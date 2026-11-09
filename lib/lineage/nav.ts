@@ -6,7 +6,7 @@ import { getLineages } from '@/lib/db/queries/lineages';
 
 export const getNavFolders = cache(
   async (userId: string, orgId: string, projectId: string) =>
-    getFolders(userId, orgId, projectId, 0)
+    getFolders(userId, orgId, projectId)
 );
 
 export const getNavLineages = cache(

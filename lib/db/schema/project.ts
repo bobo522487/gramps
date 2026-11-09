@@ -82,18 +82,9 @@ export const folders = pgTable(
     id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
-    kind: smallint('kind').notNull(),
-    parentId: uuid('parent_id'),
     name: text('name').notNull(),
-    sort: integer('sort').notNull().default(0),
-    /**
-     * 附录 A.2 的 `seq` 与 `sort` 语义重复，基线两列都保留（docs/data-model.md
-     * §4 的 folder 层级规格待拍板）。应用只用 `sort`，但 TS 必须与唯一 DDL
-     * 真相源对齐，否则 T39 parity 会一直报列漂移。
-     */
     seq: integer('seq').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
   },
   (t) => [
     // Target state (appendix A.2): PRIMARY KEY (project_id, id). This also
@@ -105,18 +96,11 @@ export const folders = pgTable(
       foreignColumns: [projects.orgId, projects.id],
       name: 'folder_scope_fk',
     }).onDelete('restrict'),
-    // Target of the self-referencing parent key below: a parent must live in
-    // the same organization AND the same project. Kept until phase B2 retires
-    // the legacy folder columns and rewrites this key.
-    unique('uk_folder_org_project_id').on(t.orgId, t.projectId, t.id),
-    foreignKey({
-      columns: [t.parentId, t.orgId, t.projectId],
-      foreignColumns: [t.id, t.orgId, t.projectId],
-      name: 'fk_folder_parent_same_project',
-    }).onDelete('restrict'),
-    index('idx_folder_project').on(t.orgId, t.projectId, t.kind),
+    // 扁平单层：谱系 / 谱文 / 谱书共用一套分类，名字在全项目内唯一。
+    // 基线一直有这个唯一键，TS 侧此前漏声明，T39 parity 只比列 / 主键 / FK
+    // 所以没抓到——本批补齐。
+    unique('folder_name_unique').on(t.projectId, t.name),
     index('folder_order_idx').on(t.projectId, t.seq),
-    check('ck_folder_kind', sql`${t.kind} in (0, 1, 2)`),
     check('folder_seq_nonnegative', sql`${t.seq} >= 0`),
   ]
 );
