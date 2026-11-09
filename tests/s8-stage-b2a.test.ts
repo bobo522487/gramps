@@ -174,8 +174,11 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
     expect(catalog).not.toContain("timestamptz('deleted_at')");
   });
 
-  test('B2a-10：§8 #6 登记 B2a 已消项目内表主键差异', () => {
-    expect(read('docs/data-model.md')).toMatch(/\| 6 \|[^\n]*B2a/);
+  test('B2a-10：§8 #6 已随 T47 删除，项目内表仍是复合主键', () => {
+    expect(read('docs/data-model.md')).not.toContain('## 8. 重构前的实现差异');
+    expect(read('lib/db/schema/project.ts')).toContain(
+      'primaryKey({ columns: [t.projectId, t.id] })'
+    );
   });
 
   test('B2a-11：deleteProject 的约束清单与基线 DDL 完全一致', () => {

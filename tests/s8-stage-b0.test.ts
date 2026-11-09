@@ -150,8 +150,11 @@ describe('S8 阶段 B · B0 迁移基线整体重建', () => {
     expect(exists('tests/integration/auth-migration.test.ts')).toBe(false);
   });
 
-  test('B0-11：§8 的 #3/#11/#12 已标注谱系层消除', () => {
-    expect(read('docs/data-model.md')).toContain('谱系层已消除');
+  test('B0-11：§8 已随 T47 整节删除，谱系层差异的留档改在 CHANGELOG', () => {
+    // 差异清单是「待改对象」，T47 之后不再保留第二份现状描述；
+    // 逐条消掉的记录看 CHANGELOG 的 S8 段落。
+    expect(read('docs/data-model.md')).not.toContain('## 8. 重构前的实现差异');
+    expect(read('CHANGELOG.md')).toContain('S8');
   });
 
   test('B0-12：verify-deployment 仍动态比对 journal，不硬编码 28', () => {

@@ -66,7 +66,7 @@
 
 ### 4.1 重构 epic 的拆分顺序
 
-`S8` 的逐条差异清单**唯一真相源是 `docs/data-model.md` §8**，本表不复制那 13 行。验收时逐条消掉，`§8` 整节删除、不留双写。按「不做会不会堵住后面的路」排：
+`S8` 的实现顺序按「不做会不会堵住后面的路」排。重构前的 14 条实现差异清单已随 `T47` 整节删除（`docs/data-model.md` 只留目标态），逐条消掉的过程见 `CHANGELOG.md` 的 `S8` 段落：
 
 1. **先动第 1 条**：事实层从 `node` 的回填快照升为主数据源。这是根上的变更，牵动所有读写路径与术语，其余 DDL 改动都依赖它先定下来。
 2. **DDL 层**：复合主键与 `project.id` 全局 UNIQUE、两棵树的 `ltree` + `parent_path` 生成列 + 自引用 FK、`book_export`、`article.body`、`RESTRICT` 删除语义。
@@ -81,7 +81,7 @@
 | 文档 | 会被推翻的结论 | 跟改触发点 | 何时失效 |
 | --- | --- | --- | --- |
 | `docs/glossary.md` | 「人丁 = `node`」「事实层 = 单向回填快照」「软删 `deleted_at`」「组织成员硬删」 | 事实层语义定稿（T10–T17 / T23） | 根变更落地即失效 |
-| `docs/architecture.md` | 域所有权表（应用读写 `node`）、Better Auth organization 插件、FORCE RLS 与 `app_rw` / `auth_service` 角色、§8 多条结论 | schema 与隔离层落地（T18–T35） | DDL / 隔离层落地即失效 |
+| `docs/architecture.md` | 域所有权表（应用读写 `node`）、Better Auth organization 插件、FORCE RLS 与 `app_rw` / `auth_service` 角色、`folder` 层级描述 | schema 与隔离层落地（T18–T35） | DDL / 隔离层落地即失效 |
 | `docs/runbooks/README.md` | RB-1~RB-7 的处置 SQL、§4 值班信号（表、角色、软删口径全变） | 表结构与角色变更（T32 / T34） | 角色与表名变更即失效 |
 | `docs/nfr.md` | §5 的删除语义（业务表软删 / 组织成员硬删） | 删除语义变更（T23） | `RESTRICT` 落地即失效 |
 | `docs/adr/README.md` | 涉及软删、树存储、RLS 的既有决策需标 `superseded` | ADR 新增时（T48） | 新 ADR 落地即失效 |
@@ -90,7 +90,6 @@
 | `docs/vision.md` | §5「统计口径定义在 `docs/data-model.md`」语义断链；§6.3 缺口 3「并发覆盖」、缺口 4「删了找不回 / 软删兜底」 | 目标态章节重编号（T46 / T47） | 删除语义与章节号变更即失效 |
 | `docs/interfaces.md` | §2「写只走 Server Action，例外只有 3 条图片通道」——目标态 `app.create_organization` / `app.accept_invite` 是库内 SECDEF 写入口 | 隔离层落地（T35） | SECDEF 写入口上线即失效 |
 | `docs/contracts/README.md` | §4 全部谱系 Action（`createRootNode` / `addChild` / `addSpouse` / `nodeId` / `requestId` 幂等键）围绕「`node` 是人丁主体」 | 根变更落地（T13 / T44） | `node` 变纯位置引用即失效 |
-| `docs/data-model.md` | §8 迁移清单在重构完成后整节删除 | 13 条差异逐条消掉（T47） | §8 删除时本行一并删除 |
 
 ### 4.3 连带待复核（本轮不动）
 
@@ -102,29 +101,28 @@
 
 按 §1 规则 2，ID 不可变、作废只改状态并保留行；这三行**本轮不改**，等产品 + 技术负责人确认后单独一个补丁。
 
-#### 阶段 E 挂起项（2026-11-09，文档跟改批次登记）
+#### 阶段 E 挂起项（2026-11-09，文档跟改批次登记；同日晚 `#14` 批次收口）
 
-阶段 E 只落地文档跟改与 ADR。`T47` 的「13 条差异全部消掉后删 §8」与 `T49` 的「`S8` → `delivered`」都有硬前提，逐条核对后以下四项**未兑现**，不写进交付声明：
+`T47` 的「差异全部消掉后删 §8」已随 `#14` 独立批次兑现：`docs/data-model.md` 的差异清单整节删除，原 §9「约束要有执行者」重编号为 §8，引用一并跟改。核对后仍有**两项未兑现**，不写进交付声明：
 
 | 挂起项 | 事实 | 解除条件 |
 | --- | --- | --- |
 | `T40` / §7 数字 | Q1 / Q3 的 `EXPLAIN` 计划形状与耗时须在 G1 书面确认的目标环境重跑；`pnpm verify:target-schema` 对 P21 / P22 恒显式 `SKIP`，本地 Docker PG18 的旧数字不作验收依据 | 目标环境实测并留命令输出，刷新数据模型文档 §7 |
-| `#14` folder 层级 | **决策已定、实现未开工**：`docs/data-model.md` §8 已书面拍板「按附录 A 扁平化」，附录 A.2 目标 DDL 只有 6 列；唯一 SQL 基线与 TS 仍按「扁平 + 实现层级列」超集建表以免运行期 42703，基线里要求「B3 前拍板」的注释是 B2a 时期的过时残留、本批已更正。它不在 `S8` 的范围 in 里，扁平化拆在独立批次，被跳过的是**实现**而非待拍板问题 | 开 `#14` 独立批次实现扁平化（DDL / TS / 三个服务 / 查询 / 夹具），把 #14 从本节迁出 |
-| `T47` 删差异清单 | 数据模型文档 §8 的 #1–#13 实质已消除（#6 / #7 / #10 的表格文字是 B1 / B2a 时期的过时快照，本批已更正），但 #14 仍被该节登记为待改对象；整节删除会让唯一遗留项失去归属地 | #14 独立批次实现并迁出后整节删除；§9 编号不重排，避免所有引用断链 |
 | `T49` / `S8` 状态 | 完成定义要求 G0–G5 全绿 + 切换日 T50–T52 执行完毕并留档 + §7 数字刷新；当前 G5 的 EXPLAIN 未兑现、切换日未执行，故本表 `S8` 继续记 `in_progress` | T50–T52 执行完毕并留档后再改 `delivered` |
 
-#### #14 独立批次影响面（决策已定、实现未开工）
+#### `#14` 独立批次（2026-11-09 已交付）
 
-方向以 `docs/data-model.md` §8「已拍板：按附录 A 扁平化」与附录 A.2 的目标 DDL 为准，**不需要重新拍板**；本批只更正事实口径，不动 DDL / TS / 应用代码。扁平化不在 `S8` 范围 in 里，开工前需单独排期：
+按已拍板的附录 A.2 把 `folder` 压平为项目内单层分类。三项待定细节在压平时一并定案：同名撞名 → `conflict`（报「同名分类已存在」）；`seq` 与 `sort` 取 `seq`；`created_by` 收回。
 
-| 面 | 目标态（附录 A.2） | 当前超集 / 待收回 | 落点 |
-| --- | --- | --- | --- |
-| 列 | `organization_id` / `project_id` / `id` / `name` / `seq` / `created_at` 6 列 | 多出 `kind` / `parent_id` / `sort` / `created_by` | `lib/db/migrations/0000_target_schema.sql`、`lib/db/schema/project.ts` |
-| 约束 / 索引 | `folder_name_unique (project_id, name)`、`folder_order_idx (project_id, seq)` | 多出 `uk_folder_org_project_id`、`fk_folder_parent_same_project`、`idx_folder_project(kind)`、`ck_folder_kind` | 同上；收回时须同时重生成 T39 parity snapshot（`pnpm db:generate` 零漂移） |
-| 查询 | 单层按 `project_id` + `seq` 列目录 | `lib/db/queries/articles.ts` 按 `kind = 1` 过滤并按 `parent_id` 组装子树；`lib/db/queries/folders.ts` 按 `kind` 过滤、按 `sort` 排序 | 两个查询文件 + 调用它们的页面 |
-| 写入 | 单条 `insert` / `update` / `delete`，无父链 | `lib/folder/services.ts`：`loadActiveFolders(kind)`、`folderDepth` 深度上限 3、父链 BFS 叶→根硬删、`nextFolderSort(kind, parentId)`；`lib/article/mutations.ts`：`kind = 1` + `isNull(parentId)` 定位「默认分类」、创建时写 `kind` / `sort` | 两个服务 + `lib/article/*` 的 folder 入参 |
-| 待定细节 | — | `folder_name_unique (project_id, name)` 在压平撞名时怎么合并；`seq` 与 `sort` 二选一（基线两列都在）；`created_by` 是否保留 | 需在独立批次里定方案，§8 已登记 |
-| 验收夹具 | — | `tests/helpers/factories.ts`、`tests/integration/folders-lineages.test.ts`、`tests/folder-options.test.ts`、`tests/fixtures/target-schema-*.sql`、`tests/s8-stage-*.test.ts` 里对 folder 列的断言 | 与 DDL / TS 同批跟改，避免 CI 假绿 |
+| 面 | 交付内容 |
+| --- | --- |
+| DDL | `0000_target_schema.sql` 的 `folder` 收到 6 列；`uk_folder_org_project_id` / `fk_folder_parent_same_project` / `idx_folder_project` 退役，保留 `folder_name_unique (project_id, name)` 与 `folder_order_idx (project_id, seq)` |
+| TS schema | `lib/db/schema/project.ts` 同形；`unique('folder_name_unique')` 补上此前漏声明的唯一键 |
+| 查询 | `lib/db/queries/folders.ts` 不再按 `kind` 过滤、按 `seq` 排序；`lib/db/queries/articles.ts` 的分类篇数与删除预览不再组子树，`folderCount` 恒为 1 |
+| 写入 | `lib/folder/services.ts` 去掉 `kind` 分支、深度上限与父链 BFS；`createFolderInTransaction` 用 `onConflictDoNothing` + `conflict`；`lib/article/mutations.ts` 与 `lib/lineage/services.ts` 的「默认分类」合并为全项目唯一一条，并发靠唯一键收敛 |
+| 前端 | `components/{article,lineage}/types.ts` 与两棵树的渲染改为按名称平铺；「新建子分类」入口与缩进一并删除 |
+| 门禁 / 夹具 | 新增 `tests/s8-folder-flatten.test.ts`（F-1…F-9）钉住压平口径；`tests/helpers/factories.ts`、5 个单测、5 个集成测试与 `target-schema-positive.sql` 的 P15 同批跟改 |
+| parity | `pnpm db:generate` 零漂移；`verify:target-schema` 88 PASS / 0 FAIL / 4 SKIP，T39 逐表 parity 一致 |
 
 `S4` / `S5` / `S6` 三行按 §4.3 仍是「本轮不改」，需产品 + 技术负责人确认后单独一个补丁；ID 不复用、行不删。本段是核对结论与待办台账，不是交付声明。
 
@@ -174,8 +172,8 @@ grep -rn "entry S4" specs/ docs/
 grep -n "S4" docs/roadmap.md
 # 从一条需求一路拉到决策与测试
 grep -rn "FR-001" specs/ docs/adr/ tests/
-# 重构 epic 的差异清单（唯一真相源在 data-model.md §8，本表不复制）
-grep -n "重构前的实现差异\|现状（待改）" docs/data-model.md
+# 差异清单已随 T47 删除：data-model.md 里不应再出现「重构前的实现差异」这种现状节
+! grep -n "重构前的实现差异" docs/data-model.md
 # 待复核的连带条目（S8 定稿后单独一个补丁处理）
 grep -n "S4\|S5\|S6" docs/roadmap.md
 # 现有切片与状态改 delivered 前的门禁

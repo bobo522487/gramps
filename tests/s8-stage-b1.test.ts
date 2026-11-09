@@ -87,8 +87,9 @@ describe('S8 阶段 B · B1 目标态结构切片', () => {
     expect(schema('lineage')).toContain('[folders.projectId, folders.id]');
   });
 
-  test('B1-5：§8 #2 登记 B1 已补 TS 表结构、FK 目标键待追平', () => {
-    expect(read('docs/data-model.md')).toMatch(/\| 2 \|[^\n]*B1/);
+  test('B1-5：§8 #2 已随 T47 删除，`book_export` 的 TS 表结构仍在', () => {
+    expect(read('docs/data-model.md')).not.toContain('## 8. 重构前的实现差异');
+    expect(read('lib/db/schema/book-export.ts')).toContain('bookExport');
   });
 
   test('B1-6：roadmap 登记 B1 进度', () => {

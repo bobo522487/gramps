@@ -93,7 +93,7 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     expect(s8).not.toContain('delivered');
   });
 
-  test('E-9 配套文档旧语义清理，差异清单在挂起期保留且如实标注', () => {
+  test('E-9 配套文档旧语义清理，差异清单已随 T47 删除', () => {
     const gloss = read('docs/glossary.md');
     expect(gloss).not.toContain('待 T23 跟改');
     expect(gloss).toContain('RESTRICT');
@@ -102,9 +102,11 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     expect(nfr).not.toContain('`activity_logs` 是产品活动流');
     expect(nfr).toContain('整表退役');
     expect(nfr).not.toContain('业务表是软删');
+    // T47 之后 data-model 只剩目标态：差异清单整节删除，原 §9 重编号为 §8。
     const dm = read('docs/data-model.md');
-    expect(dm).toContain('## 8.');
-    expect(dm).toContain('阶段 E 挂起');
+    expect(dm).toContain('## 8. 约束要有执行者');
+    expect(dm).not.toContain('## 8. 重构前的实现差异');
+    expect(dm).not.toContain('阶段 E 挂起');
   });
 
   test('E-10 T49 可落地部分：变更记录与对照表补上重构范围', () => {
@@ -119,16 +121,17 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     expect(script).toContain('ADR 正文');
   });
 
-  test('E-12 #14 口径复核：决策已定按附录 A.2 扁平化，不是「待拍板」', () => {
+  test('E-12 #14 已落地：差异清单整节删除，旧口径不许回潮', () => {
     const dm = read('docs/data-model.md');
-    // 方向依据是目标态规格里的书面决议 + 附录 A.2 的目标 DDL，不是待开拍板会。
-    // 钉住 §8 的书面决议原文，不用裸子串——顶部说明也会复述这句话，
-    // 只断言裸子串时把决议块删掉仍能蒙混过关。
-    expect(dm).toContain('> **#14 已拍板：按附录 A 扁平化。**');
-    expect(dm).toContain('拆分落在独立批次');
+    // T47：14 条差异全部消掉后整节删除，data-model 只留目标态。
+    expect(dm).not.toContain('## 8. 重构前的实现差异');
+    expect(dm).not.toContain('现状（待改）');
+    expect(dm).not.toContain('#14');
+    // 原 §9 重编号为 §8，执行者表仍在（引用不许断链）。
+    expect(dm).toContain('## 8. 约束要有执行者');
 
-    // 阶段 E 第一批把「决策已定、实现未开工」误写成「从未拍板」，并扩散到
-    // 台账 / ADR / 架构 / CHANGELOG / 基线注释。以下旧文字一律不许回潮。
+    // 阶段 E 两批把 #14 先后误写成「从未拍板」「决策已定但未开工」，
+    // 并扩散到台账 / ADR / 架构 / CHANGELOG / 基线注释。以下文字一律不许回潮。
     const stale = [
       /从未拍板/,
       /去留未拍板/,
@@ -137,6 +140,9 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
       /必须在 B3 开工前拍板/,
       /待拍板的规格差异/,
       /层级去留已升级为独立规格问题/,
+      /决策已定、实现未开工/,
+      /#14 独立批次影响面/,
+      /超集建表以免运行期 42703/,
     ];
     for (const file of [
       'docs/data-model.md',
@@ -156,9 +162,12 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     }
 
     const roadmap = read('docs/roadmap.md');
-    expect(roadmap).toContain('决策已定、实现未开工');
-    expect(roadmap).toContain('#14 独立批次影响面');
-    // ADR 待办表不再把「层级去留拍板」列为待办。
-    expect(read('docs/adr/README.md')).not.toContain('`folder` 层级去留拍板');
+    // 交付记录要留痕，且 T47 不再挂在待办里。
+    expect(roadmap).toContain('`#14` 独立批次（2026-11-09 已交付）');
+    expect(roadmap).not.toContain('## 删差异清单');
+    // ADR 待办表不再把「层级去留拍板」或 #14 列为待办。
+    const adrIndex = read('docs/adr/README.md');
+    expect(adrIndex).not.toContain('`folder` 层级去留拍板');
+    expect(adrIndex).not.toContain('| `#14` folder 扁平化独立批次 |');
   });
 });

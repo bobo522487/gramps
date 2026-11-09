@@ -4,13 +4,13 @@
 > **读者**：开发 · 技术负责人 · AI Agent　**长度上限**：5 页
 > **不写什么**：接口与 DTO（`docs/interfaces.md`、`docs/contracts/`）、系统分层与部署形态（`docs/architecture.md`）、术语定义（`docs/glossary.md`）、可度量阈值（`docs/nfr.md`）、排障步骤（`docs/runbooks/`）、决策理由（`docs/adr/`）、进度与编排（`docs/roadmap.md`）。
 
-本文是**目标架构的数据模型规格**：写实体边界、不变量与取舍，**代码按本文重构，本文是验收基准**。逐列 DDL 在重构完成后落到 `lib/db/schema/` 与 `lib/db/migrations/`，迁移清单唯一在 `lib/db/migrations/meta/_journal.json`，本文不复制第二份表结构。**重构完成前，现有代码与目标态的差异集中在 §8**——那是待消掉的迁移清单，不是另一套真相；重构完成后该节整体删除，不留双写。
+本文是**目标架构的数据模型规格**：写实体边界、不变量与取舍，是验收基准。逐列 DDL 的唯一真相源是 `lib/db/migrations/0000_target_schema.sql` 与 `lib/db/schema/`，迁移清单在 `lib/db/migrations/meta/_journal.json`，本文不复制第二份表结构。本文只写**目标态**：重构已交付（`docs/adr/0020-目标数据模型整体重建.md`），旧实现的差异清单已随 `T47` 整节删除，不在本文留第二份现状描述。
 
 ---
 
 ## 1. 一页结论
 
-> **[目标]** §1–§7 每节均标 [目标]，是目标态规格，代码按本文重构；以本文为准，不用现状反推规格（`CONTRIBUTING.md` §2）。§8 单独标注 [现状]。
+> **[目标]** §1–§8 每节均标 [目标]，是目标态规格，代码按本文重构；以本文为准，不用现状反推规格（`CONTRIBUTING.md` §2）。
 
 | # | 判断 | 理由 |
 | --- | --- | --- |
@@ -29,7 +29,7 @@
 
 ## 2. 领域分层与实体清单
 
-> **[目标]** 下表实体名与分层描述目标态；重构前实现的同名术语见 §8「读法」。
+> **[目标]** 下表实体名与分层描述都是目标态。
 
 层间只允许**单向依赖**：谱书层 → 谱系层 / 谱文层 → 事实层。事实层不反向引用编排层：`person` 上不存在 `lineage_id` / `book_id` / `father_id`，`article` 上不存在 `book_id`。这条单向规则是整套模型的骨架，也是 §5 依赖链成立的原因。
 
@@ -50,7 +50,7 @@
 
 ## 3. 组织隔离
 
-> **[目标]** 本节描述目标态隔离机制；重构前的实现差异见 §8。
+> **[目标]** 本节描述目标态隔离机制。
 
 隔离边界是 `organization`；RLS 的根是 `organization_member`——所有策略最终归约到「当前用户是否在该行 `organization_id` 下有成员行」，没有别的判定路径。数据容器是 `project`，其余 13 张项目内表全部携带 `organization_id` + `project_id`。
 
@@ -58,7 +58,7 @@
 
 会话上下文由应用服务在**同一事务内**用 `SET LOCAL app.user_id` 注入，业务 SQL 必须与它同事务。`SET LOCAL` 的生命周期只到当前事务结束；把 `BEGIN; SET LOCAL …; COMMIT;` 单独跑成一个事务，之后所有查询都读到空 GUC → 0 行、写入 `42501`。改用会话级 `SET` 更危险：连接池归还前不 `RESET` 会跨请求串号。四个数据库函数构成机制（3 个 `SECURITY DEFINER`）：`app.current_user_id()` / `app.visible_org_array()` / `app.create_organization(text)` / `app.accept_invite(text)`。
 
-> **写入路径（B4 收口）**：拆掉 Better Auth organization 插件后，改名 / 归档 / 移除成员 / 改角色失去认证侧入口，统一收敛到另外 4 个 `SECURITY DEFINER` 函数——`app.rename_organization(uuid, text)` / `app.archive_organization(uuid)` / `app.remove_org_member(uuid, text)` / `app.set_org_member_role(uuid, text, text)`。它们以属主身份写 `organization` / `organization_member`，函数体内做认证、成员角色与 last-owner 守卫（§9 的写路径契约），与运行期角色无关；应用侧仍由 `withOrg` 事务注入 `app.user_id` 后调用。阶段 C / T32 修订后业务角色是 `genealogy_app`（基线给它 public 全表 DML），越权直写会被 RLS 静默过滤成 0 行、调用方看不出自己被拦；把守卫放进 SECDEF 函数体才能明确抛 `42501` / `22023`，这也是表级权限放开后仍必须走函数的原因。
+> **写入路径（B4 收口）**：拆掉 Better Auth organization 插件后，改名 / 归档 / 移除成员 / 改角色失去认证侧入口，统一收敛到另外 4 个 `SECURITY DEFINER` 函数——`app.rename_organization(uuid, text)` / `app.archive_organization(uuid)` / `app.remove_org_member(uuid, text)` / `app.set_org_member_role(uuid, text, text)`。它们以属主身份写 `organization` / `organization_member`，函数体内做认证、成员角色与 last-owner 守卫（§8 的写路径契约），与运行期角色无关；应用侧仍由 `withOrg` 事务注入 `app.user_id` 后调用。阶段 C / T32 修订后业务角色是 `genealogy_app`（基线给它 public 全表 DML），越权直写会被 RLS 静默过滤成 0 行、调用方看不出自己被拦；把守卫放进 SECDEF 函数体才能明确抛 `42501` / `22023`，这也是表级权限放开后仍必须走函数的原因。
 
 所有业务表使用同一条策略谓词，`organization` 表自身把 `organization_id` 换成 `id`：
 
@@ -77,7 +77,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 ## 4. 全局约定
 
-> **[目标]** 本节是目标态建表约定；重构前的实现差异见 §8。
+> **[目标]** 本节是目标态建表约定。
 
 | 约定 | 规则 |
 | --- | --- |
@@ -116,7 +116,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 ## 5. 四类东西必须分开
 
-> **[目标]** 本节是目标态实体边界；重构前的实现差异见 §8。
+> **[目标]** 本节是目标态实体边界。
 
 | 概念 | 本质 | 表 | 不做什么 |
 | --- | --- | --- | --- |
@@ -135,7 +135,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 ## 6. 关键不变量与删除语义
 
-> **[目标]** 本节是目标态不变量清单；重构前的实现差异见 §8。
+> **[目标]** 本节是目标态不变量清单。
 
 | 不变量 | 兑现机制 |
 | --- | --- |
@@ -149,7 +149,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 | 所出之母与子女同家庭且角色为妻 / 妾 | 四列复合 FK → `family_partner` + 成对 CHECK |
 | 库内书没有已出版态、身份表不含关系事实 | 结构上不存在对应列与表 |
 
-**全库用户定义触发器 2 类共 17 条（全是完整性守卫，不含业务逻辑）、定时任务 0、视图 0。** 上表机制都是主键、外键、CHECK、唯一索引、生成列、路径类型，或一条明确的写入路径契约。仍不由 DDL 保证的（写入路径契约、制品不可变性、组织至少一名 owner）必须写出「谁兜、怎么验、何时算失守」，见 §9。
+**全库用户定义触发器 2 类共 17 条（全是完整性守卫，不含业务逻辑）、定时任务 0、视图 0。** 上表机制都是主键、外键、CHECK、唯一索引、生成列、路径类型，或一条明确的写入路径契约。仍不由 DDL 保证的（写入路径契约、制品不可变性、组织至少一名 owner）必须写出「谁兜、怎么验、何时算失守」，见 §8。
 
 那 2 个触发器是本节的**唯一例外**，共同点是「声明式约束在 PostgreSQL 里表达不出、又必须与写入同事务」：
 
@@ -160,7 +160,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 被拒绝的替代方案是列级权限（`REVOKE UPDATE ON t` + `GRANT UPDATE (可写列)`，实测同样能拦住搬移）：它是**白名单**，而目标态还在继续加列（B3 的 `book_catalog.path`、T27 的 `article.body`），每加一列忘了补 `GRANT` 就是 `42501`，失败形态是「功能坏」而不是「测试红」；触发器是黑名单（枚举不会变的租户键），且 `IS DISTINCT FROM` 让「值不变的自赋值」正常通过，比列级权限更宽容。
 
-除这 2 个之外，`organization.slug` 不可变、组织至少一名 owner、不许往已关停组织加成员——一律走写入路径契约，见 §9。
+除这 2 个之外，`organization.slug` 不可变、组织至少一名 owner、不许往已关停组织加成员——一律走写入路径契约，见 §8。
 
 删除：整棵子树一条 `DELETE ... WHERE path <@ '0010'::ltree`（`<@` 含根自身）；移子树用 `text2ltree` 重写前缀（根上 `subpath(path,1)` 会报 `22023`）；同级交换走三阶段改名。`auth.user` 删除时成员行 `CASCADE`、`created_by` / `invited_by` `SET NULL`；删 `folder` 时内容 `folder_id SET NULL (folder_id)`；**其余一切 `RESTRICT`**，不允许一条 SQL 静默抹掉数据。注意 `RESTRICT` 违反时 SQLSTATE 是 **`23001`** 而非 `23503`（`NO ACTION` 才是 `23503`）。
 
@@ -197,57 +197,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 ---
 
-## 8. 重构前的实现差异（迁移清单）
-
-> **[现状]** 本节是重构前的实现快照，为待改对象；13 条差异逐条消掉后整节删除，不留双写。
->
-> **阶段 E 挂起（2026-11-09；#14 口径于同日复核更正）**：逐条复核后 #1–#13 实质已消除（#6 / #7 / #10 的旧描述是 B1 / B2a 时期的过时快照，本批已按代码更正）；**#14 `folder` 层级仍未消除**，但它的取舍不是「待拍板」——下方已书面写明「#14 已拍板：按附录 A 扁平化」，附录 A.2 的目标 DDL 也只有 6 列。准确状态是**决策已定、实现未开工**：扁平化拆在 `S8` 范围外的独立批次，影响面清单见 `docs/roadmap.md`「#14 独立批次影响面」；唯一 SQL 基线里那句要求在 B3 前拍板的注释是 B2a 时期的过时残留，本批已更正。加上 `T40` 的 §7 数字尚未在 G1 书面确认的目标环境重跑，`T47` 的整节删除与 `T49` 的 `delivered` 均暂缓，挂起台账在 `docs/roadmap.md`。本节在 #14 独立批次实现并迁出前保留：不删、也不把过时状态写成已交付。
-
-> 本文 §1–§7 是**目标态**，代码按本文改。下表是重构前必须逐条消掉的差异，**旧实现是待改对象，不是裁决依据**。第 1 条是根上的变更：事实层从「`node` 的回填快照」变成主数据源，读写路径与术语已随本批同步跟改。取舍已在本文定稿，只需新增一条 ADR 记录这次模型变更，不需要再讨论选哪套。
-
-> **[现状]（2026-11-08 B1 更新）**：`lib/db/migrations/0000_target_schema.sql` 已是附录 A 全量目标态 DDL 的唯一基线，#2 / #3 / #4 / #5 / #9 / #10 的**库结构**已在基线里就位；B1 补上 `book_export` 的 TS 表结构、并让 `project` / `folder` 的复合主键在 TS 侧追平（#6 部分消除、`lineage_folder_fk` 的 42830 隐患解除），但 #2 的 `book_export_book_fk` 目标键仍待 `content.ts` 追平，`lib/db/schema/*.ts` 与 `lib/auth/*` 其余部分也尚未追平（阶段 B 的 T18–T28、阶段 C 的 T29–T34）。下表「现状」列描述的是 TS / 应用侧，逐条消掉指两侧都对齐，不是只看 SQL 文件。
-
-| # | 目标（本文） | 现状（待改） | 现状位置 / 待改文件 |
-| --- | --- | --- | --- |
-| 1 | `person` 是身份与事实的主数据源，谱系只引用它 | **已消除**：事实层六表由应用直接读写为主数据源，`node` 退为位置引用；`docs/architecture.md`「域所有权」与 `docs/glossary.md`「事实层 / 人丁」已同步 | `lib/db/schema/{person,family,event,lineage}.ts` |
-| 2 | `book_export` 登记导出制品 | **B1 已补 TS 表结构**：B0 唯一 SQL 基线按附录 A.5 建 `book_export`；B1 补 `lib/db/schema/book-export.ts`（复合主键、四条 CHECK、两条 FK）与 barrel 类型导出。`book_export_book_fk` 的目标键 `book (project_id, id)` 已由 B2a 在 `content.ts` 追平（`book` 改复合主键），该 FK 的 42830 隐患随之消除 | `lib/db/migrations/0000_target_schema.sql`；`lib/db/schema/book-export.ts`；`content.ts` |
-| 3 | `parent_path` 生成列 + 自引用 FK 保证闭包 | **已消除（T25）**：谱系层（A′）与谱书层（T25）的 `parent_path` 生成列 + 自引用 FK 均已落地；`book_catalog_parent_fk` 引用 `(project_id, book_id, path)`，nlevel=1 时生成列为 NULL、FK 不生效（顶层无父） | `lib/db/schema/lineage.ts`；`content.ts` |
-| 4 | `book_catalog.path` 是 `ltree`，用 `section` / `sort` 之外还靠路径排序 | **已消除（T25）**：`book_catalog` 去 `parent_id` / `section` / `sort` / `hide` / `created_by` / 软删列，改 `path ltree` + `project_id` 列、主键 `(project_id, id)`，约束 / 索引名与附录 A.5 一致 | `lib/db/schema/content.ts` |
-| 5 | `article.body` 文本 | **已消除（T27）**：`content` jsonb + `plain_text` → `body` text（`ArticleContent` 序列化进 text 列，读取时 `parseArticleContent` 还原）；并补 `author_text` / `date_text` / `subject_person_id` / `lineage_id`、删 `created_by`，TS 已追平附录 A.5 | `lib/db/schema/content.ts`（T27 已交付） |
-| 6 | 复合主键 `(project_id, id)`，`organization_member` 无 `id` | **已消除（阶段 E 复核更正）**：事实层 / 谱系层 / 内容层全部是 `primaryKey({ columns: [projectId, id] })`；`organization` 按目标态本就是单列 `id` 主键，`organization_member` 是 `(organization_id, user_id)`。`uuidPk()` 只剩 `organization` 与按规格决议 ② 由 Better Auth 管的 `auth.*` 四表使用，属合理保留、不是「事实层仍是单列 id」；旧表格此行是 B2a 时期的过时快照 | `lib/db/schema/{shared,org,project,content,auth}.ts` |
-| 7 | 0 个 `updated_at`、无软删、删除走 `RESTRICT` | **已消除（阶段 E 复核更正）**：`lib/db/schema/` 里已无 `deletedAt` / `deleted_at`，`updated_at` 只剩 `auth.ts` 四表（按决议 ② 保留，不参与本差异）；`activity_logs` 整表退役；基线全库业务表 `ON DELETE RESTRICT` | `lib/db/schema/*.ts`；`docs/glossary.md`「软删 / 硬删」；`docs/nfr.md` §5 |
-| 8 | 不使用 Better Auth organization 插件；`auth.user` 主键 `text` | **已消除（B4/T28）**：`organization()` 插件与默认语句表全部拆除，adapter 只管核心四模型；成员模型只剩自有三表（成员寻址按 `user_id`，建组织走 `app.create_organization`）；`auth.user.id` 早已是 text（B0 基线 + TS 镜像对齐） | `lib/auth/{better-auth,access-control}.ts`；`lib/org/{actions,members}.ts`；`lib/db/schema/auth.ts` |
-| 9 | 不启用 FORCE RLS（方案 A），业务角色 `genealogy_app` | **已消除（阶段 C / T32 修订）**：基线不建 `FORCE ROW LEVEL SECURITY`，只创建 `genealogy_app` LOGIN 角色并授 public 全表 DML；`withOrg` 改 `SET LOCAL ROLE genealogy_app`，`app_rw` 退役。认证侧**保留独立** `auth_service`——PG18 实测 `auth.*` 四表 `relrowsecurity=false`，合并会让业务角色无 RLS 直读凭据表，故规格由「全量统一」修订为「业务侧统一、认证侧独立」 | `lib/db/drizzle.ts`；`lib/db/auth-db.ts`；`tests/helpers/runtime-roles.ts`；`.github/workflows/ci.yml`；`scripts/verify-deployment.mjs` |
-| 10 | `app.visible_org_array()` + InitPlan 谓词 | **已消除（阶段 E 复核更正）**：12 个 `app.*` 函数与 17 条 `org_isolation` 策略都在唯一 SQL 基线里，Drizzle schema 本就不该声明库内函数；`pnpm verify:target-schema` 的 T37 / T41 会数函数、策略并验 fail-closed。旧表格把「TS schema 里没有」当成差异，属口径错误 | `lib/db/migrations/0000_target_schema.sql`；`scripts/verify-target-schema.mjs` |
-| 11 | 世次由 `nlevel(path)` 派生 | **谱系层已消除**（A′）：`node.generation` 存储列与两条 CHECK 已删，世次由 `path` 的段数（`segments.length`）在查询投影层派生 | `lib/db/queries/nodes.ts` |
-| 12 | `path ltree NOT NULL`、树不可能成环 | **谱系层已消除**（A′）：`path ltree NOT NULL`；`parent_id` / `spouse_of_id` / `role` / `is_alive` 等身份字段已不再内嵌于 `node`（姓名在 `person_name`、生卒由 `event` 派生、性别在 `person.sex`） | `lib/db/schema/lineage.ts` |
-| 13 | PG18 `uuidv7()` 是硬下限 | **已满足，无需改动**：`uuidPk()` = `uuid('id').primaryKey().default(sql\`uuidv7()\`)` | `lib/db/schema/shared.ts` |
-| 14 | `folder` 扁平单层（附录 A.2），**无 `kind`、无 `parent_id`** | 已拍板按附录 A 扁平化，未开工。`folder` 现有 `kind smallint` + `parent_id` + `fk_folder_parent_same_project`（多级），基线暂按超集建表以免运行期 42703；压平见下方说明 | `lib/db/schema/project.ts`；`lib/db/queries/{articles,folders}.ts`；`lib/folder/services.ts`；`lib/article/mutations.ts` |
-
-> **#14 已拍板：按附录 A 扁平化。** `folder` 的目标态就是附录 A.2 的扁平单层，没有 `kind` / `parent_id`。当前实现的分类层级是要拆掉的对象，不是要补进规格的既有能力。
->
-> 拆分落在独立批次，不在 B2a：代码里层级用得比想象中深——`lib/db/queries/articles.ts` 按 `kind = 1` 过滤活动分类并按 `parent_id` 组装树、`lib/folder/services.ts` 按 `kind` 分组并按父链 BFS 删除、`lib/article/mutations.ts` 用 `kind` + `parent_id` 定位分类。压平不是删几行，要先把这几处业务语义翻译成单层模型，并定好 `folder_name_unique (project_id, name)` 在压平撞名时怎么办。
->
-> 因此在 B2a 的基线里 `folder` 暂时按「附录 A.2 + 实现列」的超集建表（否则这些代码运行期直接 42703），等扁平化批次落地后收回。`seq` 与实现里的 `sort` 语义重复，扁平化时二选一。
->
-> 当前代码状态：`lib/folder/services.ts` 的删除已改成**叶→根 BFS 硬删**（每个节点单独 `DELETE`），所以无论最终怎么压平，删除语义都不再依赖软删。
-
-> **B0b 已补齐（2026-11-08）**：B0 重建基线时丢了整层隔离机制。补回的是 `app.forbid_tenant_move()` + **16** 张表的 `trg_*_tenant_immutable`（旧清单里的 `activity_logs` 已退役，换成 B1 带来的 `book_export`）与 `public.handle_new_user()` + `trg_auth_user_created`，两者都是 §5.3 例外表里那类完整性守卫。**没有补** `auth.has_org_role()` 等 `auth.*` 函数：目标态用 `app.visible_org_array()`，而 `verify-deployment.mjs` 里那条「每条策略必须调 `has_org_role`」的断言是旧实现口径，T34 会删掉。注册触发器落地后 `getPersonalOrg()` 不再返回 null。
-
-重构验收时逐条确认差异已消掉：
-
-```bash
-grep -rn "pgTable(" lib/db/schema/
-grep -rn "book_export\|parent_path\|visible_org_array\|genealogy_app" lib/db/schema/
-grep -rn "uuidv7\|FORCE ROW LEVEL SECURITY" lib/db/schema/ lib/db/migrations/
-node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.length)"
-```
-
-**读法**：`docs/glossary.md` 的术语（人丁 = `node`、云谱空间 = `project`、谱系 / 谱文 / 谱书 / 编目）描述的是**重构前的实现**；本文 §2 的表名描述的是**目标态**。同名不同义时**以本文为准**——术语表、架构文档与运维手册会随重构跟改，不要反过来用旧术语去解释本文。
-
----
-
-## 9. 约束要有执行者
+## 8. 约束要有执行者
 
 > 写在文档里但拦不住的规则，等于没有规则。规格里每条保证都要能在 DDL 里指出兑现位置；指不出来的，写出谁兜、怎么验、什么时候算失守。
 
@@ -265,4 +215,4 @@ node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.l
 | 迁移已应用、库结构与代码对齐 | `.github/workflows/migrate-production.yml` + `scripts/verify-deployment.mjs`；`pnpm db:generate` 保证 TS ↔ snapshot 零漂移，`pnpm verify:target-schema --parity` 再把 snapshot（≡ TS）与**真实执行 DDL 后的 catalog** 逐表对比表集合 / 列 / 主键 / 外键（T39 后半，排除按规格决议 ② 由 Better Auth 管 DDL 的 `auth.*`）。本批据该对比发现并追平了两处真实漂移：`project.description`、`folder.seq` |
 | §7 的验证结论（重构验收） | DDL / **P1–P32 正例 + N1–N31 反例** / fail-closed / TS ↔ 基线结构对比 已有自动执行者：`.github/workflows/ci.yml` 的 `pnpm verify:target-schema`（T36–T42，自建干净库重建唯一基线后逐条执行）。正例用 DO 块做真实语义断言而非「只检查没报错」，反例逐条比对 SQLSTATE；结构性不可表达的 N20 与依赖目标环境的 P21 / P22 显式 `SKIP`。**§7 的 Q1 / Q3 EXPLAIN 数字仍无自动执行者**：须在 G1 书面确认的目标环境重跑，脚本里显式 `SKIP`，本地容器旧数字不算兑现（T40） |
 
-重构前的自动执行者清单在 `docs/architecture.md` 的「约束要有执行者」，本文不重抄，它会随本次重构同步更新。把本文从纸面变成现实靠的是迁移 + 断言，不是再写一份文档——**§8 的每一行都该在某个提交里消失**。
+重构前的自动执行者清单在 `docs/architecture.md` 的「约束要有执行者」，本文不重抄，它会随本次重构同步更新。把本文从纸面变成现实靠的是迁移 + 断言，不是再写一份文档。逐条落地过程见 `CHANGELOG.md` 的 `S8` 段落。

@@ -95,7 +95,7 @@ PostgreSQL（业务 genealogy_app / 认证 auth_service）
 
 **schema 文件名不等于域所有权**：`project.ts` 同时定义 `project` 与 `folder`，但 `folder` 的写入口在 `lib/folder/`；`content.ts` 定义 `article` / `book` / `book_catalog`，但业务域叫 **`article`**，不存在一个叫 `content` 的域。schema 按内容分组，域按写入口划分，两套名字不要互相代入。
 
-事实层六表是身份、姓名、亲属关系与生卒等事实的**主数据源**，由应用直接读写：写走 Server Action、读走查询层，不再有回填 / 对账 CLI。谱系层 `node` 只是 `person` 在树上的位置引用，不再承载完整身份。**目标态全库业务表没有软删列**：删除一律 `ON DELETE RESTRICT`，无可恢复删除，也没有回收站 UI；`organization` 用 `status = 'closed'` 归档而非删除。唯一仍未收敛的是 `folder` 的层级：附录 A.2 是扁平单层，`docs/data-model.md` §8 已拍板「按附录 A 扁平化」，当前基线与 TS 按「扁平 + 实现层级列」超集建表以免运行期 42703。状态是**决策已定、实现未开工**，扁平化拆在 `S8` 范围外的独立批次，影响面见 `docs/roadmap.md`「#14 独立批次影响面」。
+事实层六表是身份、姓名、亲属关系与生卒等事实的**主数据源**，由应用直接读写：写走 Server Action、读走查询层，不再有回填 / 对账 CLI。谱系层 `node` 只是 `person` 在树上的位置引用，不再承载完整身份。**目标态全库业务表没有软删列**：删除一律 `ON DELETE RESTRICT`，无可恢复删除，也没有回收站 UI；`organization` 用 `status = 'closed'` 归档而非删除。`folder` 是项目内的**扁平单层分类**（`docs/data-model.md` §6）：谱系 / 谱文 / 谱书共用一套分类，没有 `kind`、没有 `parent_id`，名字在项目内唯一。
 
 ---
 
