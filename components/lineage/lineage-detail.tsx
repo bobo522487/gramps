@@ -275,9 +275,6 @@ function LineageDetailInner({
   const bloodNodes = index.blood;
   const spousesByBlood = index.spousesByBlood;
   const hasRoot = bloodNodes.length > 0;
-  // A′ 之后服务端只传 nodeCount: 0 占位（目标态已退役该列），计数一律由
-  // 投影后的血亲行重算，避免 header / 打印区显示恒为 0。
-  const nodeCount = bloodNodes.length;
 
   // 新建谱系后直接引导录入始祖：每次进入空谱系弹一次，不写进 URL。
   useEffect(() => {
@@ -515,8 +512,8 @@ function LineageDetailInner({
             <p className="truncate text-[11px] text-muted-foreground">
               {lineage.surname}氏
               {lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
-              {lineage.region ? ` · ${lineage.region}` : ''} · 共 {nodeCount}{' '}
-              位族人
+              {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
+              {bloodNodes.length} 位族人
             </p>
           </div>
         </div>
@@ -578,7 +575,8 @@ function LineageDetailInner({
         <h1 className="text-lg font-bold text-foreground">{lineage.name}</h1>
         <p className="text-xs text-muted-foreground">
           {lineage.surname}氏{lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
-          {lineage.region ? ` · ${lineage.region}` : ''} · 共 {nodeCount} 位族人
+          {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
+          {bloodNodes.length} 位族人
         </p>
       </div>
 
