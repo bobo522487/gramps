@@ -173,7 +173,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 `getSoleOwnerOrgNames` 漏掉过滤会产生一个死锁：组织归档后仍被算作「唯一所有者」，`deleteAccount` 永久拒绝销号，而它提示用户「先把组织归档」，可归档动作又只作用于 `active` 的组织——用户照着做也无路可走。`getProjectScopeByRef` 漏掉过滤则能用 `/project/[ref]` 直达已关停组织的项目，绕过关停闸门。
 
-`deleteProject` 的 `23503` **必须按约束名精确匹配**（13 条 `*_scope_fk`，见 `lib/project/services.ts` 的 `PROJECT_CHILD_CONSTRAINTS`，由门禁 B2a-11 与基线 DDL 交叉校验）。宽匹配任意 `23503` 会把别处的 FK 故障翻译成「项目里还有内容」，用户清空后依然删不掉，错误被静默吞掉；未登记的约束宁可抛错也不猜。
+`deleteProject` 的 FK 违约**必须按约束名精确匹配**（13 条 `*_scope_fk`，见 `lib/project/services.ts` 的 `PROJECT_CHILD_CONSTRAINTS`，由门禁 B2a-11 与基线 DDL 交叉校验）。宽匹配任意 FK 故障会把它翻译成「项目里还有内容」，用户清空后依然删不掉，错误被静默吞掉；未登记的约束宁可抛错也不猜。这里有两个实测坑：① `RESTRICT` 违约是 `23001` 且 postgres.js 报告 `constraint_name`，插入类 `NO ACTION` 违约才是 `23503` / `constraint`，`lib/db/errors.ts` 两种都认；② postgres.js 会记住事务内第一条失败 query 并在 COMMIT 重抛，**即使 JS 层 catch 了它**（SAVEPOINT 只恢复服务端事务状态，救不了 driver 记账），所以主路径必须先用 13 条 `exists` 探查子表、命中就提前返回 `not_empty`，绝不发出会失败的 `DELETE`；catch 里的约束分类只作并发竞态 / 未登记约束的兜底。
 
 
 ---

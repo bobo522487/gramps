@@ -1,4 +1,29 @@
-type PgError = { code?: string; message?: string; constraint?: string };
+type PgError = {
+  code?: string;
+  message?: string;
+  /** node-postgres (pg) 用 `constraint`。 */
+  constraint?: string;
+  /** postgres.js 用 `constraint_name`。 */
+  constraint_name?: string;
+};
+
+/**
+ * FK 违约有两种 SQLSTATE：`23503` (foreign_key_violation，插入时引用不存在 /
+ * NO ACTION 删除) 与 `23001` (restrict_violation，ON DELETE RESTRICT 命中)。
+ * 目标态基线里 project 的 13 条子表外键全是 RESTRICT，删除项目只会拿到
+ * `23001`；只认 `23503` 会让 not_empty 分支永远走不到（PG18 实测）。
+ */
+const FK_VIOLATION_CODES = new Set(['23503', '23001']);
+
+function isFkViolation(value: PgError): boolean {
+  return typeof value.code === 'string' && FK_VIOLATION_CODES.has(value.code);
+}
+
+/** 两种驱动的约束字段名不同，都要认。 */
+function constraintName(value: PgError): string | null {
+  const name = value.constraint ?? value.constraint_name;
+  return typeof name === 'string' && name.length > 0 ? name : null;
+}
 
 /**
  * Drizzle wraps driver failures and Better Auth may wrap those again, so the
@@ -38,34 +63,32 @@ export function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * PostgreSQL SQLSTATE 23503 (foreign_key_violation). Target state has no soft
- * delete and every project-internal FK is RESTRICT, so a delete that still has
- * children fails here instead of silently marking a row.
+ * `23503` 或 `23001`。目标态没有软删，project 内每条 FK 都是 RESTRICT，
+ * 有子行时删除在这里失败而不是静默标记。
  */
 export function isForeignKeyViolation(error: unknown): boolean {
-  return errorChain(error).some((value) => value.code === '23503');
+  return errorChain(error).some(isFkViolation);
 }
 
 /**
- * 23503 但只看某几条约束名。删除类操作必须用它而不是上面的宽匹配：
+ * FK 违约但只看某几条约束名。删除类操作必须用它而不是上面的宽匹配：
  * 一个 `DELETE` 上挂了多种 FK，其中只有一部分代表「还有内容，不能删」，
  * 其余（比如历史遗留的 ON DELETE SET NULL 之外的可空引用）是真正的故障，
  * 宽匹配会把故障伪装成业务提示，用户照着提示清空内容也删不掉。
  *
- * PostgreSQL 在错误报文里带 `constraint`（约束名，不是列名），所以这里按
- * 约束名精确比对，不做前缀 / 模糊匹配。
+ * PostgreSQL 在错误报文里带约束名（不是列名），所以这里按约束名精确比对，
+ * 不做前缀 / 模糊匹配。字段名随驱动变化：postgres.js 是 `constraint_name`
+ * 且 RESTRICT 命中时报 `23001`，node-postgres 是 `constraint` / `23503`。
  */
 export function isForeignKeyViolationOf(
   error: unknown,
   constraints: readonly string[]
 ): boolean {
   const names = new Set(constraints);
-  return errorChain(error).some(
-    (value) =>
-      value.code === '23503' &&
-      typeof value.constraint === 'string' &&
-      names.has(value.constraint)
-  );
+  return errorChain(error).some((value) => {
+    const name = constraintName(value);
+    return isFkViolation(value) && name !== null && names.has(name);
+  });
 }
 
 /**
@@ -81,11 +104,14 @@ export function sqlStateOf(error: unknown, sqlState: string): boolean {
   return errorChain(error).some((value) => value.code === sqlState);
 }
 
-/** 从错误链里取出 23503 的约束名，供日志与兜底文案使用。 */
+/** 从错误链里取出 `23503` / `23001` 的约束名，供日志与兜底文案使用。 */
 export function foreignKeyConstraintOf(error: unknown): string | null {
   for (const value of errorChain(error)) {
-    if (value.code === '23503' && typeof value.constraint === 'string') {
-      return value.constraint;
+    if (isFkViolation(value)) {
+      const name = constraintName(value);
+      if (name) {
+        return name;
+      }
     }
   }
   return null;

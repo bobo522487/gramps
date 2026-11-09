@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
+import { queryRows } from '@/lib/db/drizzle';
 import {
   foreignKeyConstraintOf,
   isForeignKeyViolationOf,
@@ -141,6 +142,11 @@ const PROJECT_CHILD_CONSTRAINTS = [
   'person_scope_fk',
 ] as const;
 
+/** `xxx_scope_fk` → `xxx`：子表探查与兜底分类共用同一份清单，不另建表名表。 */
+const PROJECT_CHILD_TABLES = PROJECT_CHILD_CONSTRAINTS.map((name) =>
+  name.replace(/_scope_fk$/, '')
+);
+
 export async function deleteProjectInTransaction(params: {
   userId: string;
   orgId: string;
@@ -152,11 +158,25 @@ export async function deleteProjectInTransaction(params: {
   const { userId, orgId, projectId } = params;
 
   return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
-    // Target state has no soft delete: this is a real DELETE. Every
-    // project-internal FK is RESTRICT, so a project that still has folders,
-    // lineages, articles or books fails with 23503 — that is the intended
-    // "RESTRICT protects data" behaviour, surfaced as `not_empty` so the UI can
-    // ask the user to clear the project first.
+    // Target state has no soft delete: this is a real DELETE and every
+    // project-internal FK is RESTRICT. postgres.js remembers the first failed
+    // query inside a transaction (`uncaughtError`) and rethrows it at COMMIT
+    // EVEN if the JS catch swallows it — a savepoint restores the server-side
+    // aborted state but not that driver bookkeeping. So we must not issue a
+    // DELETE that can fail: probe the child tables first and refuse early.
+    // This also works on the node-postgres path used on Vercel.
+    const childChecks = PROJECT_CHILD_TABLES.map(
+      (table) =>
+        sql`exists (select 1 from ${sql.identifier(table)} where organization_id = ${orgId} and project_id = ${projectId})`
+    );
+    const [probe] = await queryRows<{ has_children: boolean }>(
+      tx,
+      sql`select (${sql.join(childChecks, sql` or `)}) as has_children`
+    );
+    if (probe?.has_children) {
+      return { ok: false, reason: 'not_empty' as const };
+    }
+
     try {
       const rows = await tx
         .delete(projects)
@@ -167,10 +187,11 @@ export async function deleteProjectInTransaction(params: {
         return { ok: false, reason: 'not_found' as const };
       }
     } catch (error) {
-      // 只把「项目内还有内容」这一种 23503 翻译成 `not_empty`。宽匹配会把别处
-      // 的 FK 故障伪装成业务提示——用户照着提示清空内容后依然删不掉，错误被吞。
-      // 约束名清单来自基线 DDL：每张挂在 project 上的表都只有一条
-      // `*_scope_fk FOREIGN KEY (organization_id, project_id)`，共 13 条。
+      // 兜底：并发插入子行、未登记的约束、或其它 FK 故障。只把清单内的违约
+      // 翻译成 `not_empty`；宽匹配会把别处的故障伪装成业务提示——用户照着
+      // 提示清空内容后依然删不掉，错误被吞。注意 RESTRICT 违约是 `23001`
+      // 且 postgres.js 给 `constraint_name`，插入类 FK 违约才是 `23503` /
+      // `constraint`，两者在 `lib/db/errors.ts` 里都认。
       if (isForeignKeyViolationOf(error, PROJECT_CHILD_CONSTRAINTS)) {
         return { ok: false, reason: 'not_empty' as const };
       }
