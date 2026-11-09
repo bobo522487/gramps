@@ -4,8 +4,6 @@ import {
   customType,
   foreignKey,
   index,
-  integer,
-  jsonb,
   pgTable,
   primaryKey,
   text,

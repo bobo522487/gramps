@@ -515,8 +515,8 @@ function LineageDetailInner({
             <p className="truncate text-[11px] text-muted-foreground">
               {lineage.surname}氏
               {lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
-              {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
-              {nodeCount} 位族人
+              {lineage.region ? ` · ${lineage.region}` : ''} · 共 {nodeCount}{' '}
+              位族人
             </p>
           </div>
         </div>
@@ -578,8 +578,7 @@ function LineageDetailInner({
         <h1 className="text-lg font-bold text-foreground">{lineage.name}</h1>
         <p className="text-xs text-muted-foreground">
           {lineage.surname}氏{lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
-          {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
-          {nodeCount} 位族人
+          {lineage.region ? ` · ${lineage.region}` : ''} · 共 {nodeCount} 位族人
         </p>
       </div>
 

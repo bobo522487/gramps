@@ -43,10 +43,7 @@ describe('S8 阶段 B · B4 组织写入 SECDEF 收口', () => {
   test('B4W-1：基线里四个写入函数齐全，且都是 SECURITY DEFINER + pg_temp 置末', () => {
     const ddl = read('lib/db/migrations/0000_target_schema.sql');
     for (const name of WRITE_FUNCS) {
-      expect(
-        ddl,
-        name
-      ).toMatch(
+      expect(ddl, name).toMatch(
         new RegExp(
           `CREATE OR REPLACE FUNCTION app\\.${name}\\([\\s\\S]{0,260}?SECURITY DEFINER[\\s\\S]{0,160}?SET search_path = pg_catalog, public, pg_temp`
         )
