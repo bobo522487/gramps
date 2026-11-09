@@ -33,7 +33,7 @@ import {
 import { roleLabel, roleVariant } from '@/lib/ui/status';
 
 export type MemberView = {
-  id: string;
+  userId: string;
   name: string;
   email: string;
   role: string;
@@ -84,7 +84,7 @@ function MemberRoleForm({
   return (
     <form action={action} className="flex flex-col items-end gap-1">
       <input type="hidden" name="orgId" value={orgId} />
-      <input type="hidden" name="memberId" value={member.id} />
+      <input type="hidden" name="memberId" value={member.userId} />
       <div className="flex items-center gap-1">
         <select
           name="role"
@@ -198,7 +198,7 @@ export function MembersPanel({
               </TableHeader>
               <TableBody>
                 {members.map((member) => (
-                  <TableRow key={member.id}>
+                  <TableRow key={member.userId}>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Avatar size="sm">
@@ -231,7 +231,7 @@ export function MembersPanel({
                             />
                             <RemoveMemberButton
                               orgId={orgId}
-                              memberId={member.id}
+                              memberId={member.userId}
                             />
                           </>
                         ) : null}

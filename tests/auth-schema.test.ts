@@ -139,14 +139,13 @@ describe('Better Auth schema', () => {
   });
 
   it('maps singular Better Auth model names to tables', () => {
+    // T28 拆掉 organization 插件后，adapter 只管核心四模型；
+    // organization / member / invitation 由业务连接直接读写。
     expect(authSchemaMap).toEqual({
       user: users,
       session: sessions,
       account: accounts,
       verification: verifications,
-      organization: organizations,
-      member: orgMembers,
-      invitation: invitations,
     });
   });
 });

@@ -86,10 +86,13 @@ async function seed() {
   try {
     const organizationId = await findOwnerOrganization(session.id);
 
-    // Organization writes belong to auth_service; go through the owner path.
-    await getAuth().api.updateOrganization({
-      body: { organizationId, data: { name: ORG_NAME } },
-      headers: session.headers,
+    // 演示组织改名走业务连接即可：seed 用户已是 owner，RLS 放行。
+    // （原来经插件的 updateOrganization，T28 拆插件后插件 API 不复存在。）
+    await withOrg(session.id, async (tx) => {
+      await tx
+        .update(organizations)
+        .set({ name: ORG_NAME })
+        .where(eq(organizations.id, organizationId));
     });
 
     await withOrg(session.id, async (tx) => {

@@ -66,19 +66,15 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
     expect(book).not.toContain("timestamptz('updated_at')");
   });
 
-  test('B2a-2：organization_member 本批保留代理主键 id（待 B4 / T28）', () => {
-    // 附录 A.1 的目标态是 (organization_id, user_id) 复合主键、无代理主键。
-    // 但 Better Auth 的 organization 插件直接读 `member.id`，缺列时 `createAuth()`
-    // 一初始化就报 `Drizzle schema mismatch — Missing columns: member.id`，
-    // 232 条集成测试全红。去插件（T28）与去主键是同一个约束的两面，所以整体
-    // 并入 B4。这里做反向保护：谁在本批偷偷删掉 `id`，必须先过这一关。
+  test('B2a-2：organization_member 主键 (organization_id,user_id)（目标态，随 B4/T28 达成）', () => {
+    // 本批的反向保护已由 B4 / T28 兑现：插件拆除与代理主键删除是同一个约束
+    // 的两面，最终形态是成员对复合主键、无 `id`、无重复的唯一约束。
     const member = block(schema('org'), 'organization_member', 'invite');
-    expect(member).toContain('id: uuidPk()');
-    // 复合唯一约束保留，它是未来的目标主键，也是去重语义的唯一保障。
+    expect(member).not.toContain('uuidPk()');
+    expect(member).not.toContain("'uk_org_member_organization_user'");
     expect(member).toContain(
-      "unique('uk_org_member_organization_user').on(t.organizationId, t.userId)"
+      'primaryKey({ columns: [t.organizationId, t.userId] })'
     );
-    expect(member).not.toContain('primaryKey({');
   });
 
   test('B2a-3：invite 改 (organization_id,id) 复合主键', () => {
@@ -99,11 +95,11 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
     //
     // B2b 已按预期把 `invite.invited_by` 从 `NOT NULL + RESTRICT` 改成
     // `可空 + SET NULL`：邀请人注销后邀请行要留痕，而「谁邀请的谁不能注销」
-    // 是把邀请记录当成了账号的附属物。所以 restrict 从 3 条降到 2 条，
-    // 并新增 1 条 set null。
+    // 是把邀请记录当成了账号的附属物。B4 / T28 又补上 `organization.created_by`
+    //（附录 A.1，同为 SET NULL）。所以 set null 从 1 条升到 2 条。
     expect(source.match(/onDelete: 'restrict'/g) ?? []).toHaveLength(2);
     expect(source.match(/onDelete: 'cascade'/g) ?? []).toHaveLength(1);
-    expect(source.match(/onDelete: 'set null'/g) ?? []).toHaveLength(1);
+    expect(source.match(/onDelete: 'set null'/g) ?? []).toHaveLength(2);
     // 精确定位：cascade 那一条必须挂在 `users.id` 上，且属于 organization_member。
     const memberBlock = block(source, 'organization_member', 'invite');
     expect(memberBlock).toContain("users.id, { onDelete: 'cascade' }");
@@ -136,17 +132,14 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
     expect(code).not.toContain('bookCatalogs.deletedAt');
   });
 
-  test('B2a-7：成员增删改一律按 member.id 传给 Better Auth', () => {
-    // 前端成员表单传的是 `member.id`，成员表仍有代理主键（见 B2a-2），所以
-    // findMember 必须按 `id` 查，且 removeMember / updateMemberRole 传给插件的
-    // 也必须是 `member.id`——插件的 crud-members 走 `adapter.findMemberById()`，
-    // 传 userId 只会 MEMBER_NOT_FOUND（uuid 列收到非 uuid 还可能 22P02）。
+  test('B2a-7：成员寻址一律按 user_id，插件 API 已随 T28 退役', () => {
+    // B2a 时期成员表还有代理主键 `id`，这里钉的是「传 member.id 给插件」。
+    // B4 / T28 拆插件 + 去代理主键后，寻址只能按 `user_id`（附录 A.1）。
     const source = stripComments(read('lib/org/actions.ts'));
-    expect(source).toContain('orgMembers.id');
-    expect(source).toContain('memberIdOrEmail: member.id');
-    expect(source).toContain('memberId: member.id');
-    expect(source).not.toContain('memberIdOrEmail: member.userId');
-    expect(source).not.toContain('memberId: member.userId');
+    expect(source).toContain('eq(orgMembers.userId');
+    expect(source).not.toContain('orgMembers.id');
+    expect(source).not.toContain('memberIdOrEmail');
+    expect(source).not.toContain('getAuth().api');
   });
 
   test('B2a-8：auth.ts 的 updated_at 按决议 ② 保留（反向保护）', () => {

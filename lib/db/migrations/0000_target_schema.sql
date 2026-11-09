@@ -144,18 +144,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_auth_session_token ON auth.session (token);
 CREATE INDEX IF NOT EXISTS idx_auth_session_user ON auth.session (user_id);
 
 CREATE TABLE organization_member (
-  -- 附录 A.1 的目标态是 PRIMARY KEY (organization_id, user_id)、无代理主键。
-  -- 但 Better Auth 的 organization 插件直接读 `member.id`，缺列时 `createAuth()`
-  -- 初始化即报 `Drizzle schema mismatch — Missing columns: member.id`，232 条
-  -- 集成测试全红。去插件（T28）与去主键是同一约束的两面，整体并入 B4，
-  -- 所以这一批先保留 `id` + 复合唯一约束，等 T28 一并删。
-  id              uuid NOT NULL DEFAULT uuidv7(),
   organization_id uuid NOT NULL REFERENCES organization(id) ON DELETE RESTRICT,
   user_id         text NOT NULL REFERENCES auth.user(id) ON DELETE CASCADE,
   role            member_role_t NOT NULL DEFAULT 'viewer',
   created_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (id),
-  CONSTRAINT uk_org_member_organization_user UNIQUE (organization_id, user_id)
+  PRIMARY KEY (organization_id, user_id)
 );
 CREATE UNIQUE INDEX uk_org_member_single_owner
   ON organization_member (organization_id) WHERE role = 'owner';

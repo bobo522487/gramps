@@ -3,8 +3,6 @@
 import 'server-only';
 
 import { and, eq, sql } from 'drizzle-orm';
-import { headers } from 'next/headers';
-import { getAuth } from '@/lib/auth/better-auth';
 import {
   authErrorMessage,
   isSlugConflict,
@@ -27,36 +25,30 @@ import {
 } from '@/lib/auth/schemas';
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
-import { withOrg } from '@/lib/db/drizzle';
+import { withOrg, queryRows } from '@/lib/db/drizzle';
 import { sqlStateOf } from '@/lib/db/errors';
 import { getOrgById } from '@/lib/db/queries/organizations';
 import { organizations, orgMembers } from '@/lib/db/schema';
-import { generatePublicId } from '@/lib/ids';
 import { logger } from '@/lib/logger';
 import { hashInviteToken, issueInvitation } from '@/lib/org/invitations';
 
 const SLUG_ATTEMPTS = 3;
 
-async function authHeaders() {
-  return headers();
-}
-
 /**
- * 成员表仍有代理主键 `id`（要去掉它必须同时去掉 Better Auth organization 插件，
- * 见 lib/db/schema/org.ts 的说明与 T28），所以这里按 `id` 查，与前端表单传的
- * `member.id` 一致。`userId` 一并选出，供「不能移除自己」这类判断使用。
+ * 成员寻址按 `user_id`（T28 拆插件后成员表无代理主键，附录 A.1）。动作入参
+ * 沿用表单字段名 `memberId`，承载的就是 userId——与集成测试的既有口径一致。
+ * `role` 一并选出，供「不能移除自己 / 不能动所有者」这类判断使用。
  */
-async function findMember(actorId: string, orgId: string, memberId: string) {
+async function findMember(actorId: string, orgId: string, userId: string) {
   return withOrg(actorId, async (tx) => {
     const rows = await tx
       .select({
-        id: orgMembers.id,
         userId: orgMembers.userId,
         role: orgMembers.role,
       })
       .from(orgMembers)
       .where(
-        and(eq(orgMembers.id, memberId), eq(orgMembers.organizationId, orgId))
+        and(eq(orgMembers.userId, userId), eq(orgMembers.organizationId, orgId))
       )
       .limit(1);
     return rows[0] ?? null;
@@ -66,18 +58,35 @@ async function findMember(actorId: string, orgId: string, memberId: string) {
 export const createOrgAction = validatedActionWithUser(
   createOrgSchema,
   async (data, _, _user) => {
-    let created: Awaited<
-      ReturnType<ReturnType<typeof getAuth>['api']['createOrganization']>
-    > | null = null;
+    let created: { id: string; slug: string } | null = null;
     let lastError: unknown = null;
 
     for (let attempt = 0; attempt < SLUG_ATTEMPTS; attempt += 1) {
       try {
-        created = await getAuth().api.createOrganization({
-          body: { name: data.name, slug: generatePublicId() },
-          headers: await authHeaders(),
+        // 建组织走 SECDEF 的 `app.create_organization`（附录 A.6，基线 590 行）：
+        // 一个函数里同时落组织行 + owner 成员行，且 `created_by` 由
+        // `app.current_user_id()` 取自事务内注入的 `app.user_id`。slug 用列默认
+        // `public.generate_public_id()`，撞 `uk_organization_slug` 就整批回滚
+        // 重试——组织与 owner 成员必须同生同死，拆成两条应用层写入做不到。
+        created = await withOrg(_user.id, async (tx) => {
+          const [row] = await queryRows<{ id: string }>(
+            tx,
+            sql`select app.create_organization(${data.name}) as id`
+          );
+          if (!row?.id) {
+            throw new Error('app.create_organization 未返回组织 ID');
+          }
+          // 同事务回读：SECDEF 已插入 owner 成员行，RLS 视图随即可见。
+          const rows = await tx
+            .select({ id: organizations.id, slug: organizations.slug })
+            .from(organizations)
+            .where(eq(organizations.id, row.id))
+            .limit(1);
+          return rows[0] ?? null;
         });
-        break;
+        if (created) {
+          break;
+        }
       } catch (error) {
         lastError = error;
         if (!isSlugConflict(error)) {
@@ -118,9 +127,11 @@ export const renameOrgAction = validatedActionWithUser(
     }
 
     try {
-      await getAuth().api.updateOrganization({
-        body: { organizationId: data.orgId, data: { name: data.name } },
-        headers: await authHeaders(),
+      await withOrg(user.id, async (tx) => {
+        await tx
+          .update(organizations)
+          .set({ name: data.name })
+          .where(eq(organizations.id, data.orgId));
       });
     } catch (error) {
       return mapAuthError(error);
@@ -309,12 +320,16 @@ export const removeOrgMember = validatedActionWithUser(
     }
 
     try {
-      await getAuth().api.removeMember({
-        // 必须传 `member.id`：插件的 `crud-members` 走 `adapter.findMemberById()`，
-        // 传 userId 只会 MEMBER_NOT_FOUND（uuid 列收到非 uuid 还可能 22P02）。
-        // 成员表仍有代理主键（见 lib/db/schema/org.ts），去主键随 B4 / T28。
-        body: { memberIdOrEmail: member.id, organizationId: data.orgId },
-        headers: await authHeaders(),
+      // RLS 保证只有成员可见的组织能删成员；权限矩阵已在上面检查过。
+      await withOrg(user.id, async (tx) => {
+        await tx
+          .delete(orgMembers)
+          .where(
+            and(
+              eq(orgMembers.organizationId, data.orgId),
+              eq(orgMembers.userId, member.userId)
+            )
+          );
       });
     } catch (error) {
       return mapAuthError(error);
@@ -356,14 +371,16 @@ export const updateOrgMemberRole = validatedActionWithUser(
     }
 
     try {
-      await getAuth().api.updateMemberRole({
-        body: {
-          role: data.role,
-          // 同 removeMember：插件按 `member.id` 定位，不是 `user_id`。
-          memberId: member.id,
-          organizationId: data.orgId,
-        },
-        headers: await authHeaders(),
+      await withOrg(user.id, async (tx) => {
+        await tx
+          .update(orgMembers)
+          .set({ role: data.role })
+          .where(
+            and(
+              eq(orgMembers.organizationId, data.orgId),
+              eq(orgMembers.userId, member.userId)
+            )
+          );
       });
     } catch (error) {
       return mapAuthError(error);

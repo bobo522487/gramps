@@ -27,6 +27,11 @@ export const organizations = pgTable(
      */
     metadata: text('metadata'),
     status: text('status').notNull().default('active'),
+    // 附录 A.1：可空 + SET NULL——建号触发器与 app.create_organization 会写它，
+    // 但历史数据 / 触发器之外的路径允许为空；加号人注销后组织行要留痕。
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
@@ -45,17 +50,9 @@ export const organizations = pgTable(
 export const orgMembers = pgTable(
   'organization_member',
   {
-    // 附录 A.1 的目标态**没有**这个代理主键，自然键是成员对。
-    //
-    // 但它现在必须留着：Better Auth 的 organization 插件直接读 `member.id`，
-    // 缺这列时 `createAuth()` 一初始化就报 `Drizzle schema mismatch —
-    // Missing columns: member.id`，整条认证链路（登录 / 会话 / 成员管理）
-    // 全部不可用。实测 232 条集成测试会全红。
-    //
-    // 去插件（T28）与去主键是同一个约束的两面，不可能只成立一边，所以这一处
-    // 回退并入 B4，与 T28 同批做。`uk_org_member_organization_user` 同样留到那批
-    // 一并删——主键还在时它是重复约束，但提前删会让本批无法验证插件行为。
-    id: uuidPk(),
+    // 附录 A.1 目标态：主键是成员对 (organization_id, user_id)，无代理主键。
+    // 旧代理键 `id` 是 Better Auth organization 插件的读法（插件按 member.id
+    // 定位），T28 拆插件后随之退役——成员寻址一律按 user_id。
     organizationId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'restrict' }),
@@ -69,7 +66,7 @@ export const orgMembers = pgTable(
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
-    unique('uk_org_member_organization_user').on(t.organizationId, t.userId),
+    primaryKey({ columns: [t.organizationId, t.userId] }),
     uniqueIndex('uk_org_member_single_owner')
       .on(t.organizationId)
       .where(sql`${t.role} = 'owner'`),

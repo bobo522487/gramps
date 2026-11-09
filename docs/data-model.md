@@ -80,7 +80,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 | 约定 | 规则 |
 | --- | --- |
 | 主键 | `id uuid NOT NULL DEFAULT uuidv7()`，应用层不生成 ID |
-| 复合主键 | `organization (id)`；`invite / project (organization_id, id)`；其余 13 张项目内表 `(project_id, id)`。`organization_member` 例外，目标态用 `(organization_id, user_id)`——但当前受 Better Auth 插件约束暂留代理主键，见下方说明 |
+| 复合主键 | `organization (id)`；`invite / project (organization_id, id)`；其余 13 张项目内表 `(project_id, id)`。`organization_member` 例外，目标态用 `(organization_id, user_id)`（B4/T28 已达成，见下方说明） |
 | 隔离列 | 除 `organization` 外所有业务表都有 `organization_id uuid NOT NULL` |
 | 时间戳 | 只有 `created_at`；**不设 `updated_at`**——没有查询用它，而「每条 UPDATE 显式赋值」是批量路径必然违反的契约 |
 | 外键 | 指向项目内表一律 `(project_id, x_id) REFERENCES t(project_id, id)`；可空 FK 的 `ON DELETE SET NULL` **必须带列清单**，否则复合 FK 把 `NOT NULL` 的 `project_id` 一起置空，报 `23502` |
@@ -102,7 +102,7 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 
 注意 `organization` **没有** `updated_at`：Better Auth 的 organization 模型也确实没有该字段，删掉不破坏插件契约（已实测 `createAuth()` 初始化不报警）。
 
-> `organization_member` 的**代理主键 `id` 仍是实现差异**：附录 A.1 的目标态是 `PRIMARY KEY (organization_id, user_id)`、无 `id` 列，但 Better Auth 的 organization 插件直接读 `member.id`，缺列时 `createAuth()` 初始化即报 `Drizzle schema mismatch — Missing columns: member.id`，232 条集成测试全红。去插件（T28）与去主键是同一个约束的两面，因此整体并入 B4。当前保留 `id` + 复合唯一约束 `uk_org_member_organization_user`。
+> `organization_member` 的代理主键差异**已由 B4/T28 消除**：Better Auth organization 插件拆除后没有 `member.id` 的消费方，附录 A.1 的目标态 `PRIMARY KEY (organization_id, user_id)`（无 `id` 列）在 TS 与基线 DDL 均已对齐；成员寻址一律按 `user_id`。
 
 **两棵树的路径**（`node.path` / `book_catalog.path`）用 `ltree`，不存父指针：每段 4 位数字点分隔（`0010.0020`），`CHECK (path::text ~ '^[0-9]{4}([.][0-9]{4})*$')`（点必须写字符类 `[.]`，否则 `standard_conforming_strings = off` 时正则变成任意字符）。世次由 `nlevel(path)` 派生、不落可漂移列；兄弟序取末段树遍历序；同级插入用稀疏编号（`0010`/`0020` 之间插 `0015`）。整树读取 `WHERE project_id=$1 AND lineage_id=$2 ORDER BY path`，天然深度优先、祖先在后代之前；子树用 `path <@ '0010'::ltree`（**含根自身**）。
 
@@ -210,9 +210,9 @@ WITH CHECK (organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{
 | 3 | `parent_path` 生成列 + 自引用 FK 保证闭包 | **已消除（T25）**：谱系层（A′）与谱书层（T25）的 `parent_path` 生成列 + 自引用 FK 均已落地；`book_catalog_parent_fk` 引用 `(project_id, book_id, path)`，nlevel=1 时生成列为 NULL、FK 不生效（顶层无父） | `lib/db/schema/lineage.ts`；`content.ts` |
 | 4 | `book_catalog.path` 是 `ltree`，用 `section` / `sort` 之外还靠路径排序 | **已消除（T25）**：`book_catalog` 去 `parent_id` / `section` / `sort` / `hide` / `created_by` / 软删列，改 `path ltree` + `project_id` 列、主键 `(project_id, id)`，约束 / 索引名与附录 A.5 一致 | `lib/db/schema/content.ts` |
 | 5 | `article.body` 文本 | **已消除（T27）**：`content` jsonb + `plain_text` → `body` text（`ArticleContent` 序列化进 text 列，读取时 `parseArticleContent` 还原）；并补 `author_text` / `date_text` / `subject_person_id` / `lineage_id`、删 `created_by`，TS 已追平附录 A.5 | `lib/db/schema/content.ts`（T27 已交付） |
-| 6 | 复合主键 `(project_id, id)`，`organization_member` 无 `id` | **B1 消除边界层与 folder，B2a 消除项目内内容表**：B1 把 `project` 改 `(organization_id, id)` + `project_id_global` 全局唯一（替换与主键重复的 `uk_project_organization_id`）、`folder` 改 `(project_id, id)`；B2a 把 `article` / `book` 改 `(project_id, id)`、`invite` 改 `(organization_id, id)`。**仍未消除**：`organization_member` 的代理主键 `id` —— Better Auth 插件硬依赖 `member.id`，与 T28 去插件同批（B4），当前保留 `id` + 复合唯一约束；`lineage` / `node` / `person` 等事实层与谱系层表仍是单列 `id` + `uk_*_organization_id`；`uuidPk()` 因此尚未退役（T18 收尾删） | `lib/db/schema/{shared,org,project,content,auth}.ts` |
+| 6 | 复合主键 `(project_id, id)`，`organization_member` 无 `id` | **B1 消除边界层与 folder，B2a 消除项目内内容表**：B1 把 `project` 改 `(organization_id, id)` + `project_id_global` 全局唯一（替换与主键重复的 `uk_project_organization_id`）、`folder` 改 `(project_id, id)`；B2a 把 `article` / `book` 改 `(project_id, id)`、`invite` 改 `(organization_id, id)`。**B4/T28 已消除 `organization_member` 的代理主键**（改为 `(organization_id, user_id)` 主键、无 `id`，插件拆除后不再有读 `member.id` 的消费方）；`lineage` / `node` / `person` 等事实层与谱系层表仍是单列 `id` + `uk_*_organization_id`；`uuidPk()` 因此尚未退役（T18 收尾删） | `lib/db/schema/{shared,org,project,content,auth}.ts` |
 | 7 | 0 个 `updated_at`、无软删、删除走 `RESTRICT` | **B2a 已清 3 份**（`content` / `org` / `project`）：`article` / `book` / `folder` / `project` / `organization` / `organization_member` / `invite` 均无 `deleted_at` / `updated_at`；`activity_logs` 已整表退役（原计划 B2c）。**仍留有**：`auth.*` 四表（按决议 ② 由 Better Auth 管，`updated_at` 保留）、事实层 / 谱系层若干表 | `lib/db/schema/*.ts`；`docs/glossary.md`「软删 / 硬删」；`docs/nfr.md` §5 |
-| 8 | 不使用 Better Auth organization 插件；`auth.user` 主键 `text` | 用 organization 插件；`users.id` 是 uuid | `docs/architecture.md` 技术栈；`lib/db/schema/shared.ts` |
+| 8 | 不使用 Better Auth organization 插件；`auth.user` 主键 `text` | **已消除（B4/T28）**：`organization()` 插件与默认语句表全部拆除，adapter 只管核心四模型；成员模型只剩自有三表（成员寻址按 `user_id`，建组织走 `app.create_organization`）；`auth.user.id` 早已是 text（B0 基线 + TS 镜像对齐） | `lib/auth/{better-auth,access-control}.ts`；`lib/org/{actions,members}.ts`；`lib/db/schema/auth.ts` |
 | 9 | 不启用 FORCE RLS（方案 A），角色 `genealogy_app` | `public` schema 启用 FORCE RLS；运行期角色 `app_rw` / `auth_service`，迁移直连角色才 `BYPASSRLS` | `docs/architecture.md` 部署形态；`docs/runbooks/README.md` §1 |
 | 10 | `app.visible_org_array()` + InitPlan 谓词 | 全仓 schema 无该函数与 `app.*` 命名空间 | `grep -rn "visible_org_array\|genealogy_app" lib/db/schema/` 为 0 |
 | 11 | 世次由 `nlevel(path)` 派生 | **谱系层已消除**（A′）：`node.generation` 存储列与两条 CHECK 已删，世次由 `path` 的段数（`segments.length`）在查询投影层派生 | `lib/db/queries/nodes.ts` |
