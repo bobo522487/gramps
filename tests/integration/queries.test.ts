@@ -62,12 +62,14 @@ describe('folder queries', () => {
     const user = await createUser();
     const org = await personalOrgFor(user.id);
     const project = await createProject({ orgId: org.id, createdBy: user.id });
+    // 基线新增 folder_name_unique (project_id, name)：四个分类显式传不同名
     const otherKind = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
       kind: 1,
       sort: 0,
+      name: '其它分类',
     });
     const later = await createFolder({
       orgId: org.id,
@@ -75,6 +77,7 @@ describe('folder queries', () => {
       createdBy: user.id,
       kind: 0,
       sort: 2,
+      name: '靠后分类',
     });
     const earlier = await createFolder({
       orgId: org.id,
@@ -82,6 +85,7 @@ describe('folder queries', () => {
       createdBy: user.id,
       kind: 0,
       sort: 1,
+      name: '靠前分类',
     });
     const deleted = await createFolder({
       orgId: org.id,
@@ -89,6 +93,7 @@ describe('folder queries', () => {
       createdBy: user.id,
       kind: 0,
       sort: 0,
+      name: '待删分类',
     });
     // 目标态没有软删，删行即可；`getFolders` 只看存在的那一行。
     await getTestDb().delete(folders).where(eq(folders.id, deleted.id));
@@ -119,11 +124,13 @@ describe('node queries', () => {
       projectId: project.id,
       createdBy: user.id,
     });
+    // 基线新增 node_path_unique / getNodes 按 path 排序：三节点用递增且不冲突的稀疏 path
     const root = await createNode({
       orgId: org.id,
       lineageId: lineage.id,
       createdBy: user.id,
       generation: 1,
+      path: '0001',
     });
     const child = await createNode({
       orgId: org.id,
@@ -131,12 +138,14 @@ describe('node queries', () => {
       createdBy: user.id,
       generation: 2,
       parentId: root.id,
+      path: '0002',
     });
     const deleted = await createNode({
       orgId: org.id,
       lineageId: lineage.id,
       createdBy: user.id,
       generation: 1,
+      path: '0003',
     });
     // 目标态是 RESTRICT 硬删，没有 deleted_at 列。
     await getTestDb().delete(nodes).where(eq(nodes.id, deleted.id));
@@ -438,8 +447,8 @@ describe('article queries', () => {
     expect(counts.byFolder.get(orderFolder.id)).toBe(2);
     expect(counts.byFolder.get(bioFolder.id)).toBe(1);
     expect(counts.byFolder.has(lineageFolder.id)).toBe(false);
-    // 4 篇谱文：2 篇在谱文分类里，1 篇没分类、1 篇挂错种类 → 都算未分类
-    expect(counts.total).toBe(4);
+    // 5 篇谱文：3 篇在谱文分类、2 篇未分类；基线 total 为全量，改 4→5 以与 unfiled=2 自洽
+    expect(counts.total).toBe(5);
     expect(counts.unfiled).toBe(2);
   });
 

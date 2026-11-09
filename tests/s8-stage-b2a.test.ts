@@ -210,24 +210,32 @@ describe('S8 阶段 B · B2a 边界层与内容层归位', () => {
     );
   });
 
-  test('B2a-12：归档组织写 status=closed，且不调基线里不存在的函数', () => {
-    // 原实现调 `auth.archive_organization(...)`——B0 重建基线后这个函数
-    // 已不存在，归档按钮必然 500，而且「归档」在目标态只等于 status='closed'。
-    const actions = read('lib/org/actions.ts');
-    // 用调用形态匹配，避免被解释来龙去脉的注释误伤。
-    expect(actions).not.toMatch(/archive_organization\s*\(/);
-    expect(actions).toContain(".set({ status: 'closed' })");
-    // 必须带状态前置条件，否则会把 suspended 覆盖成 closed。
-    expect(actions).toContain("eq(organizations.status, 'active')");
+  test('B2a-12：归档走基线 app.archive_organization，不再直写 status', () => {
+    // B2a 时的中间态保护是「归档直接 set status=closed、且不调基线里不存在
+    // 的函数」。B4 收口把组织 / 成员写入统一收敛到 app.* SECURITY DEFINER
+    // 函数（app_rw 对 organization 只有 SELECT），archive_organization 已在
+    // 基线 [A.6.3] 落地，这条断言随之翻转。
+    const actions = stripComments(read('lib/org/actions.ts'));
+    expect(actions).toContain('app.archive_organization(');
+    expect(actions).not.toMatch(/\.update\(organizations\)/);
 
-    // 全仓不许再调用基线里没有数据库函数（按 A.6 的函数清单白名单校验）。
     const ddl = read('lib/db/migrations/0000_target_schema.sql');
     const defined = new Set(
       [...ddl.matchAll(/FUNCTION (app\.[a-z_]+)\(/g)].map((m) => m[1])
     );
-    for (const fn of ['create_organization', 'accept_invite']) {
+    for (const fn of [
+      'create_organization',
+      'accept_invite',
+      'archive_organization',
+      'rename_organization',
+      'remove_org_member',
+      'set_org_member_role',
+    ]) {
       expect(defined.has(`app.${fn}`), fn).toBe(true);
     }
-    expect(defined.has('app.archive_organization')).toBe(false);
+    // status='active' 前置搬进函数体，避免把 suspended 覆盖成 closed。
+    expect(ddl).toMatch(
+      /UPDATE public\.organization SET status = 'closed'[\s\S]{0,200}status = 'active'/
+    );
   });
 });

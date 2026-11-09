@@ -862,6 +862,152 @@ CREATE TRIGGER trg_auth_user_created
   AFTER INSERT ON auth.user
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- ===== [A.6.3] 组织 / 成员写入路径（B4 收口） =====
+--
+-- T28 拆掉 Better Auth organization 插件后，改名 / 归档 / 移除成员 / 改角色
+-- 失去了原来的认证侧入口。若让业务连接（SET LOCAL ROLE app_rw）直写
+-- organization / organization_member，会撞权限矩阵：测试库复刻的旧矩阵里
+-- app_rw 对这两张表只有 SELECT，42501 被 mapAuthError 压成「操作失败」；
+-- 而目标态即便把运行期角色统一成 genealogy_app（全表读写），跨组织越权也
+-- 只能靠 RLS 静默过滤成 0 行，调用方看不出自己被拦了。
+--
+-- 与 `app.create_organization` / `app.accept_invite` 同族：写入收敛到
+-- SECURITY DEFINER 函数，以属主身份落库；认证、成员角色、last-owner 这些
+-- §9 登记的「写路径契约」放在函数体里，不做成触发器。函数以属主执行，与
+-- 运行期角色无关，所以 T32 重排角色时不需要返工。
+--
+-- 关系名 / 类型名一律 schema-qualified，pg_temp 放在 search_path 最后
+-- （§3.4 / N26），避免临时表阴影。
+
+CREATE OR REPLACE FUNCTION app.rename_organization(p_org_id uuid, p_name text)
+  RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_user text := app.current_user_id();
+BEGIN
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION '未认证' USING ERRCODE = '42501';
+  END IF;
+  IF btrim(coalesce(p_name, '')) = '' THEN
+    RAISE EXCEPTION '组织名不能为空' USING ERRCODE = '22023';
+  END IF;
+  -- org.settings 是 owner 专属（access-control.ts 的 organization:update）。
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organization_member m
+     WHERE m.organization_id = p_org_id
+       AND m.user_id = v_user
+       AND m.role = 'owner'
+  ) THEN
+    RAISE EXCEPTION '只有所有者可以修改组织设置' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.organization SET name = btrim(p_name)
+   WHERE id = p_org_id AND status = 'active';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '组织不存在或已归档' USING ERRCODE = '22023';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION app.archive_organization(p_org_id uuid)
+  RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_user text := app.current_user_id();
+BEGIN
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION '未认证' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organization_member m
+     WHERE m.organization_id = p_org_id
+       AND m.user_id = v_user
+       AND m.role = 'owner'
+  ) THEN
+    RAISE EXCEPTION '只有所有者可以修改组织设置' USING ERRCODE = '42501';
+  END IF;
+  -- status 条件让并发下只有 active 能被归档，不会把 suspended 覆盖成 closed。
+  UPDATE public.organization SET status = 'closed'
+   WHERE id = p_org_id AND status = 'active';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '组织已归档或已停用，无需重复操作' USING ERRCODE = '22023';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION app.remove_org_member(p_org_id uuid, p_user_id text)
+  RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_user        text := app.current_user_id();
+  v_actor_role  public.member_role_t;
+  v_target_role public.member_role_t;
+BEGIN
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION '未认证' USING ERRCODE = '42501';
+  END IF;
+  SELECT m.role INTO v_actor_role FROM public.organization_member m
+   WHERE m.organization_id = p_org_id AND m.user_id = v_user;
+  IF v_actor_role IS NULL OR v_actor_role NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION '只有所有者或管理员可以移除成员' USING ERRCODE = '42501';
+  END IF;
+  SELECT m.role INTO v_target_role FROM public.organization_member m
+   WHERE m.organization_id = p_org_id AND m.user_id = p_user_id;
+  IF v_target_role IS NULL THEN
+    RAISE EXCEPTION '该成员不在此组织中' USING ERRCODE = '22023';
+  END IF;
+  -- last-owner 是写路径契约，不是触发器（§9）：owner 行一律不可移除。
+  IF v_target_role = 'owner' THEN
+    RAISE EXCEPTION '不能移除最后一个所有者' USING ERRCODE = '22023';
+  END IF;
+  IF p_user_id = v_user THEN
+    RAISE EXCEPTION '不能移除自己，请先转让所有权' USING ERRCODE = '22023';
+  END IF;
+  IF v_actor_role = 'admin' AND v_target_role = 'admin' THEN
+    RAISE EXCEPTION '管理员不能管理其他管理员' USING ERRCODE = '42501';
+  END IF;
+  DELETE FROM public.organization_member
+   WHERE organization_id = p_org_id AND user_id = p_user_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION app.set_org_member_role(
+  p_org_id uuid, p_user_id text, p_role text
+)
+  RETURNS void
+  LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = pg_catalog, public, pg_temp AS $$
+DECLARE
+  v_user        text := app.current_user_id();
+  v_actor_role  public.member_role_t;
+  v_target_role public.member_role_t;
+BEGIN
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION '未认证' USING ERRCODE = '42501';
+  END IF;
+  IF p_role NOT IN ('admin', 'editor', 'viewer') THEN
+    RAISE EXCEPTION '不能把成员改成该角色' USING ERRCODE = '22023';
+  END IF;
+  SELECT m.role INTO v_actor_role FROM public.organization_member m
+   WHERE m.organization_id = p_org_id AND m.user_id = v_user;
+  IF v_actor_role IS NULL OR v_actor_role NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION '你没有调整该成员角色的权限' USING ERRCODE = '42501';
+  END IF;
+  SELECT m.role INTO v_target_role FROM public.organization_member m
+   WHERE m.organization_id = p_org_id AND m.user_id = p_user_id;
+  IF v_target_role IS NULL THEN
+    RAISE EXCEPTION '该成员不在此组织中' USING ERRCODE = '22023';
+  END IF;
+  -- 同 remove：owner 的角色不可改，避免所有权被静默降级。
+  IF v_target_role = 'owner' THEN
+    RAISE EXCEPTION '不能修改所有者的角色' USING ERRCODE = '22023';
+  END IF;
+  IF v_actor_role = 'admin' AND (v_target_role = 'admin' OR p_role = 'admin') THEN
+    RAISE EXCEPTION '管理员不能管理其他管理员' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.organization_member SET role = p_role
+   WHERE organization_id = p_org_id AND user_id = p_user_id;
+END $$;
+
 REVOKE ALL ON SCHEMA app FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA app FROM PUBLIC;
 GRANT USAGE ON SCHEMA app TO genealogy_app;
@@ -882,5 +1028,10 @@ GRANT EXECUTE ON FUNCTION app.invite_join_preview(text) TO genealogy_app;
 -- UPDATE 照样触发并抛错），这里授权是为了另一件事——部署若用非属主角色
 -- CREATE TRIGGER，PostgreSQL 会在建触发器时检查 EXECUTE 并报 42501。
 GRANT EXECUTE ON FUNCTION app.forbid_tenant_move() TO genealogy_app;
+-- B4 收口：组织 / 成员写入四个入口，与上面同族，供运行期角色调用。
+GRANT EXECUTE ON FUNCTION app.rename_organization(uuid, text) TO genealogy_app;
+GRANT EXECUTE ON FUNCTION app.archive_organization(uuid) TO genealogy_app;
+GRANT EXECUTE ON FUNCTION app.remove_org_member(uuid, text) TO genealogy_app;
+GRANT EXECUTE ON FUNCTION app.set_org_member_role(uuid, text, text) TO genealogy_app;
 -- 纵深防御（默认注释：启用后应用角色不能建临时表）
 -- REVOKE TEMPORARY ON DATABASE <db> FROM PUBLIC;

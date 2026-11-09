@@ -58,6 +58,8 @@
 
 会话上下文由应用服务在**同一事务内**用 `SET LOCAL app.user_id` 注入，业务 SQL 必须与它同事务。`SET LOCAL` 的生命周期只到当前事务结束；把 `BEGIN; SET LOCAL …; COMMIT;` 单独跑成一个事务，之后所有查询都读到空 GUC → 0 行、写入 `42501`。改用会话级 `SET` 更危险：连接池归还前不 `RESET` 会跨请求串号。四个数据库函数构成机制（3 个 `SECURITY DEFINER`）：`app.current_user_id()` / `app.visible_org_array()` / `app.create_organization(text)` / `app.accept_invite(text)`。
 
+> **写入路径（B4 收口）**：拆掉 Better Auth organization 插件后，改名 / 归档 / 移除成员 / 改角色失去认证侧入口，统一收敛到另外 4 个 `SECURITY DEFINER` 函数——`app.rename_organization(uuid, text)` / `app.archive_organization(uuid)` / `app.remove_org_member(uuid, text)` / `app.set_org_member_role(uuid, text, text)`。它们以属主身份写 `organization` / `organization_member`，函数体内做认证、成员角色与 last-owner 守卫（§9 的写路径契约），与运行期角色无关；应用侧仍由 `withOrg` 事务注入 `app.user_id` 后调用。这样不必给 `app_rw` 开表级写权限——越权写只会被 RLS 静默过滤成 0 行，调用方看不出自己被拦了。
+
 所有业务表使用同一条策略谓词，`organization` 表自身把 `organization_id` 换成 `id`：
 
 ```sql

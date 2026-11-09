@@ -98,21 +98,13 @@ export const books = pgTable(
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
     folderId: uuid('folder_id'),
-    name: text('name').notNull(),
     title: text('title').notNull(),
-    surname: text('surname').notNull(),
-    hallCode: text('hall_code'),
-    volumeNo: text('volume_no'),
-    author: text('author'),
-    compiledAt: text('compiled_at'),
-    coverSpec: jsonb('cover_spec')
-      .$type<Record<string, unknown>>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    backCoverSpec: jsonb('back_cover_spec').$type<Record<string, unknown>>(),
-    sort: integer('sort').notNull().default(0),
+    // 基线独有、可空的两列（附录 A.5）；TS 旧 schema 的 name/surname/hallCode/
+    // volumeNo/author/compiledAt/coverSpec/backCoverSpec/sort/createdBy 整体退役
+    // （见 tests/s8-stage-book.test.ts BOOK-1），那些列从未被业务代码引用。
+    editionText: text('edition_text'),
+    compilerText: text('compiler_text'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
   },
   (t) => [
     // Target state (appendix A.5). The composite key is also what finally makes
@@ -123,8 +115,12 @@ export const books = pgTable(
       foreignColumns: [projects.orgId, projects.id],
       name: 'book_scope_fk',
     }).onDelete('restrict'),
-    unique('uk_book_organization_id').on(t.orgId, t.id),
-    unique('uk_book_name').on(t.orgId, t.projectId, t.name),
+    foreignKey({
+      columns: [t.projectId, t.folderId],
+      foreignColumns: [folders.projectId, folders.id],
+      name: 'book_folder_fk',
+    }).onDelete('set null'),
+    index('book_folder_idx').on(t.projectId, t.folderId),
   ]
 );
 

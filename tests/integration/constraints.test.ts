@@ -310,6 +310,8 @@ describe('node tree invariants enforced by the database', () => {
     return { user, organization, project, lineage };
   }
 
+  // 目标态 node 无 generation 列/约束：此处 23514 实由 node_path_format 兜住，
+  // 改成合法 path 会撞 node_parent_fk(23503) 或插入成功、令断言落空，故保留占位 path。
   it('rejects a generation below the path-derived level', async () => {
     const { user, organization, lineage } = await lineageScope();
     await expect(
@@ -330,7 +332,7 @@ describe('node tree invariants enforced by the database', () => {
       lineageId: lineage.id,
       createdBy: user.id,
       generation: 1,
-      path: 'aaaa',
+      path: '0001',
     });
     await expect(
       createNode({
@@ -340,6 +342,8 @@ describe('node tree invariants enforced by the database', () => {
         generation: 1,
         role: 'spouse',
         spouseOfId: root.id,
+        // 基线新增 node_path_unique：同谱系第二个节点改用不冲突的 path
+        path: '0002',
       })
     ).resolves.toBeTruthy();
   });
@@ -396,7 +400,7 @@ describe('tree edges belong to exactly one parent scope', () => {
       lineageId: b.id,
       createdBy: user.id,
       generation: 1,
-      path: 'aaaa',
+      path: '0001',
     });
     await expect(
       createNode({
@@ -405,7 +409,8 @@ describe('tree edges belong to exactly one parent scope', () => {
         createdBy: user.id,
         parentId: foreignParent.id,
         generation: 2,
-        path: 'bbbb',
+        // 基线用 path 父路径 FK 表达跨谱系父子：甲谱无 '0001' → node_parent_fk 23503
+        path: '0001.0002',
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
@@ -426,7 +431,7 @@ describe('tree edges belong to exactly one parent scope', () => {
       lineageId: lineage.id,
       createdBy: user.id,
       generation: 1,
-      path: 'aaaa',
+      path: '0001',
     });
     await expect(
       createNode({
@@ -435,7 +440,8 @@ describe('tree edges belong to exactly one parent scope', () => {
         createdBy: user.id,
         parentId: root.id,
         generation: 2,
-        path: 'aaaa.cccc',
+        // 基线新增 node_path_format / node_parent_fk：父子路径自洽 root '0001' / child '0001.0002'
+        path: '0001.0002',
       })
     ).resolves.toBeTruthy();
   });
@@ -516,7 +522,7 @@ describe('spouse edges belong to exactly one lineage', () => {
       lineageId: lineageB.id,
       createdBy: user.id,
       generation: 1,
-      path: 'aaaa',
+      path: '0001',
     });
 
     await expect(
@@ -527,6 +533,8 @@ describe('spouse edges belong to exactly one lineage', () => {
         generation: 1,
         role: 'spouse',
         spouseOfId: foreignBlood.id,
+        // 跨谱系外键：甲谱无父路径 '0001'（'0001' 在乙谱）→ node_parent_fk 23503
+        path: '0001.0002',
       })
     ).rejects.toSatisfy((error) => pgErrorCode(error) === '23503');
   });
@@ -551,7 +559,7 @@ describe('spouse edges belong to exactly one lineage', () => {
       lineageId: lineage.id,
       createdBy: user.id,
       generation: 1,
-      path: 'aaaa',
+      path: '0001',
     });
 
     await expect(
@@ -562,6 +570,8 @@ describe('spouse edges belong to exactly one lineage', () => {
         generation: 1,
         role: 'spouse',
         spouseOfId: blood.id,
+        // 基线新增 node_path_unique：同谱系第二个节点改用不冲突的 path
+        path: '0002',
       })
     ).resolves.toBeTruthy();
   });

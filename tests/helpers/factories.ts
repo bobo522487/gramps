@@ -415,19 +415,21 @@ export async function createEvent(params: {
 export async function createBook(params: {
   orgId: string;
   projectId: string;
-  createdBy: string;
+  /** 历史参数：目标态 `book` 不再有 `created_by` 列，接受但忽略。 */
+  createdBy?: string;
   name?: string;
+  folderId?: string | null;
 }) {
-  const name = params.name ?? '测试谱书';
+  // 目标态 `book` 只有 `title`（附录 A.5），没有 `name` / `surname` / `created_by`
+  // 等旧列；`name` 参数承载的语义就是书名，直接落到 `title`。
+  const title = params.name ?? '测试谱书';
   const [book] = await getTestDb()
     .insert(books)
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      name,
-      title: name,
-      surname: '陈',
+      folderId: params.folderId ?? null,
+      title,
     })
     .returning();
   return book;

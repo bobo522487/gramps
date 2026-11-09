@@ -142,11 +142,13 @@ describe('folder service', () => {
       createdBy: user.id,
       kind: 1,
     });
+    // 基线新增 folder_name_unique (project_id, name)：同项目第二个分类改用不同名
     const bookFolder = await createFolder({
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
       kind: 2,
+      name: '谱书分类',
     });
     const article = await createArticle({
       orgId: organization.id,
@@ -463,6 +465,8 @@ describe('lineage service', () => {
       createdBy: user.id,
       generation: 2,
       name: '二世',
+      // 基线新增 node_path_unique：同谱系第二个节点改用不冲突的 path
+      path: '0002',
     });
 
     const result = await deleteLineageInTransaction({

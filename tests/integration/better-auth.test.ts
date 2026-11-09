@@ -509,15 +509,48 @@ describe('organization actions', () => {
       name: '占位组织',
       slug: '0123456789abcdefghij',
     });
-    state.ids.push('0123456789abcdefghij', 'zyxwvutsrqponmlkjihg');
 
-    const result = await createOrgAction({}, form({ name: '重试成功' }));
+    // T28 后 slug 由数据库列默认值 `public.generate_public_id()` 生成，不再
+    // 经过应用层 `@/lib/ids` 的 mock。要真实制造一次 23505 冲突，把这个 SQL
+    // 函数临时换成「第一次返回已占用的 slug、之后返回唯一值」的序列版：
+    // `nextval` 不受事务回滚影响，所以第一次插入回滚后第二次仍能前进。
+    const sqlClient = getTestSql();
+    try {
+      await sqlClient.unsafe(
+        'DROP SEQUENCE IF EXISTS public.test_slug_collision_seq'
+      );
+      await sqlClient.unsafe(
+        'CREATE SEQUENCE public.test_slug_collision_seq START 1'
+      );
+      await sqlClient.unsafe(`
+        CREATE OR REPLACE FUNCTION public.generate_public_id() RETURNS text
+          LANGUAGE sql VOLATILE AS $$
+          SELECT CASE nextval('public.test_slug_collision_seq')
+            WHEN 1 THEN '0123456789abcdefghij'
+            ELSE 'zyxwvutsrqponmlkjihg'
+          END
+        $$;
+      `);
 
-    expect(result).toMatchObject({
-      success: '组织已创建',
-      orgSlug: 'zyxwvutsrqponmlkjihg',
-    });
-    expect(state.ids).toHaveLength(0);
+      const result = await createOrgAction({}, form({ name: '重试成功' }));
+
+      expect(result).toMatchObject({
+        success: '组织已创建',
+        orgSlug: 'zyxwvutsrqponmlkjihg',
+      });
+    } finally {
+      // resetAndMigrate 只在文件级跑一次，必须还原基线定义，否则后续用例
+      // 会拿到固定 slug 而互相撞 uk_organization_slug。
+      await sqlClient.unsafe(`
+        CREATE OR REPLACE FUNCTION public.generate_public_id() RETURNS text
+          LANGUAGE sql VOLATILE AS $$
+          SELECT substr(replace(gen_random_uuid()::text, '-', ''), 1, 20);
+        $$;
+      `);
+      await sqlClient.unsafe(
+        'DROP SEQUENCE IF EXISTS public.test_slug_collision_seq'
+      );
+    }
   });
 
   it('renames an organization for owners only', async () => {

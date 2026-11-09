@@ -127,12 +127,13 @@ export const renameOrgAction = validatedActionWithUser(
     }
 
     try {
-      await withOrg(user.id, async (tx) => {
-        await tx
-          .update(organizations)
-          .set({ name: data.name })
-          .where(eq(organizations.id, data.orgId));
-      });
+      // 写走 app.rename_organization：SECDEF 以属主身份落库，函数体里再做一次
+      // owner 守卫与 active 前置，防绕过应用层直接调用。
+      await withOrg(user.id, (tx) =>
+        tx.execute(
+          sql`select app.rename_organization(${data.orgId}, ${data.name})`
+        )
+      );
     } catch (error) {
       return mapAuthError(error);
     }
@@ -160,30 +161,16 @@ export const deleteOrgAction = validatedActionWithUser(
     }
 
     try {
-      // 目标态没有软删，「归档」只剩这一个落点：把 status 写成 closed。
-      // 原来这里调的是一个 SECURITY DEFINER 归档函数，它在旧迁移里，B0 重建
-      // 基线后已不存在，按钮必然 500。
-      // 权限已由上面的 `org.settings` 检查兜住，这里再按 status 加一次条件，
-      // 保证并发下只有 `active` 的组织能被归档，避免把 `suspended` 覆盖成
-      // `closed` 而丢失停用原因。
-      const archived = await withOrg(user.id, async (tx) => {
-        const rows = await tx
-          .update(organizations)
-          .set({ status: 'closed' })
-          .where(
-            and(
-              eq(organizations.id, data.orgId),
-              eq(organizations.status, 'active')
-            )
-          )
-          .returning({ id: organizations.id });
-        return rows.length;
-      });
-
-      if (archived === 0) {
+      // 归档收敛到 app.archive_organization（B4 收口）：函数体带
+      // status = 'active' 条件，不会把 suspended 覆盖成 closed，并做 owner
+      // 守卫。重复归档由函数的 22023 表达，这里映射回原来的友好文案。
+      await withOrg(user.id, (tx) =>
+        tx.execute(sql`select app.archive_organization(${data.orgId})`)
+      );
+    } catch (error) {
+      if (sqlStateOf(error, '22023')) {
         return { error: '组织已归档或已停用，无需重复操作' };
       }
-    } catch (error) {
       return mapAuthError(error);
     }
 
@@ -320,17 +307,13 @@ export const removeOrgMember = validatedActionWithUser(
     }
 
     try {
-      // RLS 保证只有成员可见的组织能删成员；权限矩阵已在上面检查过。
-      await withOrg(user.id, async (tx) => {
-        await tx
-          .delete(orgMembers)
-          .where(
-            and(
-              eq(orgMembers.organizationId, data.orgId),
-              eq(orgMembers.userId, member.userId)
-            )
-          );
-      });
+      // 权限矩阵已在上面检查过；写走 SECDEF 函数，函数体再守一次 actor 角色、
+      // last-owner 与 admin 不能管 admin。
+      await withOrg(user.id, (tx) =>
+        tx.execute(
+          sql`select app.remove_org_member(${data.orgId}, ${member.userId})`
+        )
+      );
     } catch (error) {
       return mapAuthError(error);
     }
@@ -371,17 +354,11 @@ export const updateOrgMemberRole = validatedActionWithUser(
     }
 
     try {
-      await withOrg(user.id, async (tx) => {
-        await tx
-          .update(orgMembers)
-          .set({ role: data.role })
-          .where(
-            and(
-              eq(orgMembers.organizationId, data.orgId),
-              eq(orgMembers.userId, member.userId)
-            )
-          );
-      });
+      await withOrg(user.id, (tx) =>
+        tx.execute(
+          sql`select app.set_org_member_role(${data.orgId}, ${member.userId}, ${data.role})`
+        )
+      );
     } catch (error) {
       return mapAuthError(error);
     }

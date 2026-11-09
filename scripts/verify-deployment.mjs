@@ -212,9 +212,11 @@ const AUTH_TABLES = ['user', 'session', 'account', 'verification'];
 //
 // `slug` immutability, the last-owner rules and the active-organization
 // invariants deliberately have **no trigger**: §9 registers them as
-// write-path contracts, and `app.accept_invite` / `app.create_organization`
-// are the only writers. The former three triggers were part of the old
-// implementation and are not in the target baseline.
+// write-path contracts, guarded inside the SECURITY DEFINER writers —
+// `app.accept_invite` / `app.create_organization` plus the B4 tenant/member
+// writers (`app.rename_organization`, `app.archive_organization`,
+// `app.remove_org_member`, `app.set_org_member_role`). The former three
+// triggers were part of the old implementation and are not in the target baseline.
 const TENANT_TRIGGERS = [['auth', 'user', 'trg_auth_user_created']];
 
 // Every organization-scoped table must carry `trg_<table>_tenant_immutable`.
