@@ -120,10 +120,10 @@ describe('S8 阶段 C · 隔离层核对', () => {
       drizzle.indexOf('getDb().transaction')
     );
     expect(transactionBody).toMatch(
-      /set local role[\s\S]{0,200}set_config\('app\.user_id', \$\{userId\}, true\)/
+      /set local role genealogy_app[\s\S]{0,200}set_config\('app\.user_id', \$\{userId\}, true\)/
     );
-    // 认证连接在执行任何查询前把角色钉死。
-    expect(read('lib/db/auth-db.ts')).toContain('-c role=');
+    // 认证连接在执行任何查询前把角色钉死（修订后的 T32 保留认证侧独立角色）。
+    expect(read('lib/db/auth-db.ts')).toContain('-c role=auth_service');
     // 只看可执行代码：说明文字里提到旧 GUC 名字不算回归。
     expect(
       stripTsComments(read('tests/integration/with-org-write.test.ts'))
@@ -161,5 +161,31 @@ describe('S8 阶段 C · 隔离层核对', () => {
     // 说明这层不是绕过 Server Action，且 RLS 只做可见性、不做写授权。
     expect(doc).toContain('不是绕过 Server Action');
     expect(doc).toMatch(/RLS[^\n]{0,80}可见性/);
+  });
+
+  test('C-7 T32 修订：业务侧统一 genealogy_app，认证侧保留独立角色', () => {
+    const drizzle = stripTsComments(read('lib/db/drizzle.ts'));
+    const authDb = stripTsComments(read('lib/db/auth-db.ts'));
+    const ddl = stripSqlComments(read(DDL));
+
+    // 业务连接：withOrg 事务内 SET LOCAL ROLE 到基线创建的 LOGIN 角色，
+    // 不再有 app_rw 这个「收窄权限」的中间角色。
+    expect(drizzle).toContain('set local role genealogy_app');
+    expect(drizzle).not.toContain('set local role app_rw');
+
+    // 认证连接：独立非属主角色，由 startup 参数在任何查询前钉死。
+    expect(authDb).toContain('-c role=auth_service');
+
+    // 安全边界（PG18 实测）：auth.user / auth.session / auth.account /
+    // auth.verification 全部 relrowsecurity=f、relforcerowsecurity=f。
+    // 一旦给业务角色授 auth schema，它就能无 RLS 直读密码哈希与会话 token，
+    // 所以基线绝不能出现这两类 GRANT。
+    expect(ddl).not.toMatch(/GRANT[^;]*ON SCHEMA auth TO genealogy_app/i);
+    expect(ddl).not.toMatch(
+      /GRANT[^;]*ON ALL TABLES IN SCHEMA auth TO genealogy_app/i
+    );
+    // 基线只把 public / app 授给 genealogy_app。
+    expect(ddl).toContain('GRANT USAGE ON SCHEMA public TO genealogy_app');
+    expect(ddl).toContain('GRANT USAGE ON SCHEMA app TO genealogy_app');
   });
 });

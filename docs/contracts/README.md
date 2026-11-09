@@ -179,7 +179,7 @@ FormData 通道用 `Object.fromEntries(formData)` 拍平，嵌套结构与 `null
 | 契约 | 验证者 |
 | --- | --- |
 | Action 通道与返回形状 | `tests/action-channel.test.ts` |
-| 组织隔离与 `app_rw` 读认证表被拒 | `tests/integration/org-scope.test.ts` |
+| 组织隔离与 `genealogy_app` 读认证表被拒 | `tests/integration/org-scope.test.ts` |
 | Route Handler 的 401 / 403 / 404 / 成功 | `tests/integration/api-auth.test.ts` |
 | 图片读取与上传通道 | `tests/integration/media.test.ts` |
 | 文档链接与过期路径 | `pnpm docs:check --strict` |

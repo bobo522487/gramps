@@ -209,34 +209,25 @@ describe('S8 阶段 B · B2b 邀请改自建 token', () => {
     );
   });
 
-  test('B2b-9：app_rw 对 invite 需要 SELECT（成员管理界面自己读表）', () => {
-    // B2a 的评审要求 app_rw 对 invite 完全无权限，前提是「邀请走 Better Auth
-    // API、业务层不读这张表」。自建 token 后这个前提没了：成员管理页、重发、
-    // 撤销都要读 invite。断言反转为「必须可读」，但**仍然不给写**——
-    // 写入只能走 A.7 的路径与 app.accept_invite。
+  test('B2b-9：业务角色可读 invite，但绝不读 auth.*', () => {
+    // T32 修订后业务连接统一 genealogy_app，invite 的可读性由基线表级 GRANT
+    // 提供（不再由测试夹具单独复刻一张矩阵）。自建 token 后成员管理页、重发、
+    // 撤销都要读 invite；写入仍走 A.7 的 ON CONFLICT 路径与 app.* SECDEF，
+    // 「撤销 = 置 status 而非删行」是写入路径契约，不靠表级权限收窄。
+    const ddl = read('lib/db/migrations/0000_target_schema.sql');
+    expect(ddl).toContain(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO genealogy_app'
+    );
+    // 认证侧保持独立：auth.* 四表无 RLS，业务角色拿到 auth schema 就能直读
+    // auth.account.password / auth.session，所以基线绝不能给它授权。
+    expect(ddl).not.toMatch(/GRANT[^;]*ON SCHEMA auth TO genealogy_app/i);
+    expect(ddl).not.toMatch(/CREATE ROLE app_rw\b/);
+
     const verify = read('scripts/verify-deployment.mjs');
     expect(verify).toContain(
-      "has_table_privilege('app_rw', 'public.invite', 'SELECT') as app_invite_select"
+      "has_table_privilege('genealogy_app', 'public.invite', 'SELECT')"
     );
-    expect(verify).toMatch(/privileges\?\.app_invite_select === true/);
-    expect(verify).not.toMatch(/privileges\?\.app_invite_select === false/);
-
-    // 测试库的权限矩阵必须复刻同一张表，否则「测试通过的形状」和「上线后的
-    // 形状」不是同一个东西。这里断言的是行为而不是集合是否为空：
-    // `noAccess` 这个集合已随 B2b 清空（它是「谁完全没权限」的名单）。
-    const roles = read('tests/helpers/runtime-roles.ts');
-    expect(roles).toContain(
-      "'GRANT SELECT, INSERT, UPDATE ON public.invite TO app_rw'"
-    );
-    // 无 DELETE：撤销是置 status，不是删行。删了之后同一 token 会从
-    // 「已撤销」退化成「无效」，用户拿到的解释与事实不符。
-    expect(roles).not.toContain(
-      'GRANT SELECT, INSERT, UPDATE, DELETE ON public.invite'
-    );
-    const noAccess =
-      /const noAccess = new Set(?:<string>)?\(\[([^\]]*)\]\)/.exec(roles);
-    expect(noAccess, 'noAccess 声明必须仍然存在').not.toBeNull();
-    expect(noAccess?.[1] ?? '').not.toContain("'invite'");
+    expect(verify).not.toMatch(/has_table_privilege\('app_rw'/);
   });
 
   test('B2b-10：规格 §9 登记「邀请凭 token 而非行 id」', () => {

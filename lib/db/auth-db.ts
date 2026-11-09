@@ -15,8 +15,12 @@ type AuthDb = PostgresJsDatabase<typeof schema> & {
   $client: ReturnType<typeof postgres>;
 };
 
-// Better Auth must run as auth_service on every connection: RLS policies for
-// identity/tenant writes are granted to that role only.
+// Better Auth must run as auth_service on every connection. The single target
+// baseline deliberately keeps auth.* out of genealogy_app's reach: those four
+// tables have no RLS (verified on PG18), so a shared business role would be
+// able to read auth.account.password and auth.session tokens. auth_service is
+// a separate NOLOGIN role provisioned out of band; this startup parameter
+// pins it before any query runs.
 function createAuthDb(): AuthDb {
   const config = getServerConfig();
   if (isVercel() && !config.AUTH_POSTGRES_URL) {

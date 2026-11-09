@@ -14,7 +14,7 @@
 浏览器
   │
   ├─ 首屏 ────→ RSC 页面（app/**/page.tsx）
-  │              └─→ lib/db/queries/<domain>.ts ─→ PostgreSQL（app_rw + RLS）
+  │              └─→ lib/db/queries/<domain>.ts ─→ PostgreSQL（genealogy_app + RLS）
   │
   ├─ 写 ──────→ Server Action（lib/<domain>/actions.ts · lib/auth/actions/）
   │              ├─ validatedAction*（Zod 入参 + SessionUser）

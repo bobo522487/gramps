@@ -41,18 +41,18 @@
   │  Better Auth         进程内库，数据库会话 + scrypt            │
   └───────┬───────────────────────────────┬────────────────────┘
           │ APP_POSTGRES_URL               │ AUTH_POSTGRES_URL
-          │ pooled · 事务内 SET LOCAL ROLE app_rw
+          │ pooled · 事务内 SET LOCAL ROLE genealogy_app
           │                               │ direct · 固定 auth_service
           ↓                               ↓
-     Neon PostgreSQL 18   public schema（FORCE RLS） / auth schema
+     Neon PostgreSQL 18   public schema（RLS，非 FORCE） / auth schema
 ```
 
 浏览器里的 zustand **只存谱系工作区的视图状态**，不存实体、不 persist；实体来自 RSC props 与 Action 结果。
 
 三条不能碰的运行期规则：
 
-1. **两条连接不能混用**：业务用 `APP_POSTGRES_URL`（登录角色 `app`，`withOrg` 内 `SET LOCAL ROLE app_rw`），认证用 `AUTH_POSTGRES_URL`（`auth_runtime` → 固定 `auth_service`）。`SET LOCAL` 是事务级；会话级 `SET` 会把角色与声明泄漏给下一个借用该连接的请求。
-2. **组织隔离三层**：应用层按成员关系过滤 + RLS（`app_rw` + `auth.has_org_role`）+ 复合外键。**RLS 是兜底，不是替代品**；公开 `slug` / `ref` 只用于定位，不是授权凭证，非成员一律 404。
+1. **两条连接不能混用**：业务用 `APP_POSTGRES_URL`（基线创建的 LOGIN 角色 `genealogy_app`，`withOrg` 内 `SET LOCAL ROLE genealogy_app` 把角色钉死），认证用 `AUTH_POSTGRES_URL`（`auth_runtime` → 固定 `auth_service`）。认证侧必须独立：`auth.*` 四表无 RLS，共用业务角色会让它直读密码哈希与会话 token。`SET LOCAL` 是事务级；会话级 `SET` 会把角色与声明泄漏给下一个借用该连接的请求。
+2. **组织隔离三层**：应用层按成员关系过滤 + RLS（`genealogy_app` + `app.visible_org_array()` 的 InitPlan 谓词）+ 复合外键。**RLS 是兜底，不是替代品**；公开 `slug` / `ref` 只用于定位，不是授权凭证，非成员一律 404。
 3. **读走 RSC、写走 Server Action**：首屏服务端直接查库；客户端不手写 `fetch`，`queryKey` 一律从 `lib/query-keys.ts` 取，缓存新鲜度只由 `staleTime` 决定。
 
 ---
@@ -70,7 +70,7 @@ lib/db/queries/<domain>.ts                    查询层
         ↓
 lib/db/drizzle.ts · lib/db/auth-db.ts         连接层
         ↓
-PostgreSQL（业务 app_rw / 认证 auth_service）
+PostgreSQL（业务 genealogy_app / 认证 auth_service）
 ```
 
 | 层 | 职责 | 禁止 |
@@ -228,7 +228,7 @@ grep -n "@tiptap" package.json
 | 单文件 ≤400 行（`app` / `components` / `lib` / `hooks`，存量豁免只许缩不许涨） | `pnpm arch:check` → `scripts/check-file-size.mjs` |
 | `process.env` 只在 `lib/config.ts` 读 | `pnpm arch:check` → `scripts/check-env-access.mjs` |
 | 三条依赖方向 | `pnpm check` → Biome `noRestrictedImports` |
-| 组织隔离与 `app_rw` 读 `auth.user` 被拒 | `tests/integration/org-scope.test.ts` |
+| 组织隔离与 `genealogy_app` 读 `auth.user` 被拒 | `tests/integration/org-scope.test.ts` |
 | 迁移漂移（生成后无未提交 DDL） | CI：`pnpm db:generate` 后检查 `lib/db/migrations` 无改动 |
 | 生产迁移先于部署 | `.github/workflows/migrate-production.yml` |
 | 文档链接与过期路径 | `pnpm docs:check --strict` |

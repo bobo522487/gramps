@@ -93,7 +93,7 @@ describe('withOrgWrite', () => {
               current_setting('app.user_id', true) as sub`
       )
     );
-    expect(settings[0]).toEqual({ role: 'app_rw', sub: owner.id });
+    expect(settings[0]).toEqual({ role: 'genealogy_app', sub: owner.id });
 
     // And the refused caller's own claims never saw another user's sub.
     const viewerSettings = await withOrg(viewer.id, (tx) =>

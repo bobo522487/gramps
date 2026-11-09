@@ -64,9 +64,13 @@ export async function closeDb() {
 export type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
- * Runs business queries as app_rw with the current user's claims so RLS is
- * enforced. SET LOCAL is required: a session-level SET would leak the role
- * and claims into the next request that borrows the pooled connection.
+ * Runs business queries as genealogy_app with the current user's claims so
+ * RLS is enforced. genealogy_app is the LOGIN role created by the single
+ * target baseline (A.0); it has public-schema DML and app-schema EXECUTE but
+ * no auth-schema access — the auth connection stays on its own role so the
+ * credential tables (which have no RLS) are never readable from here.
+ * SET LOCAL is required: a session-level SET would leak the role and claims
+ * into the next request that borrows the pooled connection.
  *
  * GUC 名必须是 `app.user_id`：`app.current_user_id()` 读的就是它
  * （`nullif(current_setting('app.user_id', true), '')`），规格见
@@ -81,7 +85,7 @@ export async function withOrg<T>(
   fn: (tx: DbTransaction) => Promise<T>
 ): Promise<T> {
   return getDb().transaction(async (tx) => {
-    await tx.execute(sql`set local role app_rw`);
+    await tx.execute(sql`set local role genealogy_app`);
     await tx.execute(sql`select set_config('app.user_id', ${userId}, true)`);
     return fn(tx);
   });

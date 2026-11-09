@@ -268,7 +268,7 @@ describe('row level security', () => {
     await createProject({ orgId: organization.id, createdBy: alice.id });
 
     const counts = await getTestSql().begin(async (tx) => {
-      await tx`set local role app_rw`;
+      await tx`set local role genealogy_app`;
       const [orgs] = await tx<
         { count: number }[]
       >`select count(*)::int as count from organization`;
@@ -323,21 +323,25 @@ describe('row level security', () => {
     const bob = await createUser();
     const bobOrg = await getPersonalOrg(bob.id);
 
-    await expect(
-      withOrg(alice.id, (tx) =>
-        tx
-          .update(organizations)
-          .set({ name: '越权修改' })
-          .where(eq(organizations.id, bobOrg?.organization.id as string))
-          .returning()
-      )
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '42501' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes('permission denied for table organization')
-        )
+    // T32 修订后业务连接是 genealogy_app，基线给它 organization 的 UPDATE
+    // （不再是只授 SELECT 的 app_rw）。所以越权 UPDATE 不再因表级权限报
+    // 42501：RLS 的 USING 谓词把目标行过滤掉，RETURNING 返回空数组。
+    // 权限矩阵变了，隔离保证不能变——断言「一行都没改到」而不是某个
+    // 特定 SQLSTATE，再回查一次确认 bob 的组织名没被写坏。
+    const updated = await withOrg(alice.id, (tx) =>
+      tx
+        .update(organizations)
+        .set({ name: '越权修改' })
+        .where(eq(organizations.id, bobOrg?.organization.id as string))
+        .returning({ id: organizations.id })
     );
+    expect(updated).toEqual([]);
+
+    const [bobRow] = await getTestSql()<
+      { name: string }[]
+    >`select name from organization
+      where id = ${bobOrg?.organization.id as string}`;
+    expect(bobRow?.name).not.toBe('越权修改');
 
     await expect(
       withOrg(alice.id, (tx) =>
@@ -401,9 +405,10 @@ describe('row level security', () => {
     await expect(
       withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.user`))
     ).rejects.toSatisfy(
-      // 拦住的是 schema 而不是表：app_rw 连 USAGE ON SCHEMA auth 都没有，
-      // 所以报的是 `permission denied for schema auth`。以前断言的是表级
-      // `table users`——那是旧复数表名时代的消息。
+      // 拦住的是 schema 而不是表：genealogy_app 连 USAGE ON SCHEMA auth 都没有
+      // （基线只授 public / app），所以报 `permission denied for schema auth`。
+      // auth.* 四表无 RLS，这层隔离是认证侧保留独立角色的理由，不能放开。
+      // 以前断言的表级 `table users` 是旧复数表名时代的消息。
       (error) =>
         pgErrorCode(error) === '42501' &&
         pgErrorMessages(error).some((message) =>

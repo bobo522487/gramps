@@ -144,10 +144,12 @@ describe('authorization invariants', () => {
     expect(projectScope).toContain('eq(projects.ref, ref)');
   });
 
-  it('runs every business query as app_rw with verified claims', () => {
+  it('runs every business query as genealogy_app with verified claims', () => {
     // RLS only protects the app if SET LOCAL role and claims are set in the
     // same transaction; a session-level SET would leak into pooled requests.
-    expect(drizzleSource).toContain('set local role app_rw');
+    // T32 修订后业务连接就是基线的 LOGIN 角色 genealogy_app，不再经 app_rw
+    // 收窄；这里只钉死「同事务内先钉角色再注入 GUC」这个边界。
+    expect(drizzleSource).toContain('set local role genealogy_app');
     // GUC 名必须是 `app.user_id`：`app.current_user_id()` 读的就是它
     // （docs/data-model.md §3）。旧的 `request.jwt.claims` 没有任何函数读，
     // 写它等于没写——`visible_org_array()` 恒返回空数组，所有组织查询静默 0 行。

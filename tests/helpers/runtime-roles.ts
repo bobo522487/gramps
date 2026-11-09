@@ -1,145 +1,75 @@
 import type { Sql } from 'postgres';
 
 /**
- * 集成测试的运行期角色与权限矩阵。
+ * 集成测试的运行期角色与权限矩阵（S8 阶段 C · T32 修订规格）。
  *
- * 基线（附录 A.0）只建 `genealogy_app`，而应用运行期会切到另外两个角色：
+ * 目标态两个角色面：
  *
- * - `app_rw`：`lib/db/drizzle.ts` 在 `withOrg` 事务里 `SET LOCAL ROLE app_rw`
- *   之后才发业务查询，RLS 对它有实际约束力。
- * - `auth_service`：`lib/db/auth-db.ts` 用连接参数 `-c role=auth_service` 固定
- *   认证连接的角色，让 Better Auth 读写 `auth.*`。
+ * - `genealogy_app`：基线 A.0 创建的 **LOGIN** 角色，业务连接直接以它登录。
+ *   `lib/db/drizzle.ts` 在 withOrg 事务里 `SET LOCAL ROLE genealogy_app` 只是
+ *   把角色钉死（SET ROLE 到自身是 no-op），不再是旧模型里「切成 app_rw 收窄
+ *   权限」的动作。基线给它 public 全表 DML、app schema USAGE + 函数 EXECUTE，
+ *   RLS 对它生效（NOBYPASSRLS、非表属主）。**不给 auth schema 任何权限**。
+ * - `auth_service`：**NOLOGIN** 独立角色。认证连接经 `auth_runtime` 登录并用
+ *   `-c role=auth_service` 固定，只读写 auth.* 与 organization /
+ *   organization_member / invite 三张表。
  *
- * 生产环境由部署流程建这两个角色，`scripts/verify-deployment.mjs` 会逐项验收
- * 权限矩阵。测试库没有，所以要在这里复刻**同一张矩阵**——两处必须一致，
- * 否则测试通过的形状和上线后的形状不是同一个东西。
+ * 为什么认证侧必须独立（PG18 干净库实测）：auth.user / auth.session /
+ * auth.account / auth.verification 全部 relrowsecurity=f、relforcerowsecurity=f，
+ * 而 public 业务表全部 rls=t。把认证侧也统一成 genealogy_app 并补 auth GRANT，
+ * 业务运行期角色就能无 RLS 直读 auth.account.password 与 auth.session token ——
+ * 这是安全退化，不是单纯补权限。所以 T32 规格由「运行期角色全量统一」修订为
+ * 「业务侧统一 genealogy_app、认证侧保留独立非属主角色」。
+ *
+ * 基线自己管 genealogy_app 的授权（GRANT 段 1011–1035 行）；auth_service 是
+ * 部署期角色、基线不建，测试库要在这里复刻**同一张认证侧矩阵**。
+ *
+ * | 主体 | auth.* | 组织 / 成员 / 邀请 | 业务表 |
+ * | --- | --- | --- | --- |
+ * | `genealogy_app` | 全禁 | 读写（基线 GRANT，RLS + SECDEF 守卫） | 读写（RLS） |
+ * | `auth_service` | 读写 | 读写 | 禁 |
  *
  * 必须在 `migrate()` **之后**执行：`resetAndMigrate` 每次都
  * `drop schema public/auth cascade`，权限随 schema 一起丢，所以授权不是一次性动作。
- *
- * 矩阵（与 verify-deployment.mjs 的 privileges 断言一一对应）：
- *
- * | 主体 | auth.* | organization | organization_member | invite | 业务表 (project 等) |
- * | --- | --- | --- | --- | --- | --- |
- * | `app_rw` | 全禁 | 只读 | 只读 | **全禁** | 读写（RLS 约束） |
- * | `auth_service` | 读写 | 写 | 写 | 写 | 禁 |
- *
- * `app_rw` 对 `organization` / `organization_member` 只读、对 `invite` 完全无权限，
- * 是刻意的：这三张表的写入必须走 SECURITY DEFINER 函数（`app.create_organization`、
- * `app.accept_invite`）或认证侧，否则越权写入只能靠 RLS 静默过滤成 0 行，
- * 调用方看不出自己被拦了。给成表级权限就再也报不出 42501。
- *
- * `invite` 连 SELECT 都不给：邀请列表走 Better Auth 的 `listInvitations`（auth_service
- * 连接），业务层没有任何查询读这张表，而它带邮箱与 token 哈希，按最小权限不该暴露。
- * 这与 `scripts/verify-deployment.mjs` 的 `app_invite_select === false` 断言一致。
  */
 export async function grantRuntimeRoles(sql: Sql): Promise<void> {
-  // 角色是集群级的，建过就跳过（幂等）。NOLOGIN：只从超级用户 SET ROLE 过去。
+  // 角色是集群级的，建过就跳过（幂等）。NOLOGIN：只从登录角色 SET ROLE 过去。
   await sql.unsafe(`
     DO $$
     BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_rw') THEN
-        CREATE ROLE app_rw NOLOGIN;
-      END IF;
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_service') THEN
         CREATE ROLE auth_service NOLOGIN;
       END IF;
     END $$;
   `);
 
-  // 先清空再逐项授予，避免上一次运行留下的过宽授权残留（drop schema 会清表级
-  // 权限，但角色成员关系与 schema 级权限是集群 / 库级，不会被 drop 清掉）。
-  //
-  // `REVOKE genealogy_app FROM app_rw` 是**自愈**，不是可有可无的清理：
-  // `SET LOCAL ROLE app_rw` 的语义是收窄权限，一旦 app_rw 反过来成为登录角色
-  // genealogy_app 的成员，它就继承了「ALL TABLES 读写」，下面所有 REVOKE 全部
-  // 失效——实测表现是 organization 的越权 UPDATE 不报 42501、而是被 RLS 静默
-  // 过滤成 0 行，调用方看不出自己被拦了。角色成员关系是集群级的，drop schema
-  // 不清它，所以每次重建都必须显式剥掉。
-  //
-  // 但 `REVOKE <不存在的角色>` 与 `GRANT` 不对称：实测 PG18 下
-  // `revoke t_gone from app_rw` 直接 **ERROR: role "t_gone" does not exist**，
-  // 而 `grant t_gone to app_rw` 只是 WARNING。裸写这一句意味着一个全新集群
-  // （`genealogy_app` 还没建）上整个 setup 在这里中断，所有集成测试连带失败。
-  // 先探一下再决定要不要发。
-  const [genealogyAppExists] = await sql<{ exists: boolean }[]>`
-    select exists(select 1 from pg_roles where rolname = 'genealogy_app') as exists
-  `;
-  if (genealogyAppExists?.exists) {
-    await sql.unsafe('REVOKE genealogy_app FROM app_rw');
-  }
-  await sql.unsafe('REVOKE ALL ON SCHEMA app FROM app_rw');
-  await sql.unsafe('REVOKE ALL ON SCHEMA public FROM app_rw');
+  // 先清空再逐项授予，避免上一次运行留下的过宽授权残留（drop schema 会清
+  // 表级权限，但角色成员关系与 schema 级权限是集群 / 库级，不会被 drop 清掉）。
   await sql.unsafe('REVOKE ALL ON SCHEMA app FROM auth_service');
   await sql.unsafe('REVOKE ALL ON SCHEMA public FROM auth_service');
   await sql.unsafe('REVOKE ALL ON SCHEMA auth FROM auth_service');
 
-  await sql.unsafe('GRANT USAGE ON SCHEMA app TO app_rw');
-  await sql.unsafe('GRANT USAGE ON SCHEMA public TO app_rw');
   await sql.unsafe('GRANT USAGE ON SCHEMA auth TO auth_service');
   await sql.unsafe('GRANT USAGE ON SCHEMA app TO auth_service');
   await sql.unsafe('GRANT USAGE ON SCHEMA public TO auth_service');
-
-  // 隔离函数：两个角色都要能调（app_rw 走 RLS 谓词，auth_service 建组织 / 收邀请）。
-  await sql.unsafe('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA app TO app_rw');
   await sql.unsafe(
     'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA app TO auth_service'
   );
-
-  // --- app_rw：业务表读写 ---
-  // 业务表 = public 下除 organization / organization_member / invite 之外的表。
-  // 用显式列表而不是 ALL TABLES，才能让上面那几张表保持受限。
-  // `invite` 从 B2a 的「完全无权限」放宽到「读 + 签发 + 撤销」，**仍然不给
-  // DELETE**。理由分三层：
-  //
-  //   1. 读：自建 token 之后成员管理页要自己列待发邀请（旧前提「邀请走
-  //      Better Auth API、业务层不读这张表」在 B2b 被废掉了）。
-  //   2. 写：附录 A.7 的 `INSERT … ON CONFLICT DO UPDATE` 需要 INSERT +
-  //      UPDATE，缺任一个签发就是 42501。
-  //   3. 无 DELETE：撤销是 `status = 'revoked'`，不是删行。删掉之后同一个
-  //      token 会从「已撤销」退化成「无效」，用户拿到的解释与事实不符。
-  //
-  // 接受邀请不在这张表上争权限：`app.accept_invite` 是 SECURITY DEFINER，
-  // 以属主身份写。
-  const tenantReadOnly = new Set(['organization_member', 'organization']);
-  const noAccess = new Set<string>([]);
-  const tables = await sql<{ tablename: string }[]>`
-    select tablename from pg_tables where schemaname = 'public'
-  `;
-  for (const { tablename } of tables) {
-    if (noAccess.has(tablename)) continue;
-    if (tenantReadOnly.has(tablename)) {
-      await sql.unsafe(`GRANT SELECT ON public.${tablename} TO app_rw`);
-    } else if (tablename === 'invite') {
-      // 无 DELETE：撤销是置 status，不是删行（删了之后同一 token 会从
-      // 「已撤销」变成「无效」，用户拿到的解释与事实不符）。
-      await sql.unsafe(
-        'GRANT SELECT, INSERT, UPDATE ON public.invite TO app_rw'
-      );
-    } else {
-      await sql.unsafe(
-        `GRANT SELECT, INSERT, UPDATE, DELETE ON public.${tablename} TO app_rw`
-      );
-    }
-  }
 
   // --- auth_service：身份与租户写入 ---
   await sql.unsafe(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA auth TO auth_service'
   );
-  // Better Auth 的 organization 插件直接读写 organization / organization_member /
-  // invite 三张 public 表，所以认证侧对它们要写权限；业务表一律不给。
   for (const tablename of ['organization', 'organization_member', 'invite']) {
     await sql.unsafe(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON public.${tablename} TO auth_service`
     );
   }
-
-  // 兜底：后续批次新建的表自动继承（默认权限按「执行 GRANT 的角色」生效）。
-  await sql.unsafe(
-    'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_rw'
-  );
+  // 兜底：后续批次新建的 auth 表自动继承（默认权限按执行 GRANT 的角色生效）。
   await sql.unsafe(
     'ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_service'
   );
+
+  // genealogy_app 的业务表授权由基线 GRANT 段负责：migrate() 重建 schema 后
+  // 自动生效，这里不再复刻，避免测试库与基线出现两张不一致的权限矩阵。
 }

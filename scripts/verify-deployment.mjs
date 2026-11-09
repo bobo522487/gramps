@@ -275,7 +275,7 @@ async function checkRuntimeRls() {
     } catch (error) {
       fail(
         'runtime RLS query',
-        `${safeDbError(error)} — is the login role a member of app_rw?`
+        `${safeDbError(error)} — is APP_POSTGRES_URL pointing at genealogy_app?`
       );
     }
 
@@ -333,13 +333,16 @@ async function checkDb() {
         ? plural(BUSINESS_TABLES.length, 'table', 'tables')
         : listed(missingTables, (name) => name)
     );
+    // 目标态（§8 #9 / 门禁 C-5）：public 业务表启用 RLS，但**不**启用
+    // FORCE RLS。表属主是迁移角色，业务连接以非属主的 genealogy_app 登录，
+    // RLS 对它已生效；FORCE 反而会连属主一起约束，挡住切换日的迁移路径。
     const unprotected = BUSINESS_TABLES.filter((name) => {
       const row = byName.get(name);
-      return !row?.relrowsecurity || !row?.relforcerowsecurity;
+      return !row?.relrowsecurity || row?.relforcerowsecurity === true;
     });
     check(
       unprotected.length === 0,
-      'RLS enabled and forced',
+      'RLS enabled (FORCE RLS deliberately off)',
       unprotected.length === 0
         ? `all ${plural(BUSINESS_TABLES.length, 'table', 'tables')}`
         : listed(unprotected, (name) => name)
@@ -362,16 +365,20 @@ async function checkDb() {
         ? plural(AUTH_TABLES.length, 'table', 'tables')
         : listed(missingAuthTables, (name) => name)
     );
-    const unprotectedAuth = AUTH_TABLES.filter((name) => {
+    // auth.* 四表在目标态**没有** RLS：它们由认证侧独立角色 auth_service
+    // 独占访问，业务角色 genealogy_app 连 USAGE ON SCHEMA auth 都没有。
+    // 这正是 T32 规格由「全量统一」修订为「认证侧独立」的原因。若以后给
+    // auth.* 加了 RLS 却没同步角色矩阵，这条先报出来，别让隔离假设漂移。
+    const authWithRls = AUTH_TABLES.filter((name) => {
       const row = authByName.get(name);
-      return !row?.relrowsecurity || !row?.relforcerowsecurity;
+      return row?.relrowsecurity === true || row?.relforcerowsecurity === true;
     });
     check(
-      unprotectedAuth.length === 0,
-      'auth tables FORCE RLS',
-      unprotectedAuth.length === 0
+      authWithRls.length === 0,
+      'auth tables stay RLS-free (credential isolation via roles)',
+      authWithRls.length === 0
         ? plural(AUTH_TABLES.length, 'table', 'tables')
-        : listed(unprotectedAuth, (name) => name)
+        : listed(authWithRls, (name) => name)
     );
 
     // F5（目标态）：每张业务表有且只有一条 `org_isolation` 策略，且可见性
@@ -392,10 +399,17 @@ async function checkDb() {
       from pg_policies
       where schemaname = 'public'
     `;
-    const appRwPolicies = policies.filter((policy) =>
-      (policy.roles ?? []).includes('app_rw')
+    // T32 revised: the business role is genealogy_app (the baseline LOGIN
+    // role). RLS policies are created FOR ALL, so pg_policies.roles resolves
+    // to '{public}'; keep filtering on the role name for deployments that
+    // explicitly grant the policy to genealogy_app, and fall back to all
+    // public-schema policies so the shape check still runs.
+    const allPublicPolicies = policies.filter(
+      (policy) =>
+        (policy.roles ?? []).includes('genealogy_app') ||
+        (policy.roles ?? []).includes('public')
     );
-    const notOrgIsolation = appRwPolicies.filter((policy) => {
+    const notOrgIsolation = allPublicPolicies.filter((policy) => {
       if (policy.policyname !== 'org_isolation' || policy.cmd !== 'ALL') {
         return true;
       }
@@ -409,9 +423,9 @@ async function checkDb() {
     });
     check(
       notOrgIsolation.length === 0,
-      'every app_rw policy is the target-state org_isolation policy',
+      'every public policy is the target-state org_isolation policy',
       notOrgIsolation.length === 0
-        ? plural(appRwPolicies.length, 'policy', 'policies')
+        ? plural(allPublicPolicies.length, 'policy', 'policies')
         : listed(
             notOrgIsolation,
             (policy) => `${policy.tablename}.${policy.policyname}`
@@ -434,22 +448,38 @@ async function checkDb() {
       `${migrations?.count ?? 0}/${expectedMigrations}`
     );
 
+    // T32 revised: genealogy_app is the LOGIN business role created by the
+    // single baseline; auth_service stays a separate NOLOGIN role because
+    // auth.* has no RLS and a shared role could read credential tables.
     const roles = await sql`
       select rolname, rolsuper, rolbypassrls, rolcanlogin
       from pg_roles
-      where rolname in ('app_rw', 'auth_service')
+      where rolname in ('genealogy_app', 'auth_service')
     `;
     const roleByName = new Map(roles.map((row) => [row.rolname, row]));
-    for (const role of ['app_rw', 'auth_service']) {
+    for (const role of ['genealogy_app', 'auth_service']) {
       const row = roleByName.get(role);
       check(Boolean(row), `${role} role exists`);
       if (!row) {
         continue;
       }
       check(row.rolsuper === false, `${role} is not superuser`);
-      check(row.rolbypassrls === false, `${role} cannot bypass RLS`);
-      check(row.rolcanlogin === false, `${role} is NOLOGIN`);
+      // NOBYPASSRLS is load-bearing: the target state deliberately does not
+      // enable FORCE ROW LEVEL SECURITY, so RLS is the only visibility
+      // boundary on public tables.
+      check(
+        row.rolbypassrls === false,
+        `${role} cannot bypass RLS (NOBYPASSRLS)`
+      );
     }
+    check(
+      roleByName.get('genealogy_app')?.rolcanlogin === true,
+      'genealogy_app is the LOGIN business role'
+    );
+    check(
+      roleByName.get('auth_service')?.rolcanlogin === false,
+      'auth_service is NOLOGIN (only inherited by auth_runtime)'
+    );
 
     const [privileges] = await sql`
       select
@@ -457,14 +487,12 @@ async function checkDb() {
         has_table_privilege('auth_service', 'auth.user', 'INSERT') as auth_user_insert,
         has_table_privilege('auth_service', 'public.organization', 'INSERT') as auth_org_insert,
         has_table_privilege('auth_service', 'public.organization_member', 'UPDATE') as auth_member_update,
-        has_table_privilege('app_rw', 'auth.user', 'SELECT') as app_auth_user_select,
-        has_table_privilege('app_rw', 'public.organization', 'INSERT') as app_org_insert,
-        has_table_privilege('app_rw', 'public.organization', 'UPDATE') as app_org_update,
-        has_table_privilege('app_rw', 'public.organization_member', 'UPDATE') as app_member_update,
-        has_table_privilege('app_rw', 'public.invite', 'SELECT') as app_invite_select,
-        has_table_privilege('app_rw', 'public.invite', 'INSERT') as app_invite_insert,
-        has_table_privilege('app_rw', 'public.invite', 'UPDATE') as app_invite_update,
-        has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select
+        has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select,
+        has_table_privilege('genealogy_app', 'public.invite', 'SELECT') as app_invite_select,
+        has_table_privilege('genealogy_app', 'public.organization', 'UPDATE') as app_org_update,
+        has_schema_privilege('genealogy_app', 'auth', 'USAGE') as app_auth_schema_usage,
+        has_table_privilege('genealogy_app', 'auth.user', 'SELECT') as app_auth_user_select,
+        has_table_privilege('genealogy_app', 'auth.account', 'SELECT') as app_auth_account_select
     `;
     check(
       privileges?.auth_user_select === true &&
@@ -474,23 +502,21 @@ async function checkDb() {
       'auth_service owns identity and tenant writes'
     );
     check(
-      privileges?.app_auth_user_select === false &&
-        privileges?.app_org_insert === false &&
-        privileges?.app_org_update === false &&
-        privileges?.app_member_update === false,
-      'app_rw cannot read auth or write tenant tables'
-    );
-    // `invite` 的 SELECT 在 B2b 反转为**必须可读**。
-    //
-    // 自建 token 邀请之后，成员管理页、重发与撤销都要业务层自己读这张表；
-    // 旧前提「邀请走 Better Auth API、业务层不读它」已经不成立。写权限
-    // 仍然不给：写入只能走附录 A.7 的 ON CONFLICT 路径与 `app.accept_invite`。
-    check(
       privileges?.app_invite_select === true &&
-        privileges?.app_invite_insert === false &&
-        privileges?.app_invite_update === false,
-      'app_rw can read pending invitations (member console), not write them'
+        privileges?.app_org_update === true,
+      'genealogy_app has the baseline public DML grant (RLS + SECDEF guard writes)'
     );
+    // 安全边界：auth.user / auth.session / auth.account / auth.verification
+    // 在目标态全部 relrowsecurity=false。业务角色一旦拿到 auth schema 权限，
+    // 就能无 RLS 直读密码哈希与会话 token —— 三类权限必须同时为 false。
+    check(
+      privileges?.app_auth_schema_usage === false &&
+        privileges?.app_auth_user_select === false &&
+        privileges?.app_auth_account_select === false,
+      'genealogy_app cannot reach auth.* (credential tables have no RLS)'
+    );
+    // 邀请写入不再靠表级权限收窄：签发走 A.7 的 ON CONFLICT，撤销是置
+    // status，接受邀请与成员写走 app.* SECURITY DEFINER 函数。
     check(
       privileges?.auth_project_select === false,
       'auth_service cannot read business tables'
@@ -546,17 +572,49 @@ async function checkDb() {
       acceptInvite?.body ? 'predicate present' : 'function not found'
     );
 
-    const [app] = await sql`
-      select rolbypassrls from pg_roles where rolname = 'app'
+    const [businessRole] = await sql`
+      select rolbypassrls from pg_roles where rolname = 'genealogy_app'
     `;
-    if (!app) {
-      skip('app login role', 'not provisioned (created out of band)');
+    if (!businessRole) {
+      skip(
+        'genealogy_app login role',
+        'not provisioned (created by the target baseline)'
+      );
     } else {
-      check(app.rolbypassrls === false, 'app cannot bypass RLS');
-      const [membership] = await sql`
-        select pg_has_role('app', 'app_rw', 'MEMBER') as member
+      check(
+        businessRole.rolbypassrls === false,
+        'genealogy_app cannot bypass RLS'
+      );
+      // The business role must never inherit the auth-side role: that would
+      // grant it auth.* access without RLS.
+      const [crossMembership] = await sql`
+        select pg_has_role('genealogy_app', 'auth_service', 'MEMBER') as member
       `;
-      check(membership?.member === true, 'app is a member of app_rw');
+      check(
+        crossMembership?.member === false,
+        'genealogy_app is not a member of auth_service'
+      );
+    }
+
+    // RB-5 (docs/runbooks/README.md §6): the old 0006_statement_timeouts
+    // migration pinned three timeouts via rolconfig, but it was retired with
+    // the B0 baseline squash. Report the gap explicitly instead of letting
+    // the runbook assume verify:deploy already checks it.
+    const [roleConfig] = await sql`
+      select rolconfig from pg_roles where rolname = 'genealogy_app'
+    `;
+    const timeouts = (roleConfig?.rolconfig ?? []).filter((entry) =>
+      /^(statement_timeout|idle_in_transaction_session_timeout|lock_timeout)=/.test(
+        String(entry)
+      )
+    );
+    if (timeouts.length === 3) {
+      pass('rolconfig timeouts', timeouts.join(', '));
+    } else {
+      skip(
+        'rolconfig timeouts',
+        'target baseline sets none (0006_statement_timeouts retired); RB-5 stays open for T34/G1'
+      );
     }
 
     const [authRuntime] = await sql`

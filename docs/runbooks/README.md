@@ -12,7 +12,7 @@
 
 | 用途 | 连接串 | 角色 |
 | --- | --- | --- |
-| 应用运行 | `POSTGRES_URL`（Neon pooled） | `app` → `app_rw`，受 RLS 约束 |
+| 应用运行 | `APP_POSTGRES_URL`（Neon pooled） | `genealogy_app`（基线创建的 LOGIN 角色），受 RLS 约束 |
 | 认证运行 | `AUTH_POSTGRES_URL`（Neon direct） | `auth_runtime` → 启动参数固定 `auth_service`；pooler 会拒绝该参数 |
 | 迁移 / 运维 / 备份 | `POSTGRES_URL_DIRECT`（Neon direct） | 迁移角色，拥有 `BYPASSRLS` |
 
@@ -32,7 +32,7 @@
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
 ```
 
-返回 `rolbypassrls = false` 时**不要继续任何操作**，先恢复角色权限。注意区分：运行期角色 `app_rw` / `auth_service` 必须 `NOBYPASSRLS`（`verify:deploy` 逐项断言），而迁移 / 运维直连角色才需要 `BYPASSRLS`。两者不是同一条规则。
+返回 `rolbypassrls = false` 时**不要继续任何操作**，先恢复角色权限。注意区分：运行期角色 `genealogy_app` / `auth_service` 必须 `NOBYPASSRLS`（`verify:deploy` 逐项断言），而迁移 / 运维直连角色才需要 `BYPASSRLS`。两者不是同一条规则。业务角色与认证角色不能互为成员——`auth.*` 四表没有 RLS，合并等于把密码哈希与会话 token 暴露给业务连接。
 
 ## 2. 发布与回滚
 
@@ -124,7 +124,7 @@ SELECT pid, usename, now() - query_start AS duration, left(query,120)
 FROM pg_stat_activity WHERE state <> 'idle' ORDER BY duration DESC LIMIT 10;
 ```
 
-有长事务占连接时 `SELECT pg_terminate_backend(<pid>)`（先确认不是迁移 / 备份）；连接数接近上限但无长查询时查 Vercel 实例数与每实例池上限；单个查询持续变慢就单独 `EXPLAIN (ANALYZE, BUFFERS)`。护栏已在迁移 `0006_statement_timeouts` 为运行期角色设置 `statement_timeout` / `idle_in_transaction_session_timeout` / `lock_timeout`——但 **`verify:deploy` 目前不断言 `rolconfig`**，别以为部署自检会替你发现这三个值被改掉。
+有长事务占连接时 `SELECT pg_terminate_backend(<pid>)`（先确认不是迁移 / 备份）；连接数接近上限但无长查询时查 Vercel 实例数与每实例池上限；单个查询持续变慢就单独 `EXPLAIN (ANALYZE, BUFFERS)`。旧迁移 `0006_statement_timeouts` 曾用 `rolconfig` 给运行期角色设置 `statement_timeout` / `idle_in_transaction_session_timeout` / `lock_timeout`，但该迁移随 B0 基线重建一并退役，**目标态基线目前不设这三条**。`verify:deploy` 现在会读 `rolconfig` 并把缺失状态显式报成 `SKIP`，不再假装自检覆盖了它；真正注入仍归 T34 / G1。
 
 ### RB-6 所有页面报错（React #441 + digest）
 
@@ -178,7 +178,7 @@ WHERE qual LIKE '%organization_member%' AND qual NOT LIKE '%has_org_role%';
 node -e "console.log(Object.keys(require('./package.json').scripts).join('\n'))"
 # 迁移基线以 journal 为准，别信文档里的数字
 node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.length)"
-# 部署自检是否覆盖 rolconfig（RB-5 的缺口）
+# 部署自检是否读 rolconfig（RB-5：会报告，但目标基线尚未设超时）
 grep -n "rolconfig" scripts/verify-deployment.mjs
 # 变量清单与作用域
 cat .env.example
@@ -187,7 +187,7 @@ cat .env.example
 | 待办 | 触发条件 | 说明 |
 | --- | --- | --- |
 | 恢复演练 | 每季度一次 | 目前无 RPO / RTO 承诺、从未演练；`docs/roadmap.md` 的 `S7` 会补外部探针 |
-| `verify:deploy` 断言 `rolconfig` | 技术负责人确认后 | RB-5 的三条超时护栏当前没有自动执行者 |
+| 在目标基线注入三条 `rolconfig` 超时 | 技术负责人确认后（T34 / G1） | RB-5：`verify:deploy` 已会读 `rolconfig` 并报告缺失，但基线本身尚未设置，注入后自检才会转为 `PASS` |
 | `docs:check` 检查范围同步 | 新结构全部落地后 | 现有脚本按旧路径写死，不改会误报 |
 | `S6` 恢复入口 | 排期确认后 | 在那之前软删恢复只有本文这条手工路径 |
 
