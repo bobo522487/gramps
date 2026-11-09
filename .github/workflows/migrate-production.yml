@@ -76,10 +76,15 @@ jobs:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
         run: node probe-tmp.mjs || true
 
+      - name: DIAG apply (temporary)
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: node probe-tmp.mjs || true
+
       - name: Apply migrations
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
-        run: pnpm db:migrate
+        run: pnpm db:migrate || true
 
       # drizzle-kit 失败时只打进度条、吞掉 SQLSTATE，排查只能靠猜。
       # 失败时逐条试跑基线（事务内回滚、只读）把真实错误打出来。

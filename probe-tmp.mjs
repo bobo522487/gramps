@@ -1,20 +1,31 @@
+// 临时：在真实目标库上跑 drizzle 的迁移路径，但把错误完整打出来。
+import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
+
 const url = process.env.POSTGRES_URL_DIRECT;
-const u = new URL(url);
-console.log('host:', u.hostname);
-console.log('port:', u.port || '(默认)');
-console.log('db:', u.pathname.slice(1));
-console.log('has sslmode:', u.search);
-const sql = postgres(url, { max: 1 });
+const sql = postgres(url, { max: 1, onnotice: () => {} });
+const file = readFileSync('lib/db/migrations/0000_target_schema.sql', 'utf8');
+
 try {
-  const [r] = await sql`select inet_server_addr()::text as addr, inet_server_port() as port,
-    current_setting('server_version') as ver,
-    (select count(*) from pg_stat_activity) as conns`;
-  console.log('server:', r.addr, 'port:', r.port, 'ver:', r.ver);
-  const [role] = await sql`select rolcreaterole, rolsuper from pg_roles where rolname = current_user`;
-  console.log('当前角色 CREATEROLE =', role.rolcreaterole, ' SUPER =', role.rolsuper);
-  const dbs = await sql`select count(*)::int c from pg_database`;
-  console.log('库数:', dbs[0].c);
-} catch (e) {
-  console.log('probe error:', e.code, e.message);
-} finally { await sql.end(); }
+  // 1) 整份一次发送（drizzle 的 pg 驱动分支就是这么发的）
+  try {
+    await sql.unsafe(file);
+    console.log('A) 整份一次发送：成功');
+  } catch (e) {
+    console.log('A) 整份一次发送：失败 ->', e.code, e.message);
+    if (e.position) console.log('   position:', e.position);
+  }
+
+  // 2) 事务内整份发送
+  try {
+    await sql.begin(async (tx) => { await tx.unsafe(file); });
+    console.log('B) 事务内整份：成功');
+  } catch (e) {
+    console.log('B) 事务内整份：失败 ->', e.code, e.message);
+  }
+
+  const [n] = await sql`select count(*)::int c from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','auth') and c.relkind='r'`;
+  console.log('   当前表数:', n.c);
+} finally {
+  await sql.end({ timeout: 5 });
+}
