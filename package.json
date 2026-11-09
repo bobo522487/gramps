@@ -26,7 +26,8 @@
     "test:e2e": "playwright test",
     "docs:check": "node scripts/check-docs.mjs",
     "arch:check": "node scripts/check-file-size.mjs && node scripts/check-env-access.mjs",
-    "verify:deploy": "node scripts/verify-deployment.mjs"
+    "verify:deploy": "node scripts/verify-deployment.mjs",
+    "verify:target-schema": "node scripts/verify-target-schema.mjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "4.3.3",

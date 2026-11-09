@@ -261,6 +261,6 @@ node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.l
 | 角色授权、收录状态、制品不可变性、组织至少一名 owner、`slug` 不可变 | **无自动执行者**：靠单一写入路径契约、评审与巡检 SQL；制品不可变性由对象存储负责 |
 | 路径标签稳定、稀疏序号重排、三阶段改名 | 写入路径契约，低频维护操作，靠代码评审 |
 | 迁移已应用、库结构与代码对齐 | `.github/workflows/migrate-production.yml` + `scripts/verify-deployment.mjs` |
-| §7 的验证结论（重构验收） | 当前**无自动执行者**：数字来自独立 PG18 容器的人工验收；重构完成后须落成 CI 或 `verify:deploy` 断言，否则纸面数字不算兑现 |
+| §7 的验证结论（重构验收） | DDL / 反例 SQLSTATE / fail-closed 已有自动执行者：`.github/workflows/ci.yml` 的 `pnpm verify:target-schema`（T36–T41，自建干净库重建唯一基线后逐条断言）。**§7 的 Q1 / Q3 EXPLAIN 数字仍无自动执行者**：须在 G1 书面确认的目标环境重跑，脚本里显式 `SKIP`，本地容器旧数字不算兑现（T40） |
 
 重构前的自动执行者清单在 `docs/architecture.md` 的「约束要有执行者」，本文不重抄，它会随本次重构同步更新。把本文从纸面变成现实靠的是迁移 + 断言，不是再写一份文档——**§8 的每一行都该在某个提交里消失**。

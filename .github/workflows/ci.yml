@@ -61,6 +61,13 @@ jobs:
       - name: Migrate test database
         run: pnpm db:migrate
 
+      # T42: target-schema verification rebuilds the single baseline in its own
+      # throwaway database (gramps_s8_verify), then asserts DDL / SQLSTATE /
+      # fail-closed. T40 EXPLAIN numbers need the confirmed target environment,
+      # so the script reports an explicit SKIP rather than a fake PASS.
+      - name: Verify target schema (T36-T41)
+        run: pnpm verify:target-schema
+
       # T32 revised: the business side uses genealogy_app, which the single
       # target baseline (0000_target_schema.sql A.0) already created during
       # `pnpm db:migrate`. Only the auth side is provisioned out of band:

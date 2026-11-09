@@ -71,4 +71,49 @@ describe('阶段 D / T39 迁移漂移门禁', () => {
     expect(journal.entries).toHaveLength(1);
     expect(journal.entries[0].tag).toBe('0000_target_schema');
   });
+
+  test('D-4 T36/T42：验收脚本、命令与 CI 步骤都落地', () => {
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts['verify:target-schema']).toBe(
+      'node scripts/verify-target-schema.mjs'
+    );
+    expect(read('.github/workflows/ci.yml')).toContain(
+      'pnpm verify:target-schema'
+    );
+    const script = read('scripts/verify-target-schema.mjs');
+    for (const flag of ['--help', '--ddl', '--assertions', '--security']) {
+      expect(script, `缺少 ${flag}`).toContain(flag);
+    }
+  });
+
+  test('D-5 T38：反例夹具每条 case 都能回链附录 B.2 场景', () => {
+    const manifest = read('tests/fixtures/target-schema-assertions.md');
+    const known = new Set(
+      [...manifest.matchAll(/^\|\s*(N\d+)\s*\|/gm)].map((m) => m[1])
+    );
+    const fixture = read('tests/fixtures/target-schema-negative.sql');
+    const cases = [...fixture.matchAll(/^--\s*@case\s+(N\d+)/gm)].map(
+      (m) => m[1]
+    );
+    expect(cases.length).toBeGreaterThanOrEqual(15);
+    for (const id of cases) {
+      expect(known.has(id), `${id} 不在场景清单里`).toBe(true);
+    }
+    expect([...fixture.matchAll(/^--\s*@expect\s+\d{5}\s*$/gm)]).toHaveLength(
+      cases.length
+    );
+  });
+
+  test('D-6 T40：性能数字不得作为本地验收结论', () => {
+    const script = read('scripts/verify-target-schema.mjs');
+    expect(script).toMatch(/skip\(\s*'T40 EXPLAIN \/ Q1 \/ Q3 数字'/);
+    expect(script).not.toMatch(/26\.454|42\.930/);
+  });
+
+  test('D-7 T41：fail-closed 三项断言齐备', () => {
+    const script = read('scripts/verify-target-schema.mjs');
+    expect(script).toContain('22023'); // 伪造 pg_temp.invite
+    expect(script).toContain('42501'); // 未授权角色
+    expect(script).toContain('fail-closed'); // SET LOCAL 同事务
+  });
 });
