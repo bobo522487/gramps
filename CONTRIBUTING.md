@@ -15,6 +15,7 @@
 | 系统边界、模块、技术栈、部署形态 | `docs/architecture.md` | `docs/interfaces.md`、相关 `docs/adr/` | 技术负责人 |
 | 接口契约（Action、DTO、错误码） | `docs/contracts/` | `docs/interfaces.md`、相关 feature 的 `contracts/` | 调用双方负责人 |
 | 全局实体与关系 | `docs/data-model.md` | 相关 spec 的实体引用 | 技术负责人 |
+| 数据模型重构（DDL 基线、隔离层、验收层） | `lib/db/migrations/0000_target_schema.sql` | `docs/data-model.md` 的差异清单与 §9 执行者表、`docs/architecture.md` 角色与域所有权、`docs/contracts/` 谱系契约、`docs/runbooks/` 处置 SQL、`docs/glossary.md` 删除语义、`docs/nfr.md` §5、`docs/roadmap.md` 状态、**新增 ADR 并把旧决策标 `superseded`** | 技术负责人 |
 | 性能 / 安全 / 可用性 / 合规阈值 | `docs/nfr.md` | `tests/` 中对应验收用例 | 测试 + 运维 |
 | 技术选型理由 | `docs/adr/NNNN-xxx.md` | 一般不改已生效 ADR，新增一条 supersede | 技术负责人 |
 | 单个 feature 的行为 | `specs/NNN-xxx/spec.md` | `plan.md`、`tasks.md`、`tests/` | 产品 + 测试 |

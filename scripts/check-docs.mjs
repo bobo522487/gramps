@@ -98,8 +98,16 @@ for (const file of allDocs) {
 }
 
 // 2. 每份文档头部四项（CONTRIBUTING.md §3）。
+// 只约束「文档集」：根级 7 份 + adr / contracts / runbooks 各一份 README。
+// 根级名单与子目录名单由下面的规则 3 钉死，这里按结构判断，不另抄一份清单。
+// ADR 正文有自己的模板（`docs/adr/README.md` §5），feature 工作产物用
+// `.specify/templates/`；把它们纳入会误报，也会挡住 17 份 ADR 正文逐份迁入。
 const HEADER_FIELDS = ['回答什么问题', '读者', '长度上限', '不写什么'];
 for (const file of allDocs) {
+  const rel = relative(DOCS, file);
+  const isRootDoc = !rel.includes('/');
+  const isSubdirReadme = /^(adr|contracts|runbooks)[/]README\.md$/.test(rel);
+  if (!isRootDoc && !isSubdirReadme) continue;
   const header = readFileSync(file, 'utf8').split('\n').slice(0, 15).join('\n');
   for (const field of HEADER_FIELDS) {
     if (!header.includes(field)) {

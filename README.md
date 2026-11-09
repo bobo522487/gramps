@@ -15,7 +15,7 @@
 - 产品意图、目标用户、成功度量与明确不做：[`docs/vision.md`](docs/vision.md)
 - 系统边界、模块划分、技术栈与部署形态：[`docs/architecture.md`](docs/architecture.md)
 
-**明确不做**：邮箱验证 / 找回密码 / 邮件发送、`/api/auth/*`、后台任务、匿名业务页与公开 API、回收站 UI、编辑锁、分享、i18n、谱书编目编辑与成品排版。范围调整先改 `vision.md` 与 `roadmap.md`，再动受影响的子 spec。
+**明确不做**：邮箱验证 / 找回密码 / 邮件发送、`/api/auth/*`、后台任务、匿名业务页与公开 API、回收站 UI、编辑锁、分享、i18n、谱书编目编辑与成品排版。目标态数据层**没有软删列、删除一律 `ON DELETE RESTRICT`**，所以「回收站 UI」不做是结构决定，不是排期推迟；`book` / `book_catalog` / `book_export` 已落库但没有写入口，编目编辑仍不做。范围调整先改 `vision.md` 与 `roadmap.md`，再动受影响的子 spec。
 
 ---
 
@@ -62,7 +62,7 @@ pnpm arch:check
 │   ├── glossary.md                全项目唯一术语表
 │   ├── architecture.md            系统边界、模块划分、技术栈、部署形态
 │   ├── interfaces.md              接口地图（谁调谁），细节指向 contracts/
-│   ├── data-model.md              全局实体与关系，各 feature 的根
+│   ├── data-model.md              目标态数据模型规格：实体分层、不变量与删除语义
 │   ├── nfr.md                     性能 / 安全 / 可用性 / 合规 + 可度量阈值
 │   ├── contracts/                 跨 feature 接口契约，唯一真相源
 │   ├── adr/                       决策记录，只写「为什么」

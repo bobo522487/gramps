@@ -43,13 +43,13 @@ grep -rn -E "工作区|家谱空间|人物|人员|节点|回收站|家谱系统"
 | 编目 | `book_catalog` | 谱书目录，引用谱系或谱文 | 目录、章节 | `content.ts` → `book_catalog` |
 | 公开 ID | `slug` / `ref` | URL 里 20 位随机字符串，只用于定位，**不是授权凭证** | 主键、UUID（对外） | `org.ts` / `project.ts` |
 | 事实层 | `person` / `person_name` / `family` / `family_partner` / `family_child` / `event` | 身份、姓名、亲属关系与生卒等事实的**主数据源**，由应用直接读写；谱系层 `node` 只引用它 | 人丁表、新表 | `person.ts` / `family.ts` / `event.ts` |
-| 软删 | `deleted_at` | 业务表删除标记，查询默认过滤；**没有回收站 UI** | 回收站、可恢复删除 | 业务表通用列 |
-| 硬删 | — | 物理删除、不可恢复，用于组织成员与邀请 | 软删 | `org.ts` |
+| 软删 | `deleted_at` | **已退役**（目标态业务表无软删列）。保留行只为追溯历史 spec | 回收站、可恢复删除 | — |
+| 硬删 | — | 目标态唯一删除方式：`ON DELETE RESTRICT` 拦住仍被引用的行，无引用时物理删除、不可恢复；组织成员与邀请同样是硬删 | 软删（已退役） | `lib/db/migrations/0000_target_schema.sql` |
 | 谱系工作区 | — | 谱系编辑页的整块交互区域，UI 状态存 zustand | 工作区（单独出现时含义不明） | `components/lineage/` |
 | Server Action | — | 唯一写通道 | API、接口 | `lib/<domain>/actions.ts` |
 | Route Handler | — | 只读 HTTP 入口，不承担写入 | 写入口 | `app/api/**/route.ts` |
 
-> 软删 / 硬删两条定义与目标态删除语义不一致，待 T23 跟改，本批不改。
+> 按 §1 规则 3，作废的词保留行并标注，不删行。删除语义的「为什么」在 `docs/adr/`，DDL 兑现位置在唯一 SQL 基线。
 
 ---
 
@@ -63,7 +63,7 @@ grep -rn -E "工作区|家谱空间|人物|人员|节点|回收站|家谱系统"
 | 人丁 | 被叫「成员」「人物」「节点」 | `node` 是位置引用，身份事实在事实层 | `lineage.ts` 的 `node` 表 |
 | 谱系 | 被叫「家谱」 | `lineage`；「家谱」只指整本谱 | `lineage.ts` 的 `lineage` 表 |
 | 事实层 | 被叫「人丁表」「新表」 | 六张表构成的主数据源，应用直接读写 | `person.ts` / `family.ts` / `event.ts` |
-| 软删 | 被当成「可恢复」 | 不可恢复，恢复靠运维 | 业务表 `deleted_at`；无回收站 UI |
+| 软删 | 被当成「可恢复」 | 目标态已退役：业务表没有 `deleted_at`，删除一律 `ON DELETE RESTRICT`、无可恢复删除 | 唯一 SQL 基线；取代关系见 `docs/adr/` |
 
 ---
 

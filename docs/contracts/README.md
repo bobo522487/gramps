@@ -136,14 +136,16 @@ FormData 通道用 `Object.fromEntries(formData)` 拍平，嵌套结构与 `null
 | 认证 | `lib/auth/actions/` | `signIn` / `signUp` / `signOut` / `updatePassword` / `updateAccount` / `deleteAccount` | 公开（前两个）或登录即可 | 会话 Cookie / `success` |
 | 组织与成员 | `lib/org/actions.ts` | `createOrgAction` / `renameOrgAction` / `deleteOrgAction` / `inviteOrgMember` / `acceptInviteAction` / `removeOrgMember` / `updateOrgMemberRole` | `org.settings` / `member.invite` / `member.manage`；`createOrgAction` 与 `acceptInviteAction` 登录即可 | `orgId` + `orgSlug` / `inviteUrl` / `success` |
 | 云谱空间与分类 | `lib/project/actions.ts`、`lib/folder/actions.ts` | `createProjectAction` / `updateProjectAction` / `deleteProjectAction` / `createFolderAction` / `renameFolderAction` / `deleteFolderAction` | `project.write` | `projectId` + `projectRef` / `folderId` / `success` |
-| 谱系与人丁 | `lib/lineage/actions.ts` | `createLineageAction` / `updateLineageAction` / `createRootNodeAction` / `addChildAction` / `addSiblingAction` / `addPersonAction` / `addSpouseAction` / `updateNodeAction` / `deleteNodeAction` / `moveNodeAction` | `lineage.write` | `lineageId` / `nodeId` / `success` |
+| 谱系位置与事实录入 | `lib/lineage/actions.ts` | `createLineageAction` / `updateLineageAction` / `createRootNodeAction` / `addChildAction` / `addSiblingAction` / `addPersonAction` / `addSpouseAction` / `updateNodeAction` / `deleteNodeAction` / `moveNodeAction` | `lineage.write` | `lineageId` / `nodeId`（位置行 id）/ `success` |
 | 谱系删除 | 同上 | `deleteLineageAction` | **`lineage.delete`**（同域里唯一不同的权限） | `success` |
 | 谱文 | `lib/article/actions.ts` | `createArticleAction` / `updateArticleTitleAction` / `moveArticleAction` / `deleteArticleAction` / `saveArticlePageAction` / `addArticlePageAction` / `deleteArticlePageAction` / `reorderArticlePagesAction` | `article.write`，全部走对象入参 | `data: { articleId }` / `{ savedAt, page }` / `{ pageId, pageOrder }` / `{ pageOrder }` |
 | 谱文只读预览 | 同上 | `getArticleDeletePreviewAction` / `getFolderDeletePreviewAction` | 只读（`withOrg`，不写库、不失效缓存） | **直接返回预览对象**，不是 `ActionState` |
 
+**谱系 Action 的目标态语义**：`node` 是纯位置引用，`person` 是主体。一次「录人丁」在同一个事务里先写事实层（`person` / `person_name` / `event` / `family_*`），再写一条 `node` 位置行，`node.person_id` 指回事实主体；`node.path` 决定它在谱系树上的世次与兄弟序，姓名、性别、生卒都不在 `node` 上。因此成功返回的 `nodeId` 是**位置行**的 id，不是人丁身份 id；删掉一条 `node` 不等于删掉这个人，反过来事实层被 `RESTRICT` 引用时也不能直接删。
+
 四条容易写错的规则：
 
-- **人丁创建的幂等键**：`createRootNode` / `addChild` / `addSibling` / `addPerson` / `addSpouse` 的入参必填 `requestId`（uuid）+ 部分唯一索引；重放返回已有那一行，不报错。键的作用域是组织，不是谱系。
+- **提交标识不提供重放幂等**：`requestId` 在 `lib/genealogy/schemas.ts` 里是**可选**的 `z.uuid()`，Action 与 `*-services.ts` 都不消费它，`node` 表也没有 `request_id` 列或配套的唯一索引。重复提交会产生两份事实与位置行，**不提供重放幂等**；这是已知缺口，不写进契约当作已兑现能力，需要幂等时另开规格。
 - **缓存失效分级**：新建 / 改标题 / 移分类 / 删除谱文调 `revalidateWholeConsole()`；**页级四个 Action 一个都不失效**——整树失效会把服务端快照在敲字间隙推回编辑器，覆盖未保存的页。
 - **`ref` / `slug` 由服务端生成**，客户端不传入；冲突时重新生成并重试。
 - **谱书、编目、分享没有任何 Action**：表已落库但没有写入口，不为它们写契约占位。
@@ -158,7 +160,7 @@ FormData 通道用 `Object.fromEntries(formData)` 拍平，嵌套结构与 `null
 | `/api/orgs` | `GET` | `[{ id, name, slug, role }]` | `200` / `401` | `getSessionUser()` |
 | `/api/orgs/[orgId]/projects` | `GET` | `[{ id, name, ref }]` | `200` / `401` / `403` / `404` | 会话 + `getOrgRole`；路径参数用 `z.uuid()`，非法 UUID 按 404 |
 | `/api/user` | `GET` | `{ id, name, email }` | `200` / `401` | `getSessionUser()` |
-| `/api/media/[...key]` | `GET` | `302` + `Location`（私有桶签名 URL）或图片字节 | `200` / `302` / `404` | 会话 + 按 pathname 判成员 + 谱文未软删 |
+| `/api/media/[...key]` | `GET` | `302` + `Location`（私有桶签名 URL）或图片字节 | `200` / `302` / `404` | 会话 + 按 pathname 判成员 + 谱文存在（目标态无软删列，行不存在即 404） |
 | `/api/blob/upload` | `POST` | `{ clientToken }` | `200` / `401` / `404` | 同上 + `article.write`；仅 blob 模式 |
 | `/api/media/upload` | `POST` | `{ pathname, size, contentType }` | `200` / `400` / `401` / `404` / `413` / `415` | 同上 + `article.write`；仅本地兜底模式 |
 

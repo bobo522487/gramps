@@ -26,7 +26,7 @@
 
 ### 1.3 先确认隔离前提没被破坏
 
-这是全系统最脆弱的隐含假设（理由在 `docs/adr/` 的 `0006`）：
+这是全系统最脆弱的隐含假设（理由在 `docs/adr/` 的 `0006` 与 `0020`）：
 
 ```sql
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
@@ -36,19 +36,35 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_use
 
 ## 2. 发布与回滚
 
-发布顺序、部署单元与「迁移为什么必须先于应用」在 `docs/architecture.md` 的部署形态，本层只记**值班要确认的开关、要跑的验证、以及什么时候回滚**，不重述顺序与理由。
+发布顺序、部署单元与「迁移为什么必须先于应用」在 `docs/architecture.md` 的部署形态，本层只记**值班要确认的开关、要跑的验证、以及什么时候恢复**，不重述顺序与理由。
 
 **每次发布前**，改了 `lib/db/migrations/**` 就必须确认生产迁移 job 绿：`.github/workflows/migrate-production.yml` 在迁移文件合入 `main` 后触发，不可并发、不可被新提交取消，跑完立刻用同一份 journal 校验库结构，失败即红。漏掉这一步的后果见 RB-6。
 
-**没有 down 迁移**。破坏性变更走三段式：加列（可空）→ 回填 → 加约束。因此「回滚」指**回滚应用版本**（Vercel 回退上一部署），不是回滚数据库；新列可空、新表未被读写时，旧版本能正常运行。数据层只有 Neon 分支 / PITR 恢复，没有应用层回滚脚本。
+**没有 down 迁移**。目标态是一次性停服 big-bang 切换：唯一全量 SQL 基线整份执行，旧迁移与 snapshot 退役、journal 重置为 1 条。因此「三段式变更（加列 → 回填 → 加约束）」与「回滚应用版本让旧代码兼容新列」都不成立——旧代码读不了目标态表。数据层只有 Neon 分支 / PITR 恢复点，**没有应用层回滚脚本，也没有 down 迁移**；失败按 §2.1 整体恢复。
 
-**明确不承诺**：没有 RPO / RTO 承诺，恢复从未演练，完整缺口在 `docs/nfr.md` §5。别把目标值当成已验证能力对外说。
+**明确不承诺**：没有 RPO / RTO 承诺，恢复演练的输出须在切换日 `T50` 留档，完整缺口在 `docs/nfr.md` §5。别把目标值当成已验证能力对外说。
 
 | 阶段 | 验证方式 | 执行者 |
 | --- | --- | --- |
 | 迁移后 | `node scripts/verify-deployment.mjs --skip-http` 逐项 PASS/FAIL/SKIP | 迁移 job |
 | 部署后 | `pnpm verify:deploy`（HTTP 健康 / 安全头 / 鉴权 + 库结构 / RLS / 角色） | CI 与值班 |
+| 目标态验收 | `pnpm verify:target-schema`（干净库重建唯一基线、P1–P32 / N1–N31、fail-closed、TS ↔ 基线 parity） | CI |
 | 关键路径 | `pnpm test:e2e`，E2E 报告与截图 | CI |
+
+### 2.1 切换失败恢复剧本（big-bang）
+
+**触发条件**：`pnpm db:migrate` 报错、应用启动后 `/api/health` 不健康、`pnpm verify:deploy` 任一 FAIL、或切换后发现数据形状不对。
+
+**前置**：切换前已按 G4 从生产 Neon 分支拉好恢复点并实际验证可恢复（`T50` 留命令输出）；没有恢复点就不允许开始切换。
+
+1. **立即停服**，不再发任何写请求；不要尝试 down 迁移，也不要在目标库上手工 `DROP` / `ALTER` 修补。
+2. **记录失败点**：迁移器输出、应用日志、`pnpm verify:deploy` 的 FAIL 项、UTC 时间窗。
+3. **拉恢复分支**：从切换前的恢复点拉一个独立 Neon 分支，用 `psql -c "select 1"` 确认可连，抽样 `select count(*)` 核对核心表行数。
+4. **在分支上验证**：确认旧版本应用能连、能登录、能读到数据；确认不了就换更细粒度的恢复点，不要直接 Promote。
+5. **由技术负责人二选一**：整体恢复到切换前，或补齐失败步骤后重新走一遍切换。两者都不允许在目标库上手改 DDL。
+6. **收尾验证**：`/api/health` 健康、`pnpm verify:deploy` 全 PASS、journal 条数为 1、`git status --short` 干净，跑关键路径 E2E，把命令输出附到切换记录。
+
+**失败即回到恢复点，不在目标库上试第二次修补**；这也是 §1.2「先备份再动手」在 big-bang 下的具体形态。
 
 ## 3. 故障处置
 
@@ -56,27 +72,19 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_use
 
 ### RB-1 误删数据恢复
 
-软删只写 `deleted_at`，不删行；业务查询默认过滤。**目前没有恢复 UI**，恢复靠运维直连。先确认是软删还是根本没录进去，按 `deleted_at` 找批次（同一事务的所有行时间戳完全相同）：
+目标态业务表**没有软删列**，删除是物理删除：`ON DELETE RESTRICT` 只拦「仍被引用」的行，无引用的行一次 `DELETE` 就没了，**没有按行恢复的手工 `UPDATE` 路径**。注意 `RESTRICT` 违约的 SQLSTATE 是 `23001`，不是 `23503`（后者是 `NO ACTION`）；把两者混用会误判成「库坏了」。
+
+先确认影响面：删除前应用有预览接口（`getArticleDeletePreviewAction` / `getFolderDeletePreviewAction`），值班按工单记录定位组织、项目与时间窗，结合 `pg_stat_activity` 与恢复点采样确认，**不要在目标库上试 `UPDATE` 复活行**：
 
 ```sql
-SELECT deleted_at, count(*) FROM node
-WHERE deleted_at > now() - interval '7 days'
-GROUP BY deleted_at ORDER BY deleted_at DESC LIMIT 20;
+SELECT o.id, o.name, p.id AS project_id
+FROM organization o JOIN project p ON p.organization_id = o.id
+WHERE o.status <> 'closed' AND p.id = $1;
 ```
 
-拿到候选后先 `SELECT` 看清删了什么、属于哪个组织，再恢复。**必须同时限定 `organization_id`**，否则跨组织误恢复：
+恢复只能整体进行：按 §2.1 从 Neon 分支 / PITR 恢复点拉分支，核对行数后把需要的行导回目标库，导回时**必须同时限定 `organization_id` + `project_id`**，否则跨组织误写。恢复可能撞唯一约束（`23505`），先查同名再决定改名或放弃。
 
-```sql
-BEGIN;
-UPDATE node    SET deleted_at = NULL WHERE deleted_at = $1 AND organization_id = $2;
-UPDATE lineage SET deleted_at = NULL WHERE deleted_at = $1 AND organization_id = $2;
-UPDATE lineage l SET node_count = (
-  SELECT count(*) FROM node n WHERE n.lineage_id = l.id AND n.deleted_at IS NULL
-) WHERE l.id = $3;
-COMMIT;
-```
-
-风险：恢复粒度是事务级，无法只恢复其中三个人；删的是云谱空间时要连子表一起恢复，否则数据「活着但看不见」；恢复可能撞唯一索引（`23505`），先查同名再决定改名或放弃。**事实层是一次单向回填的冻结快照，恢复只作用于 `node` / `lineage`，不要回写事实层**（`docs/roadmap.md` 的 `S5` 闸门之前它保持冻结）。事后记录工单；同组织重复误删，走 `S6` 讨论恢复入口，不要在这里临时改流程。
+事后记录工单；同组织重复误删，走产品侧「删除二次确认」需求，不要在运维手册里临时加流程。
 
 ### RB-2 忘记密码 / 强制下线
 
@@ -100,15 +108,15 @@ COMMIT;
 
 ### RB-3 组织没有 owner
 
-组织成员与邀请是**硬删除**，没有 `deleted_at`；「单组织最多一个 owner」有部分唯一索引，但「至少一个 owner」没有数据库约束，绕过服务层直写能造出这种状态：
+全库业务表都是硬删除、没有软删列；「单组织最多一个 owner」有 `uk_org_member_single_owner`，但「至少一个 owner」没有数据库约束，绕过服务层直写能造出这种状态：
 
 ```sql
-SELECT o.id, o.name FROM organization o WHERE o.deleted_at IS NULL
+SELECT o.id, o.name FROM organization o WHERE o.status <> 'closed'
   AND NOT EXISTS (SELECT 1 FROM organization_member m
                   WHERE m.organization_id = o.id AND m.role = 'owner');
 ```
 
-修复：把某个 `admin` 提为 `owner`（`UPDATE organization_member SET role='owner' WHERE ... AND role='admin'`，包在事务里）。若已无任何有效成员，先按邀请流程加人再提 owner。触发器是兜底，不能替代预检。
+修复：把某个 `admin` 提为 `owner`（`UPDATE organization_member SET role='owner' WHERE ... AND role='admin'`，包在事务里）。若已无任何有效成员，先按邀请流程加人再提 owner。库内 `app.set_org_member_role` 的 last-owner 守卫是兜底，不能替代预检。
 
 ### RB-4 轮换 `BETTER_AUTH_SECRET`
 
@@ -124,16 +132,18 @@ SELECT pid, usename, now() - query_start AS duration, left(query,120)
 FROM pg_stat_activity WHERE state <> 'idle' ORDER BY duration DESC LIMIT 10;
 ```
 
-有长事务占连接时 `SELECT pg_terminate_backend(<pid>)`（先确认不是迁移 / 备份）；连接数接近上限但无长查询时查 Vercel 实例数与每实例池上限；单个查询持续变慢就单独 `EXPLAIN (ANALYZE, BUFFERS)`。旧迁移 `0006_statement_timeouts` 曾用 `rolconfig` 给运行期角色设置 `statement_timeout` / `idle_in_transaction_session_timeout` / `lock_timeout`，但该迁移随 B0 基线重建一并退役，**目标态基线目前不设这三条**。`verify:deploy` 现在会读 `rolconfig` 并把缺失状态显式报成 `SKIP`，不再假装自检覆盖了它；真正注入仍归 T34 / G1。
+有长事务占连接时 `SELECT pg_terminate_backend(<pid>)`（先确认不是迁移 / 备份）；连接数接近上限但无长查询时查 Vercel 实例数与每实例池上限；单个查询持续变慢就单独 `EXPLAIN (ANALYZE, BUFFERS)`。
+
+**T34 已完成自检侧**：旧迁移曾用 `rolconfig` 给运行期角色设置三条超时，该迁移随基线重建退役，目标态基线不设这三条；`verify:deploy` 现在会读 `rolconfig` 并把缺失**显式报成 `SKIP`**，不再假装自检覆盖了它。注入三条超时属于目标环境配置决策，须在 G1 书面确认后由技术负责人决定，值班不要临时 `ALTER ROLE`。
 
 ### RB-6 所有页面报错（React #441 + digest）
 
 浏览器 console 出现 `Minified React error #441` 紧跟 `Unhandled route error` digest，页面只剩错误边界；匿名页与 `/api/health` 都正常。`#441` 只说明某个 Server Component 渲染时抛错，生产构建把消息换成了 digest；`/api/health` 只跑 `select 1`，**它绿不能证明 schema 对得上**。
 
-先对比生产库与 journal（注意表名是 `drizzle.__drizzle_migrations`，双下划线）：
+先对比生产库与 journal。**迁移记录表由 Drizzle 迁移器创建，核对前先查实际表名，不要凭文档里的数字或写死的表名判断**：
 
 ```sql
-SELECT count(*) FROM drizzle.__drizzle_migrations;
+SELECT schemaname, tablename FROM pg_tables WHERE tablename LIKE '%migrations%';
 ```
 ```bash
 node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.length)"
@@ -141,11 +151,11 @@ pnpm db:migrate                              # 用 POSTGRES_URL_DIRECT
 node scripts/verify-deployment.mjs --skip-http
 ```
 
-两个数字不等就是库落后于代码。迁移后带真实会话重试出错页面，确认 200 且 HTML 里没有 digest。**不要手抄当前迁移条数**——以 journal 为准，它会变。
+**big-bang 切换特有**：G0① 把 journal 重置为 1 条，目标库里旧的一批已应用记录不清会让迁移器误判；切换前按 `T52` 先清空旧迁移记录再迁移，这条不适用于日常发布。迁移后带真实会话重试出错页面，确认 200 且 HTML 里没有 digest。**不要手抄当前迁移条数**——以 journal 为准，它会变。
 
 ### RB-7 迁移失败 / 需回滚发布
 
-CI 阶段失败、未上生产：修 SQL 重跑，生产库未被触碰。已应用但应用启动失败：按 §2 回滚应用版本。写坏数据：用 Neon 分支或 PITR 恢复到迁移前时间点，在分支上验证新迁移。卡在锁等待：查 `pg_locks` + `pg_stat_activity`，`lock_timeout` 已由 `0006` 配为 5s。**没有演练过真实恢复**，季度演练从 PITR 恢复到临时分支 → 抽查核心表行数 → 记录实际耗时，否则恢复能力只是纸面数字。
+CI 阶段失败、未上生产：修 SQL 重跑，生产库未被触碰。已应用但应用启动失败：**没有 down 迁移，不能回滚数据库**，只能按 §2.1 从切换前恢复点整体恢复，再决定重切。写坏数据：同样用 Neon 分支 / PITR 恢复点。卡在锁等待：查 `pg_locks` + `pg_stat_activity`；目标态基线不设 `lock_timeout`，**不要假设 5 秒后会自动放弃**。季度演练从 PITR 恢复到临时分支 → 抽查核心表行数 → 记录实际耗时；`T50` 已要求在切换前留命令输出，在那之前恢复能力只是纸面数字。
 
 ### 巡检 SQL
 
@@ -154,9 +164,12 @@ CI 阶段失败、未上生产：修 SQL 重跑，生产库未被触碰。已应
 SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname='public' AND c.relkind='r' AND NOT c.relrowsecurity
   AND c.relname NOT LIKE '\_drizzle%';
--- 是否存在裸子查询式 RLS 策略（应为 0 行）
+-- 是否存在未 InitPlan 化的隔离策略（应为 0 行）
 SELECT tablename, policyname FROM pg_policies
-WHERE qual LIKE '%organization_member%' AND qual NOT LIKE '%has_org_role%';
+WHERE schemaname = 'public'
+  AND coalesce(qual, '') NOT LIKE '%(SELECT app.visible_org_array())%';
+-- 业务角色不能触达认证表（应为 false）
+SELECT has_schema_privilege('genealogy_app', 'auth', 'USAGE') AS leaked;
 ```
 
 ## 4. 值班能看到的信号
@@ -165,7 +178,9 @@ WHERE qual LIKE '%organization_member%' AND qual NOT LIKE '%has_org_role%';
 
 `request_id` 由 `lib/api.ts` 的 `withApiLogging` 经 `runWithRequestContext` 建立，只在 Route Handler 有；`addLogContext` 唯一写入的是 `user_id`（`lib/auth/context.ts`）。Server Action 没有 `request_id`——用户报错时若只有时间窗，只能靠 `user_id` 猜。`RequestLogContext` 里声明了 `org_id`，但全仓没有任何写入点，按组织聚合做不到。
 
-`/api/health` 是唯一运行时探针，匿名可访问，只 `select 1`。**没有外部告警系统、没有 APM、没有分布式追踪**；能看的只有 Vercel 函数日志、Neon 指标、健康响应。信号缺口与阈值见 `docs/nfr.md` §5，本文不重列。
+运行期两条连接分别是业务 `genealogy_app`（在 RLS 内）与认证 `auth_service`（`auth.*` 四表无 RLS，`verify:deploy` 断言两者不互为成员）；日志里不会出现软删过滤条件，因为目标态没有软删列。删除失败常见 `23001`（`RESTRICT`），插入类外键违约才是 `23503`（`NO ACTION`）——值班要能区分「删不掉」与「已经删了」。
+
+`/api/health` 是唯一运行时探针，匿名可访问，只 `select 1`。**没有外部告警系统、没有 APM、没有分布式追踪**；能看的只有 Vercel 函数日志、Neon 指标、健康响应。信号缺口与阈值见 `docs/nfr.md` §5，本文不重列。切换失败按 §2.1 的恢复剧本处理，不要在这里临时发明步骤。
 
 ## 5. 新增 runbook 的结构
 
@@ -178,17 +193,19 @@ WHERE qual LIKE '%organization_member%' AND qual NOT LIKE '%has_org_role%';
 node -e "console.log(Object.keys(require('./package.json').scripts).join('\n'))"
 # 迁移基线以 journal 为准，别信文档里的数字
 node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.length)"
-# 部署自检是否读 rolconfig（RB-5：会报告，但目标基线尚未设超时）
+# 部署自检是否读 rolconfig（T34 已补：缺失显式报 SKIP）
 grep -n "rolconfig" scripts/verify-deployment.mjs
+# 目标态验收是否进了 CI
+grep -n "verify:target-schema" .github/workflows/ci.yml
 # 变量清单与作用域
 cat .env.example
 ```
 
 | 待办 | 触发条件 | 说明 |
 | --- | --- | --- |
-| 恢复演练 | 每季度一次 | 目前无 RPO / RTO 承诺、从未演练；`docs/roadmap.md` 的 `S7` 会补外部探针 |
-| 在目标基线注入三条 `rolconfig` 超时 | 技术负责人确认后（T34 / G1） | RB-5：`verify:deploy` 已会读 `rolconfig` 并报告缺失，但基线本身尚未设置，注入后自检才会转为 `PASS` |
-| `docs:check` 检查范围同步 | 新结构全部落地后 | 现有脚本按旧路径写死，不改会误报 |
-| `S6` 恢复入口 | 排期确认后 | 在那之前软删恢复只有本文这条手工路径 |
+| 恢复演练 | 每季度一次 | 目前无 RPO / RTO 承诺；`T50` 已在切换前要求用 Neon 分支留命令输出，`S7` 会补外部探针 |
+| 在目标基线注入三条 `rolconfig` 超时 | G1 目标环境书面确认后 | T34 已完成自检侧：`verify:deploy` 读 `rolconfig` 并把缺失显式报 `SKIP`，不再是假 PASS；注入三条超时属环境配置决策，待技术负责人确认 |
+| `docs:check` 检查范围同步 | **已完成（阶段 E）** | 头部四项改为按结构只约束根级 7 份 + 3 份子目录 README；ADR 正文按自己的模板不再被误报，17 份正文逐份迁入不会被挡 |
+| 删除二次确认 | 出现真实误删工单后 | 目标态无软删、无回收站 UI，不能靠运维 `UPDATE` 恢复；见 RB-1 |
 
 写在文档里但拦不住的规则等于没有规则：部署自检、CI、季度演练是本层仅有的自动执行者，其余前置检查靠值班人复核。
