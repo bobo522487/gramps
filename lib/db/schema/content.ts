@@ -13,8 +13,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { lineages } from './lineage';
-import { folders, projects } from './project';
 import { persons } from './person';
+import { folders, projects } from './project';
 import { scopedUuid, timestamptz } from './shared';
 
 /**

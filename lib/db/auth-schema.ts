@@ -1,9 +1,4 @@
-import {
-  accounts,
-  sessions,
-  users,
-  verifications,
-} from './schema';
+import { accounts, sessions, users, verifications } from './schema';
 
 /**
  * Better Auth resolves `schema[modelName]`, so the keys are the singular

@@ -72,7 +72,10 @@ describe('S8 阶段 B · B4 去 organization 插件', () => {
     const memberStart = org.indexOf("pgTable(\n  'organization_member'");
     expect(memberStart).toBeGreaterThan(0);
     const memberEnd = org.indexOf("pgTable(\n  'invite'", memberStart);
-    const member = org.slice(memberStart, memberEnd < 0 ? undefined : memberEnd);
+    const member = org.slice(
+      memberStart,
+      memberEnd < 0 ? undefined : memberEnd
+    );
     expect(member).not.toContain('uuidPk()');
     expect(member).toContain(
       'primaryKey({ columns: [t.organizationId, t.userId] })'
@@ -116,7 +119,12 @@ describe('S8 阶段 B · B4 去 organization 插件', () => {
     expect(map).not.toContain('organization: organizations');
     expect(map).not.toContain('member: orgMembers');
     expect(map).not.toContain('invitation: invitations');
-    for (const key of ['user: users', 'session: sessions', 'account: accounts', 'verification: verifications']) {
+    for (const key of [
+      'user: users',
+      'session: sessions',
+      'account: accounts',
+      'verification: verifications',
+    ]) {
       expect(map).toContain(key);
     }
   });

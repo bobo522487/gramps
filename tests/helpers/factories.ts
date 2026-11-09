@@ -1,5 +1,10 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
+import {
+  type ArticleContent,
+  createEmptyArticleContent,
+  serializeArticleContent,
+} from '@/lib/article/doc';
 import { getAuth } from '@/lib/auth/better-auth';
 import type { OrgRole } from '@/lib/auth/permissions';
 import {
@@ -22,11 +27,6 @@ import {
   projects,
 } from '@/lib/db/schema';
 import type { PersonSex } from '@/lib/genealogy/constants';
-import {
-  type ArticleContent,
-  createEmptyArticleContent,
-  serializeArticleContent,
-} from '@/lib/article/doc';
 import { generatePublicId } from '@/lib/ids';
 import { getTestDb } from './db';
 
@@ -450,7 +450,9 @@ export async function createArticle(params: {
       projectId: params.projectId,
       folderId: params.folderId ?? null,
       title,
-      body: serializeArticleContent(params.content ?? createEmptyArticleContent()),
+      body: serializeArticleContent(
+        params.content ?? createEmptyArticleContent()
+      ),
     })
     .returning();
   return article;

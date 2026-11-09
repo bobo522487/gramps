@@ -41,7 +41,12 @@ export async function listOrgMembers(
   const profiles = await getAuthDb()
     .select({ id: users.id, name: users.name, email: users.email })
     .from(users)
-    .where(inArray(users.id, members.map((m) => m.userId)));
+    .where(
+      inArray(
+        users.id,
+        members.map((m) => m.userId)
+      )
+    );
   const byId = new Map(profiles.map((p) => [p.id, p]));
 
   return members.map((m) => {

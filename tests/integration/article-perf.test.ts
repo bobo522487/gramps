@@ -163,7 +163,9 @@ describe('谱文性能夹具（SC-003 / SC-010）', () => {
     // 页标识由服务端分配（FR-021）：先补到 20 页，再逐页写入正文与图片。
     const first = await getArticle(fixture.userId, fixture.orgId, articleId);
     if (!first) throw new Error('建篇后读不到谱文');
-    const pageIds = parseArticleContent(first.body).pages.map((page) => page.id);
+    const pageIds = parseArticleContent(first.body).pages.map(
+      (page) => page.id
+    );
     const addStart = performance.now();
     while (pageIds.length < 20) {
       const added = await addArticlePageAction({

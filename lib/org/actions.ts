@@ -25,7 +25,7 @@ import {
 } from '@/lib/auth/schemas';
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
-import { withOrg, queryRows } from '@/lib/db/drizzle';
+import { queryRows, withOrg } from '@/lib/db/drizzle';
 import { sqlStateOf } from '@/lib/db/errors';
 import { getOrgById } from '@/lib/db/queries/organizations';
 import { organizations, orgMembers } from '@/lib/db/schema';

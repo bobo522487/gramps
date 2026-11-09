@@ -760,7 +760,9 @@ describe('字体与字号的真实序列化（FR-030）', () => {
         orgId: fixture.orgId,
         projectId: fixture.projectId,
         title: '字体测试',
-        body: serializeArticleContent(contentOf({ id: pageId, text: '原来的正文' })),
+        body: serializeArticleContent(
+          contentOf({ id: pageId, text: '原来的正文' })
+        ),
       })
       .returning({ id: articles.id });
 
@@ -1062,7 +1064,9 @@ describe('页操作（加页 / 删页 / 重排）', () => {
         orgId: fixture.orgId,
         projectId: fixture.projectId,
         title: '单页谱文',
-        body: serializeArticleContent(contentOf({ id: PAGE_A, text: '唯一一页' })),
+        body: serializeArticleContent(
+          contentOf({ id: PAGE_A, text: '唯一一页' })
+        ),
       })
       .returning({ id: articles.id });
 

@@ -157,12 +157,9 @@ export async function hasCatalogReferenceInTx(
     .select({ id: bookCatalogs.id })
     .from(bookCatalogs)
     .innerJoin(books, eq(books.id, bookCatalogs.bookId))
-      .where(
-        and(
-          eq(bookCatalogs.orgId, orgId),
-          eq(bookCatalogs.articleId, articleId)
-        )
-      )
+    .where(
+      and(eq(bookCatalogs.orgId, orgId), eq(bookCatalogs.articleId, articleId))
+    )
     .limit(1);
   return rows.length > 0;
 }
