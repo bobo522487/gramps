@@ -18,7 +18,8 @@
   │
   ├─ 写 ──────→ Server Action（lib/<domain>/actions.ts · lib/auth/actions/）
   │              ├─ validatedAction*（Zod 入参 + SessionUser）
-  │              ├─ withOrgWrite（事务内复权）→ *-services.ts → 查询层 → PostgreSQL
+  │              ├─ withOrgWrite（withOrg 事务内复权）→ *-services.ts → 查询层 → PostgreSQL
+  │              │    └─ 组织 / 成员写 → app.* SECURITY DEFINER（库内写入口，见 §2）
   │              └─ 成功 → revalidatePath / invalidateQueries → RSC 重新渲染
   │
   └─ 刷新 ────→ TanStack Query（queryKeys 工厂 + fetcher<T>）
@@ -38,7 +39,7 @@
 
 ## 2. 边界与例外
 
-**没有 REST 层，也没有公开接口**：没有第三方消费者、没有分享页、没有 `/api/auth/*`，认证类 handler 数量为 0。多维护一份 REST 契约（DTO、校验、鉴权、文档）而收益是零。认证与租户写只从 Server Action 调 `auth.api.*`，不引入浏览器 auth client。
+**没有 REST 层，也没有公开接口**：没有第三方消费者、没有分享页、没有 `/api/auth/*`，认证类 handler 数量为 0。多维护一份 REST 契约（DTO、校验、鉴权、文档）而收益是零。认证写只从 Server Action 调 `auth.api.*`，不引入浏览器 auth client；组织 / 成员写改走下面的库内 SECDEF 入口。
 
 **写只走 Server Action，但有例外**——例外必须带理由，否则就是退化：
 
@@ -46,6 +47,8 @@
 | --- | --- | --- |
 | 谱文图片字节走 3 条 `POST` Route Handler | 单张 10MB 图片同时超过 Server Action 的 1MB 请求体上限与 Vercel 函数的 4.5MB 上限，装不进去 | `app/api/blob/upload/route.ts`、`app/api/media/upload/route.ts`、`app/api/media/[...key]/route.ts` |
 | 谱文 Action 收 **JSON 对象**而非 FormData | 正文是嵌套的 ProseMirror 文档，`Object.fromEntries(formData)` 那条通道装不下 | `validatedActionWithUserObject`（`lib/auth/middleware.ts`）、`lib/article/actions.ts` |
+
+**Server Action 内部还有一层库内写入口**：建组织、接受邀请、改名、归档、移除成员、改角色都不直写 `organization` / `organization_member`，而是在 `withOrg` 事务内调 `SECURITY DEFINER` 函数——`app.create_organization` / `app.accept_invite` / `app.rename_organization` / `app.archive_organization` / `app.remove_org_member` / `app.set_org_member_role`。**这不是绕过 Server Action**，而是它唯一的库内落点：RLS 只做可见性，越权直写会被静默过滤成 0 行；函数体里做认证、组织可见、角色与 last-owner 守卫，失败抛 `42501` / `22023`。契约见 `docs/data-model.md` §写入路径。
 
 另外两条不能碰的规则：
 
@@ -117,10 +120,4 @@
 | DTO 与状态码 | `docs/contracts/` |
 | 某条契约有没有测试 | `tests/` |
 
-改文档前先跑：
-
-```bash
-find app/api -name route.ts | sort
-ls lib/*/actions.ts lib/auth/actions/*.ts
-grep -n "ActionErrorCode" lib/errors.ts
-```
+改文档前先跑：`find app/api -name route.ts | sort`、`ls lib/*/actions.ts lib/auth/actions/*.ts`、`grep -n "ActionErrorCode" lib/errors.ts`。

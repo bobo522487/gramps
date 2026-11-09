@@ -139,4 +139,27 @@ describe('S8 阶段 C · 隔离层核对', () => {
       'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO genealogy_app'
     );
   });
+
+  test('C-6 T35：写通道图登记库内 SECDEF 写入口（6 个 app.* 函数）', () => {
+    // T28 拆掉 organization 插件 + B4 收口后，组织 / 成员写不再直写表，
+    // 而是 Server Action 在 withOrg 事务内调库内 SECURITY DEFINER 函数。
+    // 接口地图若只写「写只走 Server Action」就漏了这一层，读图的人会以为
+    // 存在直写 organization / organization_member 的合法通道。
+    const doc = read('docs/interfaces.md');
+    expect(doc).toContain('SECURITY DEFINER');
+    expect(doc).toContain('withOrg');
+    for (const fn of [
+      'app.create_organization',
+      'app.accept_invite',
+      'app.rename_organization',
+      'app.archive_organization',
+      'app.remove_org_member',
+      'app.set_org_member_role',
+    ]) {
+      expect(doc, fn).toContain(fn);
+    }
+    // 说明这层不是绕过 Server Action，且 RLS 只做可见性、不做写授权。
+    expect(doc).toContain('不是绕过 Server Action');
+    expect(doc).toMatch(/RLS[^\n]{0,80}可见性/);
+  });
 });
