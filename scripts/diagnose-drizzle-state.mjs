@@ -91,6 +91,52 @@ try {
       `  → ALTER ${r.rolname}: ${can ? '可' : '不可（需该组成员或 CREATEROLE）'}`
     );
   }
+
+  // 上面只是「理论权限」。Neon 的实际行为未必一致：2026-11-09 的诊断显示
+  // neondb_owner 带 CREATEROLE、对三个角色都判「可」，可真正 alter 仍 42501。
+  // 所以逐条在 savepoint 里真跑一次，把能过和不能过的分开列出。
+  // 只跑无副作用或可回滚的语句，整个包在一个事务里最后 rollback。
+  console.log('--- ALTER 实测（事务内回滚，不改库）---');
+  const probes = [
+    ['genealogy_app', 'alter role genealogy_app login nosuperuser nobypassrls'],
+    ['auth_service', 'alter role auth_service nologin nosuperuser nobypassrls'],
+    ['auth_runtime', 'alter role auth_runtime login nosuperuser nobypassrls'],
+  ];
+  try {
+    await sql.begin(async (tx) => {
+      for (const [role, stmt] of probes) {
+        await tx.unsafe('savepoint p');
+        try {
+          await tx.unsafe(stmt);
+          await tx.unsafe('release savepoint p');
+          console.log(`  ✓ ${role} 属性可改`);
+        } catch (e) {
+          await tx.unsafe('rollback to savepoint p');
+          console.log(`  ✗ ${role} 属性不可改 → ${e.code ?? '?'} ${e.message}`);
+        }
+      }
+      // 口令单独试：有的托管库允许改属性但禁止改口令。
+      await tx.unsafe('savepoint q');
+      try {
+        await tx.unsafe(
+          "alter role genealogy_app password 'Probe-Temp!9xQz#2026'"
+        );
+        await tx.unsafe('release savepoint q');
+        console.log('  ✓ genealogy_app 口令可改');
+      } catch (e) {
+        await tx.unsafe('rollback to savepoint q');
+        console.log(
+          `  ✗ genealogy_app 口令不可改 → ${e.code ?? '?'} ${e.message}`
+        );
+      }
+      throw new Error('__rollback__');
+    });
+  } catch (e) {
+    if (e.message !== '__rollback__') {
+      console.log(`  实测阶段异常: ${e.code ?? '?'} ${e.message}`);
+    }
+  }
+  console.log('  （以上改动已回滚）');
 } catch (error) {
   console.error(`诊断失败: ${error.code ?? '?'} ${error.message}`);
 } finally {
