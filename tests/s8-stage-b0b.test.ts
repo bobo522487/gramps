@@ -244,8 +244,10 @@ describe('S8 阶段 B · B0b 隔离层回补', () => {
     expect(action).toContain("sqlStateOf(error, '42501')");
     expect(action).not.toMatch(/\berror as \{ code\?: unknown \}/);
 
-    // 附录 A 是唯一 DDL 真相源，回写不能只改一半。
-    const appendix = read('../gramps-S8-目标DDL.sql');
+    // 附录 A 是唯一 DDL 真相源，回写不能只改一半。全量归档已作为迁移基线
+    // 收进仓库（0000_target_schema.sql 文件头即写明「按 A.0→A.6 顺序拼接」），
+    // 不能再读 checkout 之外的 `../gramps-S8-目标DDL.sql`：CI 里必然 ENOENT。
+    const appendix = ddl;
     expect(appendix).toContain('FUNCTION app.organization_join_state');
     expect(appendix).toContain(
       'GRANT EXECUTE ON FUNCTION app.organization_join_state(uuid)'
