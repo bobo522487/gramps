@@ -76,25 +76,41 @@ await sql
   .begin(async (tx) => {
     for (const [index, statement] of statements.entries()) {
       const head = statement.trim().split('\n')[0].slice(0, 90);
+      // 每条语句一个 SAVEPOINT：失败只回滚到该点，继续试下一条，
+      // 一次列出所有卡点，而不是撞到第一条就停。
+      await tx.unsafe('savepoint probe');
       try {
         await tx.unsafe(statement);
+        await tx.unsafe('release savepoint probe');
       } catch (error) {
+        await tx.unsafe('rollback to savepoint probe');
         failed += 1;
-        console.log(`\nFAIL #${index + 1} ${head}`);
+        console.log(`FAIL #${index + 1} ${head}`);
         console.log(`   SQLSTATE=${error.code ?? '?'}  ${error.message}`);
         if (error.detail) console.log(`   detail: ${error.detail}`);
         if (error.hint) console.log(`   hint: ${error.hint}`);
-        // 事务已损坏，后面都会连锁失败；报第一条就够定位。
-        throw error;
       }
     }
+    // 整体回滚，库不被修改。
+    throw new Error('__rollback__');
   })
-  .catch(() => {
-    console.log('\n试跑中止（事务已回滚，库未被修改）。');
+  .catch((error) => {
+    if (error?.message !== '__rollback__') {
+      console.log(`试跑异常：${error?.message}`);
+    }
   });
 
-if (failed === 0) {
-  console.log('全部语句可执行。');
-}
+console.log(
+  failed === 0
+    ? `全部 ${statements.length} 条语句可执行（已回滚，未改库）。`
+    : `${failed} 条失败（已回滚，未改库）。`
+);
+
+// search_path 是「裸名建对象落在哪个 schema」的唯一依据，Neon 与本地不同。
+const [env] = await sql`
+  select current_setting('search_path') as sp, current_user as usr,
+         current_database() as db
+`;
+console.log(`\n# search_path=${env.sp} · 角色=${env.usr} · 库=${env.db}`);
 
 await sql.end({ timeout: 5 });
