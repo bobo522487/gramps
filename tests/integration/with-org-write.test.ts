@@ -87,8 +87,10 @@ describe('withOrgWrite', () => {
     const settings = await withOrg(owner.id, (tx) =>
       queryRows<{ role: string; sub: string }>(
         tx,
+        // 目标态 GUC 是 app.user_id（withOrg 用 set_config(..., true) 注入），
+        // 旧 request.jwt.claims 已随 Better Auth 插件拆除一并退役。
         sql`select current_user as role,
-              (current_setting('request.jwt.claims', true)::jsonb ->> 'sub') as sub`
+              current_setting('app.user_id', true) as sub`
       )
     );
     expect(settings[0]).toEqual({ role: 'app_rw', sub: owner.id });
@@ -97,7 +99,7 @@ describe('withOrgWrite', () => {
     const viewerSettings = await withOrg(viewer.id, (tx) =>
       queryRows<{ sub: string }>(
         tx,
-        sql`select (current_setting('request.jwt.claims', true)::jsonb ->> 'sub') as sub`
+        sql`select current_setting('app.user_id', true) as sub`
       )
     );
     expect(viewerSettings[0]?.sub).toBe(viewer.id);
