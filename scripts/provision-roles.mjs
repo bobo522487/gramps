@@ -64,10 +64,40 @@ async function roleExists(name) {
   return Boolean(row);
 }
 
+/**
+ * 当前连接能否改这个角色？
+ *
+ * `ALTER ROLE x …` 要求执行者是 x 的成员，或拥有 CREATEROLE / 超级用户。
+ * 注意 PG 的角色**没有「属主」概念**（`pg_roles` 里没有 rolowner 列）——
+ * 只有「谁创建的」，那是审计信息，不决定权限。真正决定 alter 权限的是：
+ * 超级用户、CREATEROLE、或者是目标角色的成员。
+ *
+ * Neon 上 `auth_service` / `auth_runtime` 可能由控制面角色创建，
+ * 迁移连接不在其成员里，alter 直接 42501。本地 PG 用超级用户连接，
+ * 永远看不出来——这是「本地全绿、生产必红」的第二处。
+ */
+async function canAlter(name) {
+  const [row] = await sql`
+    select pg_has_role(current_user, ${name}, 'MEMBER') as member,
+           (select rolsuper from pg_roles where rolname = current_user) as super,
+           (select rolcreaterole from pg_roles where rolname = current_user) as createrole
+    from pg_roles r where r.rolname = ${name}
+  `;
+  if (!row) return { ok: true, reason: 'not-exists' };
+  if (row.super || row.createrole || row.member)
+    return { ok: true, reason: '' };
+  return {
+    ok: false,
+    reason: `当前连接不是 ${name} 的成员，且无 CREATEROLE / 超级用户权限`,
+  };
+}
+
 /** 建或更新 LOGIN 角色；口令只出现在 SQL 文本的这一处，不进日志。 */
 async function upsertLoginRole(name, password) {
   const exists = await roleExists(name);
   if (exists) {
+    const gate = await canAlter(name);
+    if (!gate.ok) return `已存在，跳过（无权改：${gate.reason}）`;
     if (password) {
       await sql.unsafe(
         `alter role "${name}" login nosuperuser nobypassrls password ${literal(password)}`
@@ -83,6 +113,10 @@ async function upsertLoginRole(name, password) {
 
 async function upsertNologinRole(name) {
   const exists = await roleExists(name);
+  if (exists) {
+    const gate = await canAlter(name);
+    if (!gate.ok) return `已存在，跳过（无权改：${gate.reason}）`;
+  }
   await sql.unsafe(
     exists
       ? `alter role "${name}" nologin nosuperuser nobypassrls`
@@ -128,9 +162,17 @@ try {
 
   if (!grantsOnly) {
     if (appPassword) {
-      console.log(
-        `genealogy_app: ${await upsertLoginRole('genealogy_app', appPassword)}（口令来自 APP_DB_PASSWORD）`
-      );
+      const outcome = await upsertLoginRole('genealogy_app', appPassword);
+      console.log(`genealogy_app: ${outcome}（口令来自 APP_DB_PASSWORD）`);
+      // 改不动口令就必须停：应用侧连接串里的口令来自同一份 secret，
+      // 两边不一致就是全线 28P01，而且要到运行时才暴露。
+      if (outcome.startsWith('已存在，跳过')) {
+        console.error(
+          '拒绝继续：genealogy_app 的口令无法更新，应用侧连接会与库里不一致（28P01）。'
+        );
+        await sql.end({ timeout: 5 });
+        process.exit(1);
+      }
     } else if (await roleExists('genealogy_app')) {
       console.log('genealogy_app: 已存在，未改口令（APP_DB_PASSWORD 未设置）');
     } else {
@@ -141,6 +183,8 @@ try {
       process.exit(1);
     }
 
+    // 认证侧两个角色改不动不算致命：授权才是权限矩阵的实质，
+    // 角色存在与否由下面的 grants 阶段和 verify-deployment 兜。
     console.log(`auth_service: ${await upsertNologinRole('auth_service')}`);
     console.log(
       `auth_runtime: ${await upsertLoginRole('auth_runtime', runtimePassword)}`
@@ -179,6 +223,16 @@ try {
   console.error(
     `角色 provisioning 失败${code ? `（SQLSTATE ${code}）` : ''}：${error.message}`
   );
+  if (code === '42501') {
+    console.error(
+      [
+        '42501 是权限问题，不是 SQL 写错。ALTER / GRANT ROLE 要求执行者是目标角色',
+        '的成员或其属主，或超级用户。托管库上先跑 `node scripts/diagnose-drizzle-state.mjs`',
+        '看「→ ALTER <role>: 可/不可」那一行，再决定：换连接角色、或把该角色的',
+        '成员资格授予迁移连接（GRANT <role> TO <migration_role> WITH ADMIN OPTION）。',
+      ].join('\n')
+    );
+  }
   await sql.end({ timeout: 5 });
   process.exit(1);
 }

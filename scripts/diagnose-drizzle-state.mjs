@@ -59,12 +59,38 @@ try {
   }
 
   const roles = await sql`
-    select rolname, rolcanlogin from pg_roles
+    select rolname, rolcanlogin, rolsuper, rolcreaterole,
+           (select string_agg(m.rolname, ',' order by m.rolname)
+              from pg_auth_members am join pg_roles m on m.oid = am.member
+             where am.roleid = pg_roles.oid) as has_members
+    from pg_roles
     where rolname in ('genealogy_app', 'auth_service', 'auth_runtime')
+    order by 1
   `;
   console.log(
     `角色: ${roles.map((r) => `${r.rolname}(login=${r.rolcanlogin})`).join(', ') || '（无）'}`
   );
+
+  // ALTER ROLE 的权限模型：执行者是目标角色的成员，或拥有 CREATEROLE / 超级用户。
+  // PG 的角色**没有「属主」概念**，`pg_roles` 里没有 rolowner 列——只有「谁创建的」，
+  // 那是审计信息，不决定权限。Neon 上这些角色可能由控制面角色创建，迁移连接
+  // 不在其成员里，alter role 就是 42501。
+  const [me] = await sql`
+    select current_user as usr,
+           (select rolcreaterole from pg_roles where rolname = current_user) as createrole,
+           (select rolsuper from pg_roles where rolname = current_user) as super
+  `;
+  console.log(
+    `当前角色 ${me.usr}: ${me.super ? 'SUPERUSER' : '普通'}${me.createrole ? ' +CREATEROLE' : ''}`
+  );
+  for (const r of roles) {
+    const [isMember] = await sql`
+      select pg_has_role(current_user, ${r.rolname}, 'MEMBER') as ok`;
+    const can = me.super || me.createrole || isMember.ok;
+    console.log(
+      `  → ALTER ${r.rolname}: ${can ? '可' : '不可（需该组成员或 CREATEROLE）'}`
+    );
+  }
 } catch (error) {
   console.error(`诊断失败: ${error.code ?? '?'} ${error.message}`);
 } finally {
