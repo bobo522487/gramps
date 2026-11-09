@@ -1,17 +1,7 @@
-import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { withOrg } from '@/lib/db/drizzle';
-import { events } from '@/lib/db/schema';
-import {
-  ATTRIBUTE_EVENT_TYPE_VALUES,
-  CALENDAR_VALUES,
-  DATE_PRECISION_VALUES,
-  DATE_QUALIFIER_VALUES,
-  EVENT_KIND_VALUES,
-  EVENT_TYPE_VALUES,
-} from '@/lib/genealogy/constants';
+import { EVENT_KIND_VALUES } from '@/lib/genealogy/constants';
 import { readCheckConstraintValues } from '../helpers/constraints';
-import { getTestSql, pgErrorCode, pgErrorMessages } from '../helpers/db';
+import { getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
   createEvent,
@@ -22,752 +12,221 @@ import {
   createUser,
 } from '../helpers/factories';
 
-// The event fact layer: one row per recorded fact about a person or a union.
-// Everything here is asserted against a real database, because the rules this
-// file exists for are database rules: the subject is exactly one of
-// person/family, the date boundary matrix is five CHECKs (not one merged
-// constraint — `before`/`after` legitimately carry a single bound), the age pair
-// is all-or-nothing, `custom` must name itself, and the tenant boundary (RLS +
-// the immutability trigger) keeps one organization's events out of another's.
-//
-// Two states get their own cases because they are the normal case in Chinese
-// genealogy, not edge cases: an event known only by its place (葬地已知、卒年失考)
-// has no date at all, and a date may be recorded only as original text.
-
-function isCheckViolation(constraint: string) {
-  return (error: unknown) =>
-    pgErrorCode(error) === '23514' &&
-    pgErrorMessages(error).some((message) => message.includes(constraint));
-}
-
-/** Owner/editor/viewer of a fresh organization plus one project and person. */
-async function eventScope(role: 'owner' | 'editor' | 'viewer' = 'owner') {
+/**
+ * 直测数据库约束：直接对 `event` 发 INSERT，验证附录 A.3 的单一主体 CHECK、
+ * 11 值域、生卒部分唯一索引与日期约束真的落在库里。
+ *
+ * S8 阶段 A′ 把旧「event_kind / event_type / 日期矩阵 / 软删」快照直测整体
+ * 退役：目标态是一张扁平的 kind + 双主体 + date_text/date_sort 表。DDL 基线
+ * 尚未落库，本文件只保证结构与列形状按目标态写对；阶段 B 的 T38 按附录 B
+ * 场景扩充正反例。
+ */
+async function scope() {
   const user = await createUser();
   const organization = await createOrganization();
   await addMember({
     userId: user.id,
     organizationId: organization.id,
-    role,
+    role: 'owner',
   });
   const project = await createProject({
     orgId: organization.id,
     createdBy: user.id,
   });
+  return { user, organization, project };
+}
+
+async function sqlState(run: () => unknown): Promise<string | undefined> {
+  try {
+    await run();
+    return undefined;
+  } catch (error) {
+    return pgErrorCode(error);
+  }
+}
+
+async function subjects() {
+  const { user, organization, project } = await scope();
   const person = await createPerson({
     orgId: organization.id,
     projectId: project.id,
     createdBy: user.id,
   });
-  return {
-    user,
-    organization,
-    project,
-    person,
-    scope: {
-      orgId: organization.id,
-      projectId: project.id,
-      createdBy: user.id,
-    },
-  };
+  const family = await createFamily({
+    orgId: organization.id,
+    projectId: project.id,
+    createdBy: user.id,
+  });
+  return { user, organization, project, person, family };
 }
 
-describe('event subject and tenant keys', () => {
-  it('requires exactly one subject: a person or a union', async () => {
-    const { scope, person } = await eventScope();
-
-    // ck_event_subject_exactly_one: num_nonnulls(person_id, family_id) = 1.
-    // Zero subjects is what the attachment allowed and the review rejected: a
-    // fact with no subject cannot be put on a timeline or exported.
-    await expect(createEvent({ ...scope, personId: null })).rejects.toSatisfy(
-      isCheckViolation('ck_event_subject_exactly_one')
-    );
-
-    const family = await createFamily(scope);
-
-    // Both subjects is the duplicate representation: the same 婚配 would exist
-    // twice, once on each subject.
-    await expect(
-      createEvent({ ...scope, personId: person.id, familyId: family.id })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_subject_exactly_one'));
-
-    // The family side of the two-way choice is real (婚配/离婚 are family
-    // events), so it must insert.
-    const marriage = await createEvent({
-      ...scope,
-      familyId: family.id,
-      eventType: 'marriage',
-    });
-    expect(marriage.familyId).toBe(family.id);
-    expect(marriage.personId).toBeNull();
-  });
-
-  it('refuses a person or family from another project', async () => {
-    const { user, organization, project, scope } = await eventScope();
-    const otherProject = await createProject({
-      orgId: organization.id,
-      createdBy: user.id,
-    });
-    // Same organization, different project: only the composite
-    // (organization_id, project_id, person_id) key can refuse this.
-    const foreignPerson = await createPerson({
-      orgId: organization.id,
-      projectId: otherProject.id,
-      createdBy: user.id,
-    });
-    const foreignFamily = await createFamily({
-      orgId: organization.id,
-      projectId: otherProject.id,
-      createdBy: user.id,
-    });
-
-    await expect(
-      createEvent({ ...scope, personId: foreignPerson.id })
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '23503' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes('fk_event_person')
-        )
-    );
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: null,
-        familyId: foreignFamily.id,
-        eventType: 'marriage',
-      })
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '23503' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes('fk_event_family')
-        )
-    );
-
-    // Companion case: a second person in the *same* project inserts normally,
-    // so the refusals above come from the composite key, not from the person
-    // table.
-    const sameProject = await createPerson({
+describe('event (target-model DDL constraints)', () => {
+  it('exposes only the target-model columns', async () => {
+    const { organization, project, user, person } = await subjects();
+    const event = await createEvent({
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
-    });
-    await expect(
-      createEvent({ ...scope, personId: sameProject.id })
-    ).resolves.toBeTruthy();
-  });
-
-  // The block above proves the project axis of the composite subject keys. The
-  // organization axis needs its own case: a person or union of a *different*
-  // organization differs in organization_id and project_id at once, and an
-  // event row pointing at it would leak another tenant's subject into this
-  // organization's timeline.
-  it('refuses a person or family from another organization', async () => {
-    const { scope } = await eventScope();
-    const other = await eventScope();
-    const foreignFamily = await createFamily({
-      orgId: other.scope.orgId,
-      projectId: other.scope.projectId,
-      createdBy: other.scope.createdBy,
-    });
-
-    await expect(
-      createEvent({ ...scope, personId: other.person.id })
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '23503' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes('fk_event_person')
-        )
-    );
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: null,
-        familyId: foreignFamily.id,
-        eventType: 'marriage',
-      })
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '23503' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes('fk_event_family')
-        )
-    );
-  });
-});
-
-describe('event date boundary matrix', () => {
-  it('stores an event that is known only by its place (no date at all)', async () => {
-    const { scope, person } = await eventScope();
-
-    // 葬地已知、卒年失考: `node` carries a burial place and no date, so the
-    // backfill must be able to write an event whose date columns are all empty.
-    // `date_original` is nullable for exactly this reason; inventing a date
-    // string to satisfy a NOT NULL column is the placeholder-data defect the
-    // v1.0 review criticised.
-    const burial = await createEvent({
-      ...scope,
       personId: person.id,
-      eventType: 'burial',
-      placeOriginal: '葬于村东祖坟',
-      dateOriginal: null,
-      dateQualifier: 'unknown',
     });
-
-    expect(burial.dateOriginal).toBeNull();
-    expect(burial.dateStart).toBeNull();
-    expect(burial.dateEnd).toBeNull();
-    expect(burial.dateQualifier).toBe('unknown');
-    expect(burial.placeOriginal).toBe('葬于村东祖坟');
-  });
-
-  it('defaults the qualifier to unknown rather than leaving it NULL', async () => {
-    const { scope, person } = await eventScope();
-
-    // date_qualifier is NOT NULL: a NULL qualifier would satisfy every one of
-    // the five matrix CHECKs vacuously (`qualifier IS NULL` is never a match, so
-    // each constraint passes), and the whole matrix would guard nothing.
-    const event = await createEvent({ ...scope, personId: person.id });
-    expect(event.dateQualifier).toBe('unknown');
-
-    await expect(
-      getTestSql()`
-        insert into event
-          (organization_id, project_id, person_id, event_type, date_qualifier, created_by)
-        values
-          (${scope.orgId}, ${scope.projectId}, ${person.id}, 'birth', null, ${scope.createdBy})`
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23502');
-  });
-
-  it('keeps the original date text when the bounds carry the interval', async () => {
-    const { scope, person } = await eventScope();
-
-    // '康熙三十年' is what the source says; the interval is the derived,
-    // queryable half. Both must survive, and precision only describes the
-    // display granularity — it never changes the bounds.
-    const event = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventType: 'birth',
-      dateOriginal: '康熙三十年',
-      dateStart: '1691-01-01',
-      dateEnd: '1691-12-31',
-      datePrecision: 'year',
-      dateQualifier: 'exact',
-    });
-
-    expect(event.dateOriginal).toBe('康熙三十年');
-    expect(event.dateStart).toBe('1691-01-01');
-    expect(event.dateEnd).toBe('1691-12-31');
-    expect(event.datePrecision).toBe('year');
-    expect(event.calendar).toBe('gregorian');
-  });
-
-  it('accepts "before 1691" only with the end bound', async () => {
-    const { scope, person } = await eventScope();
-
-    const before = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventType: 'death',
-      dateOriginal: 'before 1691',
-      dateStart: null,
-      dateEnd: '1691-01-01',
-      dateQualifier: 'before',
-    });
-    expect(before.dateStart).toBeNull();
-    expect(before.dateEnd).toBe('1691-01-01');
-
-    // A `before` row with a lower bound is the ambiguity the review found
-    // ("before 1691" had two legal encodings): the lower bound is unknown by
-    // definition, so storing one is a contradiction, not extra precision.
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'death',
-        dateStart: '1691-01-01',
-        dateEnd: '1691-01-01',
-        dateQualifier: 'before',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_before'));
-  });
-
-  it('accepts "after 1691" only with the start bound', async () => {
-    const { scope, person } = await eventScope();
-
-    const after = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventType: 'death',
-      dateOriginal: 'after 1691',
-      dateStart: '1691-01-01',
-      dateEnd: null,
-      dateQualifier: 'after',
-    });
-    expect(after.dateStart).toBe('1691-01-01');
-    expect(after.dateEnd).toBeNull();
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'death',
-        dateStart: '1691-01-01',
-        dateEnd: '1691-01-01',
-        dateQualifier: 'after',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_after'));
-  });
-
-  it('refuses any bound on an unknown date', async () => {
-    const { scope, person } = await eventScope();
-
-    // 'unknown' means "the source records no date"; a bound would be a date
-    // the source never gave.
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'death',
-        dateStart: '1691-01-01',
-        dateEnd: null,
-        dateQualifier: 'unknown',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_unknown'));
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'death',
-        dateStart: null,
-        dateEnd: '1691-01-01',
-        dateQualifier: 'unknown',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_unknown'));
-  });
-
-  it('requires both ordered bounds for a point date', async () => {
-    const { scope, person } = await eventScope();
-
-    // exact/about/estimated/calculated are closed intervals in the bounds
-    // columns; precision carries "this is only known to the year". A missing
-    // end would make `date_start <= date_end` unverifiable.
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'birth',
-        dateStart: '1691-01-01',
-        dateEnd: null,
-        dateQualifier: 'exact',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_point'));
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'birth',
-        dateStart: '1691-12-31',
-        dateEnd: '1691-01-01',
-        dateQualifier: 'exact',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_point'));
-
-    // `calculated` belongs to the point set too: a computed date is still a
-    // point/interval, never a one-sided bound.
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'birth',
-        dateStart: null,
-        dateEnd: '1691-01-01',
-        dateQualifier: 'calculated',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_point'));
-  });
-
-  it('requires both ordered bounds for a range', async () => {
-    const { scope, person } = await eventScope();
-
-    const period = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventType: 'occupation',
-      eventKind: 'attribute',
-      dateStart: '1691-01-01',
-      dateEnd: '1695-12-31',
-      dateQualifier: 'period',
-    });
-    expect(period.dateQualifier).toBe('period');
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'birth',
-        dateStart: '1695-12-31',
-        dateEnd: '1691-01-01',
-        dateQualifier: 'between',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_between'));
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'birth',
-        dateStart: '1695-12-31',
-        dateEnd: null,
-        dateQualifier: 'between',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_date_between'));
-  });
-
-  // Every constraint in the matrix is written as `date_qualifier <> 'x' OR (…)`,
-  // so a qualifier that is not in DATE_QUALIFIER_VALUES matches none of them and
-  // satisfies all five: `'circa'` is not 'before', not 'unknown', not in the
-  // point or range sets. The whole date matrix then guards nothing, which is
-  // exactly why the three enum columns need their own CHECKs.
-  //
-  // One row carries both halves of the hole — a garbage qualifier *and* an
-  // inverted range — so this test fails if either check goes missing. Written
-  // with raw SQL because `'circa'` is not a `DateQualifier`: a factory that
-  // accepted it would defeat the point.
-  it('refuses an out-of-enum qualifier carrying an inverted range', async () => {
-    const { scope, person } = await eventScope();
-
-    await expect(
-      getTestSql()`
-        insert into event
-          (organization_id, project_id, person_id, event_type, date_qualifier, date_start, date_end, created_by)
-        values
-          (${scope.orgId}, ${scope.projectId}, ${person.id}, 'birth', 'circa', '1900-01-01', '1800-01-01', ${scope.createdBy})`
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '23514');
-  });
-
-  // "No date" had three encodings: NULL, '' and '   '. Only NULL is a real
-  // absence — a blank string is an importer bug that would render as an empty
-  // date on a timeline and compare unequal to NULL in every query.
-  // ck_event_date_original_not_blank removes the two blank forms without
-  // resurrecting the withdrawn NOT NULL rule (0021 explains why NULL stays
-  // legal: an event may be known only by its place).
-  it('refuses a blank date_original and keeps NULL as the only empty form', async () => {
-    const { scope, person } = await eventScope();
-
-    for (const blank of ['', '   ']) {
-      await expect(
-        createEvent({ ...scope, personId: person.id, dateOriginal: blank })
-      ).rejects.toSatisfy(isCheckViolation('ck_event_date_original_not_blank'));
+    expect(event.kind).toBe('birth');
+    expect(event.personId).toBe(person.id);
+    for (const retired of [
+      'eventKind',
+      'eventType',
+      'customType',
+      'dateOriginal',
+      'dateQualifier',
+      'dateCn',
+      'ageYears',
+      'createdBy',
+      'updatedAt',
+      'deletedAt',
+    ]) {
+      expect(event, retired).not.toHaveProperty(retired);
     }
-
-    const withoutDate = await createEvent({ ...scope, personId: person.id });
-    expect(withoutDate.dateOriginal).toBeNull();
-    expect(withoutDate.dateQualifier).toBe('unknown');
-  });
-});
-
-describe('event age, type and kind', () => {
-  it('requires age_years and age_basis to be set together', async () => {
-    const { scope, person } = await eventScope();
-
-    // Both directions: "73 years old, basis unknown" is not a fact anyone
-    // recorded, and a basis with no number is a derivation with no result.
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'death',
-        ageYears: 73,
-        ageBasis: null,
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_age_pair'));
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'death',
-        ageYears: null,
-        ageBasis: 'stated',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_age_pair'));
-
-    const withAge = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventType: 'death',
-      ageText: '享年七十有三',
-      ageYears: 73,
-      ageBasis: 'stated',
-    });
-    expect(withAge.ageYears).toBe(73);
-    expect(withAge.ageText).toBe('享年七十有三');
   });
 
-  it('requires custom_type when the type is custom', async () => {
-    const { scope, person } = await eventScope();
-
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'custom',
-        customType: null,
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_custom_type'));
-
-    // The rule keys off event_type only, never off event_kind, so a custom
-    // *attribute* is written as `fact` + custom_type (GEDCOM 7's FACT + TYPE)
-    // and a custom *event* as `custom` + custom_type (EVEN + TYPE).
-    const customAttribute = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventKind: 'attribute',
-      eventType: 'fact',
-      customType: '捐官',
-      value: '捐监生',
-    });
-    expect(customAttribute.eventKind).toBe('attribute');
-    expect(customAttribute.customType).toBe('捐官');
-
-    const customEvent = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventKind: 'event',
-      eventType: 'custom',
-      customType: '迁居',
-    });
-    expect(customEvent.eventType).toBe('custom');
-  });
-
-  it('refuses an event_type outside the closed value set', async () => {
-    const { scope, person } = await eventScope();
-
-    // `event_type` is an open enum in the sense that adding a value is a
-    // migration, not that the database accepts anything: imports must fall back
-    // to `other` rather than invent a tag.
-    await expect(
-      getTestSql()`
-        insert into event
-          (organization_id, project_id, person_id, event_type, created_by)
-        values
-          (${scope.orgId}, ${scope.projectId}, ${person.id}, 'not_a_real_event', ${scope.createdBy})`
-    ).rejects.toSatisfy(isCheckViolation('ck_event_type'));
-  });
-
-  it('requires event_kind to agree with event_type', async () => {
-    const { scope, person } = await eventScope();
-
-    // `occupation` is an attribute type, so the column has to say so; the
-    // database must not accept a row that contradicts its own type.
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'occupation',
-        eventKind: 'event',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_kind_matches_type'));
-
-    // And the reverse: `birth` is not an attribute.
-    await expect(
-      createEvent({
-        ...scope,
-        personId: person.id,
-        eventType: 'birth',
-        eventKind: 'attribute',
-      })
-    ).rejects.toSatisfy(isCheckViolation('ck_event_kind_matches_type'));
-
-    const occupation = await createEvent({
-      ...scope,
-      personId: person.id,
-      eventType: 'occupation',
-      eventKind: 'attribute',
-      value: '塾师',
-    });
-    expect(occupation.eventKind).toBe('attribute');
-  });
-});
-
-describe('event tenant isolation', () => {
-  it('hides another organization’s events and refuses viewer writes', async () => {
-    const mine = await eventScope();
-    const theirs = await eventScope();
-    await createEvent({ ...theirs.scope, personId: theirs.person.id });
-
-    const visible = await withOrg(mine.user.id, (tx) =>
-      tx.select().from(events)
-    );
-    expect(visible).toEqual([]);
-
-    const viewer = await eventScope('viewer');
-    await expect(
-      withOrg(viewer.user.id, (tx) =>
-        tx.insert(events).values({
-          orgId: viewer.scope.orgId,
-          projectId: viewer.scope.projectId,
-          personId: viewer.person.id,
-          createdBy: viewer.user.id,
-          eventType: 'birth',
-        })
+  it('requires exactly one subject (num_nonnulls = 1)', async () => {
+    const { organization, project, person, family } = await subjects();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id, family_id)
+        values (${organization.id}, ${project.id}, 'birth', ${person.id}, ${family.id})`
       )
-    ).rejects.toSatisfy((error) => pgErrorCode(error) === '42501');
-
-    const editor = await eventScope('editor');
-    const [inserted] = await withOrg(editor.user.id, (tx) =>
-      tx
-        .insert(events)
-        .values({
-          orgId: editor.scope.orgId,
-          projectId: editor.scope.projectId,
-          personId: editor.person.id,
-          createdBy: editor.user.id,
-          eventType: 'birth',
-        })
-        .returning()
-    );
-    expect(inserted?.orgId).toBe(editor.organization.id);
+    ).toBe('23514');
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind)
+        values (${organization.id}, ${project.id}, 'birth')`
+      )
+    ).toBe('23514');
   });
 
-  it('pins organization_id and project_id on event', async () => {
-    const { user, organization, person, scope } = await eventScope();
-    const other = await createProject({
+  it('rejects a kind outside the eleven-value domain', async () => {
+    const { organization, project, person } = await subjects();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id)
+        values (${organization.id}, ${project.id}, 'bogus', ${person.id})`
+      )
+    ).toBe('23514');
+  });
+
+  it('rejects a malformed date_sort', async () => {
+    const { organization, project, person } = await subjects();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id, date_text, date_sort)
+        values (${organization.id}, ${project.id}, 'birth', ${person.id}, '光绪二十年', 'abc')`
+      )
+    ).toBe('23514');
+  });
+
+  it('rejects a date_sort without date_text', async () => {
+    const { organization, project, person } = await subjects();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id, date_sort)
+        values (${organization.id}, ${project.id}, 'birth', ${person.id}, '1894')`
+      )
+    ).toBe('23514');
+  });
+
+  it('allows at most one birth and one death per person', async () => {
+    const { organization, project, user, person } = await subjects();
+    await createEvent({
       orgId: organization.id,
+      projectId: project.id,
       createdBy: user.id,
-    });
-    const event = await createEvent({ ...scope, personId: person.id });
-
-    // Both halves of the RLS UPDATE policy are satisfied (the user owns both
-    // projects), so only the trigger can refuse the move; assert its message so
-    // an RLS rejection cannot be mistaken for it.
-    await expect(
-      withOrg(user.id, (tx) =>
-        tx
-          .update(events)
-          .set({ projectId: other.id })
-          .where(eq(events.id, event.id))
-      )
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '42501' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes('column event.project_id is immutable')
-        )
-    );
-
-    // A non-tenant column stays writable, otherwise the trigger would make the
-    // table append-only.
-    const [renamed] = await withOrg(user.id, (tx) =>
-      tx
-        .update(events)
-        .set({ title: '改题' })
-        .where(eq(events.id, event.id))
-        .returning()
-    );
-    expect(renamed?.title).toBe('改题');
-  });
-});
-
-// Every closed value set has a CHECK generated from the constant, so the two
-// cannot drift: adding a value to lib/genealogy/constants.ts without a
-// migration turns this red.
-const enumConstraints = [
-  { constraint: 'ck_event_type', values: EVENT_TYPE_VALUES },
-  { constraint: 'ck_event_kind', values: EVENT_KIND_VALUES },
-  { constraint: 'ck_event_date_qualifier', values: DATE_QUALIFIER_VALUES },
-  { constraint: 'ck_event_date_precision', values: DATE_PRECISION_VALUES },
-  { constraint: 'ck_event_calendar', values: CALENDAR_VALUES },
-  // The equality also mentions the literal 'attribute' on its left half, which
-  // is why that one is expected on top of the attribute type list.
-  {
-    constraint: 'ck_event_kind_matches_type',
-    values: [...ATTRIBUTE_EVENT_TYPE_VALUES, 'attribute'],
-  },
-];
-
-describe('event enum columns match the TypeScript constants', () => {
-  for (const { constraint, values } of enumConstraints) {
-    it(`event.${constraint}`, async () => {
-      await expect(
-        readCheckConstraintValues(getTestSql(), 'event', constraint)
-      ).resolves.toEqual([...values].sort());
-    });
-  }
-});
-
-describe('event column defaults', () => {
-  // Raw SQL naming only the columns a caller must supply. The factory always
-  // writes these three columns explicitly, so a factory-based assertion would
-  // pass even with every DEFAULT clause dropped: this one fails instead.
-  it('stores the kind, qualifier and calendar defaults', async () => {
-    const { scope, person } = await eventScope();
-
-    const [stored] = await getTestSql()<
-      { event_kind: string; date_qualifier: string; calendar: string }[]
-    >`
-      insert into event
-        (organization_id, project_id, created_by, person_id, event_type)
-      values
-        (${scope.orgId}, ${scope.projectId}, ${scope.createdBy}, ${person.id}, 'birth')
-      returning event_kind, date_qualifier, calendar`;
-
-    // event_kind defaults to `event` and agrees with event_type 'birth'; a
-    // caller that passes `occupation` has to pass `attribute`.
-    expect(stored.event_kind).toBe('event');
-    expect(stored.date_qualifier).toBe('unknown');
-    expect(stored.calendar).toBe('gregorian');
-  });
-
-  // event_type has no DEFAULT on purpose: a fact row must state what kind of
-  // fact it is. A defaulted 'event' is how a contentless row gets written.
-  it('refuses a row that omits event_type', async () => {
-    const { scope, person } = await eventScope();
-
-    await expect(
-      getTestSql()`
-        insert into event
-          (organization_id, project_id, created_by, person_id)
-        values
-          (${scope.orgId}, ${scope.projectId}, ${scope.createdBy}, ${person.id})`
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '23502' &&
-        pgErrorMessages(error).some((message) => message.includes('event_type'))
-    );
-  });
-
-  it('round-trips the Chinese lunar date structure in date_cn', async () => {
-    const { scope, person } = await eventScope();
-    const dateCn = {
-      era: 'kangxi',
-      year: 38,
-      month: 3,
-      leap: false,
-      day: 12,
-      ganzhi: '己卯',
-      shichen: '辰时',
-      raw: '康熙三十八年三月十二日辰时',
-    };
-
-    const event = await createEvent({
-      ...scope,
       personId: person.id,
-      eventType: 'birth',
-      dateOriginal: dateCn.raw,
-      dateCn,
     });
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id)
+        values (${organization.id}, ${project.id}, 'birth', ${person.id})`
+      )
+    ).toBe('23505');
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id, date_text)
+        values (${organization.id}, ${project.id}, 'death', ${person.id}, '一九六八年')`
+      )
+    ).toBeUndefined();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id, date_text)
+        values (${organization.id}, ${project.id}, 'death', ${person.id}, '一九六九年')`
+      )
+    ).toBe('23505');
+  });
 
-    // Only the original structure is stored in P1: no lunar-to-Gregorian
-    // conversion happens here, so date_start/date_end stay NULL.
-    expect(event.dateCn).toEqual(dateCn);
-    expect(event.dateStart).toBeNull();
+  it('requires a person subject for person-only kinds', async () => {
+    const { organization, project, family } = await subjects();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, family_id)
+        values (${organization.id}, ${project.id}, 'birth', ${family.id})`
+      )
+    ).toBe('23514');
+  });
+
+  it('requires a family subject for family-only kinds', async () => {
+    const { organization, project, person } = await subjects();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id)
+        values (${organization.id}, ${project.id}, 'marriage', ${person.id})`
+      )
+    ).toBe('23514');
+  });
+
+  it('rejects an event scoped to a project that does not exist', async () => {
+    const { organization, person } = await subjects();
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, kind, person_id)
+        values (${organization.id}, ${'00000000-0000-0000-0000-000000000000'}, 'birth', ${person.id})`
+      )
+    ).toBe('23503');
+  });
+
+  it('rejects a duplicate composite primary key (project_id, id)', async () => {
+    const { organization, project, user, person } = await subjects();
+    const event = await createEvent({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+      personId: person.id,
+    });
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into event (organization_id, project_id, id, kind, person_id)
+        values (${organization.id}, ${project.id}, ${event.id}, 'burial', ${person.id})`
+      )
+    ).toBe('23505');
+  });
+});
+
+// 值域常量与数据库 CHECK 不能漂移：任何一边单独加值都会被这条钉住。
+describe('event enum column matches the TypeScript constant', () => {
+  it('event_kind_check', async () => {
+    // 基线的 event.kind 是内联无名 CHECK，PG 自动命名为 event_kind_check；
+    // 旧测试写的 event_domain_check 从来不是落库对象名。
+    await expect(
+      readCheckConstraintValues(getTestSql(), 'event', 'event_kind_check')
+    ).resolves.toEqual([...EVENT_KIND_VALUES].sort());
   });
 });

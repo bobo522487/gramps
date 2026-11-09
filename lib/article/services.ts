@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import {
   createEmptyArticleContent,
   parseArticleContent,
+  serializeArticleContent,
 } from '@/lib/article/doc';
 import {
   type ArticleResult,
@@ -16,8 +17,7 @@ import {
   projectExists,
   refused,
 } from '@/lib/article/mutations';
-import { logActivityInTx } from '@/lib/db/queries/activity';
-import { ActivityType, articles } from '@/lib/db/schema';
+import { articles } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
 
 export async function createArticleInTransaction(params: {
@@ -62,11 +62,7 @@ export async function createArticleInTransaction(params: {
           projectId,
           folderId,
           title,
-          kind: null,
-          content,
-          plainText: '',
-          createdBy: userId,
-          updatedAt: new Date(),
+          body: serializeArticleContent(content),
         })
         .returning({ id: articles.id });
 
@@ -75,7 +71,6 @@ export async function createArticleInTransaction(params: {
         throw new Error('创建谱文失败');
       }
 
-      await logActivityInTx(tx, userId, orgId, ActivityType.CREATE_ARTICLE);
       return { ok: true as const, articleId };
     }
   );
@@ -101,12 +96,13 @@ export async function updateArticleTitleInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
+      // Target state has no `updated_at`; the timestamp is only echoed back to
+      // the caller so the editor can show "saved at", it is not persisted.
       const updatedAt = new Date();
       await tx
         .update(articles)
-        .set({ title, updatedAt })
+        .set({ title })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
       return { ok: true as const, updatedAt };
     }
   );
@@ -149,9 +145,8 @@ export async function moveArticleInTransaction(params: {
       const updatedAt = new Date();
       await tx
         .update(articles)
-        .set({ folderId: targetFolderId, updatedAt })
+        .set({ folderId: targetFolderId })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
       return { ok: true as const, updatedAt };
     }
   );
@@ -160,13 +155,10 @@ export async function moveArticleInTransaction(params: {
 }
 
 /**
- * 软删谱文。返回的 `pathnames` 是提交后应当删除的图片——事务里删字节会
- * 在回滚时留下无法恢复的空引用，所以删除动作交给 Action 在提交后执行。
- */
-
-/**
- * 软删谱文。返回的 `pathnames` 是提交后应当删除的图片——事务里删字节会
- * 在回滚时留下无法恢复的空引用，所以删除动作交给 Action 在提交后执行。
+ * 硬删谱文（目标态无软删）。返回的 `pathnames` 是提交后应当删除的图片——
+ * 事务里删字节会在回滚时留下无法恢复的空引用，所以删除动作交给 Action 在
+ * 提交后执行。被活动编目引用时 `book_catalog_article_fk`（RESTRICT）也会
+ * 挡住删除，与这里的预检一致。
  */
 export async function deleteArticleInTransaction(params: {
   userId: string;
@@ -188,15 +180,11 @@ export async function deleteArticleInTransaction(params: {
         return { ok: false, reason: 'catalog_referenced' } as const;
       }
 
-      await tx
-        .update(articles)
-        .set({ deletedAt: new Date() })
-        .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.DELETE_ARTICLE);
+      await tx.delete(articles).where(eq(articles.id, articleId));
 
       return {
         ok: true as const,
-        pathnames: imagePathsOf(parseArticleContent(article.content)),
+        pathnames: imagePathsOf(parseArticleContent(article.body)),
       };
     }
   );

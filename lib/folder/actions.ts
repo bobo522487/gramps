@@ -18,8 +18,7 @@ import {
 const FOLDER_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',
   not_found: '分类不存在或已删除',
-  invalid_parent: '上级分类不存在',
-  depth_exceeded: '分类最多支持 3 层',
+  conflict: '同名分类已存在',
 } as const;
 
 export const createFolderAction = validatedActionWithUser(
@@ -29,8 +28,6 @@ export const createFolderAction = validatedActionWithUser(
       userId: user.id,
       orgId: data.orgId,
       projectId: data.projectId,
-      kind: data.kind,
-      parentId: data.parentId,
       name: data.name,
     });
 

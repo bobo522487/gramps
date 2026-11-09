@@ -68,8 +68,8 @@ export async function seedArticleWithImages(
       throw new Error(`E2E 夹具找不到云谱空间：${options.projectRef}`);
     }
     const [created] = await sql`
-      insert into article (organization_id, project_id, title, content, plain_text, created_by, updated_at)
-      values (${project.organization_id}, ${project.id}, ${options.title ?? '性能夹具谱文'}, ${'{}'}, '', ${project.created_by}, now())
+      insert into article (organization_id, project_id, title, body)
+      values (${project.organization_id}, ${project.id}, ${options.title ?? '性能夹具谱文'}, ${JSON.stringify({ schemaVersion: 1, pages: [] })})
       returning id
     `;
     const articleId: string = created.id;
@@ -111,7 +111,7 @@ export async function seedArticleWithImages(
     const content = { schemaVersion: 1, pages };
     await sql`
       update article
-      set content = ${sql.json(content)}, plain_text = ${texts.join('\n\n')}
+      set body = ${JSON.stringify(content)}
       where id = ${articleId}
     `;
 

@@ -513,7 +513,7 @@ function LineageDetailInner({
               {lineage.surname}氏
               {lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
               {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
-              {lineage.nodeCount} 位族人
+              {bloodNodes.length} 位族人
             </p>
           </div>
         </div>
@@ -576,7 +576,7 @@ function LineageDetailInner({
         <p className="text-xs text-muted-foreground">
           {lineage.surname}氏{lineage.hallCode ? ` · ${lineage.hallCode}` : ''}
           {lineage.region ? ` · ${lineage.region}` : ''} · 共{' '}
-          {lineage.nodeCount} 位族人
+          {bloodNodes.length} 位族人
         </p>
       </div>
 

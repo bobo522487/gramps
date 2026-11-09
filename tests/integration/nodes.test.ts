@@ -1,1008 +1,286 @@
-import { randomUUID } from 'node:crypto';
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { ActivityType, activityLogs, lineages, nodes } from '@/lib/db/schema';
-import {
-  addChildInTransaction,
-  addSiblingInTransaction,
-  addSpouseInTransaction,
-  createRootNodeInTransaction,
-  deleteNodeInTransaction,
-  moveNodeInTransaction,
-  reorderSiblingsInTransaction,
-  updateNodeInTransaction,
-} from '@/lib/lineage/node-services';
-import { createLineageInTransaction } from '@/lib/lineage/services';
-import { getTestDb } from '../helpers/db';
+import { nodes } from '@/lib/db/schema';
+import { getTestDb, getTestSql, pgErrorCode } from '../helpers/db';
 import {
   addMember,
   createLineage,
+  createNode,
   createOrganization,
+  createPerson,
   createProject,
   createUser,
-  getPersonalOrg,
 } from '../helpers/factories';
 
-async function setup() {
+/**
+ * 直测数据库约束：直接对 `node` 发 INSERT / SELECT，验证附录 A.4 的稀疏
+ * 编号 ltree、parent_path 生成列、自引用闭包外键与 annotation 约束落在库里。
+ *
+ * S8 阶段 A′ 把旧「node 即人丁主体」的写入层集成测试整体退役：目标态 `node`
+ * 只是一条位置引用，身份在 `person`、姓名在 `person_name`。写入层的静态契约
+ * 由 `tests/s8-stage-a-prime.test.ts` 唯一覆盖（不双写），配偶 / 移动 / 重排
+ * 的应用集成测试留到阶段 C 恢复功能后重建，登记见实施计划 §3.3。
+ * DDL 基线尚未落库，本文件只保证结构与列形状按目标态写对。
+ */
+async function scope() {
   const user = await createUser();
-  const personal = await getPersonalOrg(user.id);
-  if (!personal) {
-    throw new Error('expected signup trigger to create a personal org');
-  }
+  const organization = await createOrganization();
+  await addMember({
+    userId: user.id,
+    organizationId: organization.id,
+    role: 'owner',
+  });
   const project = await createProject({
-    orgId: personal.organization.id,
+    orgId: organization.id,
     createdBy: user.id,
   });
-  const lineage = await createLineageInTransaction({
-    userId: user.id,
-    orgId: personal.organization.id,
+  const lineage = await createLineage({
+    orgId: organization.id,
     projectId: project.id,
-    name: '测试谱系',
-    region: '中国/福建',
+    createdBy: user.id,
   });
-  if (!lineage.ok) {
-    throw new Error('failed to create lineage');
+  return { user, organization, project, lineage };
+}
+
+async function sqlState(run: () => unknown): Promise<string | undefined> {
+  try {
+    await run();
+    return undefined;
+  } catch (error) {
+    return pgErrorCode(error);
   }
-  return {
-    user,
-    organization: personal.organization,
-    project,
-    lineage: lineage.lineage,
-  };
 }
 
-/** 每次调用一个全新幂等键；要测重放就显式把同一个键再传一次。 */
-function newRequestId() {
-  return randomUUID();
-}
-
-async function root(
-  userId: string,
-  orgId: string,
+async function insertNode(
+  organizationId: string,
+  projectId: string,
   lineageId: string,
-  name = '始祖',
-  requestId = newRequestId()
+  path: string,
+  kind = 'annotation',
+  personId: string | null = null
 ) {
-  const result = await createRootNodeInTransaction({
-    userId,
-    orgId,
-    lineageId,
-    requestId,
-    name,
-    sex: 0,
-  });
-  if (!result.ok) {
-    throw new Error(`failed to create root: ${result.reason}`);
-  }
-  return result.node;
+  return getTestSql()`
+    insert into node (organization_id, project_id, lineage_id, path, kind, person_id)
+    values (${organizationId}, ${projectId}, ${lineageId}, ${path}, ${kind}, ${personId})`;
 }
 
-async function child(
-  userId: string,
-  orgId: string,
-  lineageId: string,
-  parentId: string,
-  name: string,
-  requestId = newRequestId()
-) {
-  const result = await addChildInTransaction({
-    userId,
-    orgId,
-    lineageId,
-    requestId,
-    parentId,
-    name,
-    sex: 0,
-  });
-  if (!result.ok) {
-    throw new Error(`failed to add child: ${result.reason}`);
-  }
-  return result.node;
-}
-
-async function activeNodeCount(orgId: string, lineageId: string) {
-  const [row] = await getTestDb()
-    .select({ value: count() })
-    .from(nodes)
-    .where(
-      and(
-        eq(nodes.orgId, orgId),
-        eq(nodes.lineageId, lineageId),
-        isNull(nodes.deletedAt)
-      )
-    );
-  return row?.value ?? 0;
-}
-
-describe('node tree semantics', () => {
-  it('supports root, child, sibling and spouse with consistent counts', async () => {
-    const { user, organization, lineage } = await setup();
-
-    const founder = await root(user.id, organization.id, lineage.id);
-    expect(founder.role).toBe('blood');
-    expect(founder.generation).toBe(1);
-    expect(founder.path).toBe(founder.id.replaceAll('-', ''));
-
-    const son = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '元英'
-    );
-    expect(son.generation).toBe(2);
-    expect(son.parentId).toBe(founder.id);
-    expect(son.path?.startsWith(`${founder.path}.`)).toBe(true);
-
-    const sibling = await addSiblingInTransaction({
-      userId: user.id,
+describe('node (target-model DDL constraints)', () => {
+  it('exposes only position-reference columns', async () => {
+    const { organization, project, user, lineage } = await scope();
+    const node = await createNode({
       orgId: organization.id,
+      projectId: project.id,
       lineageId: lineage.id,
-      requestId: newRequestId(),
-      siblingOfId: son.id,
-      name: '元华',
-      surname: '陈',
-      sex: 1,
-    });
-    expect(sibling.ok).toBe(true);
-    if (!sibling.ok) return;
-    expect(sibling.node.generation).toBe(2);
-    expect(sibling.node.parentId).toBe(founder.id);
-    expect(sibling.node.sort).toBeGreaterThan(son.sort);
-
-    const spouse = await addSpouseInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      spouseOfId: son.id,
-      name: '林氏',
-      surname: '林',
-      sex: 1,
-    });
-    expect(spouse.ok).toBe(true);
-    if (!spouse.ok) return;
-    expect(spouse.node.role).toBe('spouse');
-    expect(spouse.node.path).toBeNull();
-    expect(spouse.node.spouseOfId).toBe(son.id);
-    expect(spouse.node.generation).toBe(2);
-
-    const [stored] = await getTestDb()
-      .select({ nodeCount: lineages.nodeCount })
-      .from(lineages)
-      .where(eq(lineages.id, lineage.id));
-    expect(stored?.nodeCount).toBe(4);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(4);
-  });
-
-  it('records creation details and a co-recorded spouse in one transaction', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-
-    const result = await addChildInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      parentId: founder.id,
-      name: '元英',
-      surname: '陈',
-      sex: 0,
-      details: {
-        courtesy: '子安',
-        namePrefix: '公',
-        isAlive: true,
-        birthText: '光绪二十年',
-        deathText: '一九六八年',
-        birthYear: 1894,
-        deathYear: 1968,
-        burialPlace: '村东祖坟',
-        biography: '勤俭持家，耕读传家。',
-      },
-      spouse: { name: '氏', surname: '王' },
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-
-    expect(result.node).toMatchObject({
-      role: 'blood',
-      generation: 2,
-      parentId: founder.id,
-      courtesy: '子安',
-      namePrefix: '公',
-      isAlive: true,
-      birthText: '光绪二十年',
-      deathText: '一九六八年',
-      birthYear: 1894,
-      deathYear: 1968,
-      burialPlace: '村东祖坟',
-      biography: '勤俭持家，耕读传家。',
-    });
-    expect(result.spouse).toMatchObject({
-      role: 'spouse',
-      spouseOfId: result.node.id,
-      parentId: null,
-      path: null,
-      generation: 2,
-      sort: 0,
-      surname: '王',
-      name: '氏',
-      fullName: '王氏',
-      sex: 1,
-      isAlive: true,
-    });
-
-    const [stored] = await getTestDb()
-      .select({ nodeCount: lineages.nodeCount })
-      .from(lineages)
-      .where(eq(lineages.id, lineage.id));
-    expect(stored?.nodeCount).toBe(3);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(3);
-
-    const [logCount] = await getTestDb()
-      .select({ value: count() })
-      .from(activityLogs)
-      .where(
-        and(
-          eq(activityLogs.orgId, organization.id),
-          eq(activityLogs.action, ActivityType.CREATE_NODE)
-        )
-      );
-    expect(logCount?.value).toBe(2);
-  });
-
-  it('creates a founder with details and a co-recorded spouse', async () => {
-    const { user, organization, lineage } = await setup();
-
-    const result = await createRootNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      name: '始迁祖',
-      surname: '陈',
-      sex: 0,
-      details: {
-        isAlive: false,
-        birthYear: 1860,
-        burialPlace: '村东祖坟',
-        biography: '始迁于此。',
-      },
-      spouse: { name: '氏', surname: '林' },
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-
-    expect(result.node).toMatchObject({
-      generation: 1,
-      birthYear: 1860,
-      burialPlace: '村东祖坟',
-      biography: '始迁于此。',
-    });
-    expect(result.spouse).toMatchObject({
-      role: 'spouse',
-      spouseOfId: result.node.id,
-      path: null,
-      generation: 1,
-      surname: '林',
-      fullName: '林氏',
-      sex: 1,
-      isAlive: false,
-    });
-
-    const [stored] = await getTestDb()
-      .select({ nodeCount: lineages.nodeCount })
-      .from(lineages)
-      .where(eq(lineages.id, lineage.id));
-    expect(stored?.nodeCount).toBe(2);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
-  });
-
-  it('refuses to delete the root and leaves nodes and counts untouched', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const son = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '元英'
-    );
-    const spouse = await addSpouseInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      spouseOfId: son.id,
-      name: '王氏',
-      sex: 1,
-    });
-    if (!spouse.ok) {
-      throw new Error('failed to add spouse');
-    }
-
-    const result = await deleteNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      nodeId: founder.id,
-    });
-    expect(result).toEqual({ ok: false, reason: 'root_forbidden' });
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(3);
-
-    const [stored] = await getTestDb()
-      .select({ nodeCount: lineages.nodeCount })
-      .from(lineages)
-      .where(eq(lineages.id, lineage.id));
-    expect(stored?.nodeCount).toBe(3);
-  });
-
-  it('rejects a second root and a sibling of the root', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-
-    const secondRoot = await createRootNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      name: '另一位始祖',
-      sex: 0,
-    });
-    expect(secondRoot).toEqual({ ok: false, reason: 'root_exists' });
-
-    const sibling = await addSiblingInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      siblingOfId: founder.id,
-      name: '始祖兄弟',
-      sex: 0,
-    });
-    expect(sibling).toEqual({ ok: false, reason: 'root_sibling' });
-  });
-
-  it('does not allow a spouse to be a parent', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const spouse = await addSpouseInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      spouseOfId: founder.id,
-      name: '林氏',
-      sex: 1,
-    });
-    if (!spouse.ok) {
-      throw new Error('failed to add spouse');
-    }
-
-    const result = await addChildInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      parentId: spouse.node.id,
-      name: '错误子女',
-      sex: 0,
-    });
-    expect(result).toEqual({ ok: false, reason: 'invalid_parent' });
-  });
-
-  it('soft-deletes descendants and their spouses, then reconciles node_count', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const branchA = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '长房'
-    );
-    const branchB = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '次房'
-    );
-    const grandchild = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      branchA.id,
-      '长孙'
-    );
-    for (const [targetId, name] of [
-      [branchA.id, '长房配偶'],
-      [grandchild.id, '长孙配偶'],
-    ] as const) {
-      const spouse = await addSpouseInTransaction({
-        userId: user.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        requestId: newRequestId(),
-        spouseOfId: targetId,
-        name,
-        sex: 1,
-      });
-      if (!spouse.ok) {
-        throw new Error('failed to add spouse');
-      }
-    }
-
-    const result = await deleteNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      nodeId: branchA.id,
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.deletedNodes).toBe(4);
-
-    const remaining = await getTestDb()
-      .select({ id: nodes.id })
-      .from(nodes)
-      .where(and(eq(nodes.lineageId, lineage.id), isNull(nodes.deletedAt)));
-    expect(remaining.map((node) => node.id).sort()).toEqual(
-      [founder.id, branchB.id].sort()
-    );
-
-    const [stored] = await getTestDb()
-      .select({ nodeCount: lineages.nodeCount })
-      .from(lineages)
-      .where(eq(lineages.id, lineage.id));
-    expect(stored?.nodeCount).toBe(2);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
-  });
-
-  it('moves a subtree and recomputes path and generation', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const branchA = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '长房'
-    );
-    const branchB = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '次房'
-    );
-    const grandchild = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      branchA.id,
-      '长孙'
-    );
-    const branchSpouse = await addSpouseInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      spouseOfId: branchA.id,
-      name: '长房妻',
-      sex: 1,
-    });
-    if (!branchSpouse.ok) {
-      throw new Error('failed to add spouse');
-    }
-
-    const moved = await moveNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      nodeId: branchA.id,
-      newParentId: branchB.id,
-    });
-    expect(moved.ok).toBe(true);
-    if (!moved.ok) return;
-    expect(moved.node.parentId).toBe(branchB.id);
-    expect(moved.node.generation).toBe(3);
-
-    const [movedGrandchild] = await getTestDb()
-      .select()
-      .from(nodes)
-      .where(eq(nodes.id, grandchild.id));
-    expect(movedGrandchild?.generation).toBe(4);
-    expect(movedGrandchild?.path?.startsWith(`${branchB.path}.`)).toBe(true);
-
-    const [movedSpouse] = await getTestDb()
-      .select()
-      .from(nodes)
-      .where(eq(nodes.id, branchSpouse.node.id));
-    expect(movedSpouse?.generation).toBe(3);
-    expect(movedSpouse?.path).toBeNull();
-
-    const cycle = await moveNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      nodeId: branchB.id,
-      newParentId: grandchild.id,
-    });
-    expect(cycle).toEqual({ ok: false, reason: 'cycle' });
-
-    const rootMove = await moveNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      nodeId: founder.id,
-      newParentId: branchB.id,
-    });
-    expect(rootMove).toEqual({ ok: false, reason: 'invalid_target' });
-
-    const [stored] = await getTestDb()
-      .select({ nodeCount: lineages.nodeCount })
-      .from(lineages)
-      .where(eq(lineages.id, lineage.id));
-    expect(stored?.nodeCount).toBe(5);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(5);
-  });
-
-  it('reorders siblings and rejects mixed parents', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const first = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '长子'
-    );
-    const second = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '次子'
-    );
-
-    const reordered = await reorderSiblingsInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      parentId: founder.id,
-      orderedIds: [second.id, first.id],
-    });
-    expect(reordered).toEqual({ ok: true });
-
-    const rows = await getTestDb()
-      .select({ id: nodes.id, sort: nodes.sort })
-      .from(nodes)
-      .where(eq(nodes.lineageId, lineage.id));
-    const byId = new Map(rows.map((row) => [row.id, row.sort]));
-    expect(byId.get(second.id)).toBe(0);
-    expect(byId.get(first.id)).toBe(1);
-
-    const invalid = await reorderSiblingsInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      parentId: founder.id,
-      orderedIds: [first.id, founder.id],
-    });
-    expect(invalid).toEqual({ ok: false, reason: 'invalid_order' });
-  });
-
-  it('rejects node writes from viewers and from other orgs', async () => {
-    const { user, organization, project, lineage } = await setup();
-    const viewer = await createUser();
-    await addMember({
-      userId: viewer.id,
-      organizationId: organization.id,
-      role: 'viewer',
-    });
-    const denied = await createRootNodeInTransaction({
-      userId: viewer.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      name: '越权始祖',
-      sex: 0,
-    });
-    expect(denied).toEqual({ ok: false, reason: 'forbidden' });
-
-    const otherOrg = await createOrganization({ name: '另一个组织' });
-    const otherProject = await createProject({
-      orgId: otherOrg.id,
       createdBy: user.id,
+      path: '0001',
     });
-    const foreignLineage = await createLineage({
-      orgId: otherOrg.id,
-      projectId: otherProject.id,
-      createdBy: user.id,
-    });
-    const foreign = await createRootNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: foreignLineage.id,
-      requestId: newRequestId(),
-      name: '跨组织始祖',
-      sex: 0,
-    });
-    expect(foreign).toEqual({ ok: false, reason: 'not_found' });
-    expect(project.id).toBeTruthy();
-  });
-
-  // Every write entry point funnels through withOrgWrite; this pins each one so
-  // a future rewrite cannot keep the guard on seven and drop it on the eighth.
-  it('refuses every node write entry point for a viewer', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const childNode = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      founder.id,
-      '元英'
-    );
-
-    const viewer = await createUser();
-    await addMember({
-      userId: viewer.id,
-      organizationId: organization.id,
-      role: 'viewer',
-    });
-
-    const attempts = await Promise.all([
-      createRootNodeInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        requestId: newRequestId(),
-        name: '越权始祖',
-        sex: 0,
-      }),
-      addChildInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        requestId: newRequestId(),
-        parentId: founder.id,
-        name: '越权子女',
-        surname: '陈',
-        sex: 0,
-      }),
-      addSiblingInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        requestId: newRequestId(),
-        siblingOfId: childNode.id,
-        name: '越权兄弟',
-        surname: '陈',
-        sex: 0,
-      }),
-      addSpouseInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        requestId: newRequestId(),
-        spouseOfId: founder.id,
-        name: '越权配偶',
-        surname: '陈',
-        sex: 1,
-      }),
-      updateNodeInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        nodeId: founder.id,
-        updates: { name: '越权改名', surname: '陈', sex: 0 },
-      }),
-      deleteNodeInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        nodeId: childNode.id,
-      }),
-      moveNodeInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        nodeId: childNode.id,
-        newParentId: founder.id,
-      }),
-      reorderSiblingsInTransaction({
-        userId: viewer.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        parentId: founder.id,
-        orderedIds: [childNode.id],
-      }),
-    ]);
-
-    for (const result of attempts) {
-      expect(result).toEqual({ ok: false, reason: 'forbidden' });
+    expect(node.path).toBe('0001');
+    expect(node.kind).toBe('annotation');
+    expect(node.parentPath).toBeNull();
+    for (const retired of [
+      'parentId',
+      'spouseOfId',
+      'role',
+      'generation',
+      'sort',
+      'name',
+      'surname',
+      'fullName',
+      'sex',
+      'isAlive',
+      'requestId',
+      'createdBy',
+      'updatedAt',
+      'deletedAt',
+    ]) {
+      expect(node, retired).not.toHaveProperty(retired);
     }
   });
-});
 
-// R31：创建幂等。同一个 requestId 的重放（双击、慢网重试、Action 被重放）
-// 只允许留下一个人丁，并且返回首次写入的那一行——不是第二条、也不是报错。
-describe('node create idempotency', () => {
-  it('returns the first row when the same requestId is replayed', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const params = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      parentId: founder.id,
-      requestId: newRequestId(),
-      name: '元英',
-      sex: 0,
-    };
-
-    const first = await addChildInTransaction(params);
-    const replay = await addChildInTransaction(params);
-
-    expect(first.ok).toBe(true);
-    expect(replay.ok).toBe(true);
-    if (!first.ok || !replay.ok) {
-      return;
-    }
-    expect(replay.node.id).toBe(first.node.id);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
-
-    const [stored] = await getTestDb()
-      .select({ nodeCount: lineages.nodeCount })
-      .from(lineages)
-      .where(eq(lineages.id, lineage.id));
-    expect(stored?.nodeCount).toBe(2);
-  });
-
-  it('keeps two same-named brothers when the request keys differ', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const base = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      parentId: founder.id,
-      name: '元英',
-      sex: 0,
-    };
-
-    const first = await addChildInTransaction({
-      ...base,
-      requestId: newRequestId(),
-    });
-    const second = await addChildInTransaction({
-      ...base,
-      requestId: newRequestId(),
-    });
-
-    expect(first.ok).toBe(true);
-    expect(second.ok).toBe(true);
-    if (!first.ok || !second.ok) {
-      return;
-    }
-    expect(second.node.id).not.toBe(first.node.id);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(3);
-  });
-
-  it('settles a concurrent double submit on one row', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const params = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      parentId: founder.id,
-      requestId: newRequestId(),
-      name: '元英',
-      sex: 0,
-    };
-
-    const results = await Promise.all([
-      addChildInTransaction(params),
-      addChildInTransaction(params),
-    ]);
-    const nodeIds = results.flatMap((result) =>
-      result.ok ? [result.node.id] : []
-    );
-
-    expect(nodeIds).toHaveLength(2);
-    expect(new Set(nodeIds).size).toBe(1);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
-  });
-
-  it('replays root, sibling and spouse creates onto the existing row', async () => {
-    const { user, organization, lineage } = await setup();
-
-    const rootParams = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      requestId: newRequestId(),
-      name: '始迁祖',
-      sex: 0,
-    };
-    const firstRoot = await createRootNodeInTransaction(rootParams);
-    // 重放不能退化成「该谱系已经有始祖了」：同一个提交意图就是同一行。
-    const replayedRoot = await createRootNodeInTransaction(rootParams);
-    expect(firstRoot.ok).toBe(true);
-    expect(replayedRoot).toEqual(firstRoot);
-
-    if (!firstRoot.ok) {
-      return;
-    }
-    const son = await child(
-      user.id,
-      organization.id,
-      lineage.id,
-      firstRoot.node.id,
-      '元英'
-    );
-
-    const siblingParams = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      siblingOfId: son.id,
-      requestId: newRequestId(),
-      name: '元华',
-      sex: 1,
-    };
-    const firstSibling = await addSiblingInTransaction(siblingParams);
-    const replayedSibling = await addSiblingInTransaction(siblingParams);
-    expect(replayedSibling).toEqual(firstSibling);
-
-    const spouseParams = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      spouseOfId: son.id,
-      requestId: newRequestId(),
-      name: '氏',
-      surname: '王',
-      sex: 1,
-    };
-    const firstSpouse = await addSpouseInTransaction(spouseParams);
-    const replayedSpouse = await addSpouseInTransaction(spouseParams);
-    expect(replayedSpouse).toEqual(firstSpouse);
-
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(4);
-  });
-
-  it('does not add a second co-recorded spouse on replay', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const params = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      parentId: founder.id,
-      requestId: newRequestId(),
-      name: '元英',
-      sex: 0,
-      spouse: { name: '氏', surname: '王' },
-    };
-
-    const first = await addChildInTransaction(params);
-    const replay = await addChildInTransaction(params);
-    expect(first.ok).toBe(true);
-    expect(replay.ok).toBe(true);
-    if (!first.ok || !replay.ok) {
-      return;
-    }
-    expect(replay.node.id).toBe(first.node.id);
-    expect(replay.spouse?.id).toBe(first.spouse?.id);
-
-    const rows = await getTestDb()
-      .select({ id: nodes.id, requestId: nodes.requestId, role: nodes.role })
-      .from(nodes)
-      .where(and(eq(nodes.lineageId, lineage.id), isNull(nodes.deletedAt)));
-    expect(rows).toHaveLength(3);
-    // 只有主行带幂等键：共创配偶与血亲同事务落库，共用一键会撞唯一索引。
+  it('rejects a path outside the four-digit sparse ltree format', async () => {
+    const { organization, project, lineage } = await scope();
     expect(
-      rows
-        .filter((row) => row.requestId === params.requestId)
-        .map((row) => row.role)
-    ).toEqual(['blood']);
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, 'abcd')
+      )
+    ).toBe('23514');
+    expect(
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, '0001.a')
+      )
+    ).toBe('23514');
   });
 
-  it('lets a soft-deleted node free its request key for a new record', async () => {
-    const { user, organization, lineage } = await setup();
-    const founder = await root(user.id, organization.id, lineage.id);
-    const requestId = newRequestId();
-    const params = {
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      parentId: founder.id,
-      requestId,
-      name: '元英',
-      sex: 0,
-    };
-
-    const first = await addChildInTransaction(params);
-    expect(first.ok).toBe(true);
-    if (!first.ok) {
-      return;
-    }
-    const deleted = await deleteNodeInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      lineageId: lineage.id,
-      nodeId: first.node.id,
-    });
-    expect(deleted.ok).toBe(true);
-
-    const recreated = await addChildInTransaction(params);
-    expect(recreated.ok).toBe(true);
-    if (!recreated.ok) {
-      return;
-    }
-    expect(recreated.node.id).not.toBe(first.node.id);
-    expect(await activeNodeCount(organization.id, lineage.id)).toBe(2);
+  it('rejects two nodes at the same (project, lineage, path)', async () => {
+    const { organization, project, lineage } = await scope();
+    expect(
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, '0001')
+      )
+    ).toBeUndefined();
+    expect(
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, '0001')
+      )
+    ).toBe('23505');
   });
-  // 两条谱系的 FOR UPDATE 锁互不冲突，所以跨谱系的同键并发会真的撞
-  // uk_node_org_request_id：撞索引的那一个整体回滚，再把赢的那一行返回。
-  it('collapses a cross-lineage race onto the row that won the index', async () => {
-    const { user, organization, project, lineage } = await setup();
-    const otherLineage = await createLineage({
+
+  it('rejects a kind outside primary/repeat/annotation', async () => {
+    const { organization, project, lineage } = await scope();
+    expect(
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, '0001', 'bogus')
+      )
+    ).toBe('23514');
+  });
+
+  it('keeps annotation without a person and other kinds with one', async () => {
+    const { organization, project, user, lineage } = await scope();
+    const person = await createPerson({
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
-      name: '另一支谱系',
     });
-    const founderA = await root(user.id, organization.id, lineage.id);
-    const founderB = await root(
-      user.id,
-      organization.id,
-      otherLineage.id,
-      '另一支始祖'
-    );
-    const requestId = newRequestId();
-
-    const results = await Promise.all([
-      addChildInTransaction({
-        userId: user.id,
-        orgId: organization.id,
-        lineageId: lineage.id,
-        parentId: founderA.id,
-        requestId,
-        name: '元英',
-        sex: 0,
-      }),
-      addChildInTransaction({
-        userId: user.id,
-        orgId: organization.id,
-        lineageId: otherLineage.id,
-        parentId: founderB.id,
-        requestId,
-        name: '元英',
-        sex: 0,
-      }),
-    ]);
-
-    const nodeIds = results.flatMap((result) =>
-      result.ok ? [result.node.id] : []
-    );
-    expect(nodeIds).toHaveLength(2);
-    expect(new Set(nodeIds).size).toBe(1);
-
-    const keyed = await getTestDb()
-      .select({ id: nodes.id })
-      .from(nodes)
-      .where(
-        and(
-          eq(nodes.orgId, organization.id),
-          eq(nodes.requestId, requestId),
-          isNull(nodes.deletedAt)
+    expect(
+      await sqlState(() =>
+        insertNode(
+          organization.id,
+          project.id,
+          lineage.id,
+          '0001',
+          'annotation',
+          person.id
         )
-      );
-    expect(keyed).toHaveLength(1);
+      )
+    ).toBe('23514');
+    expect(
+      await sqlState(() =>
+        insertNode(
+          organization.id,
+          project.id,
+          lineage.id,
+          '0001',
+          'primary',
+          null
+        )
+      )
+    ).toBe('23514');
+    expect(
+      await sqlState(() =>
+        insertNode(
+          organization.id,
+          project.id,
+          lineage.id,
+          '0001',
+          'primary',
+          person.id
+        )
+      )
+    ).toBeUndefined();
+  });
+
+  it('derives parent_path from path and enforces the self-referencing parent FK', async () => {
+    const { organization, project, lineage } = await scope();
+    // 没有父行时，子路径的 parent_path 指向不存在的 '0001'。
+    expect(
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, '0001.0010')
+      )
+    ).toBe('23503');
+
+    expect(
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, '0001')
+      )
+    ).toBeUndefined();
+    expect(
+      await sqlState(() =>
+        insertNode(organization.id, project.id, lineage.id, '0001.0010')
+      )
+    ).toBeUndefined();
+
+    const child = await getTestDb()
+      .select({ parentPath: nodes.parentPath })
+      .from(nodes)
+      .where(eq(nodes.path, '0001.0010'))
+      .limit(1);
+    expect(child[0]?.parentPath).toBe('0001');
+  });
+
+  it('allows at most one primary node per person', async () => {
+    const { organization, project, user, lineage } = await scope();
+    const person = await createPerson({
+      orgId: organization.id,
+      projectId: project.id,
+      createdBy: user.id,
+    });
+    expect(
+      await sqlState(() =>
+        insertNode(
+          organization.id,
+          project.id,
+          lineage.id,
+          '0001',
+          'primary',
+          person.id
+        )
+      )
+    ).toBeUndefined();
+    expect(
+      await sqlState(() =>
+        insertNode(
+          organization.id,
+          project.id,
+          lineage.id,
+          '0002',
+          'repeat',
+          person.id
+        )
+      )
+    ).toBeUndefined();
+    expect(
+      await sqlState(() =>
+        insertNode(
+          organization.id,
+          project.id,
+          lineage.id,
+          '0003',
+          'primary',
+          person.id
+        )
+      )
+    ).toBe('23505');
+  });
+
+  it('rejects a node scoped to a project that does not exist', async () => {
+    const { organization, lineage } = await scope();
+    expect(
+      await sqlState(() =>
+        insertNode(
+          organization.id,
+          '00000000-0000-0000-0000-000000000000',
+          lineage.id,
+          '0001'
+        )
+      )
+    ).toBe('23503');
+  });
+
+  it('rejects a duplicate composite primary key (project_id, id)', async () => {
+    const { organization, project, user, lineage } = await scope();
+    const node = await createNode({
+      orgId: organization.id,
+      projectId: project.id,
+      lineageId: lineage.id,
+      createdBy: user.id,
+      path: '0001',
+    });
+    expect(
+      await sqlState(
+        () => getTestSql()`
+        insert into node (organization_id, project_id, id, lineage_id, path, kind)
+        values (${organization.id}, ${project.id}, ${node.id}, ${lineage.id}, '0002', 'annotation')`
+      )
+    ).toBe('23505');
   });
 });

@@ -36,12 +36,15 @@ export default async function LineageDetailPage({
       lineage={{
         id: lineage.id,
         name: lineage.name,
-        surname: lineage.surname,
-        hallCode: lineage.hallCode,
-        region: lineage.region,
-        notes: lineage.notes,
-        generationWords: lineage.generationWords,
-        nodeCount: lineage.nodeCount,
+        // Target-model `lineage` retired these columns (appendix A.4). The
+        // detail view still declares them, so feed it neutral values here;
+        // `nodeCount` is recomputed from the projected rows inside the view.
+        surname: '',
+        hallCode: null,
+        region: null,
+        notes: lineage.description,
+        generationWords: null,
+        nodeCount: 0,
         folderId: lineage.folderId,
       }}
       nodes={toNodeViews(nodes)}

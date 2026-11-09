@@ -39,8 +39,9 @@ async function readMedia(
   if (!role) {
     return notFound();
   }
-  // 谱文行不存在或已软删 → 图片也不给。删字节是提交后的尽力而为（ADR 0019），
-  // 万一没删成，这条判断仍然兑现「删除成功后新请求取不到」（FR-029）。
+  // 谱文行不存在 → 图片也不给。目标态没有 `deleted_at`，删除就是真删，这一条
+  // 天然成立；删字节是提交后的尽力而为（ADR 0019），万一没删成，这条判断仍然
+  // 兑现「删除成功后新请求取不到」（FR-029）。
   const article = await getArticleScope(user.id, parts.orgId, parts.articleId);
   if (!article) {
     return notFound();

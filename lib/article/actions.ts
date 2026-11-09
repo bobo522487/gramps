@@ -45,9 +45,9 @@ import {
 import { logger } from '@/lib/logger';
 
 /**
- * 谱文写入 Action（contracts §1.1–§1.8）。
+ * 谱文写入 Action。
  *
- * 失效口径（research §6）：新建/改标题/移分类/删除 → 整棵控制台失效；
+ * 失效口径：新建/改标题/移分类/删除 → 整棵控制台失效；
  * 保存页/加页/删页/重排 → **不失效**，否则服务端快照会在用户敲字的间隙被推回编辑器。
  * 页级操作的回显只到「本次提交成功的那一页」（FR-017）。
  */
@@ -235,10 +235,10 @@ export const reorderArticlePagesAction = validatedActionWithUserObject(
 );
 
 /**
- * 删除确认框的预览读取（contracts §1.10、FR-004/005/006、SC-005）。
+ * 删除确认框的预览读取（FR-004/005/006、SC-005）。
  *
  * 只读：不写库、不失效缓存。数字只有服务端算得准——页数与图片数来自
- * `article.content` 的分页文档包，引用状态要跨 `book_catalog`/`book` 的软删判断。
+ * `article.body` 的分页文档包，引用状态要跨 `book_catalog`/`book` 的软删判断。
  * 看不见（含跨组织）一律按不存在处理，不泄露存在性（FR-034）。
  */
 

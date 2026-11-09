@@ -1,11 +1,9 @@
 import 'server-only';
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
 import { isUniqueViolation } from '@/lib/db/errors';
-import { logActivityInTx } from '@/lib/db/queries/activity';
 import {
-  ActivityType,
   bookCatalogs,
   folders,
   type Lineage,
@@ -21,8 +19,7 @@ type LineageFailure =
   | 'not_found'
   | 'invalid_folder'
   | 'conflict'
-  | 'referenced'
-  | 'project_surname_missing';
+  | 'referenced';
 
 export type LineageMutationResult =
   | { ok: true; lineage: Lineage }
@@ -41,9 +38,7 @@ async function validProjectFolder(
       and(
         eq(folders.id, folderId),
         eq(folders.orgId, orgId),
-        eq(folders.projectId, projectId),
-        eq(folders.kind, 0),
-        isNull(folders.deletedAt)
+        eq(folders.projectId, projectId)
       )
     )
     .limit(1);
@@ -52,18 +47,18 @@ async function validProjectFolder(
 
 /**
  * 创建谱系时确定归属分类。项目还没有分类时，在同一事务内创建或复用
- * 「默认分类」，让只有 lineage.write 的编辑者也不会卡死。
+ * 「默认分类」。压平后它和谱文侧共用同一条，`folder_name_unique` 保证
+ * 全项目只有一条，并发插入靠 `onConflictDoNothing` + 重查收敛。
  */
 async function resolveFolderInTx(
   tx: DbTransaction,
   params: {
     orgId: string;
     projectId: string;
-    userId: string;
     folderId?: string;
   }
 ): Promise<string> {
-  const { orgId, projectId, userId, folderId } = params;
+  const { orgId, projectId, folderId } = params;
   if (folderId) {
     return folderId;
   }
@@ -75,10 +70,7 @@ async function resolveFolderInTx(
       and(
         eq(folders.orgId, orgId),
         eq(folders.projectId, projectId),
-        eq(folders.kind, 0),
-        isNull(folders.parentId),
-        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME),
-        isNull(folders.deletedAt)
+        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME)
       )
     )
     .limit(1);
@@ -86,59 +78,61 @@ async function resolveFolderInTx(
     return existing.id;
   }
 
-  const [created] = await tx
+  const created = await tx
     .insert(folders)
     .values({
       orgId,
       projectId,
-      kind: 0,
-      parentId: null,
       name: DEFAULT_LINEAGE_FOLDER_NAME,
-      createdBy: userId,
+      seq: 0,
     })
+    .onConflictDoNothing({ target: [folders.projectId, folders.name] })
     .returning({ id: folders.id });
 
-  if (!created) {
-    throw new Error('failed to create the default lineage folder');
+  if (created[0]) {
+    return created[0].id;
   }
-  return created.id;
+
+  // 并发下另一条事务刚插进去：重查一次拿它的 id。
+  const [raced] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(
+      and(
+        eq(folders.orgId, orgId),
+        eq(folders.projectId, projectId),
+        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME)
+      )
+    )
+    .limit(1);
+  if (!raced) {
+    throw new Error('failed to resolve the default folder');
+  }
+  return raced.id;
 }
 
+/**
+ * Target-model `lineage` (appendix A.4) carries only name / description /
+ * poem text / base generation / display order. The project surname, hall code,
+ * region, notes, generation words and node counter were all retired; the form
+ * still posts them, and `lib/lineage/actions.ts` deliberately drops them.
+ */
 export async function createLineageInTransaction(params: {
   userId: string;
   orgId: string;
   projectId: string;
   folderId?: string;
   name: string;
-  region: string;
-  hallCode?: string;
-  notes?: string;
   ipAddress?: string;
 }): Promise<LineageMutationResult> {
-  const {
-    userId,
-    orgId,
-    projectId,
-    folderId,
-    name,
-    region,
-    hallCode,
-    notes,
-    ipAddress,
-  } = params;
+  const { userId, orgId, projectId, folderId, name } = params;
 
   try {
     return await withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
       const [project] = await tx
-        .select({ id: projects.id, surname: projects.surname })
+        .select({ id: projects.id })
         .from(projects)
-        .where(
-          and(
-            eq(projects.id, projectId),
-            eq(projects.orgId, orgId),
-            isNull(projects.deletedAt)
-          )
-        )
+        .where(and(eq(projects.id, projectId), eq(projects.orgId, orgId)))
         .limit(1);
       if (!project) {
         return { ok: false, reason: 'not_found' as const };
@@ -150,15 +144,9 @@ export async function createLineageInTransaction(params: {
         return { ok: false, reason: 'invalid_folder' as const };
       }
 
-      const projectSurname = project.surname?.trim();
-      if (!projectSurname) {
-        return { ok: false, reason: 'project_surname_missing' as const };
-      }
-
       const resolvedFolderId = await resolveFolderInTx(tx, {
         orgId,
         projectId,
-        userId,
         folderId,
       });
 
@@ -169,21 +157,9 @@ export async function createLineageInTransaction(params: {
           projectId,
           folderId: resolvedFolderId,
           name,
-          surname: projectSurname,
-          region,
-          notes: notes ?? null,
-          hallCode: hallCode ?? null,
-          createdBy: userId,
         })
         .returning();
 
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.CREATE_LINEAGE,
-        ipAddress
-      );
       return { ok: true as const, lineage };
     });
   } catch (error) {
@@ -197,10 +173,10 @@ export async function createLineageInTransaction(params: {
 export type LineageUpdates = {
   folderId?: string | null;
   name?: string;
-  hallCode?: string | null;
-  region?: string | null;
-  notes?: string | null;
-  generationWords?: string[];
+  description?: string | null;
+  poemText?: string | null;
+  baseGeneration?: number;
+  seq?: number;
 };
 
 export async function updateLineageInTransaction(params: {
@@ -210,20 +186,14 @@ export async function updateLineageInTransaction(params: {
   updates: LineageUpdates;
   ipAddress?: string;
 }): Promise<LineageMutationResult> {
-  const { userId, orgId, lineageId, updates, ipAddress } = params;
+  const { userId, orgId, lineageId, updates } = params;
 
   try {
     return await withOrgWrite(userId, orgId, 'lineage.write', async (tx) => {
       const [current] = await tx
         .select()
         .from(lineages)
-        .where(
-          and(
-            eq(lineages.id, lineageId),
-            eq(lineages.orgId, orgId),
-            isNull(lineages.deletedAt)
-          )
-        )
+        .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)))
         .limit(1);
       if (!current) {
         return { ok: false, reason: 'not_found' as const };
@@ -241,30 +211,25 @@ export async function updateLineageInTransaction(params: {
         return { ok: false, reason: 'invalid_folder' as const };
       }
 
-      // 白名单写入：姓氏只能继承项目，任何调用方都无法通过更新改它。
+      // Whitelist: only target-model columns may ever be written.
       const mutable: LineageUpdates = {};
       if (updates.folderId !== undefined) mutable.folderId = updates.folderId;
       if (updates.name !== undefined) mutable.name = updates.name;
-      if (updates.hallCode !== undefined) mutable.hallCode = updates.hallCode;
-      if (updates.region !== undefined) mutable.region = updates.region;
-      if (updates.notes !== undefined) mutable.notes = updates.notes;
-      if (updates.generationWords !== undefined) {
-        mutable.generationWords = updates.generationWords;
+      if (updates.description !== undefined) {
+        mutable.description = updates.description;
       }
+      if (updates.poemText !== undefined) mutable.poemText = updates.poemText;
+      if (updates.baseGeneration !== undefined) {
+        mutable.baseGeneration = updates.baseGeneration;
+      }
+      if (updates.seq !== undefined) mutable.seq = updates.seq;
 
       const [lineage] = await tx
         .update(lineages)
-        .set({ ...mutable, updatedAt: new Date() })
+        .set(mutable)
         .where(eq(lineages.id, lineageId))
         .returning();
 
-      await logActivityInTx(
-        tx,
-        userId,
-        orgId,
-        ActivityType.UPDATE_LINEAGE,
-        ipAddress
-      );
       return { ok: true as const, lineage };
     });
   } catch (error) {
@@ -285,19 +250,13 @@ export async function deleteLineageInTransaction(params: {
   lineageId: string;
   ipAddress?: string;
 }): Promise<DeleteLineageResult> {
-  const { userId, orgId, lineageId, ipAddress } = params;
+  const { userId, orgId, lineageId } = params;
 
   return withOrgWrite(userId, orgId, 'lineage.delete', async (tx) => {
     const [lineage] = await tx
       .select({ id: lineages.id })
       .from(lineages)
-      .where(
-        and(
-          eq(lineages.id, lineageId),
-          eq(lineages.orgId, orgId),
-          isNull(lineages.deletedAt)
-        )
-      )
+      .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)))
       .limit(1);
     if (!lineage) {
       return { ok: false, reason: 'not_found' as const };
@@ -309,8 +268,7 @@ export async function deleteLineageInTransaction(params: {
       .where(
         and(
           eq(bookCatalogs.orgId, orgId),
-          eq(bookCatalogs.lineageId, lineageId),
-          isNull(bookCatalogs.deletedAt)
+          eq(bookCatalogs.lineageId, lineageId)
         )
       )
       .limit(1);
@@ -318,30 +276,16 @@ export async function deleteLineageInTransaction(params: {
       return { ok: false, reason: 'referenced' as const };
     }
 
+    // Hard delete (RESTRICT semantics): the target model has no soft-delete
+    // column. Nodes go first so the lineage foreign key is satisfied.
     const deletedNodes = await tx
-      .update(nodes)
-      .set({ deletedAt: new Date() })
-      .where(
-        and(
-          eq(nodes.orgId, orgId),
-          eq(nodes.lineageId, lineageId),
-          isNull(nodes.deletedAt)
-        )
-      )
+      .delete(nodes)
+      .where(and(eq(nodes.orgId, orgId), eq(nodes.lineageId, lineageId)))
       .returning({ id: nodes.id });
 
     await tx
-      .update(lineages)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(lineages.id, lineageId));
-
-    await logActivityInTx(
-      tx,
-      userId,
-      orgId,
-      ActivityType.DELETE_LINEAGE,
-      ipAddress
-    );
+      .delete(lineages)
+      .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)));
 
     return { ok: true as const, deletedNodes: deletedNodes.length };
   });

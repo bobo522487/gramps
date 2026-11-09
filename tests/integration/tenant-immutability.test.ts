@@ -210,10 +210,14 @@ describe('tenant columns are immutable', () => {
     // typo, a missing project_id, folder_id added back — used to pass as long
     // as the trigger existed.
     const expected: Record<string, string[]> = {
-      activity_logs: ['organization_id'],
       article: ['organization_id', 'project_id'],
       book: ['organization_id', 'project_id'],
-      book_catalog: ['organization_id', 'book_id'],
+      // book 的主键是 (project_id, id)：只钉 book_id 时，在一个项目里造一条
+      // 同 id 的 book 就能把目录行连同 org 一起搬过去。
+      book_catalog: ['organization_id', 'project_id', 'book_id'],
+      // An export belongs to one book in one project. artifact_uri/checksum
+      // stay writable; the row is metadata, the artifact itself lives outside.
+      book_export: ['organization_id', 'project_id'],
       // An event belongs to one project. person_id/family_id stay writable: a
       // fact recorded on the husband can be moved to the union, and the
       // composite subject keys keep the new subject in the same project.
@@ -228,8 +232,11 @@ describe('tenant columns are immutable', () => {
       folder: ['organization_id', 'project_id'],
       invite: ['organization_id'],
       lineage: ['organization_id', 'project_id'],
-      node: ['organization_id', 'lineage_id'],
-      organization_member: ['organization_id'],
+      // lineage 的主键是 (project_id, id)：只钉 lineage_id 挡不住把节点搬到
+      // 另一个项目里那条同 id 的 lineage 下。
+      node: ['organization_id', 'project_id', 'lineage_id'],
+      // 成员行连 user_id 一起钉：允许改 user_id 等于允许把成员身份改写给别人。
+      organization_member: ['organization_id', 'user_id'],
       // person_name pins only the tenant, not person_id: Task 8's
       // reconciliation moves a name between people inside one project.
       person: ['organization_id', 'project_id'],

@@ -6,6 +6,7 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   smallint,
   text,
   unique,
@@ -13,13 +14,14 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import type { ProjectStatus } from '../../project/constants';
+import { users } from './auth';
 import { organizations } from './org';
-import { timestamptz, uuidPk } from './shared';
+import { scopedUuid, timestamptz } from './shared';
 
 export const projects = pgTable(
   'project',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id')
       .notNull()
       .references(() => organizations.id, { onDelete: 'restrict' }),
@@ -45,17 +47,27 @@ export const projects = pgTable(
       .notNull()
       .default(false),
     notes: text('notes'),
+    /**
+     * 附录 A.2 的产品形态列：SQL 基线一直保留它，但 TS schema 在 B1 追平时漏了。
+     * T39 的 TS ↔ 基线直接对比会抓到这处漂移；应用当前不读写，补列只为结构对齐。
+     */
+    description: text('description'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    updatedAt: timestamptz('updated_at'),
-    deletedAt: timestamptz('deleted_at'),
+    // 附录 A.2：`text REFERENCES auth.user(id) ON DELETE SET NULL`——可空，
+    // 因为销号不该连带卡死项目。原来写 uuid + not null，与 auth.user(id) 的
+    // text 类型不一致（建表 42804），且销号会撞 not-null。
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
-    unique('uk_project_organization_id').on(t.orgId, t.id),
-    uniqueIndex('uk_project_ref').on(t.ref).where(sql`${t.deletedAt} is null`),
-    index('idx_project_organization')
-      .on(t.orgId)
-      .where(sql`${t.deletedAt} is null`),
+    // Target state (appendix A.2): PRIMARY KEY (organization_id, id) plus a
+    // global UNIQUE (id). `ref` is a documented target-state extension column
+    // (docs/data-model.md §4); with soft delete gone its uniqueness is total.
+    primaryKey({ columns: [t.orgId, t.id] }),
+    unique('project_id_global').on(t.id),
+    uniqueIndex('uk_project_ref').on(t.ref),
+    index('idx_project_organization').on(t.orgId),
     check(
       'ck_project_status',
       sql`${t.status} in ('planning', 'in_progress', 'completed')`
@@ -67,34 +79,28 @@ export const projects = pgTable(
 export const folders = pgTable(
   'folder',
   {
-    id: uuidPk(),
+    id: scopedUuid(),
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
-    kind: smallint('kind').notNull(),
-    parentId: uuid('parent_id'),
     name: text('name').notNull(),
-    sort: integer('sort').notNull().default(0),
+    seq: integer('seq').notNull().default(0),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
-    createdBy: uuid('created_by').notNull(),
-    deletedAt: timestamptz('deleted_at'),
   },
   (t) => [
+    // Target state (appendix A.2): PRIMARY KEY (project_id, id). This also
+    // removes the 42830 hazard logged in A′: `lineage_folder_fk` references
+    // folder (project_id, id), which a single-column `id` key could not serve.
+    primaryKey({ columns: [t.projectId, t.id] }),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
-      name: 'fk_folder_project',
+      name: 'folder_scope_fk',
     }).onDelete('restrict'),
-    // Target of the self-referencing parent key below: a parent must live in
-    // the same organization AND the same project.
-    unique('uk_folder_org_project_id').on(t.orgId, t.projectId, t.id),
-    foreignKey({
-      columns: [t.parentId, t.orgId, t.projectId],
-      foreignColumns: [t.id, t.orgId, t.projectId],
-      name: 'fk_folder_parent_same_project',
-    }).onDelete('restrict'),
-    index('idx_folder_project')
-      .on(t.orgId, t.projectId, t.kind)
-      .where(sql`${t.deletedAt} is null`),
-    check('ck_folder_kind', sql`${t.kind} in (0, 1, 2)`),
+    // 扁平单层：谱系 / 谱文 / 谱书共用一套分类，名字在全项目内唯一。
+    // 基线一直有这个唯一键，TS 侧此前漏声明，T39 parity 只比列 / 主键 / FK
+    // 所以没抓到——本批补齐。
+    unique('folder_name_unique').on(t.projectId, t.name),
+    index('folder_order_idx').on(t.projectId, t.seq),
+    check('folder_seq_nonnegative', sql`${t.seq} >= 0`),
   ]
 );

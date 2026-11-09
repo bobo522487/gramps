@@ -22,7 +22,6 @@ const TABLE_EXPORTS = [
   'articles',
   'books',
   'bookCatalogs',
-  'activityLogs',
 ] as const;
 
 describe('schema barrel', () => {
@@ -33,8 +32,7 @@ describe('schema barrel', () => {
     }
   });
 
-  it('re-exports authSchema and the ActivityType enum', () => {
+  it('re-exports authSchema', () => {
     expect(schema.authSchema.schemaName).toBe('auth');
-    expect(schema.ActivityType.CREATE_NODE).toBe('CREATE_NODE');
   });
 });

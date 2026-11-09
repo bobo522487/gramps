@@ -1,9 +1,14 @@
 import { createAccessControl } from 'better-auth/plugins/access';
-import { defaultStatements } from 'better-auth/plugins/organization/access';
 
+/**
+ * 语句表是自有的，不再展开 Better Auth 组织访问控制的默认语句表（T28 拆插件
+ * 后随之退役）。organization / member / invitation 三个资源按附录 A.1 的角色
+ * 矩阵手写——这正是拆插件的目的之一：权限口径由本仓声明，不由插件默认值决定。
+ */
 export const statement = {
-  ...defaultStatements,
-  organization: [...defaultStatements.organization, 'transfer'],
+  organization: ['update', 'delete', 'transfer'],
+  member: ['create', 'update', 'delete'],
+  invitation: ['create', 'cancel'],
   content: ['read'],
   lineage: ['write', 'delete'],
   article: ['write'],

@@ -141,7 +141,7 @@ async function seedArticle(): Promise<{
   const articleId = dataOf(created).articleId;
   const added = await addArticlePageAction({ orgId: fixture.orgId, articleId });
   const row = await rowOf(articleId);
-  const pages = parseArticleContent(row?.content).pages.map((page) => page.id);
+  const pages = parseArticleContent(row?.body).pages.map((page) => page.id);
   return { articleId, pageIds: [...pages, dataOf(added).pageId] };
 }
 
@@ -149,10 +149,7 @@ async function rowOf(articleId: string) {
   const [row] = await getTestDb()
     .select({
       title: articles.title,
-      content: articles.content,
-      plainText: articles.plainText,
-      deletedAt: articles.deletedAt,
-      updatedAt: articles.updatedAt,
+      body: articles.body,
     })
     .from(articles)
     .where(eq(articles.id, articleId))
@@ -236,7 +233,6 @@ describe('未登录', () => {
     expect(await articleCount()).toBe(before);
     const row = await rowOf(articleId);
     expect(row?.title).toBe('安全回归用谱文');
-    expect(row?.deletedAt).toBeNull();
   });
 });
 
@@ -290,9 +286,7 @@ describe('只读角色（viewer）', () => {
     }
 
     const after = await rowOf(articleId);
-    expect(after?.content).toEqual(before?.content);
-    expect(after?.deletedAt).toBeNull();
-    expect(after?.updatedAt?.getTime()).toBe(before?.updatedAt?.getTime());
+    expect(after?.body).toEqual(before?.body);
   });
 
   it('查看者能取到删除预览，但预览只给计数、不给正文（读能力，不是写口子）', async () => {
@@ -362,9 +356,8 @@ describe('组织隔离', () => {
       expect(result).toMatchObject({ error: ARTICLE_ERRORS.not_found });
     }
     const after = await rowOf(articleId);
-    expect(after?.content).toEqual(before?.content);
+    expect(after?.body).toEqual(before?.body);
     expect(after?.title).toBe('安全回归用谱文');
-    expect(after?.deletedAt).toBeNull();
   });
 
   it('外组织的 projectId 建不出谱文，也不会多出一行', async () => {
@@ -397,7 +390,7 @@ describe('组织隔离', () => {
     });
     expect(result).toMatchObject({ error: ARTICLE_ERRORS.invalid_doc });
     const after = await rowOf(articleId);
-    expect(after?.content).toEqual(before?.content);
+    expect(after?.body).toEqual(before?.body);
   });
 
   it('本地上传通道拒绝把文件写进别人谱文的路径，且字节不落盘', async () => {
@@ -437,7 +430,7 @@ describe('内容里的脚本与 SQL 片段', () => {
     });
     const articleId = dataOf(created).articleId;
     const first = await rowOf(articleId);
-    const pageId = parseArticleContent(first?.content).pages[0].id;
+    const pageId = parseArticleContent(first?.body).pages[0].id;
 
     const saved = await saveArticlePageAction({
       orgId: fixture.orgId,
@@ -462,8 +455,9 @@ describe('内容里的脚本与 SQL 片段', () => {
 
     const row = await rowOf(articleId);
     expect(row?.title).toBe(hostileTitle);
-    expect(row?.plainText).toBe('<img src=x onerror=alert(2)> 1 OR 1=1 --');
-    expect(row?.plainText).not.toContain('<script>');
+    // 恶意文本按字面存进 body（JSON 不转义 < >），不执行、不丢字。
+    expect(row?.body).toContain('<img src=x onerror=alert(2)> 1 OR 1=1 --');
+    expect(row?.body).not.toContain('<script>');
     // 表还在：注入没有改变数据库状态。
     const folders = await getTestDb()
       .select({ id: articles.id })

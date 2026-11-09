@@ -24,7 +24,10 @@ jobs:
           --health-retries 10
     env:
       POSTGRES_URL: postgres://postgres:postgres@localhost:5432/gramps_test
-      APP_POSTGRES_URL: postgres://app:app@localhost:5432/gramps_test
+      # genealogy_app is the LOGIN role created by the single target baseline
+      # (A.0). Its sample password comes from the baseline; production injects
+      # a real credential per T34 / G1. Never give this role auth.* access.
+      APP_POSTGRES_URL: postgres://genealogy_app:app_pw@localhost:5432/gramps_test
       AUTH_POSTGRES_URL: postgres://auth_runtime:auth@localhost:5432/gramps_test
       BETTER_AUTH_SECRET: ci-placeholder-secret-value-long-enough-1234
       BETTER_AUTH_URL: http://localhost:3000
@@ -58,21 +61,37 @@ jobs:
       - name: Migrate test database
         run: pnpm db:migrate
 
-      # Mirrors production setup: login roles are created out of band and only
-      # inherit the RLS-scoped app_rw / auth_service roles.
-      - name: Provision runtime login roles
+      # T36-T42: target-schema verification rebuilds the single baseline in its
+      # own throwaway database (gramps_s8_verify), then asserts DDL, all P1-P32 /
+      # N1-N31 cases, TS <-> DDL catalog parity and fail-closed. T40 EXPLAIN
+      # numbers and the P21/P22/N20 structural cases need the confirmed target
+      # environment, so the script reports explicit SKIPs rather than fake PASS.
+      - name: Verify target schema (T36-T42)
+        run: pnpm verify:target-schema
+
+      # T32 revised: the business side uses genealogy_app, which the single
+      # target baseline (0000_target_schema.sql A.0) already created during
+      # `pnpm db:migrate`. Only the auth side is provisioned out of band:
+      # auth_service is a NOLOGIN role and auth_runtime inherits it.
+      #
+      # The split is deliberate, not transitional: auth.user / auth.session /
+      # auth.account / auth.verification have no RLS (verified on PG18), while
+      # every public business table does. Giving the business role auth.*
+      # access would let it read password hashes and session tokens. The
+      # integration-test helper re-applies the auth-side grants after each
+      # schema reset.
+      - name: Provision auth-side runtime roles
         run: |
           psql "$POSTGRES_URL" -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
-              CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_service') THEN
+              CREATE ROLE auth_service NOLOGIN NOSUPERUSER NOBYPASSRLS;
             END IF;
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_runtime') THEN
               CREATE ROLE auth_runtime LOGIN PASSWORD 'auth' NOSUPERUSER NOBYPASSRLS;
             END IF;
           END $$;
-          GRANT app_rw TO app;
           GRANT auth_service TO auth_runtime;
           SQL
 
@@ -89,7 +108,14 @@ jobs:
 
       - name: Check migration drift
         run: |
-          pnpm db:generate
+          set -o pipefail
+          pnpm db:generate 2>&1 | tee /tmp/drizzle-generate.log
+          # drizzle-kit 遇到列冲突时会打印交互式提示却以 exit 0 静默退出，
+          # 且不生成迁移文件；只检查 git status 会假绿（T39）。把输出也纳入断言。
+          if grep -q "Interactive prompts" /tmp/drizzle-generate.log; then
+            echo "::error::drizzle-kit 需要交互输入，snapshot 与 TS schema 不一致"
+            exit 1
+          fi
           test -z "$(git status --porcelain lib/db/migrations)"
 
       - name: Build

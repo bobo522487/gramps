@@ -202,7 +202,7 @@ export function articleContentSchema(scope: {
 /** 保存单页时的入参文档（不含分页包装）。 */
 export { imageNodeSchema as articleImageNodeSchema };
 
-/* ── Action 入参（contracts §1）────────────────────────────────────── */
+/* ── Action 入参────────────────────────────────────── */
 
 const uuidArg = z.uuid('参数无效');
 const pageIdArg = z.string().min(1, '页标识无效');
@@ -256,7 +256,7 @@ export const reorderArticlePagesSchema = z.object({
 });
 
 /**
- * 删除确认框的预览读取入参（contracts §1.10）。
+ * 删除确认框的预览读取入参。
  *
  * 这两个是**只读**通道：确认框要在用户点「删除」之前给出页数、图片数与
  * 「是否被谱书编目引用」，而这些数字只有服务端算得准（软删语义、跨表引用）。

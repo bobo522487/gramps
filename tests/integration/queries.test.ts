@@ -1,6 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { getActivityLogs, logActivity } from '@/lib/db/queries/activity';
+import {
+  type ArticleContent,
+  serializeArticleContent,
+} from '@/lib/article/doc';
 import {
   countArticlesByFolder,
   getArticle,
@@ -24,9 +27,7 @@ import {
   getProjects,
 } from '@/lib/db/queries/projects';
 import {
-  ActivityType,
   bookCatalogs,
-  books,
   folders,
   lineages,
   nodes,
@@ -57,56 +58,48 @@ async function personalOrgFor(userId: string) {
 }
 
 describe('folder queries', () => {
-  it('filters by kind, orders by sort and hides soft-deleted rows', async () => {
+  it('lists every folder of the project by seq, ignoring deleted rows', async () => {
     const user = await createUser();
     const org = await personalOrgFor(user.id);
     const project = await createProject({ orgId: org.id, createdBy: user.id });
-    const otherKind = await createFolder({
-      orgId: org.id,
-      projectId: project.id,
-      createdBy: user.id,
-      kind: 1,
-      sort: 0,
-    });
+    // 扁平单层：谱系 / 谱文 / 谱书共用一套分类，不再按 kind 过滤；
+    // 基线 folder_name_unique (project_id, name) 要求同项目内名字唯一。
     const later = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 0,
-      sort: 2,
+      seq: 2,
+      name: '靠后分类',
     });
     const earlier = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 0,
-      sort: 1,
+      seq: 1,
+      name: '靠前分类',
     });
     const deleted = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 0,
-      sort: 0,
+      seq: 0,
+      name: '待删分类',
     });
-    await getTestDb()
-      .update(folders)
-      .set({ deletedAt: new Date() })
-      .where(eq(folders.id, deleted.id));
+    // 目标态没有软删，删行即可；`getFolders` 只看存在的那一行。
+    await getTestDb().delete(folders).where(eq(folders.id, deleted.id));
 
-    const list = await getFolders(user.id, org.id, project.id, 0);
+    const list = await getFolders(user.id, org.id, project.id);
 
     expect(list.map((folder) => folder.id)).toEqual([earlier.id, later.id]);
-    expect(list.map((folder) => folder.id)).not.toContain(otherKind.id);
     expect(list.map((folder) => folder.id)).not.toContain(deleted.id);
 
     // Isolation of the list itself (restored after the deleted single-row
     // helper took this coverage with it — see branch review I-1).
     const otherOrg = await createOrganization();
-    expect(await getFolders(user.id, otherOrg.id, project.id, 0)).toEqual([]);
+    expect(await getFolders(user.id, otherOrg.id, project.id)).toEqual([]);
 
     const stranger = await createUser();
-    expect(await getFolders(stranger.id, org.id, project.id, 0)).toEqual([]);
+    expect(await getFolders(stranger.id, org.id, project.id)).toEqual([]);
   });
 });
 
@@ -120,11 +113,13 @@ describe('node queries', () => {
       projectId: project.id,
       createdBy: user.id,
     });
+    // 基线新增 node_path_unique / getNodes 按 path 排序：三节点用递增且不冲突的稀疏 path
     const root = await createNode({
       orgId: org.id,
       lineageId: lineage.id,
       createdBy: user.id,
       generation: 1,
+      path: '0001',
     });
     const child = await createNode({
       orgId: org.id,
@@ -132,17 +127,17 @@ describe('node queries', () => {
       createdBy: user.id,
       generation: 2,
       parentId: root.id,
+      path: '0002',
     });
     const deleted = await createNode({
       orgId: org.id,
       lineageId: lineage.id,
       createdBy: user.id,
       generation: 1,
+      path: '0003',
     });
-    await getTestDb()
-      .update(nodes)
-      .set({ deletedAt: new Date() })
-      .where(eq(nodes.id, deleted.id));
+    // 目标态是 RESTRICT 硬删，没有 deleted_at 列。
+    await getTestDb().delete(nodes).where(eq(nodes.id, deleted.id));
 
     const list = await getNodes(user.id, org.id, lineage.id);
     expect(list.map((node) => node.id)).toEqual([root.id, child.id]);
@@ -158,7 +153,7 @@ describe('node queries', () => {
 });
 
 describe('lineage queries', () => {
-  it('scopes lists to the project and hides soft-deleted lineages', async () => {
+  it('scopes lists to the project and excludes deleted lineages', async () => {
     const user = await createUser();
     const org = await personalOrgFor(user.id);
     const project = await createProject({ orgId: org.id, createdBy: user.id });
@@ -182,10 +177,7 @@ describe('lineage queries', () => {
       projectId: otherProject.id,
       createdBy: user.id,
     });
-    await getTestDb()
-      .update(lineages)
-      .set({ deletedAt: new Date() })
-      .where(eq(lineages.id, deleted.id));
+    await getTestDb().delete(lineages).where(eq(lineages.id, deleted.id));
 
     const list = await getLineages(user.id, org.id, project.id);
 
@@ -235,7 +227,7 @@ describe('organization queries', () => {
 
     await getTestDb()
       .update(organizations)
-      .set({ status: 'closed', deletedAt: new Date() })
+      .set({ status: 'closed' })
       .where(eq(organizations.id, org.id));
     expect(await getOrgById(owner.id, org.id)).toBeNull();
     expect(await getOrgWithRoleBySlug(owner.id, org.slug)).toBeNull();
@@ -278,38 +270,18 @@ describe('project queries', () => {
     expect(scope?.project.id).toBe(second.id);
     expect(scope?.role).toBe('owner');
 
-    await getTestDb()
-      .update(projects)
-      .set({ deletedAt: new Date() })
-      .where(eq(projects.id, first.id));
+    // 目标态没有软删：删就是真删，所以「查不到」由 `deleteProject` 兑现。
+    await getTestDb().delete(projects).where(eq(projects.id, first.id));
     expect(await getProjectById(user.id, first.id, org.id)).toBeNull();
     expect(await countProjects(user.id, org.id)).toBe(1);
   });
 });
 
-describe('activity queries', () => {
-  it('appends account-level events and returns the ten most recent', async () => {
-    const user = await createUser();
-    const org = await personalOrgFor(user.id);
-
-    await logActivity(user.id, null, ActivityType.SIGN_IN, '127.0.0.1');
-    for (let index = 0; index < 11; index += 1) {
-      await logActivity(user.id, org.id, ActivityType.UPDATE_NODE);
-    }
-
-    const logs = await getActivityLogs(user.id);
-    expect(logs).toHaveLength(10);
-    expect(logs[0].action).toBe(ActivityType.UPDATE_NODE);
-
-    const other = await createUser();
-    expect(await getActivityLogs(other.id)).toEqual([]);
-  });
-});
-
 /**
- * 谱文查询层（specs/002-article-authoring Task 5）。页数与图片数都从
- * `article.content` 的分页文档包现算，不占列；分类篇数只认 `folder.kind = 1`
- * （`article.kind` 恒为 NULL），未分类 = 总数 − 各分类之和。
+ * 谱文查询层。页数与图片数都从
+ * `article.content` 的分页文档包现算，不占列；分类篇数按 `folder` 统计
+ * （扁平单层后分类不再分 kind，谱系 / 谱文 / 谱书共用一套），
+ * 未分类 = 总数 − 各分类之和。
  */
 describe('article queries', () => {
   async function setup() {
@@ -319,13 +291,16 @@ describe('article queries', () => {
     return { user, org, project };
   }
 
-  function articleDoc(pageCount: number, imagesPerPage: number[] = []) {
+  function articleDoc(
+    pageCount: number,
+    imagesPerPage: number[] = []
+  ): ArticleContent {
     return {
       schemaVersion: 1,
       pages: Array.from({ length: pageCount }, (_, index) => ({
         id: `page-${index}`,
         doc: {
-          type: 'doc',
+          type: 'doc' as const,
           content: [
             {
               type: 'paragraph',
@@ -354,17 +329,17 @@ describe('article queries', () => {
       projectId: project.id,
       createdBy: user.id,
       title: '旧数据',
-      content: { type: 'doc', content: [] },
+      // 旧的单文档形状（无 schemaVersion/pages），用于验证页数兜底为 1。
+      content: { type: 'doc', content: [] } as unknown as ArticleContent,
     });
-    const edited = await createArticle({
+    const threePages = await createArticle({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
       title: '改过',
       content: articleDoc(3),
-      updatedAt: new Date(Date.now() + 3_600_000),
     });
-    const untouched = await createArticle({
+    const onePage = await createArticle({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
@@ -374,55 +349,54 @@ describe('article queries', () => {
 
     const list = await listArticles(user.id, org.id, project.id);
 
+    // 目标态没有 `updated_at`（附录 A.5），排序键只剩 `created_at`，所以预期顺序
+    // 就是插入顺序的倒序。
     expect(list.map((item) => item.id)).toEqual([
-      edited.id,
-      untouched.id,
+      onePage.id,
+      threePages.id,
       legacy.id,
     ]);
     const counts = new Map(list.map((item) => [item.id, item.pageCount]));
-    expect(counts.get(edited.id)).toBe(3);
+    expect(counts.get(threePages.id)).toBe(3);
     // 旧的单文档形状兜底成一页，列表不会显示 0 页
     expect(counts.get(legacy.id)).toBe(1);
   });
 
-  it('hides soft-deleted articles and foreign organizations', async () => {
+  it('never lists rows of a foreign organization', async () => {
     const { user, org, project } = await setup();
     await createArticle({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      deletedAt: new Date(),
     });
     const outsider = await createUser();
 
+    // 目标态没有软删，谱文要么在表里要么不在，所以这条只验跨组织隔离。
     const list = await listArticles(user.id, org.id, project.id);
-    expect(list).toHaveLength(0);
+    expect(list).toHaveLength(1);
     // 外人带正确的 orgId 也拿不到（RLS + orgId 双条件）
     expect(await listArticles(outsider.id, org.id, project.id)).toHaveLength(0);
   });
 
-  it('counts articles per 谱文 folder and derives the unfiled count', async () => {
+  it('counts articles per folder and derives the unfiled count', async () => {
     const { user, org, project } = await setup();
     const orderFolder = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 1,
       name: '谱序',
     });
     const bioFolder = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 1,
       name: '传记',
     });
-    const lineageFolder = await createFolder({
+    const sharedFolder = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 0,
-      name: '谱系分类',
+      name: '共用分类',
     });
 
     for (const title of ['谱序一', '谱序二']) {
@@ -441,13 +415,13 @@ describe('article queries', () => {
       title: '传记一',
       folderId: bioFolder.id,
     });
-    // 挂在谱系分类下的脏数据不参与分类篇数，计入未分类
+    // 扁平单层后没有「谱系分类」这回事，同一个分类也能挂谱文，照常计数。
     await createArticle({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      title: '挂错分类',
-      folderId: lineageFolder.id,
+      title: '共用分类里的谱文',
+      folderId: sharedFolder.id,
     });
     await createArticle({
       orgId: org.id,
@@ -455,23 +429,14 @@ describe('article queries', () => {
       createdBy: user.id,
       title: '没分类',
     });
-    await createArticle({
-      orgId: org.id,
-      projectId: project.id,
-      createdBy: user.id,
-      title: '已删除',
-      folderId: orderFolder.id,
-      deletedAt: new Date(),
-    });
-
     const counts = await countArticlesByFolder(user.id, org.id, project.id);
 
     expect(counts.byFolder.get(orderFolder.id)).toBe(2);
     expect(counts.byFolder.get(bioFolder.id)).toBe(1);
-    expect(counts.byFolder.has(lineageFolder.id)).toBe(false);
-    // 5 篇活动谱文：3 篇在谱文分类里，1 篇没分类、1 篇挂错种类 → 都算未分类
+    expect(counts.byFolder.get(sharedFolder.id)).toBe(1);
+    // 5 篇谱文：4 篇在分类里、1 篇未分类。
     expect(counts.total).toBe(5);
-    expect(counts.unfiled).toBe(2);
+    expect(counts.unfiled).toBe(1);
   });
 
   it('previews an article delete with its page and image counts', async () => {
@@ -509,7 +474,7 @@ describe('article queries', () => {
     const loaded = await getArticle(user.id, org.id, article.id);
 
     expect(loaded?.title).toBe(article.title);
-    expect(loaded?.content).toEqual(content);
+    expect(loaded?.body).toBe(serializeArticleContent(content));
     expect(await getArticle(user.id, org.id, crypto.randomUUID())).toBeNull();
   });
 
@@ -527,68 +492,43 @@ describe('article queries', () => {
     });
     const item = await createCatalogItem({
       orgId: org.id,
+      projectId: project.id,
       bookId: book.id,
-      createdBy: user.id,
       articleId: article.id,
     });
 
     expect(await hasCatalogReference(user.id, org.id, article.id)).toBe(true);
 
-    await getTestDb()
-      .update(bookCatalogs)
-      .set({ deletedAt: new Date() })
-      .where(eq(bookCatalogs.id, item.id));
-    expect(await hasCatalogReference(user.id, org.id, article.id)).toBe(false);
-
-    await getTestDb()
-      .update(bookCatalogs)
-      .set({ deletedAt: null })
-      .where(eq(bookCatalogs.id, item.id));
-    await getTestDb()
-      .update(books)
-      .set({ deletedAt: new Date() })
-      .where(eq(books.id, book.id));
+    // 目标态 `book_catalog` 无软删列（附录 A.5 / B3 T25），删除即真删；
+    // 编目项被删即不再算引用。
+    await getTestDb().delete(bookCatalogs).where(eq(bookCatalogs.id, item.id));
     expect(await hasCatalogReference(user.id, org.id, article.id)).toBe(false);
   });
 
-  it('previews a folder delete with its subtree and article counts', async () => {
+  it('previews a folder delete with its article count', async () => {
     const { user, org, project } = await setup();
-    const parent = await createFolder({
+    const folder = await createFolder({
       orgId: org.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 1,
       name: '谱序',
     });
-    const child = await createFolder({
-      orgId: org.id,
-      projectId: project.id,
-      createdBy: user.id,
-      kind: 1,
-      parentId: parent.id,
-      name: '修谱序',
-    });
-    await createArticle({
-      orgId: org.id,
-      projectId: project.id,
-      createdBy: user.id,
-      folderId: parent.id,
-    });
-    for (const title of ['甲', '乙']) {
+    for (const title of ['甲', '乙', '丙']) {
       await createArticle({
         orgId: org.id,
         projectId: project.id,
         createdBy: user.id,
         title,
-        folderId: child.id,
+        folderId: folder.id,
       });
     }
 
-    const preview = await getFolderDeletePreview(user.id, org.id, parent.id);
+    const preview = await getFolderDeletePreview(user.id, org.id, folder.id);
 
+    // 扁平单层：没有子树，folderCount 恒为 1。
     expect(preview).toMatchObject({
       name: '谱序',
-      folderCount: 2,
+      folderCount: 1,
       articleCount: 3,
     });
     expect(

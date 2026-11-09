@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 import { withOrg } from '../drizzle';
 import {
@@ -12,9 +12,13 @@ import {
 } from '../schema';
 
 /**
- * 谱文读取层（specs/002-article-authoring）。页数与图片数都从 `article.content`
- * 的分页文档包现算——不占列、不会有第二份真相（AGENTS §5.1、research §8）。
+ * 谱文读取层。页数与图片数都从 `article.body`
+ * 的分页文档包现算——不占列、不会有第二份真相。
  * 所有查询都走 `withOrg` 并同时带 `orgId`，外组织一律空结果而不是报错。
+ *
+ * 目标态（附录 A.5）里 `article` / `book` / `folder` 都没有 `deleted_at`，删除即
+ * 真删，所以本文件不再按软删过滤。唯一例外是 `book_catalog`：它的软删列随
+ * B3 / T25 一起退役，`hasCatalogReference` 仍按它过滤——这一处是登记在案的中间态。
  */
 
 export type ArticleSummary = {
@@ -22,15 +26,13 @@ export type ArticleSummary = {
   title: string;
   folderId: string | null;
   pageCount: number;
-  createdBy: string;
   createdAt: Date;
-  updatedAt: Date | null;
 };
 
 export type ArticleFolderCounts = {
-  /** 只含 `folder.kind = 1` 的活动分类；没有谱文的分类不出现在里面。 */
+  /** 只含至少有一篇谱文的分类；没有谱文的分类不出现在里面。 */
   byFolder: Map<string, number>;
-  /** 总数减去各分类之和：挂在已删分类或错种类分类下的都算未分类。 */
+  /** 总数减去各分类之和：未分类的谱文算在这里。 */
   unfiled: number;
   total: number;
 };
@@ -51,19 +53,17 @@ export type FolderDeletePreview = {
 
 /** 旧的单文档形状没有 `pages`，兜底显示 1 页，与 `parseArticleContent` 一致。 */
 const pageCountSql = sql<number>`case
-  when jsonb_typeof(${articles.content} -> 'pages') = 'array'
-  then jsonb_array_length(${articles.content} -> 'pages')
+  when jsonb_typeof(((${articles.body})::jsonb -> 'pages')) = 'array'
+  then jsonb_array_length((${articles.body})::jsonb -> 'pages')
   else 1
 end`;
 
 const imageCountSql = sql<number>`coalesce(jsonb_array_length(
   jsonb_path_query_array(
-    ${articles.content},
+    (${articles.body})::jsonb,
     '$.pages[*].doc.content[*] ? (@.type == "articleImage")'
   )
 ), 0)`;
-
-const lastTouched = sql`coalesce(${articles.updatedAt}, ${articles.createdAt})`;
 
 export async function listArticles(
   userId: string,
@@ -76,20 +76,13 @@ export async function listArticles(
         id: articles.id,
         title: articles.title,
         folderId: articles.folderId,
-        createdBy: articles.createdBy,
         createdAt: articles.createdAt,
-        updatedAt: articles.updatedAt,
         pageCount: pageCountSql,
       })
       .from(articles)
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          eq(articles.projectId, projectId),
-          isNull(articles.deletedAt)
-        )
-      )
-      .orderBy(desc(lastTouched), asc(articles.id))
+      .where(and(eq(articles.orgId, orgId), eq(articles.projectId, projectId)))
+      // 目标态没有 `updated_at`，「最近动过」的排序键只剩 `created_at`。
+      .orderBy(desc(articles.createdAt), asc(articles.id))
   );
 }
 
@@ -102,13 +95,7 @@ export async function getArticle(
     const rows = await tx
       .select()
       .from(articles)
-      .where(
-        and(
-          eq(articles.id, articleId),
-          eq(articles.orgId, orgId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);
     return rows[0] ?? null;
   });
@@ -125,33 +112,14 @@ export async function countArticlesByFolder(
       // innerJoin 之后 folderId 不可能为 null：取 folders.id，免得留个走不到的分支。
       .select({ folderId: folders.id, value: sql<number>`count(*)` })
       .from(articles)
-      .innerJoin(
-        folders,
-        and(
-          eq(folders.id, articles.folderId),
-          eq(folders.kind, 1),
-          isNull(folders.deletedAt)
-        )
-      )
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          eq(articles.projectId, projectId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .innerJoin(folders, eq(folders.id, articles.folderId))
+      .where(and(eq(articles.orgId, orgId), eq(articles.projectId, projectId)))
       .groupBy(folders.id);
 
     const totalRows = await tx
       .select({ value: sql<number>`count(*)` })
       .from(articles)
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          eq(articles.projectId, projectId),
-          isNull(articles.deletedAt)
-        )
-      );
+      .where(and(eq(articles.orgId, orgId), eq(articles.projectId, projectId)));
     // count(*) arrives as a string over the wire (bigint), same as everywhere else.
     const total = Number(totalRows[0]?.value ?? 0);
 
@@ -179,13 +147,7 @@ export async function getArticleDeletePreview(
         imageCount: imageCountSql,
       })
       .from(articles)
-      .where(
-        and(
-          eq(articles.id, articleId),
-          eq(articles.orgId, orgId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);
     const row = rows[0];
     if (!row) {
@@ -209,15 +171,11 @@ export async function hasCatalogReference(
     const rows = await tx
       .select({ id: bookCatalogs.id })
       .from(bookCatalogs)
-      .innerJoin(
-        books,
-        and(eq(books.id, bookCatalogs.bookId), isNull(books.deletedAt))
-      )
+      .innerJoin(books, eq(books.id, bookCatalogs.bookId))
       .where(
         and(
           eq(bookCatalogs.orgId, orgId),
-          eq(bookCatalogs.articleId, articleId),
-          isNull(bookCatalogs.deletedAt)
+          eq(bookCatalogs.articleId, articleId)
         )
       )
       .limit(1);
@@ -226,8 +184,8 @@ export async function hasCatalogReference(
 }
 
 /**
- * 删分类前的确认口径（FR-005）：连带消失的分类数，与会转入「未分类」的谱文数。
- * 只统计谱文分类（kind = 1）的子树，与 `deleteFolderInTransaction` 的级联一致。
+ * 删分类前的确认口径：这一条分类下会转入「未分类」的谱文数。
+ * 扁平单层没有子树，`folderCount` 恒为 1（删的就是这一条）。
  */
 export async function getFolderDeletePreview(
   userId: string,
@@ -235,76 +193,23 @@ export async function getFolderDeletePreview(
   folderId: string
 ): Promise<FolderDeletePreview | null> {
   return withOrg(userId, async (tx) => {
-    const roots = await tx
-      .select({
-        id: folders.id,
-        name: folders.name,
-        projectId: folders.projectId,
-      })
+    const [root] = await tx
+      .select({ id: folders.id, name: folders.name })
       .from(folders)
-      .where(
-        and(
-          eq(folders.id, folderId),
-          eq(folders.orgId, orgId),
-          eq(folders.kind, 1),
-          isNull(folders.deletedAt)
-        )
-      )
+      .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
       .limit(1);
-    const root = roots[0];
     if (!root) {
       return null;
     }
 
-    const siblings = await tx
-      .select({ id: folders.id, parentId: folders.parentId })
-      .from(folders)
-      .where(
-        and(
-          eq(folders.orgId, orgId),
-          eq(folders.projectId, root.projectId),
-          eq(folders.kind, 1),
-          isNull(folders.deletedAt)
-        )
-      );
-
-    const childrenOf = new Map<string, string[]>();
-    for (const folder of siblings) {
-      if (!folder.parentId) {
-        continue;
-      }
-      const list = childrenOf.get(folder.parentId);
-      if (list) {
-        list.push(folder.id);
-      } else {
-        childrenOf.set(folder.parentId, [folder.id]);
-      }
-    }
-
-    // 分类最多 3 层（FR-005），递归到底也不会深；比 while+shift 少一个走不到的分支。
-    const subtree: string[] = [];
-    const collect = (folderId: string) => {
-      subtree.push(folderId);
-      for (const childId of childrenOf.get(folderId) ?? []) {
-        collect(childId);
-      }
-    };
-    collect(root.id);
-
     const counted = await tx
       .select({ value: sql<number>`count(*)` })
       .from(articles)
-      .where(
-        and(
-          eq(articles.orgId, orgId),
-          inArray(articles.folderId, subtree),
-          isNull(articles.deletedAt)
-        )
-      );
+      .where(and(eq(articles.orgId, orgId), eq(articles.folderId, folderId)));
 
     return {
       name: root.name,
-      folderCount: subtree.length,
+      folderCount: 1,
       articleCount: Number(counted[0]?.value ?? 0),
     };
   });
@@ -321,7 +226,7 @@ export type ArticleScope = {
 /**
  * Resolves an article inside the caller's organization. A foreign `articleId`
  * comes back `null` rather than an error, so callers can answer "not found"
- * without leaking existence (AGENTS §5.4).
+ * without leaking existence.
  */
 export async function getArticleScope(
   userId: string,
@@ -338,13 +243,7 @@ export async function getArticleScope(
         title: articles.title,
       })
       .from(articles)
-      .where(
-        and(
-          eq(articles.id, articleId),
-          eq(articles.orgId, orgId),
-          isNull(articles.deletedAt)
-        )
-      )
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);
     return rows[0] ?? null;
   });

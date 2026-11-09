@@ -144,11 +144,18 @@ describe('authorization invariants', () => {
     expect(projectScope).toContain('eq(projects.ref, ref)');
   });
 
-  it('runs every business query as app_rw with verified claims', () => {
+  it('runs every business query as genealogy_app with verified claims', () => {
     // RLS only protects the app if SET LOCAL role and claims are set in the
     // same transaction; a session-level SET would leak into pooled requests.
-    expect(drizzleSource).toContain('set local role app_rw');
-    expect(drizzleSource).toContain("set_config('request.jwt.claims'");
+    // T32 修订后业务连接就是基线的 LOGIN 角色 genealogy_app，不再经 app_rw
+    // 收窄；这里只钉死「同事务内先钉角色再注入 GUC」这个边界。
+    expect(drizzleSource).toContain('set local role genealogy_app');
+    // GUC 名必须是 `app.user_id`：`app.current_user_id()` 读的就是它
+    // （docs/data-model.md §3）。旧的 `request.jwt.claims` 没有任何函数读，
+    // 写它等于没写——`visible_org_array()` 恒返回空数组，所有组织查询静默 0 行。
+    expect(drizzleSource).toContain("set_config('app.user_id'");
+    // 用调用形态匹配，避免被解释来龙去脉的注释误伤。
+    expect(drizzleSource).not.toMatch(/set_config\('request\.jwt\.claims'/);
   });
 
   it('keeps organization membership in Better Auth tables only', () => {
@@ -174,39 +181,28 @@ describe('authorization invariants', () => {
   });
 });
 
-// TEMPORARY FREEZE — expires when the P1 read/write switch starts.
-// Expiry is defined in ONE place: the plan's Global Constraints + Task 3/Step 3
-// (docs/superpowers/plans/2026-11-05-p1-read-write-switch.md). Both this describe
-// and the four temporary assertions in tests/fact-layer-freeze.test.ts are
-// rewritten or deleted together at Phase 2 ("写切换"), never at Phase 1 (design).
-// The fact layer is the TARGET source of truth (decided 2026-11-05), not dead
-// code: `node` is only the CURRENT reader/writer. Until the product mainline
-// (book catalog + layout) ships end-to-end, lineage writes must not drift into
-// a second, unsynchronised representation.
-//
-// 这是一条**窄补位**：只看两个最容易长出双写的谱系写服务，不是全库边界。
-// 结构性冻结（六表声明 / 列名 / 全业务目录 import 与 namespace 访问 / 迁移
-// 基线）在 tests/fact-layer-freeze.test.ts。这里不再用裸词 \bpersons\b 之类
-// 断言——它会把注释与同名局部变量误判成违规，反而漏掉 namespace 访问
-// （独立评审 I6）。
+// A′10 反转：阶段 A 的临时冻结（P1 读写切换前，谱系写服务不得 import/访问
+// 事实层）已随 D2「无生产存量」与回填 CLI 退役而解除。目标态里事实层是唯一
+// 真相源，应用写链路必须直接写事实层——旧断言会把正当重构挡在门外，因此从
+// 「禁止访问」翻转为「写链路已接入事实层」。语义不变：仍以同一组事实层符号
+// 与谱系写文件构成一道护栏，只是方向反过来，防止有人把冻结以别的形式加回
+// （例如把 node-services 改回只写 node 的旧形状）。
 const FACT_SYMBOLS =
   'persons|personNames|families|familyPartners|familyChildren|events';
 const FACT_IMPORT = new RegExp(
   `^import[^;]*\\b(?:${FACT_SYMBOLS})\\b[^;]*from\\s*['"][^'"]*(?:schema|db)(?:/(?:index|person|family|event))?['"]`,
   'm'
 );
-const FACT_ACCESS = new RegExp(
-  `\\b(?:schema|db|tx)\\.(?:query\\.)?(?:${FACT_SYMBOLS})\\b`
+const FACT_WRITE = new RegExp(
+  `\\.(?:insert|update)\\(\\s*(?:${FACT_SYMBOLS})\\b`
 );
 
-describe('fact-layer write boundary (narrow backstop, TEMPORARY — delete at Phase 2)', () => {
-  const lineageWriteSources = [
-    read('../lib/lineage/node-services.ts'),
-    read('../lib/lineage/services.ts'),
-  ].join('\n');
+describe('target-model fact-layer write access (A′10, freeze lifted)', () => {
+  const nodeServices = read('../lib/lineage/node-services.ts');
 
-  it('lineage write services neither import nor reach the fact-layer tables', () => {
-    expect(lineageWriteSources).not.toMatch(FACT_IMPORT);
-    expect(lineageWriteSources).not.toMatch(FACT_ACCESS);
+  it('lineage write path imports and writes the fact-layer tables', () => {
+    // 目标态应用可写事实层：谱系创建既 import 又 insert 身份 / 姓名表。
+    expect(nodeServices).toMatch(FACT_IMPORT);
+    expect(nodeServices).toMatch(FACT_WRITE);
   });
 });

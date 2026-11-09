@@ -14,10 +14,13 @@ export default async function OrgTeamPage({
 }) {
   const { orgSlug } = await params;
   const context = await requireOrgContext(orgSlug);
-  const orgMembers = await listOrgMembers(context.organization.id);
+  const orgMembers = await listOrgMembers(
+    context.user.id,
+    context.organization.id
+  );
 
   const members: MemberView[] = orgMembers.map((member) => ({
-    id: member.id,
+    userId: member.userId,
     name: member.name,
     email: member.email,
     role: member.role,

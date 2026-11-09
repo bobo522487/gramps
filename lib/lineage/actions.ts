@@ -56,9 +56,9 @@ export const createLineageAction = validatedActionWithUser(
       projectId: data.projectId,
       folderId: data.folderId,
       name: data.name,
-      region: data.region,
-      hallCode: data.hallCode,
-      notes: data.notes,
+      // The form still posts region / hallCode / notes; the target-model
+      // `lineage` has no such columns (appendix A.4), so they are dropped at
+      // this boundary rather than written to a look-alike column.
     });
 
     if (!result.ok) {
@@ -76,24 +76,15 @@ export const createLineageAction = validatedActionWithUser(
 export const updateLineageAction = validatedActionWithUser(
   updateLineageSchema,
   async (data, _, user) => {
+    // Only target-model `lineage` columns are forwarded. The remaining form
+    // fields (hallCode / region / notes / generationWords) are retained as a
+    // stable form contract but have no target-model column.
     const updates: LineageUpdates = {};
     if (data.folderId !== undefined) {
       updates.folderId = data.folderId;
     }
     if (data.name !== undefined) {
       updates.name = data.name;
-    }
-    if (data.hallCode !== undefined) {
-      updates.hallCode = data.hallCode;
-    }
-    if (data.region !== undefined) {
-      updates.region = data.region;
-    }
-    if (data.notes !== undefined) {
-      updates.notes = data.notes;
-    }
-    if (data.generationWords !== undefined) {
-      updates.generationWords = data.generationWords;
     }
 
     const result = await updateLineageInTransaction({
@@ -129,7 +120,7 @@ export const deleteLineageAction = validatedActionWithUser(
     return {
       success:
         result.deletedNodes > 0
-          ? `谱系已删除，${result.deletedNodes} 位人丁已归档`
+          ? `谱系已删除，${result.deletedNodes} 位人丁已一并删除`
           : '谱系已删除',
     };
   }
@@ -142,7 +133,6 @@ export const createRootNodeAction = validatedActionWithUser(
       userId: user.id,
       orgId: data.orgId,
       lineageId: data.lineageId,
-      requestId: data.requestId,
       name: data.name,
       surname: data.surname,
       sex: data.sex,
@@ -170,7 +160,6 @@ export const addChildAction = validatedActionWithUser(
       userId: user.id,
       orgId: data.orgId,
       lineageId: data.lineageId,
-      requestId: data.requestId,
       parentId: data.parentId,
       name: data.name,
       surname: data.surname,
@@ -199,7 +188,6 @@ export const addSiblingAction = validatedActionWithUser(
       userId: user.id,
       orgId: data.orgId,
       lineageId: data.lineageId,
-      requestId: data.requestId,
       siblingOfId: data.siblingOfId,
       name: data.name,
       surname: data.surname,
@@ -228,7 +216,6 @@ export const addPersonAction = validatedActionWithUser(
       userId: user.id,
       orgId: data.orgId,
       lineageId: data.lineageId,
-      requestId: data.requestId,
       name: data.name,
       surname: data.surname,
       sex: data.sex,
@@ -259,8 +246,7 @@ export const addSpouseAction = validatedActionWithUser(
       userId: user.id,
       orgId: data.orgId,
       lineageId: data.lineageId,
-      requestId: data.requestId,
-      spouseOfId: data.spouseOfId,
+      anchorId: data.spouseOfId,
       name: data.name,
       surname: data.surname,
       sex: data.sex,

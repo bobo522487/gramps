@@ -514,9 +514,9 @@ describe('lineage derived values', () => {
 
 describe('lineage sidebar tree', () => {
   const folders = [
-    { id: 'f1', name: '福建支', parentId: null },
-    { id: 'f2', name: '福州房', parentId: 'f1' },
-    { id: 'f3', name: '广东支', parentId: null },
+    { id: 'f1', name: '福建支' },
+    { id: 'f2', name: '福州房' },
+    { id: 'f3', name: '广东支' },
   ];
   const lineages = [
     {
@@ -548,40 +548,42 @@ describe('lineage sidebar tree', () => {
     },
   ];
 
-  it('builds nested folders, unfiled lineages and subtree counts', () => {
+  it('builds flat folders, unfiled lineages and per-folder counts', () => {
     const tree = buildLineageTree(folders, lineages);
 
     expect(tree.lineageCount).toBe(3);
+    // 扁平单层：分类按名称排序后平铺，没有 children / depth。
     expect(tree.folders.map((folder) => folder.folder.id)).toEqual([
       'f1',
+      'f2',
       'f3',
     ]);
-    const fujian = tree.folders[0];
-    expect(fujian?.lineageCount).toBe(1);
-    expect(fujian?.children[0]?.folder.id).toBe('f2');
-    expect(fujian?.children[0]?.depth).toBe(1);
-    expect(tree.folders[1]?.lineageCount).toBe(1);
+    expect(tree.folders.map((folder) => folder.lineageCount)).toEqual([
+      0, 1, 1,
+    ]);
+    expect(tree.folders[1]?.lineages.map(({ lineage }) => lineage.id)).toEqual([
+      'l1',
+    ]);
     expect(tree.unfiled.map((entry) => entry.lineage.id)).toEqual(['l2']);
   });
 
-  it('keeps ancestor folders when filtering and matches hall names', () => {
+  it('keeps folder-name hits when filtering and matches hall names', () => {
     const tree = buildLineageTree(folders, lineages);
-    const filtered = filterLineageTree(tree, '宗谱');
 
-    expect(filtered.folders).toHaveLength(1);
-    expect(filtered.folders[0]?.folder.id).toBe('f1');
-    expect(filtered.folders[0]?.children[0]?.lineages[0]?.lineage.id).toBe(
-      'l1'
-    );
-    expect(filtered.unfiled).toEqual([]);
+    const byLineage = filterLineageTree(tree, '宗谱');
+    expect(byLineage.folders).toHaveLength(1);
+    expect(byLineage.folders[0]?.folder.id).toBe('f2');
+    expect(byLineage.folders[0]?.lineages[0]?.lineage.id).toBe('l1');
+    expect(byLineage.unfiled).toEqual([]);
 
     const byHall = filterLineageTree(tree, '颍川');
+    expect(byHall.folders[0]?.folder.id).toBe('f2');
     expect(byHall.folders[0]?.lineageCount).toBe(1);
-    expect(byHall.folders[0]?.children[0]?.lineages[0]?.lineage.id).toBe('l1');
 
+    // 分类名命中就保留该分类（谱系可以一个都不剩）。
     const byFolder = filterLineageTree(tree, '福州');
-    expect(byFolder.folders[0]?.folder.id).toBe('f1');
-    expect(byFolder.folders[0]?.children[0]?.folder.id).toBe('f2');
+    expect(byFolder.folders[0]?.folder.id).toBe('f2');
+    expect(byFolder.folders[0]?.lineageCount).toBe(0);
 
     const none = filterLineageTree(tree, '无匹配');
     expect(none.folders).toEqual([]);
@@ -593,7 +595,9 @@ describe('lineage sidebar tree', () => {
       { ...lineages[0], folderId: 'missing' },
     ]);
     expect(tree.unfiled).toHaveLength(1);
-    expect(tree.folders[0]?.lineageCount).toBe(0);
+    expect(tree.folders.map((folder) => folder.lineageCount)).toEqual([
+      0, 0, 0,
+    ]);
   });
 
   it('exposes a single source for rank labels', () => {

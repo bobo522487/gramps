@@ -142,23 +142,19 @@ export function LineageSidebar({
     return count === 0 ? '新建文件夹' : `新建文件夹 ${count + 1}`;
   }
 
-  async function handleCreateFolder(parentId: string | null) {
+  async function handleCreateFolder() {
     if (pendingId) {
       return;
     }
     setGlobalError(null);
     setRowError(null);
     const name = nextFolderName();
-    setPendingId(parentId ?? 'root');
+    setPendingId('root');
     try {
       const formData = new FormData();
       formData.set('orgId', orgId);
       formData.set('projectId', projectId);
-      formData.set('kind', '0');
       formData.set('name', name);
-      if (parentId) {
-        formData.set('parentId', parentId);
-      }
       const result = await createFolderAction({}, formData);
       if ('error' in result) {
         setGlobalError(result.error ?? '新建文件夹失败，请重试');
@@ -167,9 +163,6 @@ export function LineageSidebar({
       if (!result.folderId) {
         setGlobalError('新建文件夹失败，请重试');
         return;
-      }
-      if (parentId && collapsedFolderIds.includes(parentId)) {
-        toggleFolder(parentId);
       }
       setEditing({
         kind: 'folder',
@@ -420,8 +413,7 @@ export function LineageSidebar({
     const collapsed = collapsedFolderIds.includes(folderId);
     const open = query.trim().length > 0 || !collapsed;
     const isEditing = editing?.kind === 'folder' && editing.id === folderId;
-    const indent = 10 + folder.depth * 14;
-    const canAddSubfolder = canManageFolders && folder.depth < 2;
+    const indent = 10;
 
     return (
       <div key={`folder-${folderId}`}>
@@ -512,13 +504,6 @@ export function LineageSidebar({
                       <Plus size={12} /> 新建谱系
                     </DropdownMenuItem>
                   ) : null}
-                  {canAddSubfolder ? (
-                    <DropdownMenuItem
-                      onSelect={() => void handleCreateFolder(folderId)}
-                    >
-                      <FolderPlus size={12} /> 新建子文件夹
-                    </DropdownMenuItem>
-                  ) : null}
                   {canManageFolders ? (
                     <>
                       <DropdownMenuSeparator />
@@ -554,10 +539,7 @@ export function LineageSidebar({
         ) : null}
         {open ? (
           <div>
-            {folder.children.map(renderFolder)}
-            {folder.lineages.map(({ lineage }) =>
-              renderLineage(lineage, folder.depth + 1)
-            )}
+            {folder.lineages.map(({ lineage }) => renderLineage(lineage, 1))}
           </div>
         ) : null}
       </div>
@@ -579,7 +561,7 @@ export function LineageSidebar({
           {canManageFolders ? (
             <button
               type="button"
-              onClick={() => void handleCreateFolder(null)}
+              onClick={() => void handleCreateFolder()}
               disabled={pendingId !== null}
               className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               title="新建文件夹"

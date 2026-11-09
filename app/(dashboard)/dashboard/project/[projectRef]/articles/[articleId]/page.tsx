@@ -15,8 +15,8 @@ import { getArticle } from '@/lib/db/queries/articles';
  * 谱文编辑器页（FR-012）。
  *
  * RSC 只负责**首次挂载**把服务端快照交给编辑器；此后客户端自己接管，
- * 保存/加删页都不再整页失效（research §6：否则服务端快照会在敲字间隙
- * 被推回编辑器，覆盖未保存内容，违反 FR-017）。
+ * 保存/加删页都不再整页失效：否则服务端快照会在敲字间隙
+ * 被推回编辑器，覆盖未保存内容，违反 FR-017。
  */
 
 export default async function ArticleEditorPage({
@@ -41,7 +41,6 @@ export default async function ArticleEditorPage({
   const folderNodes: ArticleFolderNode[] = folders.map((folder) => ({
     id: folder.id,
     name: folder.name,
-    parentId: folder.parentId,
     count: counts.byFolder.get(folder.id) ?? 0,
   }));
 
@@ -56,7 +55,7 @@ export default async function ArticleEditorPage({
       projectRegion={project.countriesRegions ?? '中国'}
       canWrite={hasPermission(role, 'article.write')}
       canManageFolders={hasPermission(role, 'project.write')}
-      initial={parseArticleContent(article.content)}
+      initial={parseArticleContent(article.body)}
       folders={folderNodes}
       unfiledCount={counts.unfiled}
       folderOptions={folderPickerOptions(folderNodes)}

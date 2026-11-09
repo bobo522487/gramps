@@ -1,9 +1,11 @@
 /**
- * 谱文分页文档的唯一实现处（ADR 0010：`plain_text` 只能由这里派生）。
+ * 谱文分页文档的唯一实现处（ADR 0010：纯文本摘要只能由这里派生）。
  *
- * `article.content` 的形状是 `{ schemaVersion: 1, pages: [{ id, doc }] }`：
- * 一篇谱文 = 一串页，每页装一个 ProseMirror 文档。页序就是数组顺序，
- * 没有独立的 sort 列（data-model.md §2 不变量 4）。
+ * `article.body` 是分页文档包 `ArticleContent` 的**文本化序列化**
+ * （`JSON.stringify`），落库为 `text`（data-model.md §8 #5）。读取时
+ * `parseArticleContent` 把 `body` 解析回 `ArticleContent`。一篇谱文 = 一串页，
+ * 每页装一个 ProseMirror 文档。页序就是数组顺序，没有独立的 sort 列
+ * （data-model.md §2 不变量 4）。
  *
  * 这里的函数全是纯函数，不碰数据库、不碰 Next。
  */
@@ -11,8 +13,6 @@
 import {
   ARTICLE_SCHEMA_VERSION,
   ARTICLE_TEXT_ALIGNMENTS,
-  DEFAULT_ARTICLE_IMAGE_WIDTH,
-  MEDIA_PATH_ROOT,
 } from '@/lib/article/constants';
 import { flattenListItems } from '@/lib/article/flatten-lists';
 
@@ -37,13 +37,13 @@ export type ArticlePageDoc = { type: 'doc'; content: ArticleNode[] };
 /** 一页：稳定标识 + 正文文档。 */
 export type ArticlePage = { id: string; doc: ArticlePageDoc };
 
-/** `article.content` 的分页文档包。 */
+/** `article.body` 的分页文档包（序列化进 `text` 列）。 */
 export type ArticleContent = {
   schemaVersion: number;
   pages: ArticlePage[];
 };
 
-/** 正文里允许出现的节点类型（data-model §2 不变量 5，003 放开列表）。 */
+/** 正文里允许出现的节点类型（列表在编辑器 Word 化时放开）。 */
 const ALLOWED_NODE_TYPES = new Set([
   'doc',
   'paragraph',
@@ -80,6 +80,15 @@ export function createEmptyArticleContent(): ArticleContent {
     schemaVersion: ARTICLE_SCHEMA_VERSION,
     pages: [{ id: newArticlePageId(), doc: createEmptyPageDoc() }],
   };
+}
+
+/**
+ * 把分页文档包序列化进 `article.body`（`text`）。落库前调用，读取端用
+ * `parseArticleContent` 还原。空谱文也是一段合法 JSON（非空），满足
+ * `ck_article_body` 的非空检查。
+ */
+export function serializeArticleContent(content: ArticleContent): string {
+  return JSON.stringify(content);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -211,19 +220,30 @@ function sanitizePage(value: unknown): ArticlePage | null {
 }
 
 /**
- * 把库里的 `content` 读成分页文档包。
+ * 把库里的 `body` 读成分页文档包。入参是 `article.body` 的序列化文本，也兼容
+ * 已经解析过的 `ArticleContent` 对象（页级写入逻辑会就地构造后者再读回）。
  *
  * 读取路径 MUST NOT 抛错：`article` 表若有旧形状的行（本期功能未上线，理论上
  * 为 0 行），一律兜底成「一页空文档」并记日志，让用户能正常打开、下次保存即写
  * 成新结构（data-model.md §8）。白名单外的节点在这里被丢弃。
  */
 export function parseArticleContent(value: unknown): ArticleContent {
+  // `body` 落库为 `text`：先尝试按 JSON 解析序列化文本。
+  let source = value;
+  if (typeof value === 'string') {
+    try {
+      source = JSON.parse(value) as unknown;
+    } catch {
+      source = null;
+    }
+  }
+
   if (
-    isRecord(value) &&
-    value.schemaVersion === ARTICLE_SCHEMA_VERSION &&
-    Array.isArray(value.pages)
+    isRecord(source) &&
+    source.schemaVersion === ARTICLE_SCHEMA_VERSION &&
+    Array.isArray(source.pages)
   ) {
-    const pages = value.pages
+    const pages = source.pages
       .map(sanitizePage)
       .filter((page): page is ArticlePage => page !== null);
     if (pages.length > 0) {
@@ -234,149 +254,20 @@ export function parseArticleContent(value: unknown): ArticleContent {
   const fallback = createEmptyArticleContent();
   if (value !== null && value !== undefined) {
     // 只在真的读到过时形状内容时提示，新建谱文的第一次解析不刷屏。
-    console.warn('[article] content 不是分页文档包，已兜底为一页空文档', {
+    console.warn('[article] body 不是分页文档包，已兜底为一页空文档', {
       shape: typeof value,
     });
   }
   return fallback;
 }
 
-function collectBlockTexts(doc: ArticlePageDoc): string[] {
-  const texts: string[] = [];
-  for (const block of doc.content) {
-    const buffer: string[] = [];
-    const walk = (node: ArticleNode) => {
-      if (node.type === 'text' && typeof node.text === 'string') {
-        buffer.push(node.text);
-        return;
-      }
-      // 图片不贡献文本（data-model §3）。
-      if (node.type === 'articleImage') {
-        return;
-      }
-      for (const child of node.content ?? []) {
-        walk(child);
-      }
-    };
-    walk(block);
-    const joined = buffer.join('');
-    if (joined !== '') {
-      texts.push(joined);
-    }
-  }
-  return texts;
-}
-
-/** 该页是否含插图（空白页占位提示用，FR-021）。 */
-export function pageHasImage(doc: ArticlePageDoc): boolean {
-  return doc.content.some(
-    (block) =>
-      block.type === 'articleImage' ||
-      (block.content ?? []).some((child) => child.type === 'articleImage')
-  );
-}
-
-/**
- * 单页的文本摘要（页缩略图用，FR-021）。与 `derivePlainText` 同一套块级规则，
- * 只是范围限于一页：图片不贡献文本，所以新加的页摘要是空串，缩略图显示「空页」。
- */
-export function pagePlainText(doc: ArticlePageDoc): string {
-  return collectBlockTexts(doc).join('\n\n');
-}
-
-/** 派生 `article.plain_text`：按页序收集文本，块与页之间统一以空行分隔（唯一允许写该列的地方，ADR 0010）。 */
-export function derivePlainText(content: ArticleContent): string {
-  return content.pages.map((page) => pagePlainText(page.doc)).join('\n\n');
-}
-
-function countImagesInDoc(doc: ArticlePageDoc): number {
-  let count = 0;
-  const walk = (node: ArticleNode) => {
-    if (node.type === 'articleImage') {
-      count += 1;
-      return;
-    }
-    for (const child of node.content ?? []) {
-      walk(child);
-    }
-  };
-  for (const root of doc.content) {
-    walk(root);
-  }
-  return count;
-}
-
-/** 跨页统计插图数量（删除确认与「每页 6 张」校验都用它）。 */
-export function countImages(content: ArticleContent): number {
-  return content.pages.reduce(
-    (sum, page) => sum + countImagesInDoc(page.doc),
-    0
-  );
-}
-
-/**
- * 该 pathname 是否还被文档引用着——删页/删篇之后能不能真的清掉字节
- * （同一张图可能被复制到多页，data-model §4）。
- */
-export function isReferenced(
-  pathname: string,
-  content: ArticleContent
-): boolean {
-  const walk = (node: ArticleNode): boolean => {
-    if (node.type === 'articleImage') {
-      return node.attrs?.pathname === pathname;
-    }
-    return (node.content ?? []).some(walk);
-  };
-  return content.pages.some((page) => page.doc.content.some(walk));
-}
-
-/** 图片节点的显示宽度（缺省整宽，FR-026）。 */
-export function imageWidthOf(node: ArticleNode): string {
-  const width = node.attrs?.width;
-  return typeof width === 'string' ? width : DEFAULT_ARTICLE_IMAGE_WIDTH;
-}
-
-/** 组织隔离的 pathname 前缀：`articles/<orgId>/<articleId>/`（FR-035）。 */
-export function mediaPathPrefix(orgId: string, articleId: string): string {
-  return `${MEDIA_PATH_ROOT}/${orgId}/${articleId}/`;
-}
-
-/**
- * 遍历分页文档包里所有图片节点的 attrs。入参故意放宽成 `unknown`：
- * 库里读出的行与 Zod 校验后的输出都能走同一个遍历器，不再写第二份。
- */
-export function eachImageAttrs(
-  value: unknown,
-  visit: (attrs: Record<string, unknown>, pageId: string) => void
-): void {
-  if (!isRecord(value) || !Array.isArray(value.pages)) {
-    return;
-  }
-  const walk = (node: unknown, pageId: string) => {
-    if (!isRecord(node) || typeof node.type !== 'string') {
-      return;
-    }
-    if (node.type === 'articleImage') {
-      visit(isRecord(node.attrs) ? node.attrs : {}, pageId);
-      return;
-    }
-    if (Array.isArray(node.content)) {
-      for (const child of node.content) {
-        walk(child, pageId);
-      }
-    }
-  };
-  for (const page of value.pages) {
-    if (!isRecord(page) || typeof page.id !== 'string') {
-      continue;
-    }
-    const doc = isRecord(page.doc) ? page.doc : null;
-    if (!doc || !Array.isArray(doc.content)) {
-      continue;
-    }
-    for (const root of doc.content) {
-      walk(root, page.id);
-    }
-  }
-}
+export {
+  countImages,
+  derivePlainText,
+  eachImageAttrs,
+  imageWidthOf,
+  isReferenced,
+  mediaPathPrefix,
+  pageHasImage,
+  pagePlainText,
+} from '@/lib/article/doc-view';

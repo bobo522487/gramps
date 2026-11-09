@@ -64,22 +64,29 @@ export async function closeDb() {
 export type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
- * Runs business queries as app_rw with the current user's claims so RLS is
- * enforced. SET LOCAL is required: a session-level SET would leak the role
- * and claims into the next request that borrows the pooled connection.
+ * Runs business queries as genealogy_app with the current user's claims so
+ * RLS is enforced. genealogy_app is the LOGIN role created by the single
+ * target baseline (A.0); it has public-schema DML and app-schema EXECUTE but
+ * no auth-schema access — the auth connection stays on its own role so the
+ * credential tables (which have no RLS) are never readable from here.
+ * SET LOCAL is required: a session-level SET would leak the role and claims
+ * into the next request that borrows the pooled connection.
+ *
+ * GUC 名必须是 `app.user_id`：`app.current_user_id()` 读的就是它
+ * （`nullif(current_setting('app.user_id', true), '')`），规格见
+ * docs/data-model.md §3「会话上下文由应用服务在同一事务内用 SET LOCAL
+ * app.user_id 注入」。原来这里写的是 `request.jwt.claims`——那是旧实现的
+ * 命名，A.6 的函数根本不看它，结果是每个 withOrg 事务里
+ * `visible_org_array()` 恒返回空数组，所有组织查询静默返回 0 行
+ * （不是报错，所以很难发现）。
  */
 export async function withOrg<T>(
   userId: string,
   fn: (tx: DbTransaction) => Promise<T>
 ): Promise<T> {
   return getDb().transaction(async (tx) => {
-    await tx.execute(sql`set local role app_rw`);
-    await tx.execute(
-      sql`select set_config('request.jwt.claims', ${JSON.stringify({
-        sub: userId,
-        role: 'authenticated',
-      })}, true)`
-    );
+    await tx.execute(sql`set local role genealogy_app`);
+    await tx.execute(sql`select set_config('app.user_id', ${userId}, true)`);
     return fn(tx);
   });
 }

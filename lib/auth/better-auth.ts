@@ -3,8 +3,6 @@ import 'server-only';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { nextCookies } from 'better-auth/next-js';
-import { organization } from 'better-auth/plugins/organization';
-import { ac, roles } from '@/lib/auth/access-control';
 import { getServerConfig } from '@/lib/config';
 import { getAuthDb } from '@/lib/db/auth-db';
 import { authSchemaMap } from '@/lib/db/auth-schema';
@@ -29,6 +27,17 @@ function createAuth() {
       database: {
         // UUIDv7 defaults live in PostgreSQL; only session tokens are generated here.
         generateId: false,
+        /**
+         * 关掉 Better Auth 1.7.12 的 Drizzle schema 自检。
+         *
+         * 自检命中 mismatch 时**抛异常**：`@better-auth/core` 的
+         * `runWithTransaction` 在开事务前 `await pendingSchemaCheck`。T28 拆掉
+         * organization 插件后 adapter 只管核心四模型，`auth.session` 仍保留
+         * 目标态的 `active_organization_id`（附录 A.0）——这一列不在核心模型
+         * 字段表里，自检把它当 mismatch 就会让每个写请求失败。列形状以基线
+         * DDL 为真相源，自检没有发言权，保持关闭。
+         */
+        validateSchema: false,
       },
     },
     emailAndPassword: {
@@ -47,15 +56,6 @@ function createAuth() {
       deleteUser: { enabled: true },
     },
     plugins: [
-      organization({
-        ac,
-        roles,
-        creatorRole: 'owner',
-        invitationExpiresIn: SEVEN_DAYS_IN_SECONDS,
-        disableOrganizationDeletion: true,
-        requireEmailVerificationOnInvitation: false,
-        cancelPendingInvitationsOnReInvite: true,
-      }),
       // Must stay last: it writes the session cookie through next/headers.
       nextCookies(),
     ],

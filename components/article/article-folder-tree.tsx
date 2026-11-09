@@ -1,6 +1,6 @@
 'use client';
 
-import { FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react';
+import { FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -12,12 +12,17 @@ import {
 } from '@/lib/folder/actions';
 import { cn } from '@/lib/utils';
 import { FolderDeleteDialog } from './folder-delete-dialog';
-import { type ArticleFolderNode, folderTree, UNFILED_FOLDER_ID } from './types';
+import {
+  type ArticleFolderNode,
+  sortedFolders,
+  UNFILED_FOLDER_ID,
+} from './types';
 
 /**
- * 谱文分类树（FR-002、FR-005）。
+ * 谱文分类列表（FR-002、FR-005）。
  *
- * 「新建 / 重命名」沿用谱系侧栏的行内编辑做法，只有**删除**走确认框——
+ * 附录 A.2 的 `folder` 是扁平单层：谱系 / 谱文 / 谱书共用一套分类，没有
+ * 「子分类」概念。「新建 / 重命名」沿用行内编辑做法，只有**删除**走确认框——
  * 规格要求删除前必须给出「会连带删掉几个分类、几篇谱文」（SC-005），
  * 而这两个数字只有服务端算得准，所以确认框打开时先读一次预览。
  */
@@ -26,7 +31,6 @@ type Editing = {
   id: string;
   value: string;
   original: string;
-  parentId: string | null;
 };
 
 export function ArticleFolderTree({
@@ -58,15 +62,11 @@ export function ArticleFolderTree({
   );
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const rows = folderTree(folders);
+  const rows = sortedFolders(folders);
 
-  function startCreate(parentId: string | null) {
-    const id = parentId ? `new:${parentId}` : 'new:root';
-    setEditing({ id, value: '', original: '', parentId });
+  function startCreate() {
+    setEditing({ id: 'new', value: '', original: '' });
     setRowError(null);
-    if (parentId) {
-      onSelect(parentId);
-    }
   }
 
   function startRename(folder: ArticleFolderNode) {
@@ -74,13 +74,12 @@ export function ArticleFolderTree({
       id: folder.id,
       value: folder.name,
       original: folder.name,
-      parentId: folder.parentId,
     });
     setRowError(null);
   }
 
   // `Enter` 提交之后输入框还在 DOM 里，紧接着的 `blur` 会再提交一次；
-  // `editing` 要等 Action 回来才清空，所以两次都会真的发出去（分类树里
+  // `editing` 要等 Action 回来才清空，所以两次都会真的发出去（分类列表里
   // 凭空多出一个重名分类）。用 ref 在同一 tick 里挡住第二次。
   const submittingRef = useRef<string | null>(null);
 
@@ -101,11 +100,7 @@ export function ArticleFolderTree({
         const formData = new FormData();
         formData.set('orgId', orgId);
         formData.set('projectId', projectId);
-        formData.set('kind', '1');
         formData.set('name', name);
-        if (editing.parentId) {
-          formData.set('parentId', editing.parentId);
-        }
         const result = await createFolderAction({}, formData);
         if ('error' in result && result.error) {
           setRowError({ id: editing.id, message: result.error });
@@ -172,11 +167,10 @@ export function ArticleFolderTree({
         canManage={false}
       />
 
-      {rows.map(({ folder, depth }) =>
+      {rows.map((folder) =>
         editing?.id === folder.id ? (
           <EditRow
             key={folder.id}
-            depth={depth}
             value={editing.value}
             error={rowError?.id === folder.id ? rowError.message : null}
             pending={pending === folder.id}
@@ -191,24 +185,21 @@ export function ArticleFolderTree({
             key={folder.id}
             label={folder.name}
             count={folder.count}
-            depth={depth}
             active={selectedFolderId === folder.id}
             onSelect={() => onSelect(folder.id)}
             canManage={canManage}
             error={rowError?.id === folder.id ? rowError.message : null}
             onRename={() => startRename(folder)}
             onDelete={() => requestDelete(folder)}
-            onCreateChild={depth < 2 ? () => startCreate(folder.id) : undefined}
           />
         )
       )}
 
-      {editing?.parentId === null ? (
+      {editing?.id === 'new' ? (
         <EditRow
-          depth={0}
           value={editing.value}
-          error={rowError?.id === 'new:root' ? rowError.message : null}
-          pending={pending === 'new:root'}
+          error={rowError?.id === 'new' ? rowError.message : null}
+          pending={pending === 'new'}
           onChange={(value) =>
             setEditing({ ...editing, value: value.slice(0, 100) })
           }
@@ -219,12 +210,7 @@ export function ArticleFolderTree({
 
       {canManage ? (
         <div className="mt-1 flex items-center gap-1 pl-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => startCreate(null)}
-          >
+          <Button type="button" variant="ghost" size="xs" onClick={startCreate}>
             <FolderPlus /> 新建分类
           </Button>
         </div>
@@ -250,34 +236,29 @@ export function ArticleFolderTree({
 function TreeRow({
   label,
   count,
-  depth = 0,
   active,
   canManage,
   error,
   onSelect,
   onRename,
   onDelete,
-  onCreateChild,
 }: {
   label: string;
   count: number;
-  depth?: number;
   active: boolean;
   canManage: boolean;
   error?: string | null;
   onSelect: () => void;
   onRename?: () => void;
   onDelete?: () => void;
-  onCreateChild?: () => void;
 }) {
   return (
     <div>
       <div
         className={cn(
-          'group flex items-center gap-1 rounded-md pr-1 text-sm',
+          'group flex items-center gap-1 rounded-md pr-1 pl-1 text-sm',
           active ? 'bg-primary/10 text-primary' : 'hover:bg-muted'
         )}
-        style={{ paddingLeft: 4 + depth * 14 }}
       >
         <button
           type="button"
@@ -291,17 +272,6 @@ function TreeRow({
         </span>
         {canManage ? (
           <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-            {onCreateChild ? (
-              <button
-                type="button"
-                title="新建子分类"
-                aria-label={`在「${label}」下新建子分类`}
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={onCreateChild}
-              >
-                <Plus size={12} />
-              </button>
-            ) : null}
             {onRename ? (
               <button
                 type="button"
@@ -333,7 +303,6 @@ function TreeRow({
 }
 
 function EditRow({
-  depth,
   value,
   error,
   pending,
@@ -341,7 +310,6 @@ function EditRow({
   onSubmit,
   onCancel,
 }: {
-  depth: number;
   value: string;
   error: string | null;
   pending: boolean;
@@ -350,7 +318,7 @@ function EditRow({
   onCancel: () => void;
 }) {
   return (
-    <div style={{ paddingLeft: 4 + depth * 14 }} className="py-1 pr-1">
+    <div className="py-1 pr-1 pl-1">
       <Input
         autoFocus
         aria-label="分类名称"

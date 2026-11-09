@@ -60,7 +60,7 @@ describe('organization and project scope', () => {
     ).toBeNull();
   });
 
-  it('does not resolve an archived organization', async () => {
+  it('does not resolve a closed organization', async () => {
     const alice = await createUser();
     const organization = await createOrganization();
     await addMember({
@@ -69,9 +69,11 @@ describe('organization and project scope', () => {
       role: 'owner',
     });
 
+    // 目标态没有 `deleted_at`（附录 A.1），关停只剩 `status = 'closed'` 这一个信号，
+    // 查询层靠它把组织挡在外面。
     await getTestDb()
       .update(organizations)
-      .set({ status: 'closed', deletedAt: new Date() })
+      .set({ status: 'closed' })
       .where(eq(organizations.id, organization.id));
 
     expect(await getOrgWithRoleBySlug(alice.id, organization.slug)).toBeNull();
@@ -266,7 +268,7 @@ describe('row level security', () => {
     await createProject({ orgId: organization.id, createdBy: alice.id });
 
     const counts = await getTestSql().begin(async (tx) => {
-      await tx`set local role app_rw`;
+      await tx`set local role genealogy_app`;
       const [orgs] = await tx<
         { count: number }[]
       >`select count(*)::int as count from organization`;
@@ -321,21 +323,25 @@ describe('row level security', () => {
     const bob = await createUser();
     const bobOrg = await getPersonalOrg(bob.id);
 
-    await expect(
-      withOrg(alice.id, (tx) =>
-        tx
-          .update(organizations)
-          .set({ name: '越权修改' })
-          .where(eq(organizations.id, bobOrg?.organization.id as string))
-          .returning()
-      )
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '42501' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes('permission denied for table organization')
-        )
+    // T32 修订后业务连接是 genealogy_app，基线给它 organization 的 UPDATE
+    // （不再是只授 SELECT 的 app_rw）。所以越权 UPDATE 不再因表级权限报
+    // 42501：RLS 的 USING 谓词把目标行过滤掉，RETURNING 返回空数组。
+    // 权限矩阵变了，隔离保证不能变——断言「一行都没改到」而不是某个
+    // 特定 SQLSTATE，再回查一次确认 bob 的组织名没被写坏。
+    const updated = await withOrg(alice.id, (tx) =>
+      tx
+        .update(organizations)
+        .set({ name: '越权修改' })
+        .where(eq(organizations.id, bobOrg?.organization.id as string))
+        .returning({ id: organizations.id })
     );
+    expect(updated).toEqual([]);
+
+    const [bobRow] = await getTestSql()<
+      { name: string }[]
+    >`select name from organization
+      where id = ${bobOrg?.organization.id as string}`;
+    expect(bobRow?.name).not.toBe('越权修改');
 
     await expect(
       withOrg(alice.id, (tx) =>
@@ -358,42 +364,55 @@ describe('row level security', () => {
     );
   });
 
-  it('blocks viewers from writing projects through RLS', async () => {
+  it('leaves role-based write refusal to the application layer, not RLS', async () => {
+    // 目标态的分工写死在 docs/data-model.md §3 与 §9：
+    // **RLS 只做可见性，owner / admin / editor / viewer 的读写授权由
+    // 应用服务在单一写入路径判定**。viewer 是组织成员，visible_org_array()
+    // 含这个组织，所以 DB 层放行 INSERT；拒绝 viewer 写入是 withOrgWrite 的
+    // 职责（tests/integration/with-org-write.test.ts 的
+    // "refuses before running the callback for a viewer"）。
+    //
+    // 这条用例守的正是**这个分工**：谁往 org_isolation 里加角色谓词，就会出现
+    // 第二份「按角色授权」的 DDL 真相源，必须回来改这里并同步 §3/§9，
+    // 而不是悄悄多一道没人知道的防线。
     const viewer = await createUser();
     const organization = await createOrganization();
-    await addMember({ userId: viewer.id, organizationId: organization.id });
+    await addMember({
+      userId: viewer.id,
+      organizationId: organization.id,
+      role: 'viewer',
+    });
 
-    await expect(
-      withOrg(viewer.id, (tx) =>
-        tx.insert(projects).values({
+    const [row] = await withOrg(viewer.id, (tx) =>
+      tx
+        .insert(projects)
+        .values({
           orgId: organization.id,
-          name: '只读越权',
+          name: '只读角色在 DB 层不被拦',
           themeName: '陈实',
           surname: '陈',
           createdBy: viewer.id,
         })
-      )
-    ).rejects.toSatisfy(
-      (error) =>
-        pgErrorCode(error) === '42501' &&
-        pgErrorMessages(error).some((message) =>
-          message.includes(
-            'new row violates row-level security policy for table "project"'
-          )
-        )
+        .returning({ id: projects.id })
     );
+
+    expect(row?.id).toBeTruthy();
   });
 
-  it('keeps auth.users unreachable for the runtime role', async () => {
+  it('keeps auth.user unreachable for the runtime role', async () => {
     const alice = await createUser();
 
     await expect(
-      withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.users`))
+      withOrg(alice.id, (tx) => tx.execute(sql`select * from auth.user`))
     ).rejects.toSatisfy(
+      // 拦住的是 schema 而不是表：genealogy_app 连 USAGE ON SCHEMA auth 都没有
+      // （基线只授 public / app），所以报 `permission denied for schema auth`。
+      // auth.* 四表无 RLS，这层隔离是认证侧保留独立角色的理由，不能放开。
+      // 以前断言的表级 `table users` 是旧复数表名时代的消息。
       (error) =>
         pgErrorCode(error) === '42501' &&
         pgErrorMessages(error).some((message) =>
-          message.includes('permission denied for table users')
+          message.includes('permission denied for schema auth')
         )
     );
   });

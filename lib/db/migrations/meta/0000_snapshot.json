@@ -1,12 +1,12 @@
 {
-  "id": "7e0d719f-689b-4898-91cf-e209fe32b0ce",
+  "id": "022e68f6-104b-4dc0-8f9f-d4658216a268",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.activity_logs": {
-      "name": "activity_logs",
-      "schema": "",
+    "auth.account": {
+      "name": "account",
+      "schema": "auth",
       "columns": {
         "id": {
           "name": "id",
@@ -15,56 +15,105 @@
           "notNull": true,
           "default": "uuidv7()"
         },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "action": {
-          "name": "action",
+        "account_id": {
+          "name": "account_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "timestamp": {
-          "name": "timestamp",
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
         },
-        "ip_address": {
-          "name": "ip_address",
-          "type": "text",
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
-        "idx_activity_logs_org": {
-          "name": "idx_activity_logs_org",
+        "uk_auth_account_provider_account": {
+          "name": "uk_auth_account_provider_account",
           "columns": [
             {
-              "expression": "organization_id",
+              "expression": "provider_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "account_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "idx_activity_logs_user": {
-          "name": "idx_activity_logs_user",
+        "idx_auth_account_user": {
+          "name": "idx_auth_account_user",
           "columns": [
             {
               "expression": "user_id",
@@ -80,12 +129,129 @@
         }
       },
       "foreignKeys": {
-        "activity_logs_organization_id_organization_id_fk": {
-          "name": "activity_logs_organization_id_organization_id_fk",
-          "tableFrom": "activity_logs",
-          "tableTo": "organization",
+        "account_user_id_user_id_fk": {
+          "name": "account_user_id_user_id_fk",
+          "tableFrom": "account",
+          "tableTo": "user",
+          "schemaTo": "auth",
           "columnsFrom": [
-            "organization_id"
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "auth.session": {
+      "name": "session",
+      "schema": "auth",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active_organization_id": {
+          "name": "active_organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "uk_auth_session_token": {
+          "name": "uk_auth_session_token",
+          "columns": [
+            {
+              "expression": "token",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_auth_session_user": {
+          "name": "idx_auth_session_user",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "session_user_id_user_id_fk": {
+          "name": "session_user_id_user_id_fk",
+          "tableFrom": "session",
+          "tableTo": "user",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
           ],
           "columnsTo": [
             "id"
@@ -93,13 +259,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "activity_logs_user_id_users_id_fk": {
-          "name": "activity_logs_user_id_users_id_fk",
-          "tableFrom": "activity_logs",
-          "tableTo": "users",
-          "schemaTo": "auth",
+        "session_active_organization_id_organization_id_fk": {
+          "name": "session_active_organization_id_organization_id_fk",
+          "tableFrom": "session",
+          "tableTo": "organization",
           "columnsFrom": [
-            "user_id"
+            "active_organization_id"
           ],
           "columnsTo": [
             "id"
@@ -114,6 +279,340 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "auth.user": {
+      "name": "user",
+      "schema": "auth",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()::text"
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uk_auth_user_email": {
+          "name": "uk_auth_user_email",
+          "columns": [
+            {
+              "expression": "lower(\"email\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_auth_user_email": {
+          "name": "idx_auth_user_email",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "auth.verification": {
+      "name": "verification",
+      "schema": "auth",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_auth_verification_identifier": {
+          "name": "idx_auth_verification_identifier",
+          "columns": [
+            {
+              "expression": "identifier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_auth_verification_expires": {
+          "name": "idx_auth_verification_expires",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.book_export": {
+      "name": "book_export",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "book_id": {
+          "name": "book_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exported_at": {
+          "name": "exported_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "fact_cutoff": {
+          "name": "fact_cutoff",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "artifact_uri": {
+          "name": "artifact_uri",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "format": {
+          "name": "format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pdf'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "book_export_book_idx": {
+          "name": "book_export_book_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "book_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "exported_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "book_export_book_fk": {
+          "name": "book_export_book_fk",
+          "tableFrom": "book_export",
+          "tableTo": "book",
+          "columnsFrom": [
+            "project_id",
+            "book_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "book_export_scope_fk": {
+          "name": "book_export_scope_fk",
+          "tableFrom": "book_export",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "book_export_project_id_id_pk": {
+          "name": "book_export_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "book_export_cutoff": {
+          "name": "book_export_cutoff",
+          "value": "\"book_export\".\"fact_cutoff\" <= \"book_export\".\"exported_at\""
+        },
+        "book_export_artifact_uri_not_blank": {
+          "name": "book_export_artifact_uri_not_blank",
+          "value": "btrim(\"book_export\".\"artifact_uri\") <> ''"
+        },
+        "book_export_checksum": {
+          "name": "book_export_checksum",
+          "value": "\"book_export\".\"checksum\" ~ '^[0-9a-f]{64}$'"
+        },
+        "book_export_format": {
+          "name": "book_export_format",
+          "value": "\"book_export\".\"format\" in ('pdf', 'typst', 'epub', 'html', 'other')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.article": {
       "name": "article",
       "schema": "",
@@ -121,7 +620,7 @@
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
@@ -153,17 +652,36 @@
           "name": "kind",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'other'"
         },
-        "content": {
-          "name": "content",
-          "type": "jsonb",
+        "body": {
+          "name": "body",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "plain_text": {
-          "name": "plain_text",
+        "author_text": {
+          "name": "author_text",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "date_text": {
+          "name": "date_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "subject_person_id": {
+          "name": "subject_person_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lineage_id": {
+          "name": "lineage_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -173,53 +691,76 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "idx_article_project": {
-          "name": "idx_article_project",
+        "article_folder_idx": {
+          "name": "article_folder_idx",
           "columns": [
             {
-              "expression": "organization_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "project_id",
+              "expression": "folder_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
-          "where": "\"article\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "article_person_idx": {
+          "name": "article_person_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "subject_person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "article_lineage_idx": {
+          "name": "article_lineage_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lineage_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "fk_article_project": {
-          "name": "fk_article_project",
+        "article_scope_fk": {
+          "name": "article_scope_fk",
           "tableFrom": "article",
           "tableTo": "project",
           "columnsFrom": [
@@ -232,21 +773,74 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
+        },
+        "article_folder_fk": {
+          "name": "article_folder_fk",
+          "tableFrom": "article",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "project_id",
+            "folder_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "article_person_fk": {
+          "name": "article_person_fk",
+          "tableFrom": "article",
+          "tableTo": "person",
+          "columnsFrom": [
+            "project_id",
+            "subject_person_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "article_lineage_fk": {
+          "name": "article_lineage_fk",
+          "tableFrom": "article",
+          "tableTo": "lineage",
+          "columnsFrom": [
+            "project_id",
+            "lineage_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "uk_article_organization_id": {
-          "name": "uk_article_organization_id",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "article_project_id_id_pk": {
+          "name": "article_project_id_id_pk",
           "columns": [
-            "organization_id",
+            "project_id",
             "id"
           ]
         }
       },
+      "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "ck_article_kind": {
+          "name": "ck_article_kind",
+          "value": "\"article\".\"kind\" in ('preface','biography','epitaph','rules','research','verse','other')"
+        },
+        "ck_article_body": {
+          "name": "ck_article_body",
+          "value": "btrim(\"article\".\"body\") <> ''"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.book_catalog": {
@@ -256,12 +850,18 @@
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
         "organization_id": {
           "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -272,21 +872,25 @@
           "primaryKey": false,
           "notNull": true
         },
-        "parent_id": {
-          "name": "parent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
+        "path": {
+          "name": "path",
+          "type": "ltree",
           "primaryKey": false,
           "notNull": true
         },
-        "section": {
-          "name": "section",
-          "type": "smallint",
+        "parent_path": {
+          "name": "parent_path",
+          "type": "ltree",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "case when nlevel(path) > 1 then subpath(path, 0, nlevel(path) - 1) end",
+            "type": "stored"
+          }
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -302,74 +906,41 @@
           "primaryKey": false,
           "notNull": false
         },
-        "sort": {
-          "name": "sort",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "hide": {
-          "name": "hide",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "idx_catalog_book": {
-          "name": "idx_catalog_book",
+        "book_catalog_path_gist": {
+          "name": "book_catalog_path_gist",
           "columns": [
             {
-              "expression": "organization_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "book_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "sort",
+              "expression": "path",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
-          "where": "\"book_catalog\".\"deleted_at\" is null",
           "concurrently": false,
-          "method": "btree",
+          "method": "gist",
           "with": {}
         },
-        "idx_catalog_article": {
-          "name": "idx_catalog_article",
+        "book_catalog_article_idx": {
+          "name": "book_catalog_article_idx",
           "columns": [
             {
-              "expression": "organization_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -387,11 +958,11 @@
           "method": "btree",
           "with": {}
         },
-        "idx_catalog_lineage": {
-          "name": "idx_catalog_lineage",
+        "book_catalog_lineage_idx": {
+          "name": "book_catalog_lineage_idx",
           "columns": [
             {
-              "expression": "organization_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -411,39 +982,58 @@
         }
       },
       "foreignKeys": {
-        "book_catalog_book_id_book_id_fk": {
-          "name": "book_catalog_book_id_book_id_fk",
+        "book_catalog_book_fk": {
+          "name": "book_catalog_book_fk",
           "tableFrom": "book_catalog",
           "tableTo": "book",
           "columnsFrom": [
+            "project_id",
             "book_id"
           ],
           "columnsTo": [
+            "project_id",
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "book_catalog_parent_id_book_catalog_id_fk": {
-          "name": "book_catalog_parent_id_book_catalog_id_fk",
-          "tableFrom": "book_catalog",
-          "tableTo": "book_catalog",
-          "columnsFrom": [
-            "parent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "fk_catalog_article": {
-          "name": "fk_catalog_article",
+        "book_catalog_article_fk": {
+          "name": "book_catalog_article_fk",
           "tableFrom": "book_catalog",
           "tableTo": "article",
           "columnsFrom": [
-            "organization_id",
+            "project_id",
             "article_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "book_catalog_lineage_fk": {
+          "name": "book_catalog_lineage_fk",
+          "tableFrom": "book_catalog",
+          "tableTo": "lineage",
+          "columnsFrom": [
+            "project_id",
+            "lineage_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "book_catalog_scope_fk": {
+          "name": "book_catalog_scope_fk",
+          "tableFrom": "book_catalog",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
           ],
           "columnsTo": [
             "organization_id",
@@ -452,32 +1042,70 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "fk_catalog_lineage": {
-          "name": "fk_catalog_lineage",
+        "book_catalog_parent_fk": {
+          "name": "book_catalog_parent_fk",
           "tableFrom": "book_catalog",
-          "tableTo": "lineage",
+          "tableTo": "book_catalog",
           "columnsFrom": [
-            "organization_id",
-            "lineage_id"
+            "project_id",
+            "book_id",
+            "parent_path"
           ],
           "columnsTo": [
-            "organization_id",
-            "id"
+            "project_id",
+            "book_id",
+            "path"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "compositePrimaryKeys": {
+        "book_catalog_project_id_id_pk": {
+          "name": "book_catalog_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "book_catalog_path_unique": {
+          "name": "book_catalog_path_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "book_id",
+            "path"
+          ]
+        },
+        "book_catalog_article_once": {
+          "name": "book_catalog_article_once",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "book_id",
+            "article_id"
+          ]
+        },
+        "book_catalog_lineage_once": {
+          "name": "book_catalog_lineage_once",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "book_id",
+            "lineage_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
-        "ck_catalog_section": {
-          "name": "ck_catalog_section",
-          "value": "\"book_catalog\".\"section\" in (1, 2, 3)"
+        "book_catalog_path_format": {
+          "name": "book_catalog_path_format",
+          "value": "\"book_catalog\".\"path\"::text ~ '^[0-9]{4}([.][0-9]{4})*$'"
         },
-        "ck_catalog_one_target": {
-          "name": "ck_catalog_one_target",
+        "book_catalog_one_content": {
+          "name": "book_catalog_one_content",
           "value": "num_nonnulls(\"book_catalog\".\"article_id\", \"book_catalog\".\"lineage_id\") <= 1"
         }
       },
@@ -490,7 +1118,7 @@
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
@@ -512,67 +1140,23 @@
           "primaryKey": false,
           "notNull": false
         },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "title": {
           "name": "title",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "surname": {
-          "name": "surname",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "hall_code": {
-          "name": "hall_code",
+        "edition_text": {
+          "name": "edition_text",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "volume_no": {
-          "name": "volume_no",
+        "compiler_text": {
+          "name": "compiler_text",
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "author": {
-          "name": "author",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "compiled_at": {
-          "name": "compiled_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cover_spec": {
-          "name": "cover_spec",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "back_cover_spec": {
-          "name": "back_cover_spec",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sort": {
-          "name": "sort",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -580,36 +1164,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "uk_book_name": {
-          "name": "uk_book_name",
+        "book_folder_idx": {
+          "name": "book_folder_idx",
           "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "project_id",
               "isExpression": false,
@@ -617,22 +1177,21 @@
               "nulls": "last"
             },
             {
-              "expression": "name",
+              "expression": "folder_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": true,
-          "where": "\"book\".\"deleted_at\" is null",
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "fk_book_project": {
-          "name": "fk_book_project",
+        "book_scope_fk": {
+          "name": "book_scope_fk",
           "tableFrom": "book",
           "tableTo": "project",
           "columnsFrom": [
@@ -645,31 +1204,45 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
+        },
+        "book_folder_fk": {
+          "name": "book_folder_fk",
+          "tableFrom": "book",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "project_id",
+            "folder_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "uk_book_organization_id": {
-          "name": "uk_book_organization_id",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "book_project_id_id_pk": {
+          "name": "book_project_id_id_pk",
           "columns": [
-            "organization_id",
+            "project_id",
             "id"
           ]
         }
       },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.folder": {
-      "name": "folder",
+    "public.event": {
+      "name": "event",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
@@ -687,28 +1260,45 @@
         },
         "kind": {
           "name": "kind",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "parent_id": {
-          "name": "parent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "name": {
-          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "sort": {
-          "name": "sort",
-          "type": "integer",
+        "person_id": {
+          "name": "person_id",
+          "type": "uuid",
           "primaryKey": false,
-          "notNull": true,
-          "default": 0
+          "notNull": false
+        },
+        "family_id": {
+          "name": "family_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "date_text": {
+          "name": "date_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "date_sort": {
+          "name": "date_sort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "place_text": {
+          "name": "place_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -716,30 +1306,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "idx_folder_project": {
-          "name": "idx_folder_project",
+        "event_person_date_idx": {
+          "name": "event_person_date_idx",
           "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "project_id",
               "isExpression": false,
@@ -747,23 +1319,129 @@
               "nulls": "last"
             },
             {
-              "expression": "kind",
+              "expression": "person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "date_sort",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
-          "where": "\"folder\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_family_date_idx": {
+          "name": "event_family_date_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "family_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "date_sort",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_one_birth": {
+          "name": "event_one_birth",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"event\".\"kind\" = 'birth'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_one_death": {
+          "name": "event_one_death",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"event\".\"kind\" = 'death'",
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "fk_folder_project": {
-          "name": "fk_folder_project",
-          "tableFrom": "folder",
+        "event_person_fk": {
+          "name": "event_person_fk",
+          "tableFrom": "event",
+          "tableTo": "person",
+          "columnsFrom": [
+            "project_id",
+            "person_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "event_family_fk": {
+          "name": "event_family_fk",
+          "tableFrom": "event",
+          "tableTo": "family",
+          "columnsFrom": [
+            "project_id",
+            "family_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "event_scope_fk": {
+          "name": "event_scope_fk",
+          "tableFrom": "event",
           "tableTo": "project",
           "columnsFrom": [
             "organization_id",
@@ -777,25 +1455,53 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "event_project_id_id_pk": {
+          "name": "event_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "ck_folder_kind": {
-          "name": "ck_folder_kind",
-          "value": "\"folder\".\"kind\" in (0, 1, 2)"
+        "event_one_subject": {
+          "name": "event_one_subject",
+          "value": "num_nonnulls(\"event\".\"person_id\", \"event\".\"family_id\") = 1"
+        },
+        "event_person_kinds": {
+          "name": "event_person_kinds",
+          "value": "\"event\".\"kind\" not in ('birth', 'death', 'burial', 'migration', 'office', 'exam') or \"event\".\"person_id\" is not null"
+        },
+        "event_family_kinds": {
+          "name": "event_family_kinds",
+          "value": "\"event\".\"kind\" not in ('marriage', 'divorce') or \"event\".\"family_id\" is not null"
+        },
+        "event_sort_needs_text": {
+          "name": "event_sort_needs_text",
+          "value": "\"event\".\"date_sort\" is null or \"event\".\"date_text\" is not null"
+        },
+        "event_domain_check": {
+          "name": "event_domain_check",
+          "value": "\"event\".\"kind\" in ('birth', 'death', 'burial', 'marriage', 'divorce', 'adoption', 'heir_transfer', 'migration', 'office', 'exam', 'other')"
+        },
+        "event_date_sort_format": {
+          "name": "event_date_sort_format",
+          "value": "\"event\".\"date_sort\" is null or \"event\".\"date_sort\" ~ '^[0-9]{4}(-[0-9]{2})?(-[0-9]{2})?$'"
         }
       },
       "isRLSEnabled": false
     },
-    "public.invite": {
-      "name": "invite",
+    "public.family": {
+      "name": "family",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
@@ -805,39 +1511,121 @@
           "primaryKey": false,
           "notNull": true
         },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "accepted_at": {
-          "name": "accepted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "accepted_by": {
-          "name": "accepted_by",
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "family_scope_fk": {
+          "name": "family_scope_fk",
+          "tableFrom": "family",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "family_project_id_id_pk": {
+          "name": "family_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.family_child": {
+      "name": "family_child",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "family_id": {
+          "name": "family_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "person_id": {
+          "name": "person_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'biological'"
+        },
+        "mother_person_id": {
+          "name": "mother_person_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mother_role": {
+          "name": "mother_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "origin_family_id": {
+          "name": "origin_family_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "birth_order": {
+          "name": "birth_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "birth_order_label": {
+          "name": "birth_order_label",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -847,112 +1635,342 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "uk_invite_token": {
-          "name": "uk_invite_token",
+        "family_child_person_idx": {
+          "name": "family_child_person_idx",
           "columns": [
             {
-              "expression": "token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"invite\".\"deleted_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "uk_invite_pending_email": {
-          "name": "uk_invite_pending_email",
-          "columns": [
-            {
-              "expression": "organization_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "lower(\"email\")",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"invite\".\"email\" is not null and \"invite\".\"accepted_at\" is null and \"invite\".\"deleted_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_invite_expiry": {
-          "name": "idx_invite_expiry",
-          "columns": [
-            {
-              "expression": "expires_at",
+              "expression": "person_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
-          "where": "\"invite\".\"accepted_at\" is null and \"invite\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "invite_organization_id_organization_id_fk": {
-          "name": "invite_organization_id_organization_id_fk",
-          "tableFrom": "invite",
-          "tableTo": "organization",
+        "family_child_family_fk": {
+          "name": "family_child_family_fk",
+          "tableFrom": "family_child",
+          "tableTo": "family",
           "columnsFrom": [
-            "organization_id"
+            "project_id",
+            "family_id"
           ],
           "columnsTo": [
+            "project_id",
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "invite_accepted_by_users_id_fk": {
-          "name": "invite_accepted_by_users_id_fk",
-          "tableFrom": "invite",
-          "tableTo": "users",
-          "schemaTo": "auth",
+        "family_child_person_fk": {
+          "name": "family_child_person_fk",
+          "tableFrom": "family_child",
+          "tableTo": "person",
           "columnsFrom": [
-            "accepted_by"
+            "project_id",
+            "person_id"
           ],
           "columnsTo": [
+            "project_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "family_child_mother_fk": {
+          "name": "family_child_mother_fk",
+          "tableFrom": "family_child",
+          "tableTo": "family_partner",
+          "columnsFrom": [
+            "project_id",
+            "family_id",
+            "mother_person_id",
+            "mother_role"
+          ],
+          "columnsTo": [
+            "project_id",
+            "family_id",
+            "person_id",
+            "role"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "family_child_origin_fk": {
+          "name": "family_child_origin_fk",
+          "tableFrom": "family_child",
+          "tableTo": "family",
+          "columnsFrom": [
+            "project_id",
+            "origin_family_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "family_child_scope_fk": {
+          "name": "family_child_scope_fk",
+          "tableFrom": "family_child",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "compositePrimaryKeys": {
+        "family_child_project_id_id_pk": {
+          "name": "family_child_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "family_child_unique": {
+          "name": "family_child_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "family_id",
+            "person_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
-        "ck_invite_role": {
-          "name": "ck_invite_role",
-          "value": "\"invite\".\"role\" in ('admin', 'editor', 'viewer')"
+        "family_child_mother_pair": {
+          "name": "family_child_mother_pair",
+          "value": "(\"family_child\".\"mother_person_id\" is null) = (\"family_child\".\"mother_role\" is null)"
+        },
+        "family_child_origin_distinct": {
+          "name": "family_child_origin_distinct",
+          "value": "\"family_child\".\"origin_family_id\" is null or \"family_child\".\"origin_family_id\" <> \"family_child\".\"family_id\""
+        },
+        "family_child_origin_kind": {
+          "name": "family_child_origin_kind",
+          "value": "\"family_child\".\"origin_family_id\" is null or \"family_child\".\"kind\" in ('adopted', 'ritual_heir')"
+        },
+        "family_child_kind": {
+          "name": "family_child_kind",
+          "value": "\"family_child\".\"kind\" in ('biological', 'adopted', 'step', 'foster', 'ritual_heir', 'unknown')"
+        },
+        "family_child_mother_role": {
+          "name": "family_child_mother_role",
+          "value": "\"family_child\".\"mother_role\" in ('wife', 'concubine')"
+        },
+        "family_child_birth_order_positive": {
+          "name": "family_child_birth_order_positive",
+          "value": "\"family_child\".\"birth_order\" is null or \"family_child\".\"birth_order\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.family_partner": {
+      "name": "family_partner",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "family_id": {
+          "name": "family_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "person_id": {
+          "name": "person_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'partner'"
+        },
+        "role_label": {
+          "name": "role_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rank": {
+          "name": "rank",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "family_partner_person_idx": {
+          "name": "family_partner_person_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "family_partner_family_fk": {
+          "name": "family_partner_family_fk",
+          "tableFrom": "family_partner",
+          "tableTo": "family",
+          "columnsFrom": [
+            "project_id",
+            "family_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "family_partner_person_fk": {
+          "name": "family_partner_person_fk",
+          "tableFrom": "family_partner",
+          "tableTo": "person",
+          "columnsFrom": [
+            "project_id",
+            "person_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "family_partner_scope_fk": {
+          "name": "family_partner_scope_fk",
+          "tableFrom": "family_partner",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "family_partner_project_id_id_pk": {
+          "name": "family_partner_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "family_partner_unique": {
+          "name": "family_partner_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "family_id",
+            "person_id"
+          ]
+        },
+        "family_partner_role_unique": {
+          "name": "family_partner_role_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "family_id",
+            "person_id",
+            "role"
+          ]
+        },
+        "family_partner_rank_unique": {
+          "name": "family_partner_rank_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "family_id",
+            "role",
+            "rank"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "family_partner_role": {
+          "name": "family_partner_role",
+          "value": "\"family_partner\".\"role\" in ('husband', 'wife', 'concubine', 'partner', 'unknown')"
+        },
+        "family_partner_rank_positive": {
+          "name": "family_partner_rank_positive",
+          "value": "\"family_partner\".\"rank\" is null or \"family_partner\".\"rank\" > 0"
         }
       },
       "isRLSEnabled": false
@@ -964,7 +1982,7 @@
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
@@ -992,32 +2010,27 @@
           "primaryKey": false,
           "notNull": true
         },
-        "surname": {
-          "name": "surname",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "hall_code": {
-          "name": "hall_code",
+        "description": {
+          "name": "description",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "generation_words": {
-          "name": "generation_words",
-          "type": "jsonb",
+        "poem_text": {
+          "name": "poem_text",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "hang_rule": {
-          "name": "hang_rule",
-          "type": "jsonb",
+        "base_generation": {
+          "name": "base_generation",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": 1
         },
-        "node_count": {
-          "name": "node_count",
+        "seq": {
+          "name": "seq",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1029,36 +2042,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "uk_lineage_name": {
-          "name": "uk_lineage_name",
+        "lineage_folder_idx": {
+          "name": "lineage_folder_idx",
           "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "project_id",
               "isExpression": false,
@@ -1066,44 +2055,57 @@
               "nulls": "last"
             },
             {
-              "expression": "name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"lineage\".\"deleted_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_lineage_project": {
-          "name": "idx_lineage_project",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "project_id",
+              "expression": "folder_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
-          "where": "\"lineage\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lineage_order_idx": {
+          "name": "lineage_order_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "fk_lineage_project": {
-          "name": "fk_lineage_project",
+        "lineage_folder_fk": {
+          "name": "lineage_folder_fk",
+          "tableFrom": "lineage",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "project_id",
+            "folder_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "lineage_scope_fk": {
+          "name": "lineage_scope_fk",
           "tableFrom": "lineage",
           "tableTo": "project",
           "columnsFrom": [
@@ -1118,19 +2120,40 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "uk_lineage_organization_id": {
-          "name": "uk_lineage_organization_id",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "lineage_project_id_id_pk": {
+          "name": "lineage_project_id_id_pk",
           "columns": [
-            "organization_id",
+            "project_id",
             "id"
           ]
         }
       },
+      "uniqueConstraints": {
+        "lineage_name_unique": {
+          "name": "lineage_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "name"
+          ]
+        }
+      },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "lineage_name_not_blank": {
+          "name": "lineage_name_not_blank",
+          "value": "btrim(\"lineage\".\"name\") <> ''"
+        },
+        "lineage_base_generation_positive": {
+          "name": "lineage_base_generation_positive",
+          "value": "\"lineage\".\"base_generation\" > 0"
+        },
+        "lineage_seq_nonnegative": {
+          "name": "lineage_seq_nonnegative",
+          "value": "\"lineage\".\"seq\" >= 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.node": {
@@ -1140,12 +2163,18 @@
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
         "organization_id": {
           "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1156,142 +2185,40 @@
           "primaryKey": false,
           "notNull": true
         },
-        "parent_id": {
-          "name": "parent_id",
+        "person_id": {
+          "name": "person_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
-        },
-        "mother_id": {
-          "name": "mother_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "spouse_of_id": {
-          "name": "spouse_of_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'blood'"
         },
         "path": {
           "name": "path",
           "type": "ltree",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "depth": {
-          "name": "depth",
-          "type": "integer",
+        "parent_path": {
+          "name": "parent_path",
+          "type": "ltree",
+          "primaryKey": false,
+          "notNull": false,
+          "generated": {
+            "as": "case when nlevel(path) > 1 then subpath(path, 0, nlevel(path) - 1) end",
+            "type": "stored"
+          }
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": 0
+          "default": "'primary'"
         },
-        "generation": {
-          "name": "generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sort": {
-          "name": "sort",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "surname": {
-          "name": "surname",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "full_name": {
-          "name": "full_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sex": {
-          "name": "sex",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "courtesy": {
-          "name": "courtesy",
+        "display_name": {
+          "name": "display_name",
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "name_prefix": {
-          "name": "name_prefix",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_alive": {
-          "name": "is_alive",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "birth_text": {
-          "name": "birth_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "death_text": {
-          "name": "death_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "birth_year": {
-          "name": "birth_year",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "death_year": {
-          "name": "death_year",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "burial_place": {
-          "name": "burial_place",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "biography": {
-          "name": "biography",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attributes": {
-          "name": "attributes",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -1299,32 +2226,35 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "idx_node_lineage_depth": {
-          "name": "idx_node_lineage_depth",
+        "node_person_idx": {
+          "name": "node_person_idx",
           "columns": [
             {
-              "expression": "organization_id",
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "node_one_primary": {
+          "name": "node_one_primary",
+          "columns": [
+            {
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1336,28 +2266,29 @@
               "nulls": "last"
             },
             {
-              "expression": "depth",
+              "expression": "person_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
+          "where": "\"node\".\"kind\" = 'primary'",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "idx_node_parent": {
-          "name": "idx_node_parent",
+        "node_path_gist": {
+          "name": "node_path_gist",
           "columns": [
             {
-              "expression": "organization_id",
+              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "parent_id",
+              "expression": "path",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1365,124 +2296,119 @@
           ],
           "isUnique": false,
           "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_node_alive": {
-          "name": "idx_node_alive",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lineage_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"node\".\"deleted_at\" is null",
-          "concurrently": false,
-          "method": "btree",
+          "method": "gist",
           "with": {}
         }
       },
       "foreignKeys": {
-        "node_parent_id_node_id_fk": {
-          "name": "node_parent_id_node_id_fk",
-          "tableFrom": "node",
-          "tableTo": "node",
-          "columnsFrom": [
-            "parent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "node_mother_id_node_id_fk": {
-          "name": "node_mother_id_node_id_fk",
-          "tableFrom": "node",
-          "tableTo": "node",
-          "columnsFrom": [
-            "mother_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "node_spouse_of_id_node_id_fk": {
-          "name": "node_spouse_of_id_node_id_fk",
-          "tableFrom": "node",
-          "tableTo": "node",
-          "columnsFrom": [
-            "spouse_of_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "fk_node_lineage": {
-          "name": "fk_node_lineage",
+        "node_lineage_fk": {
+          "name": "node_lineage_fk",
           "tableFrom": "node",
           "tableTo": "lineage",
           "columnsFrom": [
-            "organization_id",
+            "project_id",
             "lineage_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "node_person_fk": {
+          "name": "node_person_fk",
+          "tableFrom": "node",
+          "tableTo": "person",
+          "columnsFrom": [
+            "project_id",
+            "person_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "node_scope_fk": {
+          "name": "node_scope_fk",
+          "tableFrom": "node",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
           ],
           "columnsTo": [
             "organization_id",
             "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "node_parent_fk": {
+          "name": "node_parent_fk",
+          "tableFrom": "node",
+          "tableTo": "node",
+          "columnsFrom": [
+            "project_id",
+            "lineage_id",
+            "parent_path"
+          ],
+          "columnsTo": [
+            "project_id",
+            "lineage_id",
+            "path"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "node_project_id_id_pk": {
+          "name": "node_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
       "uniqueConstraints": {
-        "uk_node_organization_id": {
-          "name": "uk_node_organization_id",
+        "node_path_unique": {
+          "name": "node_path_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "organization_id",
-            "id"
+            "project_id",
+            "lineage_id",
+            "path"
           ]
         }
       },
       "policies": {},
       "checkConstraints": {
-        "ck_node_role": {
-          "name": "ck_node_role",
-          "value": "\"node\".\"role\" in ('blood', 'spouse')"
+        "node_path_format": {
+          "name": "node_path_format",
+          "value": "\"node\".\"path\"::text ~ '^[0-9]{4}([.][0-9]{4})*$'"
         },
-        "ck_node_sex": {
-          "name": "ck_node_sex",
-          "value": "\"node\".\"sex\" in (0, 1)"
+        "node_annotation_person": {
+          "name": "node_annotation_person",
+          "value": "(\"node\".\"kind\" = 'annotation') = (\"node\".\"person_id\" is null)"
         },
-        "ck_node_spouse_has_no_path": {
-          "name": "ck_node_spouse_has_no_path",
-          "value": "(\"node\".\"role\" = 'spouse' and \"node\".\"path\" is null and \"node\".\"spouse_of_id\" is not null) or (\"node\".\"role\" = 'blood' and \"node\".\"path\" is not null)"
+        "node_kind_check": {
+          "name": "node_kind_check",
+          "value": "\"node\".\"kind\" in ('primary', 'repeat', 'annotation')"
         }
       },
       "isRLSEnabled": false
     },
-    "public.organization_member": {
-      "name": "organization_member",
+    "public.invite": {
+      "name": "invite",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
@@ -1492,9 +2418,178 @@
           "primaryKey": false,
           "notNull": true
         },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '')"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "invited_by": {
+          "name": "invited_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_invite_org_status": {
+          "name": "idx_invite_org_status",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_invite_expiry": {
+          "name": "idx_invite_expiry",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"invite\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "invite_organization_id_organization_id_fk": {
+          "name": "invite_organization_id_organization_id_fk",
+          "tableFrom": "invite",
+          "tableTo": "organization",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "invite_invited_by_user_id_fk": {
+          "name": "invite_invited_by_user_id_fk",
+          "tableFrom": "invite",
+          "tableTo": "user",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "invited_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "invite_organization_id_id_pk": {
+          "name": "invite_organization_id_id_pk",
+          "columns": [
+            "organization_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "invite_token_hash_unique": {
+          "name": "invite_token_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token_hash"
+          ]
+        },
+        "uk_invite_org_email": {
+          "name": "uk_invite_org_email",
+          "nullsNotDistinct": false,
+          "columns": [
+            "organization_id",
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "ck_invite_role": {
+          "name": "ck_invite_role",
+          "value": "\"invite\".\"role\" in ('admin', 'editor', 'viewer')"
+        },
+        "ck_invite_status": {
+          "name": "ck_invite_status",
+          "value": "\"invite\".\"status\" in ('pending', 'accepted', 'revoked')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.organization_member": {
+      "name": "organization_member",
+      "schema": "",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -1510,43 +2605,9 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
-        "uk_org_member_active": {
-          "name": "uk_org_member_active",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"organization_member\".\"deleted_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "uk_org_member_single_owner": {
           "name": "uk_org_member_single_owner",
           "columns": [
@@ -1558,7 +2619,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"organization_member\".\"role\" = 'owner' and \"organization_member\".\"deleted_at\" is null",
+          "where": "\"organization_member\".\"role\" = 'owner'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1574,7 +2635,6 @@
             }
           ],
           "isUnique": false,
-          "where": "\"organization_member\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1591,13 +2651,13 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "organization_member_user_id_users_id_fk": {
-          "name": "organization_member_user_id_users_id_fk",
+        "organization_member_user_id_user_id_fk": {
+          "name": "organization_member_user_id_user_id_fk",
           "tableFrom": "organization_member",
-          "tableTo": "users",
+          "tableTo": "user",
           "schemaTo": "auth",
           "columnsFrom": [
             "user_id"
@@ -1609,7 +2669,15 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "organization_member_organization_id_user_id_pk": {
+          "name": "organization_member_organization_id_user_id_pk",
+          "columns": [
+            "organization_id",
+            "user_id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
@@ -1644,6 +2712,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "logo": {
+          "name": "logo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -1651,18 +2731,18 @@
           "notNull": true,
           "default": "'active'"
         },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -1677,13 +2757,27 @@
             }
           ],
           "isUnique": true,
-          "where": "\"organization\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "organization_created_by_user_id_fk": {
+          "name": "organization_created_by_user_id_fk",
+          "tableFrom": "organization",
+          "tableTo": "user",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1695,6 +2789,367 @@
       },
       "isRLSEnabled": false
     },
+    "public.person_name": {
+      "name": "person_name",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "person_id": {
+          "name": "person_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'given'"
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_primary": {
+          "name": "is_primary",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "person_name_person_idx": {
+          "name": "person_name_person_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "person_name_one_primary": {
+          "name": "person_name_one_primary",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "person_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"person_name\".\"is_primary\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "person_name_person_fk": {
+          "name": "person_name_person_fk",
+          "tableFrom": "person_name",
+          "tableTo": "person",
+          "columnsFrom": [
+            "project_id",
+            "person_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "person_name_scope_fk": {
+          "name": "person_name_scope_fk",
+          "tableFrom": "person_name",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "person_name_project_id_id_pk": {
+          "name": "person_name_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "person_name_unique": {
+          "name": "person_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "person_id",
+            "kind",
+            "value"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "person_name_kind": {
+          "name": "person_name_kind",
+          "value": "\"person_name\".\"kind\" in ('given', 'courtesy', 'art', 'milk', 'genealogy', 'posthumous', 'other')"
+        },
+        "person_name_value_not_blank": {
+          "name": "person_name_value_not_blank",
+          "value": "btrim(\"person_name\".\"value\") <> ''"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.person": {
+      "name": "person",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sex": {
+          "name": "sex",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "person_scope_fk": {
+          "name": "person_scope_fk",
+          "tableFrom": "person",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "person_project_id_id_pk": {
+          "name": "person_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "person_sex_check": {
+          "name": "person_sex_check",
+          "value": "\"person\".\"sex\" in ('male', 'female', 'other', 'unknown')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.folder": {
+      "name": "folder",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "folder_order_idx": {
+          "name": "folder_order_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "folder_scope_fk": {
+          "name": "folder_scope_fk",
+          "tableFrom": "folder",
+          "tableTo": "project",
+          "columnsFrom": [
+            "organization_id",
+            "project_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "folder_project_id_id_pk": {
+          "name": "folder_project_id_id_pk",
+          "columns": [
+            "project_id",
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "folder_name_unique": {
+          "name": "folder_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "project_id",
+            "name"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "folder_seq_nonnegative": {
+          "name": "folder_seq_nonnegative",
+          "value": "\"folder\".\"seq\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.project": {
       "name": "project",
       "schema": "",
@@ -1702,7 +3157,7 @@
         "id": {
           "name": "id",
           "type": "uuid",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "default": "uuidv7()"
         },
@@ -1725,17 +3180,17 @@
           "primaryKey": false,
           "notNull": true
         },
-        "primary_name": {
-          "name": "primary_name",
+        "theme_name": {
+          "name": "theme_name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
-        "primary_surname": {
-          "name": "primary_surname",
+        "surname": {
+          "name": "surname",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "countries_regions": {
           "name": "countries_regions",
@@ -1749,6 +3204,39 @@
           "primaryKey": false,
           "notNull": false
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'in_progress'"
+        },
+        "importance": {
+          "name": "importance",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "allow_consanguineous_marriage": {
+          "name": "allow_consanguineous_marriage",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1758,19 +3246,7 @@
         },
         "created_by": {
           "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         }
@@ -1787,7 +3263,6 @@
             }
           ],
           "isUnique": true,
-          "where": "\"project\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1803,7 +3278,6 @@
             }
           ],
           "isUnique": false,
-          "where": "\"project\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1822,102 +3296,51 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
+        },
+        "project_created_by_user_id_fk": {
+          "name": "project_created_by_user_id_fk",
+          "tableFrom": "project",
+          "tableTo": "user",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "uk_project_organization_id": {
-          "name": "uk_project_organization_id",
-          "nullsNotDistinct": false,
+      "compositePrimaryKeys": {
+        "project_organization_id_id_pk": {
+          "name": "project_organization_id_id_pk",
           "columns": [
             "organization_id",
             "id"
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "auth.users": {
-      "name": "users",
-      "schema": "auth",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuidv7()"
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "password_hash": {
-          "name": "password_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_version": {
-          "name": "token_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "uk_auth_users_email": {
-          "name": "uk_auth_users_email",
+      "uniqueConstraints": {
+        "project_id_global": {
+          "name": "project_id_global",
+          "nullsNotDistinct": false,
           "columns": [
-            {
-              "expression": "lower(\"email\")",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"auth\".\"users\".\"deleted_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+            "id"
+          ]
         }
       },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "ck_project_status": {
+          "name": "ck_project_status",
+          "value": "\"project\".\"status\" in ('planning', 'in_progress', 'completed')"
+        },
+        "ck_project_importance": {
+          "name": "ck_project_importance",
+          "value": "\"project\".\"importance\" between 1 and 5"
+        }
+      },
       "isRLSEnabled": false
     }
   },

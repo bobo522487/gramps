@@ -40,7 +40,8 @@ describe('node creation schemas', () => {
     });
 
     expect(parsed.name).toBe('元英');
-    expect(parsed.sex).toBe(0);
+    // 表单仍传 0/1，边界处映射到目标态 person.sex 文本值域。
+    expect(parsed.sex).toBe('female');
     expect(parsed.isAlive).toBe(true);
     expect(parsed.birthYear).toBe(1894);
     expect(parsed.deathYear).toBe(1968);
@@ -171,7 +172,7 @@ describe('node creation schemas', () => {
       burialPlace: '合葬村东',
     });
 
-    expect(parsed.sex).toBe(1);
+    expect(parsed.sex).toBe('male');
     expect(parsed.isAlive).toBe(true);
     expect(parsed.birthYear).toBeNull();
     expect(parsed.burialPlace).toBe('合葬村东');
@@ -190,8 +191,9 @@ describe('node creation schemas', () => {
     expect(parsed.success).toBe(false);
   });
 
-  // R31：幂等键必填。缺键的创建在 Zod 处就拒掉，不给重放留无键通道。
-  it('requires an idempotency key on every create schema', () => {
+  // S8 A′：R31 幂等键随目标态 `node` 退役（无 request_id 列）。提交标识退为
+  // 表单兼容的可选字段：不传可通过，传了仍要合法 UUID。重放保护留阶段 C。
+  it('accepts creations without a submission id and still validates its format', () => {
     const cases: {
       label: string;
       schema: z.ZodType;
@@ -238,32 +240,32 @@ describe('node creation schemas', () => {
     ];
 
     for (const { label, schema, input } of cases) {
-      const missing = schema.safeParse(input);
-      expect(missing.success, label).toBe(false);
-      if (!missing.success) {
-        expect(missing.error.issues[0]?.path, label).toEqual(['requestId']);
-      }
+      expect(schema.safeParse(input).success, label).toBe(true);
       expect(schema.safeParse({ ...input, requestId }).success, label).toBe(
         true
       );
-      expect(
-        schema.safeParse({ ...input, requestId: 'not-a-uuid' }).success,
-        label
-      ).toBe(false);
+      const malformed = schema.safeParse({
+        ...input,
+        requestId: 'not-a-uuid',
+      });
+      expect(malformed.success, label).toBe(false);
+      if (!malformed.success) {
+        expect(malformed.error.issues[0]?.path, label).toEqual(['requestId']);
+      }
     }
   });
 });
 
 describe('field-level validation messages', () => {
-  it('keeps schema-specific messages for folder kind and sex', () => {
+  it('keeps schema-specific messages for folder name and sex', () => {
+    // 扁平单层后分类不再有 kind，剩下要钉的是名字校验与性别枚举的文案。
     expect(
       createFolderSchema.safeParse({
         orgId,
         projectId,
-        kind: '9',
-        name: '谱系',
+        name: '   ',
       }).error?.issues[0].message
-    ).toBe('分类类型无效');
+    ).toBe('请输入分类名称');
     expect(
       createRootNodeSchema.safeParse({
         orgId,

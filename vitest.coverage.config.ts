@@ -8,7 +8,7 @@ export default defineConfig({
     projects: [
       { extends: './vitest.config.ts', test: { name: 'unit' } },
       {
-        extends: './vitest.integration.config.ts',
+        extends: './vitest.integration.config.mts',
         test: { name: 'integration' },
       },
     ],
@@ -31,7 +31,7 @@ export default defineConfig({
         'lib/db/drizzle.ts',
         '**/*.d.ts',
       ],
-      // Floors, not targets (docs/guides/testing.md §5): each sits ~2 points
+      // Floors, not targets: each sits ~2 points
       // under the measured baseline, so a regression fails and ordinary work
       // does not. Raise them when the baseline rises; never lower them to pass.
       thresholds: {

@@ -1,6 +1,6 @@
-import { and, count, eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ActivityType, activityLogs, projects } from '@/lib/db/schema';
+import { projects } from '@/lib/db/schema';
 import {
   createProjectInTransaction,
   type ProjectUpdates,
@@ -68,17 +68,6 @@ describe('createProjectInTransaction public refs', () => {
       importance: 3,
       notes: '测试备注',
     });
-
-    const logRows = await getTestDb()
-      .select({ action: activityLogs.action })
-      .from(activityLogs)
-      .where(
-        and(
-          eq(activityLogs.orgId, organization.id),
-          eq(activityLogs.action, ActivityType.CREATE_PROJECT)
-        )
-      );
-    expect(logRows).toHaveLength(1);
   });
 
   it('regenerates the ref when the first attempt collides', async () => {

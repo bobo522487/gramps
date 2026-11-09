@@ -51,6 +51,19 @@ function check(condition, label, detail = '') {
   return condition;
 }
 
+// 部署自检的输出会被人读，也会被脚本 grep。`1 triggers` / `1 policies` 这种
+// 单复数错乱说明文案是拼出来的而不是算的，顺手修掉——失败分支里的逗号列表
+// 已经长得离谱，一并按「单项直接打，多项计数 + 列举」收敛。
+function plural(count, one, many) {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function listed(items, render) {
+  return items.length === 1
+    ? render(items[0])
+    : `${items.length}: ${items.map(render).join(', ')}`;
+}
+
 const REQUIRED_HEADERS = [
   ['x-content-type-options', 'nosniff'],
   ['x-frame-options', 'DENY'],
@@ -186,25 +199,30 @@ const BUSINESS_TABLES = [
   'article',
   'book',
   'book_catalog',
-  'activity_logs',
+  'book_export',
 ];
 
-const AUTH_TABLES = ['users', 'session', 'account', 'verification'];
+const AUTH_TABLES = ['user', 'session', 'account', 'verification'];
 
-// Guards that are not the tenant-immutability family: registration, slug
-// immutability, the last-owner rules and the active-organization invariants.
-const TENANT_TRIGGERS = [
-  ['auth', 'users', 'trg_auth_user_created'],
-  ['public', 'organization', 'trg_org_slug_immutable'],
-  ['public', 'organization_member', 'trg_org_member_last_owner_delete'],
-  ['public', 'organization_member', 'trg_org_member_last_owner_update'],
-  ['public', 'organization_member', 'trg_org_member_active_org'],
-  ['public', 'invite', 'trg_invite_active_org'],
-];
+// Guards that are not the tenant-immutability family. Target state keeps
+// exactly one: registration must create the personal organization inside the
+// same transaction as the user row (see docs/data-model.md §9 — Better Auth's
+// `databaseHooks.user.create.after` runs *after* commit, so a hook cannot roll
+// back a half-created account).
+//
+// `slug` immutability, the last-owner rules and the active-organization
+// invariants deliberately have **no trigger**: §9 registers them as
+// write-path contracts, guarded inside the SECURITY DEFINER writers —
+// `app.accept_invite` / `app.create_organization` plus the B4 tenant/member
+// writers (`app.rename_organization`, `app.archive_organization`,
+// `app.remove_org_member`, `app.set_org_member_role`). The former three
+// triggers were part of the old implementation and are not in the target baseline.
+const TENANT_TRIGGERS = [['auth', 'user', 'trg_auth_user_created']];
 
-// Every organization-scoped table must carry `trg_<table>_tenant_immutable`
-// (ADR 0016). The list is the inventory the integration test asserts too, so a
-// new table that forgets the trigger fails here before it reaches production.
+// Every organization-scoped table must carry `trg_<table>_tenant_immutable`.
+// The list is the inventory the integration test asserts too, so a new table
+// that forgets the trigger fails here before it reaches production.
+// `activity_logs` retired in B2a; `book_export` arrived with B1's appendix A.5.
 const TENANT_IMMUTABLE_TABLES = [
   'organization_member',
   'invite',
@@ -221,7 +239,7 @@ const TENANT_IMMUTABLE_TABLES = [
   'article',
   'book',
   'book_catalog',
-  'activity_logs',
+  'book_export',
 ];
 
 function safeDbError(error) {
@@ -257,13 +275,13 @@ async function checkRuntimeRls() {
     } catch (error) {
       fail(
         'runtime RLS query',
-        `${safeDbError(error)} — is the login role a member of app_rw?`
+        `${safeDbError(error)} — is APP_POSTGRES_URL pointing at genealogy_app?`
       );
     }
 
     let denied = false;
     try {
-      await app`select 1 from auth.users limit 1`;
+      await app`select 1 from auth.user limit 1`;
     } catch (error) {
       denied =
         Boolean(error) &&
@@ -271,7 +289,7 @@ async function checkRuntimeRls() {
         'code' in error &&
         error.code === '42501';
     }
-    check(denied, 'runtime cannot read auth.users');
+    check(denied, 'runtime cannot read auth.user');
   } catch (error) {
     fail('runtime connection', safeDbError(error));
   } finally {
@@ -312,17 +330,22 @@ async function checkDb() {
       missingTables.length === 0,
       'business tables exist',
       missingTables.length === 0
-        ? `${BUSINESS_TABLES.length} tables`
-        : missingTables.join(', ')
+        ? plural(BUSINESS_TABLES.length, 'table', 'tables')
+        : listed(missingTables, (name) => name)
     );
+    // 目标态（§8 #9 / 门禁 C-5）：public 业务表启用 RLS，但**不**启用
+    // FORCE RLS。表属主是迁移角色，业务连接以非属主的 genealogy_app 登录，
+    // RLS 对它已生效；FORCE 反而会连属主一起约束，挡住切换日的迁移路径。
     const unprotected = BUSINESS_TABLES.filter((name) => {
       const row = byName.get(name);
-      return !row?.relrowsecurity || !row?.relforcerowsecurity;
+      return !row?.relrowsecurity || row?.relforcerowsecurity === true;
     });
     check(
       unprotected.length === 0,
-      'RLS enabled and forced',
-      unprotected.length === 0 ? 'all business tables' : unprotected.join(', ')
+      'RLS enabled (FORCE RLS deliberately off)',
+      unprotected.length === 0
+        ? `all ${plural(BUSINESS_TABLES.length, 'table', 'tables')}`
+        : listed(unprotected, (name) => name)
     );
 
     const authTables = await sql`
@@ -339,48 +362,74 @@ async function checkDb() {
       missingAuthTables.length === 0,
       'auth tables exist',
       missingAuthTables.length === 0
-        ? `${AUTH_TABLES.length} tables`
-        : missingAuthTables.join(', ')
+        ? plural(AUTH_TABLES.length, 'table', 'tables')
+        : listed(missingAuthTables, (name) => name)
     );
-    const unprotectedAuth = AUTH_TABLES.filter((name) => {
+    // auth.* 四表在目标态**没有** RLS：它们由认证侧独立角色 auth_service
+    // 独占访问，业务角色 genealogy_app 连 USAGE ON SCHEMA auth 都没有。
+    // 这正是 T32 规格由「全量统一」修订为「认证侧独立」的原因。若以后给
+    // auth.* 加了 RLS 却没同步角色矩阵，这条先报出来，别让隔离假设漂移。
+    const authWithRls = AUTH_TABLES.filter((name) => {
       const row = authByName.get(name);
-      return !row?.relrowsecurity || !row?.relforcerowsecurity;
+      return row?.relrowsecurity === true || row?.relforcerowsecurity === true;
     });
     check(
-      unprotectedAuth.length === 0,
-      'auth tables FORCE RLS',
-      unprotectedAuth.length === 0
-        ? 'all auth tables'
-        : unprotectedAuth.join(', ')
+      authWithRls.length === 0,
+      'auth tables stay RLS-free (credential isolation via roles)',
+      authWithRls.length === 0
+        ? plural(AUTH_TABLES.length, 'table', 'tables')
+        : listed(authWithRls, (name) => name)
     );
 
-    // F5: every business-table policy must go through auth.has_org_role().
-    // A bare `organization_id IN (SELECT ... FROM organization_member)` policy
-    // is the failure mode data-model.md used to recommend, and it cannot express
-    // "read includes viewer, write excludes viewer" (ADR 0006).
+    // F5（目标态）：每张业务表有且只有一条 `org_isolation` 策略，且可见性
+    // 表达式必须来自 `app.visible_org_array()`。
+    //
+    // 历史坑：旧版这里断言「每条策略都调某个角色判定函数」。目标基线里
+    // 那个函数已经不存在（B2a 换成 app.visible_org_array + SET LOCAL ROLE，
+    // 角色判定归应用服务），这条断言会在 CI 里恒定失败，
+    // 或者更糟——被人改成 `|| true` 悄悄放行。所以断言直接锚定目标态的
+    // 表达式本体，而不是「调用了某个函数」这种间接条件。
+    //
+    // 反向断言的另一半：策略必须 FOR ALL 而不是拆成 FOR SELECT / FOR INSERT，
+    // 且 USING 与 WITH CHECK 同时存在——只写 USING 的 INSERT 会被静默放行
+    // （WITH CHECK 缺省回退到 USING，但 `INSERT ... RETURNING` 的可见性
+    // 与准入是两套判定，拆开写必然漂移）。
     const policies = await sql`
-      select policyname, tablename, roles::text[] as roles, qual, with_check
+      select policyname, tablename, cmd, roles::text[] as roles, qual, with_check
       from pg_policies
       where schemaname = 'public'
     `;
-    const appRwPolicies = policies.filter((policy) =>
-      (policy.roles ?? []).includes('app_rw')
+    // T32 revised: the business role is genealogy_app (the baseline LOGIN
+    // role). RLS policies are created FOR ALL, so pg_policies.roles resolves
+    // to '{public}'; keep filtering on the role name for deployments that
+    // explicitly grant the policy to genealogy_app, and fall back to all
+    // public-schema policies so the shape check still runs.
+    const allPublicPolicies = policies.filter(
+      (policy) =>
+        (policy.roles ?? []).includes('genealogy_app') ||
+        (policy.roles ?? []).includes('public')
     );
-    // Strong form: every app_rw policy MUST call has_org_role. Checking only
-    // for the bad text `organization_member` would accept USING (true), which
-    // is the more dangerous bypass (branch review Minor 3).
-    const notViaHasOrgRole = appRwPolicies.filter((policy) => {
-      const expression = `${policy.qual ?? ''} ${policy.with_check ?? ''}`;
-      return !/auth\.has_org_role\(/i.test(expression);
+    const notOrgIsolation = allPublicPolicies.filter((policy) => {
+      if (policy.policyname !== 'org_isolation' || policy.cmd !== 'ALL') {
+        return true;
+      }
+      if (!policy.qual || !policy.with_check) {
+        return true;
+      }
+      return !(
+        /app\.visible_org_array\(\)/i.test(policy.qual) &&
+        /app\.visible_org_array\(\)/i.test(policy.with_check)
+      );
     });
     check(
-      notViaHasOrgRole.length === 0,
-      'every app_rw policy calls auth.has_org_role',
-      notViaHasOrgRole.length === 0
-        ? `${appRwPolicies.length} policies via has_org_role`
-        : notViaHasOrgRole
-            .map((policy) => `${policy.tablename}.${policy.policyname}`)
-            .join(', ')
+      notOrgIsolation.length === 0,
+      'every public policy is the target-state org_isolation policy',
+      notOrgIsolation.length === 0
+        ? plural(allPublicPolicies.length, 'policy', 'policies')
+        : listed(
+            notOrgIsolation,
+            (policy) => `${policy.tablename}.${policy.policyname}`
+          )
     );
 
     const journal = JSON.parse(
@@ -399,51 +448,75 @@ async function checkDb() {
       `${migrations?.count ?? 0}/${expectedMigrations}`
     );
 
+    // T32 revised: genealogy_app is the LOGIN business role created by the
+    // single baseline; auth_service stays a separate NOLOGIN role because
+    // auth.* has no RLS and a shared role could read credential tables.
     const roles = await sql`
       select rolname, rolsuper, rolbypassrls, rolcanlogin
       from pg_roles
-      where rolname in ('app_rw', 'auth_service')
+      where rolname in ('genealogy_app', 'auth_service')
     `;
     const roleByName = new Map(roles.map((row) => [row.rolname, row]));
-    for (const role of ['app_rw', 'auth_service']) {
+    for (const role of ['genealogy_app', 'auth_service']) {
       const row = roleByName.get(role);
       check(Boolean(row), `${role} role exists`);
       if (!row) {
         continue;
       }
       check(row.rolsuper === false, `${role} is not superuser`);
-      check(row.rolbypassrls === false, `${role} cannot bypass RLS`);
-      check(row.rolcanlogin === false, `${role} is NOLOGIN`);
+      // NOBYPASSRLS is load-bearing: the target state deliberately does not
+      // enable FORCE ROW LEVEL SECURITY, so RLS is the only visibility
+      // boundary on public tables.
+      check(
+        row.rolbypassrls === false,
+        `${role} cannot bypass RLS (NOBYPASSRLS)`
+      );
     }
+    check(
+      roleByName.get('genealogy_app')?.rolcanlogin === true,
+      'genealogy_app is the LOGIN business role'
+    );
+    check(
+      roleByName.get('auth_service')?.rolcanlogin === false,
+      'auth_service is NOLOGIN (only inherited by auth_runtime)'
+    );
 
     const [privileges] = await sql`
       select
-        has_table_privilege('auth_service', 'auth.users', 'SELECT') as auth_users_select,
-        has_table_privilege('auth_service', 'auth.users', 'INSERT') as auth_users_insert,
+        has_table_privilege('auth_service', 'auth.user', 'SELECT') as auth_user_select,
+        has_table_privilege('auth_service', 'auth.user', 'INSERT') as auth_user_insert,
         has_table_privilege('auth_service', 'public.organization', 'INSERT') as auth_org_insert,
         has_table_privilege('auth_service', 'public.organization_member', 'UPDATE') as auth_member_update,
-        has_table_privilege('app_rw', 'auth.users', 'SELECT') as app_auth_users_select,
-        has_table_privilege('app_rw', 'public.organization', 'INSERT') as app_org_insert,
-        has_table_privilege('app_rw', 'public.organization', 'UPDATE') as app_org_update,
-        has_table_privilege('app_rw', 'public.organization_member', 'UPDATE') as app_member_update,
-        has_table_privilege('app_rw', 'public.invite', 'SELECT') as app_invite_select,
-        has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select
+        has_table_privilege('auth_service', 'public.project', 'SELECT') as auth_project_select,
+        has_table_privilege('genealogy_app', 'public.invite', 'SELECT') as app_invite_select,
+        has_table_privilege('genealogy_app', 'public.organization', 'UPDATE') as app_org_update,
+        has_schema_privilege('genealogy_app', 'auth', 'USAGE') as app_auth_schema_usage,
+        has_table_privilege('genealogy_app', 'auth.user', 'SELECT') as app_auth_user_select,
+        has_table_privilege('genealogy_app', 'auth.account', 'SELECT') as app_auth_account_select
     `;
     check(
-      privileges?.auth_users_select === true &&
-        privileges?.auth_users_insert === true &&
+      privileges?.auth_user_select === true &&
+        privileges?.auth_user_insert === true &&
         privileges?.auth_org_insert === true &&
         privileges?.auth_member_update === true,
       'auth_service owns identity and tenant writes'
     );
     check(
-      privileges?.app_auth_users_select === false &&
-        privileges?.app_org_insert === false &&
-        privileges?.app_org_update === false &&
-        privileges?.app_member_update === false &&
-        privileges?.app_invite_select === false,
-      'app_rw cannot read auth or write tenant tables'
+      privileges?.app_invite_select === true &&
+        privileges?.app_org_update === true,
+      'genealogy_app has the baseline public DML grant (RLS + SECDEF guard writes)'
     );
+    // 安全边界：auth.user / auth.session / auth.account / auth.verification
+    // 在目标态全部 relrowsecurity=false。业务角色一旦拿到 auth schema 权限，
+    // 就能无 RLS 直读密码哈希与会话 token —— 三类权限必须同时为 false。
+    check(
+      privileges?.app_auth_schema_usage === false &&
+        privileges?.app_auth_user_select === false &&
+        privileges?.app_auth_account_select === false,
+      'genealogy_app cannot reach auth.* (credential tables have no RLS)'
+    );
+    // 邀请写入不再靠表级权限收窄：签发走 A.7 的 ON CONFLICT，撤销是置
+    // status，接受邀请与成员写走 app.* SECURITY DEFINER 函数。
     check(
       privileges?.auth_project_select === false,
       'auth_service cannot read business tables'
@@ -465,12 +538,13 @@ async function checkDb() {
     );
     check(
       missingTriggers.length === 0,
-      'auth and tenant triggers installed',
+      'registration trigger installed',
       missingTriggers.length === 0
-        ? `${TENANT_TRIGGERS.length} triggers`
-        : missingTriggers
-            .map(([, table, trigger]) => `${table}.${trigger}`)
-            .join(', ')
+        ? plural(TENANT_TRIGGERS.length, 'trigger', 'triggers')
+        : listed(
+            missingTriggers,
+            ([schema, table, trigger]) => `${schema}.${table}.${trigger}`
+          )
     );
 
     const missingImmutable = TENANT_IMMUTABLE_TABLES.filter(
@@ -481,23 +555,66 @@ async function checkDb() {
       missingImmutable.length === 0,
       'tenant columns immutable on every organization-scoped table',
       missingImmutable.length === 0
-        ? `${TENANT_IMMUTABLE_TABLES.length} triggers`
-        : missingImmutable
-            .map((table) => `public.${table}.trg_${table}_tenant_immutable`)
-            .join(', ')
+        ? plural(TENANT_IMMUTABLE_TABLES.length, 'trigger', 'triggers')
+        : listed(missingImmutable, (table) => table)
     );
 
-    const [app] = await sql`
-      select rolbypassrls from pg_roles where rolname = 'app'
+    // Target state has no soft delete, so a closed organization's row stays in
+    // the table. The only writer of organization_member for invitations is
+    // app.accept_invite, and the predicate must live in its body (docs/data-model.md §9)
+    // — there is no trg_invite_active_org trigger in the target baseline.
+    const [acceptInvite] = await sql`
+      select pg_get_functiondef('app.accept_invite(text)'::regprocedure) as body
     `;
-    if (!app) {
-      skip('app login role', 'not provisioned (created out of band)');
+    check(
+      /status\s*<>\s*'closed'/.test(acceptInvite?.body ?? ''),
+      'accept_invite rejects invitations to closed organizations',
+      acceptInvite?.body ? 'predicate present' : 'function not found'
+    );
+
+    const [businessRole] = await sql`
+      select rolbypassrls from pg_roles where rolname = 'genealogy_app'
+    `;
+    if (!businessRole) {
+      skip(
+        'genealogy_app login role',
+        'not provisioned (created by the target baseline)'
+      );
     } else {
-      check(app.rolbypassrls === false, 'app cannot bypass RLS');
-      const [membership] = await sql`
-        select pg_has_role('app', 'app_rw', 'MEMBER') as member
+      check(
+        businessRole.rolbypassrls === false,
+        'genealogy_app cannot bypass RLS'
+      );
+      // The business role must never inherit the auth-side role: that would
+      // grant it auth.* access without RLS.
+      const [crossMembership] = await sql`
+        select pg_has_role('genealogy_app', 'auth_service', 'MEMBER') as member
       `;
-      check(membership?.member === true, 'app is a member of app_rw');
+      check(
+        crossMembership?.member === false,
+        'genealogy_app is not a member of auth_service'
+      );
+    }
+
+    // RB-5 (docs/runbooks/README.md §6): the old 0006_statement_timeouts
+    // migration pinned three timeouts via rolconfig, but it was retired with
+    // the B0 baseline squash. Report the gap explicitly instead of letting
+    // the runbook assume verify:deploy already checks it.
+    const [roleConfig] = await sql`
+      select rolconfig from pg_roles where rolname = 'genealogy_app'
+    `;
+    const timeouts = (roleConfig?.rolconfig ?? []).filter((entry) =>
+      /^(statement_timeout|idle_in_transaction_session_timeout|lock_timeout)=/.test(
+        String(entry)
+      )
+    );
+    if (timeouts.length === 3) {
+      pass('rolconfig timeouts', timeouts.join(', '));
+    } else {
+      skip(
+        'rolconfig timeouts',
+        'target baseline sets none (0006_statement_timeouts retired); RB-5 stays open for T34/G1'
+      );
     }
 
     const [authRuntime] = await sql`

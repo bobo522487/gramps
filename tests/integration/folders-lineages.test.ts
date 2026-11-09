@@ -1,4 +1,4 @@
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { getFolders } from '@/lib/db/queries/folders';
 import { articles, books, folders, lineages, nodes } from '@/lib/db/schema';
@@ -40,73 +40,60 @@ async function setup() {
 }
 
 describe('folder service', () => {
-  it('allows three levels and rejects a fourth', async () => {
+  it('assigns increasing seq and rejects a duplicate name', async () => {
     const { user, organization, project } = await setup();
 
-    const chain: string[] = [];
-    for (let depth = 1; depth <= 3; depth += 1) {
-      const result = await createFolderInTransaction({
-        userId: user.id,
-        orgId: organization.id,
-        projectId: project.id,
-        kind: 0,
-        parentId: chain.at(-1),
-        name: `第 ${depth} 层`,
-      });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        chain.push(result.folder.id);
-      }
-    }
-
-    const denied = await createFolderInTransaction({
+    const first = await createFolderInTransaction({
       userId: user.id,
       orgId: organization.id,
       projectId: project.id,
-      kind: 0,
-      parentId: chain[2],
-      name: '第 4 层',
+      name: '谱序',
     });
-    expect(denied).toEqual({ ok: false, reason: 'depth_exceeded' });
+    const second = await createFolderInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      projectId: project.id,
+      name: '传记',
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.folder.seq).toBe(0);
+    expect(second.folder.seq).toBe(1);
+
+    // 扁平单层：分类不再分 kind，名字在项目内唯一，重复创建直接报冲突。
+    const duplicate = await createFolderInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      projectId: project.id,
+      name: '谱序',
+    });
+    expect(duplicate).toEqual({ ok: false, reason: 'conflict' });
 
     const [row] = await getTestDb()
       .select({ value: count() })
       .from(folders)
       .where(eq(folders.orgId, organization.id));
-    expect(row?.value).toBe(3);
+    expect(row?.value).toBe(2);
   });
 
-  it('soft-deletes the subtree and unfiles content', async () => {
+  it('deletes the folder and unfiles the content under it', async () => {
     const { user, organization, project } = await setup();
-    const root = await createFolderInTransaction({
+    const folder = await createFolderInTransaction({
       userId: user.id,
       orgId: organization.id,
       projectId: project.id,
-      kind: 0,
-      name: '根分类',
+      name: '待删分类',
     });
-    if (!root.ok) {
-      throw new Error('failed to create root folder');
-    }
-    const child = await createFolderInTransaction({
-      userId: user.id,
-      orgId: organization.id,
-      projectId: project.id,
-      kind: 0,
-      parentId: root.folder.id,
-      name: '子分类',
-    });
-    if (!child.ok) {
-      throw new Error('failed to create child folder');
+    if (!folder.ok) {
+      throw new Error('failed to create folder');
     }
 
     const lineage = await createLineageInTransaction({
       userId: user.id,
       orgId: organization.id,
       projectId: project.id,
-      folderId: child.folder.id,
+      folderId: folder.folder.id,
       name: '待分类谱系',
-      region: '中国/福建',
     });
     expect(lineage.ok).toBe(true);
     if (!lineage.ok) return;
@@ -114,11 +101,12 @@ describe('folder service', () => {
     const result = await deleteFolderInTransaction({
       userId: user.id,
       orgId: organization.id,
-      folderId: root.folder.id,
+      folderId: folder.folder.id,
     });
+    // 扁平单层：没有子树，一次只删一行。
     expect(result).toEqual({
       ok: true,
-      deletedFolders: 2,
+      deletedFolders: 1,
       unfiledContent: 1,
     });
 
@@ -128,13 +116,11 @@ describe('folder service', () => {
       .where(eq(lineages.id, lineage.lineage.id));
     expect(stored?.folderId).toBeNull();
 
-    const deleted = await getTestDb()
+    const remaining = await getTestDb()
       .select({ id: folders.id })
       .from(folders)
-      .where(
-        and(eq(folders.orgId, organization.id), isNull(folders.deletedAt))
-      );
-    expect(deleted).toHaveLength(0);
+      .where(eq(folders.orgId, organization.id));
+    expect(remaining).toHaveLength(0);
   });
 
   it('unfiles articles and books when their folders are deleted', async () => {
@@ -143,13 +129,14 @@ describe('folder service', () => {
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 1,
+      name: '谱文分类',
     });
+    // 基线新增 folder_name_unique (project_id, name)：同项目第二个分类改用不同名
     const bookFolder = await createFolder({
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 2,
+      name: '谱书分类',
     });
     const article = await createArticle({
       orgId: organization.id,
@@ -208,7 +195,6 @@ describe('folder service', () => {
       userId: viewer.id,
       orgId: organization.id,
       projectId: project.id,
-      kind: 0,
       name: '越权分类',
     });
     expect(result).toEqual({ ok: false, reason: 'forbidden' });
@@ -222,7 +208,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 0,
     });
 
     const result = await createLineageInTransaction({
@@ -231,15 +216,13 @@ describe('lineage service', () => {
       projectId: project.id,
       folderId: folder.id,
       name: '颍川陈氏',
-      region: '中国/福建/漳州',
-      notes: '光绪年间分谱',
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.lineage.surname).toBe(project.surname);
-    expect(result.lineage.region).toBe('中国/福建/漳州');
-    expect(result.lineage.notes).toBe('光绪年间分谱');
+    expect(result.lineage.name).toBe('颍川陈氏');
+    expect(result.lineage.description).toBeNull();
+    expect(result.lineage.baseGeneration).toBe(1);
   });
 
   it('creates and reuses a default category when the project has none', async () => {
@@ -250,14 +233,12 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '第一本',
-      region: '中国/福建',
     });
     const second = await createLineageInTransaction({
       userId: user.id,
       orgId: organization.id,
       projectId: project.id,
       name: '第二本',
-      region: '中国/福建',
     });
 
     expect(first.ok && second.ok).toBe(true);
@@ -268,8 +249,7 @@ describe('lineage service', () => {
     const foldersInProject = await getFolders(
       user.id,
       organization.id,
-      project.id,
-      0
+      project.id
     );
     expect(foldersInProject.map((folder) => folder.name)).toEqual(['默认分类']);
   });
@@ -285,7 +265,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: bareProject.id,
       createdBy: user.id,
-      kind: 0,
     });
 
     const result = await createLineageInTransaction({
@@ -294,10 +273,10 @@ describe('lineage service', () => {
       projectId: bareProject.id,
       folderId: folder.id,
       name: '无姓谱系',
-      region: '中国/福建',
     });
 
-    expect(result).toEqual({ ok: false, reason: 'project_surname_missing' });
+    // 目标态 lineage 不继承项目姓氏，缺姓氏的项目同样可以创建谱系。
+    expect(result.ok).toBe(true);
   });
 
   it('cannot change the surname through an update', async () => {
@@ -306,7 +285,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 0,
     });
     const lineage = await createLineage({
       orgId: organization.id,
@@ -320,13 +298,13 @@ describe('lineage service', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
-      updates: { region: '中国/浙江', surname: '李' } as never,
+      updates: { name: '更名后的谱系' },
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.lineage.surname).toBe('王');
-    expect(result.lineage.region).toBe('中国/浙江');
+    expect(result.lineage.name).toBe('更名后的谱系');
+    expect(result.lineage.description).toBeNull();
   });
 
   it('creates a lineage in a lineage folder', async () => {
@@ -335,7 +313,6 @@ describe('lineage service', () => {
       userId: user.id,
       orgId: organization.id,
       projectId: project.id,
-      kind: 0,
       name: '谱系分类',
     });
     if (!folder.ok) {
@@ -348,32 +325,33 @@ describe('lineage service', () => {
       projectId: project.id,
       folderId: folder.folder.id,
       name: '颍川陈氏',
-      region: '中国/福建',
-      hallCode: '颍川堂',
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lineage.folderId).toBe(folder.folder.id);
-    expect(result.lineage.hallCode).toBe('颍川堂');
+    expect(result.lineage.poemText).toBeNull();
   });
 
-  it('rejects a folder from another content tree', async () => {
+  it('rejects a folder that belongs to another project', async () => {
     const { user, organization, project } = await setup();
-    const articleFolder = await createFolder({
+    const otherProject = await createProject({
       orgId: organization.id,
-      projectId: project.id,
       createdBy: user.id,
-      kind: 1,
+    });
+    const foreignFolder = await createFolder({
+      orgId: organization.id,
+      projectId: otherProject.id,
+      createdBy: user.id,
+      name: '别项目分类',
     });
 
     const result = await createLineageInTransaction({
       userId: user.id,
       orgId: organization.id,
       projectId: project.id,
-      folderId: articleFolder.id,
+      folderId: foreignFolder.id,
       name: '错分类谱系',
-      region: '中国/福建',
     });
     expect(result).toEqual({ ok: false, reason: 'invalid_folder' });
   });
@@ -385,7 +363,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '重复谱系',
-      region: '中国/福建',
     });
     expect(first.ok).toBe(true);
 
@@ -394,7 +371,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '重复谱系',
-      region: '中国/福建',
     });
     expect(second).toEqual({ ok: false, reason: 'conflict' });
   });
@@ -405,7 +381,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       createdBy: user.id,
-      kind: 0,
     });
     const lineage = await createLineage({
       orgId: organization.id,
@@ -419,13 +394,13 @@ describe('lineage service', () => {
       userId: user.id,
       orgId: organization.id,
       lineageId: lineage.id,
-      updates: { folderId: null, generationWords: [] },
+      updates: { folderId: null, seq: 3 },
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.lineage.folderId).toBeNull();
-    expect(result.lineage.generationWords).toEqual([]);
+    expect(result.lineage.seq).toBe(3);
   });
 
   it('refuses to delete a lineage referenced by a catalog item', async () => {
@@ -442,8 +417,8 @@ describe('lineage service', () => {
     });
     await createCatalogItem({
       orgId: organization.id,
+      projectId: project.id,
       bookId: book.id,
-      createdBy: user.id,
       lineageId: lineage.id,
     });
 
@@ -475,6 +450,8 @@ describe('lineage service', () => {
       createdBy: user.id,
       generation: 2,
       name: '二世',
+      // 基线新增 node_path_unique：同谱系第二个节点改用不冲突的 path
+      path: '0002',
     });
 
     const result = await deleteLineageInTransaction({
@@ -487,7 +464,7 @@ describe('lineage service', () => {
     const [active] = await getTestDb()
       .select({ value: count() })
       .from(nodes)
-      .where(and(eq(nodes.lineageId, lineage.id), isNull(nodes.deletedAt)));
+      .where(eq(nodes.lineageId, lineage.id));
     expect(active?.value).toBe(0);
   });
 
@@ -515,7 +492,7 @@ describe('lineage service', () => {
     const [stillThere] = await getTestDb()
       .select({ id: lineages.id })
       .from(lineages)
-      .where(and(eq(lineages.id, lineage.id), isNull(lineages.deletedAt)));
+      .where(eq(lineages.id, lineage.id));
     expect(stillThere?.id).toBe(lineage.id);
   });
 
@@ -555,7 +532,6 @@ describe('lineage service', () => {
       orgId: organization.id,
       projectId: project.id,
       name: '越权谱系',
-      region: '中国/福建',
     });
     expect(result).toEqual({ ok: false, reason: 'forbidden' });
   });

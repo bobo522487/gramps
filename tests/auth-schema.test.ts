@@ -23,7 +23,7 @@ describe('Better Auth schema', () => {
     }
   });
 
-  it('shapes auth.users for Better Auth', () => {
+  it('shapes auth.user for Better Auth', () => {
     const keys = columnKeys(users);
 
     expect(keys).toEqual(
@@ -86,9 +86,13 @@ describe('Better Auth schema', () => {
   });
 
   it('adds Better Auth organization fields', () => {
+    // 已核对 better-auth 的 organization 模型字段表（organization.mjs 的
+    // `schema.organization.fields`）：只有 name / slug / logo / createdAt /
+    // metadata，**没有 updatedAt**，所以目标态删掉它是安全的。
     expect(columnKeys(organizations)).toEqual(
-      expect.arrayContaining(['logo', 'metadata', 'updatedAt'])
+      expect.arrayContaining(['logo', 'metadata', 'createdAt'])
     );
+    expect(columnKeys(organizations)).not.toContain('updatedAt');
   });
 
   it('renames member fields and drops soft delete', () => {
@@ -102,7 +106,10 @@ describe('Better Auth schema', () => {
     );
   });
 
-  it('shapes invite as a Better Auth invitation', () => {
+  it('shapes invite to the target model, not to the plugin', () => {
+    // B2b 之前这条断言的是「像一封 Better Auth 邀请」：`inviterId` 必填、
+    // 不许有 `tokenHash` / `acceptedAt`。自建 token 之后方向反了——插件
+    // 不再写这张表，列形状以附录 A.1 为准。
     const keys = columnKeys(invitations);
 
     expect(keys).toEqual(
@@ -112,7 +119,9 @@ describe('Better Auth schema', () => {
         'role',
         'status',
         'expiresAt',
-        'inviterId',
+        'tokenHash',
+        'acceptedAt',
+        'invitedBy',
         'createdAt',
       ])
     );
@@ -120,8 +129,9 @@ describe('Better Auth schema', () => {
       expect.arrayContaining([
         'orgId',
         'createdBy',
-        'tokenHash',
-        'acceptedAt',
+        // 插件的列名：`inviterId` 是 NOT NULL + RESTRICT 的形状，B2b 换成了
+        // 可空 + SET NULL 的 `invited_by`。
+        'inviterId',
         'acceptedBy',
         'deletedAt',
       ])
@@ -129,14 +139,13 @@ describe('Better Auth schema', () => {
   });
 
   it('maps singular Better Auth model names to tables', () => {
+    // T28 拆掉 organization 插件后，adapter 只管核心四模型；
+    // organization / member / invitation 由业务连接直接读写。
     expect(authSchemaMap).toEqual({
       user: users,
       session: sessions,
       account: accounts,
       verification: verifications,
-      organization: organizations,
-      member: orgMembers,
-      invitation: invitations,
     });
   });
 });

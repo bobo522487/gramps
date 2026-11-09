@@ -45,6 +45,6 @@ export function buildDeleteConfirmMessage(
   count: number
 ): string {
   return count > 1
-    ? `删除「${node.fullName}」及其子孙与配偶？共 ${count} 位人丁会归档。`
-    : `删除「${node.fullName}」？该人丁会归档。`;
+    ? `删除「${node.fullName}」及其子孙？共 ${count} 位人丁会被删除，且不可恢复。`
+    : `删除「${node.fullName}」？该人丁会被删除，且不可恢复。`;
 }

@@ -1,5 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
+import {
+  type ArticleContent,
+  createEmptyArticleContent,
+  serializeArticleContent,
+} from '@/lib/article/doc';
 import { getAuth } from '@/lib/auth/better-auth';
 import type { OrgRole } from '@/lib/auth/permissions';
 import {
@@ -21,23 +26,7 @@ import {
   persons,
   projects,
 } from '@/lib/db/schema';
-import type { DateCn } from '@/lib/db/schema/event';
-import type {
-  Calendar,
-  DatePrecision,
-  DateQualifier,
-  EventKind,
-  EventType,
-  LivingStatus,
-  NameStatus,
-  ParentageType,
-  PartnerRole,
-  PartnerStatus,
-  PersonNameType,
-  PersonSex,
-  PrivacyLevel,
-  UnionType,
-} from '@/lib/genealogy/constants';
+import type { PersonSex } from '@/lib/genealogy/constants';
 import { generatePublicId } from '@/lib/ids';
 import { getTestDb } from './db';
 
@@ -132,30 +121,40 @@ export async function createProject(params: {
   return project;
 }
 
+/**
+ * Target-model `folder` (appendix A.2) is a flat, single-level classification:
+ * only scope + `name` / `seq` remain. `createdBy` / `kind` / `parentId` / `sort`
+ * stay accepted for backwards compatibility with existing callers but are no
+ * longer columns and are deliberately not written.
+ */
 export async function createFolder(params: {
   orgId: string;
   projectId: string;
-  createdBy: string;
+  createdBy?: string;
   kind?: number;
   parentId?: string | null;
   name?: string;
   sort?: number;
+  seq?: number;
 }) {
   const [folder] = await getTestDb()
     .insert(folders)
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      kind: params.kind ?? 0,
-      parentId: params.parentId ?? null,
       name: params.name ?? '测试分类',
-      sort: params.sort ?? 0,
+      seq: params.seq ?? params.sort ?? 0,
     })
     .returning();
   return folder;
 }
 
+/**
+ * Target-model `lineage` (appendix A.4) only carries scope + display columns.
+ * `createdBy` / `surname` / `generationWords` remain accepted for backwards
+ * compatibility with the callers that still pass them, but are no longer
+ * columns and are deliberately not written.
+ */
 export async function createLineage(params: {
   orgId: string;
   projectId: string;
@@ -170,32 +169,35 @@ export async function createLineage(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
       folderId: params.folderId ?? null,
       name: params.name ?? '测试谱系',
-      surname: params.surname ?? '陈',
-      generationWords: params.generationWords ?? null,
     })
     .returning();
   return lineage;
 }
 
+/**
+ * A target-model `node` is a tree position, not a person. `projectId` (part of
+ * the composite key) and `personId` are therefore explicit; the old identity
+ * columns (role / generation / sort / name / sex / soft delete / requestId)
+ * are accepted for caller compatibility but are no longer written.
+ */
 export async function createNode(params: {
   orgId: string;
   lineageId: string;
   createdBy: string;
+  projectId?: string;
+  personId?: string | null;
+  kind?: 'primary' | 'repeat' | 'annotation';
   parentId?: string | null;
   spouseOfId?: string | null;
   role?: 'blood' | 'spouse';
   path?: string | null;
-  generation: number;
+  generation?: number;
   sort?: number;
   name?: string;
   surname?: string;
   sex?: number;
-  // Task 7 additions: the fact-layer backfill is only interesting for nodes
-  // that carry the facts node can express (dates, burial place, 字号) or that
-  // were soft-deleted. Every one of them keeps its old default.
   courtesy?: string | null;
   isAlive?: boolean;
   birthText?: string | null;
@@ -205,55 +207,50 @@ export async function createNode(params: {
   burialPlace?: string | null;
   fullName?: string | null;
   deletedAt?: Date | null;
-  /** 创建幂等键（R31）；测试直插时用来撞 uk_node_org_request_id。 */
   requestId?: string | null;
 }) {
   const id = randomUUID();
-  const role = params.role ?? 'blood';
-  const name = params.name ?? '测试人丁';
-  const surname = params.surname ?? '陈';
-  const path =
-    role === 'spouse' ? null : (params.path ?? id.replaceAll('-', ''));
+  // `(project_id, id)` is the key: callers that omit projectId must still get
+  // the scope from their lineage, otherwise the scope FK rejects the row.
+  const projectId =
+    params.projectId ??
+    (
+      await getTestDb()
+        .select({ projectId: lineages.projectId })
+        .from(lineages)
+        .where(eq(lineages.id, params.lineageId))
+        .limit(1)
+    )[0]?.projectId ??
+    '';
   const [node] = await getTestDb()
     .insert(nodes)
     .values({
       id,
       orgId: params.orgId,
+      projectId,
       lineageId: params.lineageId,
-      createdBy: params.createdBy,
-      parentId: params.parentId ?? null,
-      spouseOfId: params.spouseOfId ?? null,
-      role,
-      path,
-      generation: params.generation,
-      sort: params.sort ?? 0,
-      name,
-      surname,
-      fullName: params.fullName ?? `${surname}${name}`,
-      sex: params.sex ?? 0,
-      courtesy: params.courtesy ?? null,
-      isAlive: params.isAlive ?? true,
-      birthText: params.birthText ?? null,
-      birthYear: params.birthYear ?? null,
-      deathText: params.deathText ?? null,
-      deathYear: params.deathYear ?? null,
-      burialPlace: params.burialPlace ?? null,
-      deletedAt: params.deletedAt ?? null,
-      requestId: params.requestId ?? null,
+      personId: params.personId ?? null,
+      path: params.path ?? '0001',
+      kind: params.kind ?? 'annotation',
+      displayName: params.name ?? '测试人丁',
     })
     .returning();
   return node;
 }
 
+/**
+ * Target-model `person` is just an identity plus `sex`; the retired snapshot
+ * columns are accepted but not written.
+ */
 export async function createPerson(params: {
   orgId: string;
   projectId: string;
   createdBy: string;
   sex?: PersonSex;
-  livingStatus?: LivingStatus;
+  livingStatus?: string;
   livingStatusLocked?: boolean;
-  privacyLevel?: PrivacyLevel;
-  nameStatus?: NameStatus;
+  privacyLevel?: string;
+  nameStatus?: string;
   primaryNameId?: string | null;
   mergedIntoId?: string | null;
   sortKey?: string | null;
@@ -264,29 +261,23 @@ export async function createPerson(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
       sex: params.sex ?? 'male',
-      livingStatus: params.livingStatus ?? 'unknown',
-      livingStatusLocked: params.livingStatusLocked ?? false,
-      privacyLevel: params.privacyLevel ?? 'private',
-      nameStatus: params.nameStatus ?? 'known',
-      primaryNameId: params.primaryNameId ?? null,
-      mergedIntoId: params.mergedIntoId ?? null,
-      sortKey: params.sortKey ?? null,
-      legacyNodeId: params.legacyNodeId ?? null,
     })
     .returning();
   return person;
 }
 
+/**
+ * Target-model `person_name` records `(kind, value)`; the retired
+ * fullName/surname/givenName split is accepted but not written.
+ */
 export async function createPersonName(params: {
   orgId: string;
   projectId: string;
   personId: string;
   createdBy: string;
-  nameType?: PersonNameType;
+  nameType?: string;
   customType?: string | null;
-  /** `null` is meaningful here: 名讳失考 has a name row with no full name. */
   fullName?: string | null;
   surname?: string | null;
   givenName?: string | null;
@@ -305,30 +296,20 @@ export async function createPersonName(params: {
       orgId: params.orgId,
       projectId: params.projectId,
       personId: params.personId,
-      createdBy: params.createdBy,
-      nameType: params.nameType ?? 'birth',
-      customType: params.customType ?? null,
-      fullName: params.fullName === undefined ? '陈测试' : params.fullName,
-      surname: params.surname === undefined ? '陈' : params.surname,
-      givenName: params.givenName === undefined ? '测试' : params.givenName,
-      namePrefix: params.namePrefix ?? null,
-      nameSuffix: params.nameSuffix ?? null,
-      surnamePrefix: params.surnamePrefix ?? null,
-      nickname: params.nickname ?? null,
-      pinyin: params.pinyin ?? null,
-      romanized: params.romanized ?? null,
-      language: params.language ?? null,
-      sortOrder: params.sortOrder ?? 0,
+      kind: 'given',
+      value: params.fullName ?? '陈测试',
+      isPrimary: true,
     })
     .returning();
   return name;
 }
 
+/** Target-model `family` is a bare join row. */
 export async function createFamily(params: {
   orgId: string;
   projectId: string;
   createdBy: string;
-  unionType?: UnionType;
+  unionType?: string;
   sort?: number;
   notes?: string | null;
 }) {
@@ -337,24 +318,21 @@ export async function createFamily(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      unionType: params.unionType ?? 'unknown',
-      sort: params.sort ?? 0,
-      notes: params.notes ?? null,
     })
     .returning();
   return family;
 }
 
+/** Target-model `family_partner` uses `role` / `rank`, not status/order. */
 export async function createFamilyPartner(params: {
   orgId: string;
   projectId: string;
   familyId: string;
   personId: string;
   createdBy: string;
-  role?: PartnerRole;
+  role?: string;
   partnerOrder?: number;
-  status?: PartnerStatus;
+  status?: string;
 }) {
   const [partner] = await getTestDb()
     .insert(familyPartners)
@@ -363,22 +341,21 @@ export async function createFamilyPartner(params: {
       projectId: params.projectId,
       familyId: params.familyId,
       personId: params.personId,
-      createdBy: params.createdBy,
-      role: params.role ?? 'blood',
-      partnerOrder: params.partnerOrder ?? 1,
-      status: params.status ?? 'unknown',
+      role: 'husband',
+      rank: 1,
     })
     .returning();
   return partner;
 }
 
+/** Target-model `family_child` uses `kind` and optional mother/origin keys. */
 export async function createFamilyChild(params: {
   orgId: string;
   projectId: string;
   familyId: string;
   personId: string;
   createdBy: string;
-  parentageType?: ParentageType;
+  parentageType?: string;
   isPrimary?: boolean;
   sort?: number;
 }) {
@@ -389,23 +366,26 @@ export async function createFamilyChild(params: {
       projectId: params.projectId,
       familyId: params.familyId,
       personId: params.personId,
-      createdBy: params.createdBy,
-      parentageType: params.parentageType ?? 'birth',
-      isPrimary: params.isPrimary ?? true,
-      sort: params.sort ?? 0,
+      kind: 'biological',
     })
     .returning();
   return child;
 }
 
+/**
+ * Target-model `event` is a single flat domain with one subject. The retired
+ * date/age/title columns are accepted but not written; `kind` defaults to a
+ * person birth so the factory only ever produces a structurally valid row
+ * when the caller supplies a `personId`.
+ */
 export async function createEvent(params: {
   orgId: string;
   projectId: string;
   createdBy: string;
   personId?: string | null;
   familyId?: string | null;
-  eventKind?: EventKind;
-  eventType?: EventType;
+  eventKind?: string;
+  eventType?: string;
   customType?: string | null;
   gedcomTag?: string | null;
   title?: string | null;
@@ -414,10 +394,10 @@ export async function createEvent(params: {
   dateOriginal?: string | null;
   dateStart?: string | null;
   dateEnd?: string | null;
-  datePrecision?: DatePrecision | null;
-  dateQualifier?: DateQualifier;
-  calendar?: Calendar;
-  dateCn?: DateCn | null;
+  datePrecision?: string | null;
+  dateQualifier?: string;
+  calendar?: string;
+  dateCn?: Record<string, unknown> | null;
   ageText?: string | null;
   ageYears?: number | null;
   ageBasis?: string | null;
@@ -428,30 +408,9 @@ export async function createEvent(params: {
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      // Deliberately not derived from eventType: the column has to agree with
-      // the type (ck_event_kind_matches_type), and a factory that guessed would
-      // hide a wrong kind instead of letting the database refuse it.
-      eventKind: params.eventKind ?? 'event',
-      eventType: params.eventType ?? 'event',
+      kind: 'birth',
       personId: params.personId ?? null,
       familyId: params.familyId ?? null,
-      customType: params.customType ?? null,
-      gedcomTag: params.gedcomTag ?? null,
-      title: params.title ?? null,
-      value: params.value ?? null,
-      description: params.description ?? null,
-      dateOriginal: params.dateOriginal ?? null,
-      dateStart: params.dateStart ?? null,
-      dateEnd: params.dateEnd ?? null,
-      datePrecision: params.datePrecision ?? null,
-      dateQualifier: params.dateQualifier ?? 'unknown',
-      calendar: params.calendar ?? 'gregorian',
-      dateCn: params.dateCn ?? null,
-      ageText: params.ageText ?? null,
-      ageYears: params.ageYears ?? null,
-      ageBasis: params.ageBasis ?? null,
-      placeOriginal: params.placeOriginal ?? null,
     })
     .returning();
   return event;
@@ -460,19 +419,21 @@ export async function createEvent(params: {
 export async function createBook(params: {
   orgId: string;
   projectId: string;
-  createdBy: string;
+  /** 历史参数：目标态 `book` 不再有 `created_by` 列，接受但忽略。 */
+  createdBy?: string;
   name?: string;
+  folderId?: string | null;
 }) {
-  const name = params.name ?? '测试谱书';
+  // 目标态 `book` 只有 `title`（附录 A.5），没有 `name` / `surname` / `created_by`
+  // 等旧列；`name` 参数承载的语义就是书名，直接落到 `title`。
+  const title = params.name ?? '测试谱书';
   const [book] = await getTestDb()
     .insert(books)
     .values({
       orgId: params.orgId,
       projectId: params.projectId,
-      createdBy: params.createdBy,
-      name,
-      title: name,
-      surname: '陈',
+      folderId: params.folderId ?? null,
+      title,
     })
     .returning();
   return book;
@@ -481,13 +442,11 @@ export async function createBook(params: {
 export async function createArticle(params: {
   orgId: string;
   projectId: string;
-  createdBy: string;
+  /** 历史参数：目标态 `article` 不再有 `created_by` 列，接受但忽略。 */
+  createdBy?: string;
   title?: string;
   folderId?: string | null;
-  content?: Record<string, unknown>;
-  plainText?: string;
-  updatedAt?: Date;
-  deletedAt?: Date;
+  content?: ArticleContent;
 }) {
   const title = params.title ?? '测试谱文';
   const [article] = await getTestDb()
@@ -496,66 +455,109 @@ export async function createArticle(params: {
       orgId: params.orgId,
       projectId: params.projectId,
       folderId: params.folderId ?? null,
-      createdBy: params.createdBy,
       title,
-      content: params.content ?? { type: 'doc', content: [] },
-      plainText: params.plainText ?? title,
-      updatedAt: params.updatedAt,
-      deletedAt: params.deletedAt,
+      body: serializeArticleContent(
+        params.content ?? createEmptyArticleContent()
+      ),
     })
     .returning();
   return article;
 }
 
-/** 软删一篇谱文（业务删除就是这个形状：只写 `deleted_at`）。 */
-export async function softDeleteArticle(articleId: string): Promise<void> {
-  await getTestDb()
-    .update(articles)
-    .set({ deletedAt: new Date() })
-    .where(eq(articles.id, articleId));
+/**
+ * 删一篇谱文。目标态 `article` 没有 `deleted_at`（附录 A.5），业务删除就是
+ * 真删，所以这里也只是删行——名字沿用 `softDelete*` 会让后来人以为还有软删。
+ */
+export async function deleteArticle(articleId: string): Promise<void> {
+  await getTestDb().delete(articles).where(eq(articles.id, articleId));
 }
 
+/**
+ * 目标态 `book_catalog`（附录 A.5）：主键 (project_id, id)，层级用 `path ltree`
+ * 表达，没有 created_by / section / sort / 软删列。
+ *
+ * `path` 默认 `0001`（满足 path_format 且 nlevel=1，parent_path 生成列为 NULL，
+ * 自引用 `book_catalog_parent_fk` 不生效，无需先建父行）。同书同路径会撞
+ * `book_catalog_path_unique`，需要多级 / 兄弟节点时显式传 `path`，并保证父段
+ * 已存在（父路径 FK 是 RESTRICT）。
+ */
 export async function createCatalogItem(params: {
   orgId: string;
+  projectId: string;
   bookId: string;
-  createdBy: string;
-  lineageId?: string | null;
+  path?: string;
+  title?: string;
   articleId?: string | null;
-  name?: string;
+  lineageId?: string | null;
 }) {
   const [item] = await getTestDb()
     .insert(bookCatalogs)
     .values({
       orgId: params.orgId,
+      projectId: params.projectId,
       bookId: params.bookId,
-      createdBy: params.createdBy,
+      path: params.path ?? '0001',
+      title: params.title ?? '测试编目',
       lineageId: params.lineageId ?? null,
       articleId: params.articleId ?? null,
-      name: params.name ?? '测试编目',
-      section: 2,
     })
     .returning();
   return item;
 }
+/**
+ * 造一封邀请。
+ *
+ * `token` 是**明文**，只在返回值里出现一次——库里存的是它的 sha256
+ * （附录 A.1）。测试要调 `app.accept_invite` 时必须拿这个明文，所以工厂
+ * 把它一并返回，而不是让调用方自己哈希一遍（那样两边口径漂移时测试仍然绿）。
+ *
+ * `status` 只剩基线 CHECK 的三个值：'rejected' / 'canceled' 是 Better Auth
+ * 插件的取值，自建 token 之后没有人会写它们。
+ */
 export async function createInvitation(params: {
   organizationId: string;
-  inviterId: string;
+  invitedBy?: string;
   email: string;
   role?: Exclude<OrgRole, 'owner'>;
   expiresAt?: Date;
-  status?: 'pending' | 'accepted' | 'rejected' | 'canceled';
+  status?: 'pending' | 'accepted' | 'revoked';
 }) {
+  const plaintext = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256')
+    .update(plaintext, 'utf8')
+    .digest('hex');
+  const status = params.status ?? 'pending';
   const [invitation] = await getTestDb()
     .insert(invitations)
     .values({
       organizationId: params.organizationId,
-      email: params.email,
+      // 基线 CHECK 要求 `email = lower(email)`。大小写归一是**写入路径**的
+      // 责任（`issueInvitation()` 里 trim + toLowerCase），测试直插时也得照做，
+      // 否则测出来的是「CHECK 拦住了大写邮箱」而不是被测的那条规则。
+      email: params.email.trim().toLowerCase(),
       role: params.role ?? 'viewer',
-      status: params.status ?? 'pending',
+      status,
+      tokenHash,
       expiresAt:
         params.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      inviterId: params.inviterId,
+      // 基线 CHECK 是 `expires_at > created_at`。只把 expiresAt 设在过去
+      // 造不出「过期邀请」——created_at 默认 now()，于是 expires_at 在它之前，
+      // 直接撞 23514。过期邀请的正确造法是「过去创建、早已到期」：
+      // created_at 显式回填到更早，两个时间点一起前移。
+      ...(params.expiresAt
+        ? {
+            createdAt: new Date(
+              Math.min(
+                params.expiresAt.getTime(),
+                Date.now() - 24 * 60 * 60 * 1000
+              )
+            ),
+          }
+        : {}),
+      // 两条单向蕴含：accepted 必须有时刻，有时刻的只能是 accepted / revoked。
+      acceptedAt: status === 'pending' ? null : new Date(),
+      invitedBy: params.invitedBy ?? null,
     })
     .returning();
-  return invitation;
+  return { ...invitation, token: plaintext };
 }

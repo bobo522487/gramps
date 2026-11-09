@@ -32,7 +32,6 @@ export default async function ProjectArticlesPage({
   const folderNodes: ArticleFolderNode[] = folders.map((folder) => ({
     id: folder.id,
     name: folder.name,
-    parentId: folder.parentId,
     count: counts.byFolder.get(folder.id) ?? 0,
   }));
 
@@ -41,9 +40,7 @@ export default async function ProjectArticlesPage({
     title: article.title,
     folderId: article.folderId,
     pageCount: article.pageCount,
-    lastTouchedAt: (article.updatedAt ?? article.createdAt)
-      .toISOString()
-      .slice(0, 10),
+    lastTouchedAt: article.createdAt.toISOString().slice(0, 10),
   }));
 
   return (

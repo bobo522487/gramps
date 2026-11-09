@@ -19,8 +19,9 @@ import {
 
 const PROJECT_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',
-  not_found: '云谱空间不存在或已归档',
+  not_found: '云谱空间不存在',
   conflict: '项目创建失败，请重试。',
+  not_empty: '云谱空间里还有谱系、谱文或谱书，请先清空再删除',
 } as const;
 
 export const createProjectAction = validatedActionWithUser(

@@ -9,10 +9,10 @@ import {
 import type { ArticleContent, ArticlePage } from '@/lib/article/doc';
 import {
   createEmptyPageDoc,
-  derivePlainText,
   isReferenced,
   newArticlePageId,
   parseArticleContent,
+  serializeArticleContent,
 } from '@/lib/article/doc';
 import {
   type ArticleResult,
@@ -23,8 +23,7 @@ import {
   refused,
   validateContent,
 } from '@/lib/article/mutations';
-import { logActivityInTx } from '@/lib/db/queries/activity';
-import { ActivityType, articles } from '@/lib/db/schema';
+import { articles } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
 
 /**
@@ -51,7 +50,7 @@ export async function saveArticlePageInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       const index = current.pages.findIndex((page) => page.id === pageId);
       if (index < 0) {
         // 页已被删除：拒绝整次提交，不凭空造页、不动其他页（FR-021）。
@@ -85,12 +84,9 @@ export async function saveArticlePageInTransaction(params: {
       await tx
         .update(articles)
         .set({
-          content,
-          plainText: derivePlainText(content),
-          updatedAt: savedAt,
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       return {
         ok: true as const,
@@ -120,7 +116,7 @@ export async function addArticlePageInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       if (current.pages.length >= MAX_PAGES_PER_ARTICLE) {
         return { ok: false, reason: 'max_pages' } as const;
       }
@@ -134,16 +130,12 @@ export async function addArticlePageInTransaction(params: {
         pages: [...current.pages, page],
       };
 
-      const savedAt = new Date();
       await tx
         .update(articles)
         .set({
-          content,
-          plainText: derivePlainText(content),
-          updatedAt: savedAt,
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       return {
         ok: true as const,
@@ -175,7 +167,7 @@ export async function deleteArticlePageInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       const removed = current.pages.find((page) => page.id === pageId);
       if (!removed) {
         return { ok: false, reason: 'page_not_found' } as const;
@@ -190,16 +182,12 @@ export async function deleteArticlePageInTransaction(params: {
         pages,
       };
 
-      const savedAt = new Date();
       await tx
         .update(articles)
         .set({
-          content,
-          plainText: derivePlainText(content),
-          updatedAt: savedAt,
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       // imagePathsOf 认的是「分页文档包」，单页得先包一层再遍历。
       const pathnames = imagePathsOf({
@@ -231,7 +219,7 @@ export async function reorderArticlePagesInTransaction(params: {
         return { ok: false, reason: 'not_found' } as const;
       }
 
-      const current = parseArticleContent(article.content);
+      const current = parseArticleContent(article.body);
       const byId = new Map(current.pages.map((page) => [page.id, page]));
       const isSameSet =
         pageIds.length === byId.size &&
@@ -248,16 +236,12 @@ export async function reorderArticlePagesInTransaction(params: {
         pages,
       };
 
-      const savedAt = new Date();
       await tx
         .update(articles)
         .set({
-          updatedAt: savedAt,
-          plainText: derivePlainText(content),
-          content,
+          body: serializeArticleContent(content),
         })
         .where(eq(articles.id, articleId));
-      await logActivityInTx(tx, userId, orgId, ActivityType.UPDATE_ARTICLE);
 
       return { ok: true as const, pageOrder: pageIdsOf(content) };
     }
