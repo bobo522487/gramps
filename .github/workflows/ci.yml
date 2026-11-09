@@ -100,7 +100,14 @@ jobs:
 
       - name: Check migration drift
         run: |
-          pnpm db:generate
+          set -o pipefail
+          pnpm db:generate 2>&1 | tee /tmp/drizzle-generate.log
+          # drizzle-kit 遇到列冲突时会打印交互式提示却以 exit 0 静默退出，
+          # 且不生成迁移文件；只检查 git status 会假绿（T39）。把输出也纳入断言。
+          if grep -q "Interactive prompts" /tmp/drizzle-generate.log; then
+            echo "::error::drizzle-kit 需要交互输入，snapshot 与 TS schema 不一致"
+            exit 1
+          fi
           test -z "$(git status --porcelain lib/db/migrations)"
 
       - name: Build

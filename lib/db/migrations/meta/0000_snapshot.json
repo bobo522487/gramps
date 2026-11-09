@@ -1,5 +1,5 @@
 {
-  "id": "f7adac6c-6aff-443c-927e-715e9fc73e07",
+  "id": "3b72ba73-07f9-4df6-bf59-7b7c4656eeae",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1140,67 +1140,23 @@
           "primaryKey": false,
           "notNull": false
         },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "title": {
           "name": "title",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "surname": {
-          "name": "surname",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "hall_code": {
-          "name": "hall_code",
+        "edition_text": {
+          "name": "edition_text",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "volume_no": {
-          "name": "volume_no",
+        "compiler_text": {
+          "name": "compiler_text",
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "author": {
-          "name": "author",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "compiled_at": {
-          "name": "compiled_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cover_spec": {
-          "name": "cover_spec",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "back_cover_spec": {
-          "name": "back_cover_spec",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sort": {
-          "name": "sort",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -1208,15 +1164,31 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "book_folder_idx": {
+          "name": "book_folder_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "folder_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "book_scope_fk": {
           "name": "book_scope_fk",
@@ -1232,6 +1204,21 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
+        },
+        "book_folder_fk": {
+          "name": "book_folder_fk",
+          "tableFrom": "book",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "project_id",
+            "folder_id"
+          ],
+          "columnsTo": [
+            "project_id",
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1243,25 +1230,7 @@
           ]
         }
       },
-      "uniqueConstraints": {
-        "uk_book_organization_id": {
-          "name": "uk_book_organization_id",
-          "nullsNotDistinct": false,
-          "columns": [
-            "organization_id",
-            "id"
-          ]
-        },
-        "uk_book_name": {
-          "name": "uk_book_name",
-          "nullsNotDistinct": false,
-          "columns": [
-            "organization_id",
-            "project_id",
-            "name"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
