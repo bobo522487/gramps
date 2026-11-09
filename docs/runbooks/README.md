@@ -10,11 +10,11 @@
 
 ### 1.1 连接方式
 
-| 用途 | 连接串 | 角色 |
-| --- | --- | --- |
-| 应用运行 | `APP_POSTGRES_URL`（Neon pooled） | `genealogy_app`（基线创建的 LOGIN 角色），受 RLS 约束 |
-| 认证运行 | `AUTH_POSTGRES_URL`（Neon direct） | `auth_runtime` → 启动参数固定 `auth_service`；pooler 会拒绝该参数 |
-| 迁移 / 运维 / 备份 | `POSTGRES_URL_DIRECT`（Neon direct） | 迁移角色，拥有 `BYPASSRLS` |
+| 用途               | 连接串                               | 角色                                                              |
+| ------------------ | ------------------------------------ | ----------------------------------------------------------------- |
+| 应用运行           | `APP_POSTGRES_URL`（Neon pooled）    | `genealogy_app`（基线创建的 LOGIN 角色），受 RLS 约束             |
+| 认证运行           | `AUTH_POSTGRES_URL`（Neon direct）   | `auth_runtime` → 启动参数固定 `auth_service`；pooler 会拒绝该参数 |
+| 迁移 / 运维 / 备份 | `POSTGRES_URL_DIRECT`（Neon direct） | 迁移角色，拥有 `BYPASSRLS`                                        |
 
 **所有运维写操作都用 `POSTGRES_URL_DIRECT`。** 用 `POSTGRES_URL` 会因为 RLS 与权限限制而失败，或只看到部分数据。变量清单与作用域以 `.env.example` 和 `lib/config.ts` 为准，本文不复制取值。
 
@@ -44,12 +44,12 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_use
 
 **明确不承诺**：没有 RPO / RTO 承诺。`T50` 的恢复演练已在 §2.2 留档（本地 `pg_dump`/`pg_restore` 等价演练，**托管 Neon 分支 / PITR 仍未演练**），完整缺口在 `docs/nfr.md` §5。别把目标值当成已验证能力对外说。
 
-| 阶段 | 验证方式 | 执行者 |
-| --- | --- | --- |
-| 迁移后 | `node scripts/verify-deployment.mjs --skip-http` 逐项 PASS/FAIL/SKIP | 迁移 job |
-| 部署后 | `pnpm verify:deploy`（HTTP 健康 / 安全头 / 鉴权 + 库结构 / RLS / 角色） | CI 与值班 |
-| 目标态验收 | `pnpm verify:target-schema`（干净库重建唯一基线、P1–P32 / N1–N31、fail-closed、TS ↔ 基线 parity） | CI |
-| 关键路径 | `pnpm test:e2e`，E2E 报告与截图 | CI |
+| 阶段       | 验证方式                                                                                          | 执行者    |
+| ---------- | ------------------------------------------------------------------------------------------------- | --------- |
+| 迁移后     | `node scripts/verify-deployment.mjs --skip-http` 逐项 PASS/FAIL/SKIP                              | 迁移 job  |
+| 部署后     | `pnpm verify:deploy`（HTTP 健康 / 安全头 / 鉴权 + 库结构 / RLS / 角色）                           | CI 与值班 |
+| 目标态验收 | `pnpm verify:target-schema`（干净库重建唯一基线、P1–P32 / N1–N31、fail-closed、TS ↔ 基线 parity） | CI        |
+| 关键路径   | `pnpm test:e2e`，E2E 报告与截图                                                                   | CI        |
 
 ### 2.1 切换失败恢复剧本（big-bang）
 
@@ -105,6 +105,10 @@ POSTGRES_URL=<目标环境> pnpm verify:target-schema      # 96 PASS, 0 FAIL, 1 
 **T52 执行切换 + 切换后核对**
 
 ```bash
+# 0) 角色（必须在迁移之前）。口令只从环境变量来，不进任何文件。
+APP_DB_PASSWORD=<强口令> AUTH_DB_PASSWORD=<强口令> \
+  POSTGRES_URL_DIRECT=<目标环境> pnpm db:provision-roles --apply --roles-only
+
 # 1) 清空（G0① 重建前置）。默认 dry-run，必须 --apply + --confirm=<库名>。
 POSTGRES_URL_DIRECT=<目标环境> pnpm db:reset-target
 POSTGRES_URL_DIRECT=<目标环境> pnpm db:reset-target --apply --confirm=<库名>
@@ -117,9 +121,15 @@ psql -d gramps_target -tAc 'select count(*) from drizzle."__drizzle_migrations"'
 # 关键约束/索引：folder_name_unique / folder_order_idx / node_parent_fk /
 #                node_path_gist / node_path_unique / project_id_global
 
-# 3) 结构校验（不信任 drizzle 的 "applied successfully"，见下方事故）
+# 3) 授权（必须在迁移之后：`app` schema 与业务表都是基线建的）
+POSTGRES_URL_DIRECT=<目标环境> pnpm db:provision-roles --apply --grants-only
+#    auth_service: auth.user=rw · organization=rw · organization_member=rw · project=禁
+
+# 4) 结构校验（不信任 drizzle 的 "applied successfully"，见下方事故）
 POSTGRES_URL_DIRECT=<目标环境> node scripts/verify-deployment.mjs --skip-http
 ```
+
+> 角色为什么是「迁移前」、授权是「迁移后」：基线只建 schema 并 GRANT，第一条 GRANT 就要求角色已存在（否则 `42704`）；而 `app` schema 要到基线跑完才有，授权提前会撞 `3F000 schema "app" does not exist`。本地 `prod_drill` 空库上实测过这两种错法。
 
 **事故记录：drizzle 的 `applied successfully` 说过谎（2026-11-09）**
 
@@ -130,7 +140,20 @@ PR #13 合并后，main 的 `Migrate production database` job 红了一次。读
 - 校验阶段的报错文案也有坑：`FAIL RLS enabled: 17: organization, ...` 读起来像「17 张表全都不存在」，实际是「这 17 张表全都在，只是没启用 RLS」。该文案已改为 `all 17 tables: ...`，并抽到 `scripts/lib/deployment-report.mjs` 加单测。
 - 另一条假红：`auth_service owns identity and tenant writes` 断言认证角色拥有业务表写权限，是「业务侧认证侧全量统一」时期的旧口径。ADR 0020 已修订为「业务侧统一、认证侧独立」，基线根本不给 `auth_service` 任何 public 表权限——这条断言在**正确**的库上必然报红。已改为断言真正的边界（认证角色写不了业务表）。
 
-**结论**：判定迁移成败只看 `verify-deployment.mjs` 的结构校验，不看 drizzle 的日志。重建路径见上面第 1 步；`db:reset-target` 有 `R1–R5` 五条门槛（dry-run 默认、`--confirm` 逐字匹配库名、拒绝系统库、public 必须重建、CI 里清空只允许人工重建模式）。
+**结论**：判定迁移成败只看 `verify-deployment.mjs` 的结构校验，不看 drizzle 的日志。重建路径见上面第 1 步；`db:reset-target` 有 `R1–R7` 七条门槛（dry-run 默认、`--confirm` 逐字匹配库名、拒绝系统库、public 必须重建、CI 里清空只允许人工重建模式、角色/授权两阶段顺序、缺口令前置拦截）。
+
+**事故记录：Neon 拒掉弱口令，生产库被清空后停在无表状态（2026-11-09）**
+
+同一天第二次红，比第一次严重：重建模式已经把生产库清空，`Apply migrations` 却失败了。
+
+- 根因在基线第 18 行：`CREATE ROLE genealogy_app LOGIN PASSWORD 'app_pw';`。本地 PostgreSQL 放行任何口令，Neon 的控制面会校验强度，返回 `insecure password, try including more special characters, using uppercase letters, using numbers or using a longer password`，SQLSTATE `XX000`。整份基线在一个事务里，第 18 行失败 → 后面全没执行 → 库是空的。
+- 之前没被发现，是因为这条语句包在 `DO $$ IF NOT EXISTS (SELECT 1 FROM pg_roles …) $$` 里：角色已存在时直接跳过，探针看到「已存在 → 跳过 → 成功」，把真实错误盖住了。单看那次诊断的输出，会误判成「迁移没问题」。
+- 修法的关键不是「换个强口令」，而是**承认角色不该在基线里**：`CREATE ROLE` 是集群级操作，基线描述的是单库 schema；口令本来就是「每个环境一份」的部署配置。基线的第一条 GRANT 现在隐含要求角色已存在，缺角色时报 `42704`（比静默弱口令上线好得多）。
+- 顺带修掉一个方向错：授权步骤原先跟着角色一起跑在迁移**前**，而 `app` schema 是基线建的，于是撞 `3F000 schema "app" does not exist`。现在拆成 `--roles-only`（前）与 `--grants-only`（后）。
+
+**生产环境必须配置的 secret**：`APP_DB_PASSWORD`（`genealogy_app` 的口令，≥20 位、含大小写+数字+符号）、`AUTH_DB_PASSWORD`（`auth_runtime`）。缺 `APP_DB_PASSWORD` 时 workflow 第一步就报 `::error::APP_DB_PASSWORD secret is missing` 并退出，不会跑到清库那一步。
+
+> ⚠️ 改 `APP_DB_PASSWORD` 之后要同步更新应用侧的连接串（`APP_POSTGRES_URL` 等），两边不一致就是全线 28P01。
 
 **切换后仍待补**：应用侧 `pnpm verify:deploy` + `/api/health` + 关键路径 E2E 要在真实应用实例上跑（本地演练只覆盖数据层）；托管侧恢复点（Neon 分支 / PITR）上生产前补一次。
 
@@ -213,6 +236,7 @@ FROM pg_stat_activity WHERE state <> 'idle' ORDER BY duration DESC LIMIT 10;
 ```sql
 SELECT schemaname, tablename FROM pg_tables WHERE tablename LIKE '%migrations%';
 ```
+
 ```bash
 node -e "console.log(require('./lib/db/migrations/meta/_journal.json').entries.length)"
 pnpm db:migrate                              # 用 POSTGRES_URL_DIRECT
@@ -269,11 +293,11 @@ grep -n "verify:target-schema" .github/workflows/ci.yml
 cat .env.example
 ```
 
-| 待办 | 触发条件 | 说明 |
-| --- | --- | --- |
-| 恢复演练 | 每季度一次 | 无 RPO / RTO 承诺；`T50` 的本地等价演练已留档（§2.2），托管 Neon 分支 / PITR 演练上生产前补；`S7` 会补外部探针 |
+| 待办                                | 触发条件              | 说明                                                                                                                                |
+| ----------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 恢复演练                            | 每季度一次            | 无 RPO / RTO 承诺；`T50` 的本地等价演练已留档（§2.2），托管 Neon 分支 / PITR 演练上生产前补；`S7` 会补外部探针                      |
 | 在目标基线注入三条 `rolconfig` 超时 | G1 目标环境书面确认后 | T34 已完成自检侧：`verify:deploy` 读 `rolconfig` 并把缺失显式报 `SKIP`，不再是假 PASS；注入三条超时属环境配置决策，待技术负责人确认 |
-| `docs:check` 检查范围同步 | **已完成（阶段 E）** | 头部四项改为按结构只约束根级 7 份 + 3 份子目录 README；ADR 正文按自己的模板不再被误报，17 份正文逐份迁入不会被挡 |
-| 删除二次确认 | 出现真实误删工单后 | 目标态无软删、无回收站 UI，不能靠运维 `UPDATE` 恢复；见 RB-1 |
+| `docs:check` 检查范围同步           | **已完成（阶段 E）**  | 头部四项改为按结构只约束根级 7 份 + 3 份子目录 README；ADR 正文按自己的模板不再被误报，17 份正文逐份迁入不会被挡                    |
+| 删除二次确认                        | 出现真实误删工单后    | 目标态无软删、无回收站 UI，不能靠运维 `UPDATE` 恢复；见 RB-1                                                                        |
 
 写在文档里但拦不住的规则等于没有规则：部署自检、CI、季度演练是本层仅有的自动执行者，其余前置检查靠值班人复核。

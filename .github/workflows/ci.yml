@@ -24,10 +24,16 @@ jobs:
           --health-retries 10
     env:
       POSTGRES_URL: postgres://postgres:postgres@localhost:5432/gramps_test
-      # genealogy_app is the LOGIN role created by the single target baseline
-      # (A.0). Its sample password comes from the baseline; production injects
-      # a real credential per T34 / G1. Never give this role auth.* access.
+      # genealogy_app is the business-side LOGIN role. It is NOT created by the
+      # baseline any more (2026-11-09): `CREATE ROLE` is cluster-level while the
+      # baseline describes one database's schema, and hard-coding a sample
+      # password in the baseline made Neon reject the whole rebuild. The role
+      # is provisioned by `pnpm db:provision-roles` before `db:migrate`, using
+      # this password (CI placeholder; production injects APP_DB_PASSWORD).
+      # Never give this role auth.* access.
+      APP_DB_PASSWORD: app_pw
       APP_POSTGRES_URL: postgres://genealogy_app:app_pw@localhost:5432/gramps_test
+      AUTH_DB_PASSWORD: auth
       AUTH_POSTGRES_URL: postgres://auth_runtime:auth@localhost:5432/gramps_test
       BETTER_AUTH_SECRET: ci-placeholder-secret-value-long-enough-1234
       BETTER_AUTH_URL: http://localhost:3000
@@ -58,6 +64,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # 角色必须在迁移之前：基线只建 schema，第一条 GRANT 就要求这些角色已存在。
+      # 只建角色，不授权——`app` schema 与业务表此时都还不存在。
+      - name: Provision runtime roles (before migrate)
+        run: pnpm db:provision-roles --apply --roles-only
+
       - name: Migrate test database
         run: pnpm db:migrate
 
@@ -80,10 +91,10 @@ jobs:
       # access would let it read password hashes and session tokens.
       #
       # 2026-11-09：原先这里内联了一段 SQL，生产迁移 job 另有一份，两边容易漂。
-      # 现在统一调 scripts/provision-auth-roles.mjs（带 --apply），
+      # 现在统一调 scripts/provision-roles.mjs（带 --apply），
       # 与生产共用同一张权限矩阵。集成测试 helper 每次 reset 后仍会重放一遍。
-      - name: Provision auth-side runtime roles
-        run: pnpm db:provision-auth-roles --apply
+      - name: Provision auth-side runtime grants (after migrate)
+        run: pnpm db:provision-roles --apply --grants-only
 
       - name: Unit + integration tests with coverage
         run: pnpm test:coverage

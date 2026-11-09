@@ -4,20 +4,19 @@
 -- 本文件只含建表与隔离策略，不含任何结构性的过渡 DDL；
 --   A.6 中开启行级安全所需的 ALTER 语句是目标态本身，不是过渡。
 -- 执行：psql -v ON_ERROR_STOP=1 -f lib/db/migrations/0000_target_schema.sql
--- G0 ① 切换时须连带清空目标库 drizzle.__drizzle_migrations 记录表（见 T52）。
+-- G0 ① 切换时须连带清空目标库迁移记录表（见 T52）。
 -- 本基线为 DDL 唯一落点；schema TS 由 T18–T28 追平，T39 验收零漂移。
--- 注意：A.0 的角色创建沿用附录 A 原文的示例口令，生产切换前按 T34 / G1
---   由部署环境注入真实凭据，勿带示例值上线。
+--
+-- 角色口令（2026-11-09 修正）：`genealogy_app` 的创建**已移出基线**。
+-- 原基线在此写死示例口令 `app_pw`，本地 PG 放行、Neon 拒绝
+-- （控制面返回 `insecure password…`，SQLSTATE XX000），生产重建整段失败。
+-- 角色属于部署配置而非 schema：现由 `pnpm db:provision-roles` 在迁移**之前**
+-- 用 `APP_DB_PASSWORD` 创建/更新，基线只依赖它已存在。
+-- 缺角色时基线会在第一条 GRANT 上报 42704，报错比静默弱口令上线好。
 
 -- ===== [A.0] 部署前置 =====
 
--- 以超级用户 / 迁移角色执行一次
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'genealogy_app') THEN
-    CREATE ROLE genealogy_app LOGIN PASSWORD 'app_pw';
-  END IF;
-END $$;
+-- 基线不再建角色，见上方说明。此处保留段落标记，便于与附录 A.0 对照。
 
 CREATE SCHEMA IF NOT EXISTS auth;
 -- 附录 A.0 的 `auth.user` 是**最小契约**（`email UNIQUE` 内联，只有 id / email /

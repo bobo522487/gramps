@@ -130,11 +130,21 @@ describe('S8 阶段 C · 隔离层核对', () => {
     ).not.toContain('request.jwt.claims');
   });
 
-  test('C-5 T32 基线侧：只建 genealogy_app，不启用 FORCE RLS / 旧角色', () => {
+  test('C-5 T32 基线侧：不建任何角色，只授权；不启用 FORCE RLS', () => {
     const ddl = stripSqlComments(read(DDL));
-    expect(ddl).toContain('CREATE ROLE genealogy_app');
+    // 2026-11-09 修正（原断言是 `CREATE ROLE genealogy_app`）：
+    // 基线一度写死 `CREATE ROLE genealogy_app … PASSWORD 'app_pw'`，本地 PG 放行、
+    // Neon 控制面拒绝（insecure password，XX000），生产重建整段失败。
+    // `CREATE ROLE` 是集群级操作，口令是「每环境一份」的部署配置，
+    // 现在由 `pnpm db:provision-roles --apply --roles-only` 在迁移前建，
+    // 基线只 GRANT、并要求角色已存在（缺角色时第一条 GRANT 报 42704）。
+    expect(ddl).not.toMatch(/CREATE ROLE\s+genealogy_app/i);
+    expect(ddl).not.toMatch(
+      /CREATE ROLE\s+(app_rw|auth_service|auth_runtime)\b/i
+    );
+    // 口令永远不该出现在 DDL 里——这是本次事故的直接成因。
+    expect(ddl).not.toMatch(/\bPASSWORD\s+'/i);
     expect(ddl).not.toContain('FORCE ROW LEVEL SECURITY');
-    expect(ddl).not.toMatch(/CREATE ROLE (app_rw|auth_service)\b/);
     expect(ddl).toContain(
       'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO genealogy_app'
     );

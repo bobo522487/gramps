@@ -57,6 +57,18 @@ jobs:
             exit 1
           fi
 
+      # 2026-11-09 事故：基线曾写死 `CREATE ROLE genealogy_app … PASSWORD 'app_pw'`。
+      # 本地 PG 放行，Neon 控制面拒绝（`insecure password…`，XX000），重建整段失败、
+      # 生产库被清空后停在无表状态。角色是部署配置而非 schema，现由脚本接管。
+      - name: Refuse to run without the application DB password
+        env:
+          APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
+        run: |
+          if [ -z "$APP_DB_PASSWORD" ]; then
+            echo "::error::APP_DB_PASSWORD secret is missing; genealogy_app cannot be provisioned."
+            exit 1
+          fi
+
       # 只由人工触发的重建模式。默认 dry-run 打印范围，确认参数正确才动库。
       - name: Reset target database (rebuild mode only)
         if: github.event_name == 'workflow_dispatch' && inputs.reset
@@ -71,20 +83,19 @@ jobs:
           echo "== 清空后库状态 =="
           node scripts/diagnose-drizzle-state.mjs
 
-      - name: Probe target (read-only)
+      # 角色先于迁移：基线只建 schema，第一条 GRANT 就要求角色已存在。
+      - name: Provision runtime roles (before migrate)
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
-        run: node probe-tmp.mjs || true
-
-      - name: DIAG apply (temporary)
-        env:
-          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
-        run: node probe-tmp.mjs || true
+          APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
+          AUTH_DB_PASSWORD: ${{ secrets.AUTH_DB_PASSWORD }}
+        run: pnpm db:provision-roles --apply --roles-only
 
       - name: Apply migrations
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
-        run: pnpm db:migrate || true
+          APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
+        run: pnpm db:migrate
 
       # drizzle-kit 失败时只打进度条、吞掉 SQLSTATE，排查只能靠猜。
       # 失败时逐条试跑基线（事务内回滚、只读）把真实错误打出来。
@@ -96,12 +107,11 @@ jobs:
           node scripts/diagnose-drizzle-state.mjs
           node scripts/diagnose-migration.mjs
 
-      # 基线只管业务侧（genealogy_app）；认证侧角色与授权由这一步补齐，
-      # 与 CI 用同一个脚本，避免两套权限矩阵各写各的。
-      - name: Provision auth-side runtime roles
+      # 授权必须在迁移之后：`app` schema 与业务表都是基线建的，之前跑会 3F000。
+      - name: Provision runtime grants (after migrate)
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
-        run: pnpm db:provision-auth-roles --apply
+        run: pnpm db:provision-roles --apply --grants-only
 
       # 迁移完立刻用同一份 journal 校验生产库，失败即红：不留下「迁移跑了一半」的静默状态。
       # 这条不信任 drizzle 的 "applied successfully" —— 2026-11-09 就是那句字面量为真、

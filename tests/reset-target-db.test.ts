@@ -73,17 +73,41 @@ describe('R5 迁移 job 不再相信 drizzle 的 success 字面量', () => {
     );
   });
 
-  test('R6 迁移后补认证侧授权：基线只管业务侧，缺这步校验必红', () => {
+  test('R6 角色在迁移前、授权在迁移后：两阶段都不能被合并回一步', () => {
     // 基线 0000 完全不含 auth_service（grep 应为 0 命中），所以 job 必须自己补。
     const baseline = read('lib/db/migrations/0000_target_schema.sql');
     expect(baseline).not.toContain('auth_service');
-    const migrateAt = workflow.indexOf('pnpm db:migrate');
-    const provisionAt = workflow.indexOf(
-      'pnpm db:provision-auth-roles --apply'
+
+    // 2026-11-09 事故后：角色不再由基线创建，必须由脚本在迁移**之前**建好，
+    // 否则基线第一条 GRANT 就是 42704（role does not exist）。
+    const rolesAt = workflow.indexOf(
+      'pnpm db:provision-roles --apply --roles-only'
     );
-    expect(provisionAt, '缺少认证侧授权步骤').toBeGreaterThan(migrateAt);
+    const migrateAt = workflow.indexOf('pnpm db:migrate');
+    expect(rolesAt, '缺少迁移前建角色的步骤').toBeGreaterThan(-1);
+    expect(migrateAt).toBeGreaterThan(rolesAt);
+
+    // 授权必须在迁移**之后**：`app` schema 与业务表都是基线建的，
+    // 早跑一步就是 3F000（schema "app" does not exist）——本地实测过。
+    const grantsAt = workflow.indexOf(
+      'pnpm db:provision-roles --apply --grants-only'
+    );
+    expect(grantsAt, '缺少迁移后授权的步骤').toBeGreaterThan(migrateAt);
+
     // 授权步骤必须在结构校验之前，否则校验看到的是没授权过的库。
     const verifyAt = workflow.indexOf('verify-deployment.mjs');
-    expect(verifyAt).toBeGreaterThan(provisionAt);
+    expect(verifyAt).toBeGreaterThan(grantsAt);
+  });
+
+  test('R7 没有 APP_DB_PASSWORD 就拒绝执行，不静默用弱口令兜底', () => {
+    // Neon 控制面会拒掉 `app_pw` 这类弱口令（XX000），整段迁移随之失败。
+    // 与其等它红在基线里，不如在第一步就明确报错。
+    expect(workflow).toContain('secrets.APP_DB_PASSWORD');
+    const guard = workflow.indexOf('APP_DB_PASSWORD secret is missing');
+    const rolesAt = workflow.indexOf(
+      'pnpm db:provision-roles --apply --roles-only'
+    );
+    expect(guard, '缺少口令缺失的前置拦截').toBeGreaterThan(-1);
+    expect(rolesAt).toBeGreaterThan(guard);
   });
 });
