@@ -74,6 +74,14 @@ jobs:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
         run: pnpm db:migrate
 
+      # drizzle-kit 失败时只打进度条、吞掉 SQLSTATE，排查只能靠猜。
+      # 失败时逐条试跑基线（事务内回滚、只读）把真实错误打出来。
+      - name: Diagnose migration failure
+        if: failure()
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: node scripts/diagnose-migration.mjs
+
       # 基线只管业务侧（genealogy_app）；认证侧角色与授权由这一步补齐，
       # 与 CI 用同一个脚本，避免两套权限矩阵各写各的。
       - name: Provision auth-side runtime roles
