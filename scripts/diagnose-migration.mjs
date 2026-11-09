@@ -72,24 +72,26 @@ const statements = splitStatements(source);
 console.log(`# 基线共 ${statements.length} 条语句，逐条试跑（事务内回滚）`);
 
 let failed = 0;
-await sql.begin(async (tx) => {
-  for (const [index, statement] of statements.entries()) {
-    const head = statement.trim().split('\n')[0].slice(0, 90);
-    try {
-      await tx.unsafe(statement);
-    } catch (error) {
-      failed += 1;
-      console.log(`\nFAIL #${index + 1} ${head}`);
-      console.log(`   SQLSTATE=${error.code ?? '?'}  ${error.message}`);
-      if (error.detail) console.log(`   detail: ${error.detail}`);
-      if (error.hint) console.log(`   hint: ${error.hint}`);
-      // 事务已损坏，后面都会连锁失败；报第一条就够定位。
-      throw error;
+await sql
+  .begin(async (tx) => {
+    for (const [index, statement] of statements.entries()) {
+      const head = statement.trim().split('\n')[0].slice(0, 90);
+      try {
+        await tx.unsafe(statement);
+      } catch (error) {
+        failed += 1;
+        console.log(`\nFAIL #${index + 1} ${head}`);
+        console.log(`   SQLSTATE=${error.code ?? '?'}  ${error.message}`);
+        if (error.detail) console.log(`   detail: ${error.detail}`);
+        if (error.hint) console.log(`   hint: ${error.hint}`);
+        // 事务已损坏，后面都会连锁失败；报第一条就够定位。
+        throw error;
+      }
     }
-  }
-}).catch(() => {
-  console.log('\n试跑中止（事务已回滚，库未被修改）。');
-});
+  })
+  .catch(() => {
+    console.log('\n试跑中止（事务已回滚，库未被修改）。');
+  });
 
 if (failed === 0) {
   console.log('全部语句可执行。');
