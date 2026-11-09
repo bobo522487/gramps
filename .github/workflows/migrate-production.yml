@@ -71,6 +71,11 @@ jobs:
           echo "== 清空后库状态 =="
           node scripts/diagnose-drizzle-state.mjs
 
+      - name: Probe target (read-only)
+        env:
+          POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+        run: node probe-tmp.mjs || true
+
       - name: Apply migrations
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
