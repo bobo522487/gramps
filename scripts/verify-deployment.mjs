@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import postgres from 'postgres';
+import {
+  describeMissing,
+  describeWrong,
+  plural,
+} from './lib/deployment-report.mjs';
 import { loadEnv } from './load-env.mjs';
 
 loadEnv();
@@ -51,18 +56,13 @@ function check(condition, label, detail = '') {
   return condition;
 }
 
-// 部署自检的输出会被人读，也会被脚本 grep。`1 triggers` / `1 policies` 这种
-// 单复数错乱说明文案是拼出来的而不是算的，顺手修掉——失败分支里的逗号列表
-// 已经长得离谱，一并按「单项直接打，多项计数 + 列举」收敛。
-function plural(count, one, many) {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
-function listed(items, render) {
-  return items.length === 1
-    ? render(items[0])
-    : `${items.length}: ${items.map(render).join(', ')}`;
-}
+// 部署自检的输出会被人读，也会被脚本 grep。2026-11-09 生产迁移 job 就因为
+// 「缺失清单」与「不合规清单」共用一个只打「N: 列表」的格式器，把「17 张表
+// 全都不合规」读成了「17 张表全都不存在」，排查先跑偏。文案构造器已抽到
+// scripts/lib/deployment-report.mjs 并有单测；这里不再自己拼列表。
+const TABLE_NOUN = ['table', 'tables'];
+const POLICY_NOUN = ['policy', 'policies'];
+const TRIGGER_NOUN = ['trigger', 'triggers'];
 
 const REQUIRED_HEADERS = [
   ['x-content-type-options', 'nosniff'],
@@ -331,7 +331,7 @@ async function checkDb() {
       'business tables exist',
       missingTables.length === 0
         ? plural(BUSINESS_TABLES.length, 'table', 'tables')
-        : listed(missingTables, (name) => name)
+        : describeMissing(missingTables, TABLE_NOUN)
     );
     // 目标态（§8 #9 / 门禁 C-5）：public 业务表启用 RLS，但**不**启用
     // FORCE RLS。表属主是迁移角色，业务连接以非属主的 genealogy_app 登录，
@@ -345,7 +345,7 @@ async function checkDb() {
       'RLS enabled (FORCE RLS deliberately off)',
       unprotected.length === 0
         ? `all ${plural(BUSINESS_TABLES.length, 'table', 'tables')}`
-        : listed(unprotected, (name) => name)
+        : describeWrong(unprotected, BUSINESS_TABLES.length, TABLE_NOUN)
     );
 
     const authTables = await sql`
@@ -363,7 +363,7 @@ async function checkDb() {
       'auth tables exist',
       missingAuthTables.length === 0
         ? plural(AUTH_TABLES.length, 'table', 'tables')
-        : listed(missingAuthTables, (name) => name)
+        : describeMissing(missingAuthTables, TABLE_NOUN)
     );
     // auth.* 四表在目标态**没有** RLS：它们由认证侧独立角色 auth_service
     // 独占访问，业务角色 genealogy_app 连 USAGE ON SCHEMA auth 都没有。
@@ -378,7 +378,7 @@ async function checkDb() {
       'auth tables stay RLS-free (credential isolation via roles)',
       authWithRls.length === 0
         ? plural(AUTH_TABLES.length, 'table', 'tables')
-        : listed(authWithRls, (name) => name)
+        : describeWrong(authWithRls, AUTH_TABLES.length, TABLE_NOUN)
     );
 
     // F5（目标态）：每张业务表有且只有一条 `org_isolation` 策略，且可见性
@@ -426,8 +426,10 @@ async function checkDb() {
       'every public policy is the target-state org_isolation policy',
       notOrgIsolation.length === 0
         ? plural(allPublicPolicies.length, 'policy', 'policies')
-        : listed(
+        : describeWrong(
             notOrgIsolation,
+            allPublicPolicies.length,
+            POLICY_NOUN,
             (policy) => `${policy.tablename}.${policy.policyname}`
           )
     );
@@ -541,8 +543,9 @@ async function checkDb() {
       'registration trigger installed',
       missingTriggers.length === 0
         ? plural(TENANT_TRIGGERS.length, 'trigger', 'triggers')
-        : listed(
+        : describeMissing(
             missingTriggers,
+            TRIGGER_NOUN,
             ([schema, table, trigger]) => `${schema}.${table}.${trigger}`
           )
     );
@@ -556,7 +559,7 @@ async function checkDb() {
       'tenant columns immutable on every organization-scoped table',
       missingImmutable.length === 0
         ? plural(TENANT_IMMUTABLE_TABLES.length, 'trigger', 'triggers')
-        : listed(missingImmutable, (table) => table)
+        : describeMissing(missingImmutable, TRIGGER_NOUN)
     );
 
     // Target state has no soft delete, so a closed organization's row stays in
