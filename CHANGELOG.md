@@ -13,6 +13,7 @@
 - **切换日演练（限本地）**：`pg_dump` → `pg_restore` 抽样一致 → 复跑 G5（96 PASS / 0 FAIL / 1 SKIP）→ `pnpm db:migrate` 切换并核对对象与约束。托管 Neon 分支 / PITR 恢复与真实实例上的 `verify:deploy` + E2E **仍未做**，随 `roadmap S7` 补。
 - **生产迁移修复：角色创建移出基线（2026-11-09）**：PR #13 合并后生产迁移连红两次。根因是基线越界——`CREATE ROLE … PASSWORD` 是集群级操作，口令属每环境部署配置，Neon 控制面按弱口令拒绝（`XX000`）。现由 `scripts/provision-roles.mjs` 接管角色（`--roles-only` 在迁移前、`--grants-only` 在迁移后，CI 与生产 workflow 共用同一份权限矩阵），基线只 GRANT；迁移是否成功只看 `verify-deployment.mjs`，不信 `drizzle-kit` 的 `applied successfully`；新增 `scripts/reset-target-db.mjs` 与 `db:migrate` 失败时的只读诊断探针（drizzle 会吞掉 SQLSTATE）。生产重建最终 26 项全 PASS。
 - **Neon 角色属性 DDL 的实测边界**：只放行 `ALTER ROLE … PASSWORD`，其余属性 DDL 一律 `42501`，而 `pg_has_role(…,'MEMBER')` / `rolcreaterole` 仍判「可」——理论权限不可信。改为先读 `rolcanlogin` / `rolsuper` / `rolbypassrls` 与目标值比对，合规就不发属性 DDL。事故与边界记入 `docs/runbooks/README.md`。
+- **`AUTH_DB_PASSWORD` 去掉默认口令兜底**：`provision-roles.mjs` 曾写 `AUTH_DB_PASSWORD ?? 'auth'`，缺变量的机器会把 `auth_runtime`（读得到 `auth.user` 的密码哈希与会话 token）静默改成 4 字符口令。现与 `genealogy_app` 同口径——没给口令就跳过并打印「未设置，未改口令」，脚本里没有任何默认口令；生产 workflow 补上对称的 `AUTH_DB_PASSWORD` 前置校验。角色判定抽到 `scripts/lib/role-provisioning.mjs`，对应测试从 grep 源码改为注入假连接的**行为断言**（缺失 / 空串时不得发出任何 `ALTER ROLE … PASSWORD`）。
 - **文档系统收敛**：`docs/roadmap.md` 只保留编排状态，逐批进度与收口台账删去（历史留在提交历史与本文件）；`docs/adr/` 改为只有结论索引、不存正文，不再计划逐份迁回 17 份旧正文；未启用的 `specs/_archive/` 归档流程从入口文档删除。
 
 <!-- 条目模板

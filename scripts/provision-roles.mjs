@@ -18,9 +18,12 @@
  *   APP_DB_PASSWORD=<强口令> pnpm db:provision-roles --apply
  *
  * `APP_DB_PASSWORD` 未设置且 `genealogy_app` 不存在时直接失败——不静默用弱口令兜底。
+ * 口令只来自 `APP_DB_PASSWORD` / `AUTH_DB_PASSWORD`，两个角色同一口径：没给就
+ * 跳过改口令并打印原因，脚本里没有任何默认口令。
  */
 
 import postgres from 'postgres';
+import { ensureRole } from './lib/role-provisioning.mjs';
 import { loadEnv } from './load-env.mjs';
 
 loadEnv();
@@ -47,94 +50,15 @@ if (!databaseUrl) {
 }
 
 const appPassword = process.env.APP_DB_PASSWORD ?? '';
-const runtimePassword = process.env.AUTH_DB_PASSWORD ?? 'auth';
+// 与 APP_DB_PASSWORD 同一口径：没给就是「本次不改口令」，**不给默认值**。
+// 曾经这里是 `?? 'auth'`，等于在缺变量的机器上把 auth_runtime 的口令静默改成
+// 4 字符弱口令，而该角色读得到 auth.user 的密码哈希与会话 token。
+const runtimePassword = process.env.AUTH_DB_PASSWORD ?? '';
 
 /** 认证侧可写的三张租户表；其余业务表一律不给。 */
 const TENANT_TRIO = ['organization', 'organization_member', 'invite'];
 
-/** PostgreSQL 字符串字面量转义，供 create/alter role 的 password 子句。 */
-function literal(value) {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
 const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
-
-/**
- * 读角色当前属性。
- *
- * 2026-11-09 生产实测的教训：Neon 对 `ALTER ROLE` 的限制**比原生 PG 严**——
- * `pg_has_role(…,'MEMBER')` / `rolcreaterole` 全判「可」，真跑仍 42501；
- * 但同一事务里 `ALTER ROLE … PASSWORD '…'` 却能过。
- * 也就是说托管库只放行改口令，不放行改属性。
- *
- * 对策不是去猜哪句能过，而是**只改真正需要改的**：属性本来就对就别发这条
- * 语句。生产上这两个角色是控制面建的，LOGIN / NOSUPERUSER / NOBYPASSRLS
- * 本来就是正确配置，于是整段 ALTER 可以完全跳过。
- */
-async function describeRole(name) {
-  const [row] = await sql`
-    select rolcanlogin, rolsuper, rolbypassrls
-    from pg_roles where rolname = ${name}
-  `;
-  return row ?? null;
-}
-
-/** 需要改的属性和目标值，空数组表示已经合规。 */
-function roleFixups(current, want) {
-  const fixes = [];
-  if (current.rolcanlogin !== want.login) {
-    fixes.push(want.login ? 'login' : 'nologin');
-  }
-  if (current.rolsuper !== false) fixes.push('nosuperuser');
-  if (current.rolbypassrls !== false) fixes.push('nobypassrls');
-  return fixes;
-}
-
-/**
- * 建角色或把它修到目标属性。
- *
- * 已存在且属性合规 → 直接返回 `ok（属性已合规）`，不发 ALTER（见 describeRole）。
- * 已存在且属性不合规 → 尝试修；改不动就如实报「修不了」，由调用方决定是否致命。
- */
-async function ensureRole(name, { login, password }) {
-  const current = await describeRole(name);
-  if (!current) {
-    const attrs = `${login ? 'login' : 'nologin'} nosuperuser nobypassrls`;
-    const pwd = password ? ` password ${literal(password)}` : '';
-    await sql.unsafe(`create role "${name}" ${attrs}${pwd}`);
-    return { status: 'created', canSetPassword: Boolean(password) };
-  }
-
-  const fixes = roleFixups(current, { login });
-  if (fixes.length > 0) {
-    try {
-      await sql.unsafe(`alter role "${name}" ${fixes.join(' ')}`);
-    } catch (error) {
-      // 属性改不动不是致命的：可能是托管库禁止，也可能角色本就该这样。
-      // 真正的合规判定交给 verify-deployment.mjs，那里会红。
-      const code = error?.code ?? '?';
-      return {
-        status: `属性不合规且改不动（需要 ${fixes.join(' ')}，SQLSTATE ${code}）`,
-        canSetPassword: false,
-      };
-    }
-  }
-
-  // 属性已合规，剩下的只有口令。托管库通常允许这一条。
-  if (password) {
-    try {
-      await sql.unsafe(`alter role "${name}" password ${literal(password)}`);
-      return { status: 'ok（属性已合规，口令已更新）', canSetPassword: true };
-    } catch (error) {
-      const code = error?.code ?? '?';
-      return {
-        status: `属性已合规，但口令改不动（SQLSTATE ${code}）`,
-        canSetPassword: false,
-      };
-    }
-  }
-  return { status: 'ok（属性已合规）', canSetPassword: false };
-}
 
 const authGrants = [
   'REVOKE ALL ON SCHEMA app FROM auth_service',
@@ -160,7 +84,9 @@ try {
       `- genealogy_app: ${appPassword ? 'create/alter（口令来自 APP_DB_PASSWORD）' : '需已存在（APP_DB_PASSWORD 未设置）'}`
     );
     console.log('- auth_service: create/alter（NOLOGIN）');
-    console.log('- auth_runtime: create/alter（LOGIN，继承 auth_service）');
+    console.log(
+      `- auth_runtime: ${runtimePassword ? 'create/alter（LOGIN，继承 auth_service，口令来自 AUTH_DB_PASSWORD）' : '需已存在（AUTH_DB_PASSWORD 未设置，不会改口令）'}`
+    );
     if (!grantsOnly) {
       console.log('- auth_service / auth_runtime 角色');
     }
@@ -172,13 +98,15 @@ try {
   }
 
   if (!grantsOnly) {
-    const app = await ensureRole('genealogy_app', {
+    const app = await ensureRole(sql, 'genealogy_app', {
       login: true,
       password: appPassword || null,
     });
-    console.log(`genealogy_app: ${app.status}（口令来自 APP_DB_PASSWORD）`);
+    console.log(
+      `genealogy_app: ${app.status}${appPassword ? '（口令来自 APP_DB_PASSWORD）' : '（APP_DB_PASSWORD 未设置，未改口令）'}`
+    );
 
-    // 口令必须与 APPLY_DB_PASSWORD 一致，否则应用侧连接全线 28P01，
+    // 口令必须与 APP_DB_PASSWORD 一致，否则应用侧连接全线 28P01，
     // 而且只在运行时才暴露。改不动就停，但只在给了口令、确实需要改时才算失败。
     if (appPassword && !app.canSetPassword) {
       console.error(
@@ -190,13 +118,17 @@ try {
 
     // 认证侧两个角色改不动属性不算致命：授权才是权限矩阵的实质，
     // 角色属性是否合规由 verify-deployment.mjs 兜底判定。
-    const svc = await ensureRole('auth_service', { login: false });
+    const svc = await ensureRole(sql, 'auth_service', { login: false });
     console.log(`auth_service: ${svc.status}`);
-    const rt = await ensureRole('auth_runtime', {
+    // 口径与 genealogy_app 一致：没有 AUTH_DB_PASSWORD 就跳过改口令并说清原因，
+    // 绝不拿默认值兜底（缺变量不致命，合规判定仍交给 verify-deployment）。
+    const rt = await ensureRole(sql, 'auth_runtime', {
       login: true,
-      password: runtimePassword,
+      password: runtimePassword || null,
     });
-    console.log(`auth_runtime: ${rt.status}`);
+    console.log(
+      `auth_runtime: ${rt.status}${runtimePassword ? '（口令来自 AUTH_DB_PASSWORD）' : '（AUTH_DB_PASSWORD 未设置，未改口令）'}`
+    );
   }
 
   // 授权必须在迁移之后：`app` schema 与业务表都是基线建的。
