@@ -28,11 +28,11 @@
 
 ## 2. 单一真相源速记
 
-- 术语只在 `glossary.md`；契约只在 `docs/contracts/`；整体架构只在 `architecture.md`；全局实体只在 `data-model.md`；阈值只在 `nfr.md`；状态与编排只在 `roadmap.md`。feature 文档只引用，不复制。
+归属关系的完整映射只在 `constitution.md` §5 与本文 §1，这里只补三条流程上最容易搞错的规则。
+
 - 原则只在 `constitution.md`：`plan.md` 的 Constitution Check 逐条对照原则编号，不把原则原文抄进每个 plan。
 - **roadmap 先改，再改 spec**：范围变化先落到 roadmap 那一行，再动受影响的子 spec；条目 ID 一旦被引用就不可改、不复用。
-- **权威口径（目标态例外）**：`docs/data-model.md` 是 [目标] 规格，代码按它重构，**以本文为准**；`docs/architecture.md`、`docs/interfaces.md`、`docs/contracts/README.md`、`docs/nfr.md` 描述 [现状]，文档与代码冲突时**以代码为准**。两者冲突时按 `docs/roadmap.md` 的编排状态判断意图：`S8` 交付前 [目标] 是意图、[现状] 是待改对象，不得用现状反推规格。现状与目标并存时按 §3 加前缀。
-- ADR 只记「为什么选 A 不选 B、代价是什么」，不记「我们用了 A」——后者属于 `architecture.md`。
+- **权威口径（目标态例外）**：`docs/data-model.md` 是目标态规格，代码按它重建；`docs/architecture.md`、`docs/interfaces.md`、`docs/contracts/README.md`、`docs/nfr.md` 里标了「本节只对 [现状] 成立」的小节，与该规格冲突时以 `data-model.md` 为准，其余内容与代码冲突时以代码为准。数据层重构已交付，目标态就是当前代码；两者再出现分叉，说明是遗漏而不是「目标尚未落地」。
 
 ---
 
@@ -58,7 +58,6 @@
 4. **plan**：Constitution Check 逐条引用原则编号；记录技术方案、接口、数据结构、兼容性与风险；选型理由落一条 ADR。
 5. **tasks**：拆到可执行粒度，每条任务标注覆盖的 `FR-xxx`。任务清单只留一份。
 6. **implement**：代码与 `tests/` 同批提交，测试用例 ID 回链 `FR-xxx`。
-7. **归档**：整目录打版本标签（如 `specs/_archive/NNN-xxx@YYYY-MM-DD/`）移入归档区，归档目录只读；后续行为变化开新目录，不回改历史目录。
 
 `spec.md` 只写「要什么、为什么、怎么验收」；表结构、文件路径、函数名属于 `plan.md`。
 
@@ -77,7 +76,7 @@
 
 ## 6. PR 自查清单
 
-勾选前须有命令输出为证。
+全部勾选、没有半成品业务功能，才算完成。勾选前须有命令输出为证，不以勾选框代替证据。
 
 - [ ] `pnpm check && pnpm typecheck && pnpm test` 全绿；`pnpm arch:check`、`pnpm docs:check --strict` 无 issue。
 - [ ] 涉及 SQL / 约束 / 成员隔离 / 多步事务的改动补了 `pnpm test:integration`，失败路径不留半成品数据。
@@ -99,16 +98,7 @@
 
 ---
 
-## 8. 完成定义
-
-- 本地门禁全绿，并按改动范围跑集成 / E2E。
-- 行为、命令或环境变化时，文档按第 1 节同步；状态只更新一处。
-- `tests/` 是最终事实来源：文字与测试冲突时，先确认哪个是意图，再同步两边，不允许长期双轨。
-- 声称「完成」前要有命令输出为证，不以勾选框代替证据。
-
----
-
-## 9. 维护本结构
+## 8. 维护本结构
 
 - 目录结构或文档约定的变更走 PR，并在 `constitution.md` 与 `docs/adr/` 留记录。
 - 新增文档前先确认：这件事是否已有归属文件？能加章节就不要新建文件。

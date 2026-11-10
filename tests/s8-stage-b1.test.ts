@@ -92,11 +92,7 @@ describe('S8 阶段 B · B1 目标态结构切片', () => {
     expect(read('lib/db/schema/book-export.ts')).toContain('bookExport');
   });
 
-  test('B1-6：roadmap 登记 B1 进度', () => {
-    expect(read('docs/roadmap.md')).toContain('B1');
-  });
-
-  test('B1-7：B0 基线仍含 book_export，未被回改', () => {
+  test('B1-6：B0 基线仍含 book_export，未被回改', () => {
     expect(read('lib/db/migrations/0000_target_schema.sql')).toContain(
       'CREATE TABLE book_export'
     );

@@ -4,7 +4,7 @@
 > **读者**：开发 · 技术负责人 · AI Agent　**长度上限**：5 页
 > **不写什么**：接口与 DTO（`docs/interfaces.md`、`docs/contracts/`）、系统分层与部署形态（`docs/architecture.md`）、术语定义（`docs/glossary.md`）、可度量阈值（`docs/nfr.md`）、排障步骤（`docs/runbooks/`）、决策理由（`docs/adr/`）、进度与编排（`docs/roadmap.md`）。
 
-本文是**目标架构的数据模型规格**：写实体边界、不变量与取舍，是验收基准。逐列 DDL 的唯一真相源是 `lib/db/migrations/0000_target_schema.sql` 与 `lib/db/schema/`，迁移清单在 `lib/db/migrations/meta/_journal.json`，本文不复制第二份表结构。本文只写**目标态**：重构已交付（`docs/adr/0020-目标数据模型整体重建.md`），旧实现的差异清单已随 `T47` 整节删除，不在本文留第二份现状描述。
+本文是**目标架构的数据模型规格**：写实体边界、不变量与取舍，是验收基准。逐列 DDL 的唯一真相源是 `lib/db/migrations/0000_target_schema.sql` 与 `lib/db/schema/`，迁移清单在 `lib/db/migrations/meta/_journal.json`，本文不复制第二份表结构。本文只写**目标态**：重构已交付（决策见 `docs/adr/` 的 `0020` 行），旧实现的差异清单已随 `T47` 整节删除，不在本文留第二份现状描述。
 
 ---
 
@@ -226,4 +226,4 @@ Q1 的 `Index Scan` 与「无 Sort」是**硬断言**：整树按 path 有序，
 | 迁移已应用、库结构与代码对齐 | `.github/workflows/migrate-production.yml` + `scripts/verify-deployment.mjs`；`pnpm db:generate` 保证 TS ↔ snapshot 零漂移，`pnpm verify:target-schema --parity` 再把 snapshot（≡ TS）与**真实执行 DDL 后的 catalog** 逐表对比表集合 / 列 / 主键 / 外键（T39 后半，排除按规格决议 ② 由 Better Auth 管 DDL 的 `auth.*`）。本批据该对比发现并追平了两处真实漂移：`project.description`、`folder.seq` |
 | §7 的验证结论（重构验收） | DDL / **P1–P32 正例 + N1–N31 反例** / fail-closed / TS ↔ 基线结构对比 已有自动执行者：`.github/workflows/ci.yml` 的 `pnpm verify:target-schema`（T36–T42，自建干净库重建唯一基线后逐条执行）。正例用 DO 块做真实语义断言而非「只检查没报错」，反例逐条比对 SQLSTATE；结构性不可表达的 N20 显式 `SKIP`。**§7 的 Q1 / Q3 EXPLAIN 已有自动执行者**：`--explain` 自建 10 万行压测集（独立 org / project / lineage + 10 万 person），以 `genealogy_app` + `SET LOCAL app.user_id` 真走 RLS 跑 Q1 / Q3，断言计划形状与 < 100 ms（T40，随 CI 每次重测） |
 
-重构前的自动执行者清单在 `docs/architecture.md` 的「约束要有执行者」，本文不重抄，它会随本次重构同步更新。把本文从纸面变成现实靠的是迁移 + 断言，不是再写一份文档。逐条落地过程见 `CHANGELOG.md` 的 `S8` 段落。
+重构前的自动执行者清单在 `docs/architecture.md` 的「约束要有执行者」，本文不重抄，它会随本次重构同步更新。把本文从纸面变成现实靠的是迁移 + 断言，不是再写一份文档。逐条落地过程见 `CHANGELOG.md` 的「数据模型整体重建」条目。

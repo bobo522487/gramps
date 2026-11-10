@@ -3,7 +3,7 @@
 // 文档集门禁（按当前文档结构）。
 // 旧结构规则（architecture/ 00–13 连续编号、decisions/ 待决策表、guides/、
 // docs/ 根级仅 README、旧实现措辞黑名单）随旧文档体系下线一并退役。
-// 违禁短语不在本文件留一份过期保护：待 P0-1 统一权威口径后按目标态重定。
+// 退役语义（软删 / 旧角色 / 旧插件）的黑名单在 tests/ 里按目标态重定，见 tests/s8-stage-e.test.ts。
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';

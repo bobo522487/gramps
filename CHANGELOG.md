@@ -2,23 +2,18 @@
 
 > 记录**对外可见的变化**。编排顺序与当前进度看 [`docs/roadmap.md`](docs/roadmap.md)，决策理由看 [`docs/adr/`](docs/adr/)。
 > **口径**：仓库目前没有 tag / release，所以这里按**日期里程碑**聚合，不虚构版本号；每条都有仓库内依据（提交历史或决策记录），不推测未记录的变更。
-> 数据截至仓库最后一次推送 **2026-11-06**；整理于 2026-11-08。
 
 ---
 
 ## [未发布]
 
-- 文档结构重构：进行中，逐文件评审后合入；合入时按实际提交改写本条。
-- **S8 目标数据模型重构（进行中，非交付声明）**：按 G0① 把 `lib/db/migrations/` 重建为唯一全量 SQL 基线（journal 1 条），事实层六表升为主数据源、`node` 退为 `ltree` 位置引用；`book_export` / `article.body` / 复合主键与全局 `project.id` 落地；拆除 Better Auth organization 插件，组织 / 成员写入收敛到 12 个 `app.*` SECURITY DEFINER 函数；业务角色统一 `genealogy_app`、认证侧保留独立 `auth_service`；新增 `pnpm verify:target-schema`（T36–T42）在干净库重建基线并跑 P1–P32 正例 / N1–N31 反例 / fail-closed / TS ↔ 基线结构 parity，已进 CI。
-- 配套文档跟改（阶段 E 第一批）：架构 / 契约 / 运维 / 产品意图 / 术语 / 阈值 / 入口文件按目标态重写，新增 ADR `0020` 并把 `0003` / `0004` / `0006` / `0018` 标 `superseded`。
-- **未兑现，不写成已交付**：截至 `T47` 批次，§7 的 Q1 / Q3 EXPLAIN 数字仍须在目标环境重跑（T40 `SKIP`）、切换日 T50–T52 与 G0–G5 全绿留档尚未执行，故当时 `S8` 仍为 `in_progress`。
-- 阶段 E 口径复核：把 #14 从误记为「待拍板」更正为「已按附录 A 拍板扁平化、实现拆在独立批次」，同步 8 处文档与基线注释并补一份独立批次的逐面影响清单；`tests/s8-stage-e.test.ts` 新增 E-12 门禁防回退。
-- **`#14` folder 压平（已交付）**：`folder` 按附录 A.2 收为项目内单层分类 6 列——`kind` / `parent_id` / `sort` / `created_by` 与 `uk_folder_org_project_id` / `fk_folder_parent_same_project` / `idx_folder_project` / `ck_folder_kind` 全部退役，`folder_name_unique (project_id, name)` 成为**全项目**唯一口径。谱系 / 谱文 / 谱书共用一套分类：查询层不再按 `kind` 过滤、按 `seq` 排序；写入层删掉 `folderDepth` 深度上限与父链 BFS 删除，`createFolderInTransaction` 撞名返回 `conflict`（「同名分类已存在」）；两侧「默认分类」合并为全项目唯一一条，并发创建靠唯一键 + `onConflictDoNothing` 收敛。前端分类树 / picker 改为按名称平铺，「新建子分类」入口与缩进一并删除。新增 `tests/s8-folder-flatten.test.ts`（F-1…F-9）作为门禁。
-- **`T47` 差异清单删除（已交付）**：`docs/data-model.md` 的「重构前的实现差异」整节删除（14 条已全部消掉），原 §9「约束要有执行者」重编号为 §8，`docs/architecture.md` / `docs/adr/0020` / `docs/adr/README.md` / `docs/roadmap.md` / `CONTRIBUTING.md` 的引用一并跟改。
-- **`T40` EXPLAIN 实跑（已交付）**：`pnpm verify:target-schema --explain` 不再是 `SKIP` 占位——自建独立 org / project / lineage 与 10 万 `person` + 10 万 `node` 压测集，以 `genealogy_app` 角色 + `set_config('app.user_id', …)` 跑 `explain (analyze)`。实测 Q1（整树 10 万行）= `Index Scan using node_path_unique` + `InitPlan 1` + **无 Sort**，18.795 ms；Q3（子树 1 万行 / 10% 选择率）= `Seq Scan` + `Sort` + `InitPlan 1`，16.777 ms。**Q3 不硬断言 Index Scan**：10% 选择率下 planner 选 Seq Scan 合理，硬凑 `enable_seqscan=off` 等于造假，故只断言 `InitPlan` 生效、`path` 谓词下推与 `< 100 ms`，形状仅作记录。`docs/data-model.md` §7 的数字改为由脚本每次重测。门禁 `D-6` / `D-8` 同步换代：P21 / P22 彻底退出 SKIP 占位，同时拦住「Q3 硬断言 Index Scan」这类造假。
-- **`T50`–`T52` 切换演练（已交付，限本地）**：`pg_dump`（366139 bytes，sha256 `2ccf407b…`）→ `pg_restore` 到 `gramps_restore`（exit 0、`select 1` OK、四表抽样一致、17 表 / 17 策略 / 12 函数随备份还原）→ 复跑 G5（96 PASS / 0 FAIL / 1 SKIP）→ `pnpm db:migrate` 切换后核对（迁移 1 条、17 表 / 17 策略 / 12 函数 / `ltree,btree_gist`、关键约束与索引齐备）。记录见 `docs/runbooks/README.md` §2.2。
-- **运维修复：角色创建移出基线，provisioning 拆两阶段（2026-11-09）**：PR #13 合并后生产迁移连红两次。① `drizzle-kit` 报 `applied successfully` 但结构留旧（基线对 `auth.*` 用 `CREATE TABLE IF NOT EXISTS`，遇旧表整表跳过）——判定口径改为只看 `verify-deployment.mjs`。② 按 G0① 重建时生产库被清空，随后基线第 18 行 `CREATE ROLE genealogy_app … PASSWORD 'app_pw'` 被 Neon 控制面拒（`insecure password`，`XX000`），迁移整段失败、库停在无表状态。**根因是基线越界**：`CREATE ROLE` 是集群级操作，口令是每环境一份的部署配置，不该出现在单库 schema 基线里。现改为 `scripts/provision-roles.mjs` 接管全部角色，基线只 GRANT（缺角色时 `42704` 报错，胜过静默弱口令上线）。脚本支持 `--roles-only`（迁移前，否则基线第一条 GRANT 撞 `42704`）与 `--grants-only`（迁移后，否则撞 `3F000 schema "app" does not exist`），CI 与生产 workflow 共用同一份权限矩阵；缺 `APP_DB_PASSWORD` 时 workflow 第一步即 `::error::` 退出。新增 `scripts/reset-target-db.mjs`（`R1–R7` 七条门禁）与 `db:migrate` 失败时的 `diagnose-{migration,drizzle-state}.mjs` 只读探针（drizzle 会吞掉 SQLSTATE）。`tests/s8-stage-c.test.ts` 的 C-5 从「基线必须建 `genealogy_app`」改为「基线不得建任何角色、不得出现 `PASSWORD '…'`」。事故记入 `docs/runbooks/README.md`。第三处「本地全绿、生产必红」：Neon 只放行 `ALTER ROLE … PASSWORD`，角色属性 DDL 一律 `42501`，而 `pg_has_role(…,'MEMBER')` / `rolcreaterole` 仍判「可」——理论权限不可信。现改为先读 `rolcanlogin` / `rolsuper` / `rolbypassrls` 与目标值比对，合规就不发属性 DDL；诊断脚本在 savepoint 里逐条实测再回滚。生产重建最终 26 项全 PASS、`Deployment verification passed.`
-- **`T49` 收口（`S8` → `delivered`）**：`docs/roadmap.md` 的 `S8` 改为 `delivered` 并附实证口径；`S5` / `S6` 标 `cancelled`（意图已被 `S8` 兑现 / 目标态无软删无可恢复删除）；§4.3 三行按规则逐行处置；「阶段 E 挂起项」整段替换为「阶段 E 收口记录」。**两项仍未兑现，不写成已完成**：① 托管 Neon 分支 / PITR 恢复演练（本地只做了 `pg_dump`/`pg_restore` 等价演练）；② 真实应用实例上的 `pnpm verify:deploy` + `/api/health` + 关键路径 E2E（本地演练只覆盖数据层）。上生产前必须补，见 `docs/nfr.md` 与 `docs/runbooks/README.md`。
+- **数据模型整体重建（`S8`，2026-11-09 交付）**：`lib/db/migrations/` 重建为唯一全量 SQL 基线；事实层六表升为主数据源、`node` 退为 `ltree` 位置引用；`book_export`、复合主键与全局 `project.id` 落地；组织 / 成员写入收敛到 `app.*` SECURITY DEFINER 函数；业务角色 `genealogy_app` 与认证角色 `auth_service` 分离；新增 `pnpm verify:target-schema` 进 CI。决策见 `docs/adr/` 的 `0020` 行。
+- **`folder` 压平为项目内单层分类**：`kind` / `parent_id` / `sort` / `created_by` 与三条旧约束退役，`folder_name_unique (project_id, name)` 成为唯一口径；同名撞名返回 `conflict`；前端分类树改为按名称平铺。
+- **`verify:target-schema --explain` 从占位改为实跑**：自建 10 万行压测集，Q1 / Q3 进 CI 每次重测；Q3 按选择率走 Seq Scan 属合理计划，只断言 `InitPlan`、谓词下推与耗时上限，不硬凑索引。
+- **切换日演练（限本地）**：`pg_dump` → `pg_restore` 抽样一致 → 复跑 G5（96 PASS / 0 FAIL / 1 SKIP）→ `pnpm db:migrate` 切换并核对对象与约束。托管 Neon 分支 / PITR 恢复与真实实例上的 `verify:deploy` + E2E **仍未做**，随 `roadmap S7` 补。
+- **生产迁移修复：角色创建移出基线（2026-11-09）**：PR #13 合并后生产迁移连红两次。根因是基线越界——`CREATE ROLE … PASSWORD` 是集群级操作，口令属每环境部署配置，Neon 控制面按弱口令拒绝（`XX000`）。现由 `scripts/provision-roles.mjs` 接管角色（`--roles-only` 在迁移前、`--grants-only` 在迁移后，CI 与生产 workflow 共用同一份权限矩阵），基线只 GRANT；迁移是否成功只看 `verify-deployment.mjs`，不信 `drizzle-kit` 的 `applied successfully`；新增 `scripts/reset-target-db.mjs` 与 `db:migrate` 失败时的只读诊断探针（drizzle 会吞掉 SQLSTATE）。生产重建最终 26 项全 PASS。
+- **Neon 角色属性 DDL 的实测边界**：只放行 `ALTER ROLE … PASSWORD`，其余属性 DDL 一律 `42501`，而 `pg_has_role(…,'MEMBER')` / `rolcreaterole` 仍判「可」——理论权限不可信。改为先读 `rolcanlogin` / `rolsuper` / `rolbypassrls` 与目标值比对，合规就不发属性 DDL。事故与边界记入 `docs/runbooks/README.md`。
+- **文档系统收敛**：`docs/roadmap.md` 只保留编排状态，逐批进度与收口台账删去（历史留在提交历史与本文件）；`docs/adr/` 改为只有结论索引、不存正文，不再计划逐份迁回 17 份旧正文；未启用的 `specs/_archive/` 归档流程从入口文档删除。
 
 <!-- 条目模板
 ## YYYY-MM-DD · 主题

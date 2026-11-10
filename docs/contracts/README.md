@@ -198,9 +198,7 @@ FormData 通道用 `Object.fromEntries(formData)` 拍平，嵌套结构与 `null
 | --- | --- |
 | `ActionState` 是带泛型 `data` 的扁平对象，**不是** success / error 联合类型 | `lib/auth/types.ts` |
 | 谱文预览 Action 成功时**直接返回预览对象**，不包 `ActionState` | `lib/article/actions.ts` |
-| 域级错误文案常量在代码里，且代码注释曾把 feature 目录内的契约文件当作真相源 | `lib/article/constants.ts`、`lib/lineage/lineage-errors.ts` |
-
-**待办（代码改动，不在本次文档重构内）**：代码注释里对 feature 契约文件的引用，在契约迁入本文件后应统一改为指向 `docs/contracts/`；否则注释会指向已退役的位置。
+| 域级错误文案常量在代码里，对外文案统一引用 `docs/contracts/README.md` | `lib/article/constants.ts`、`lib/lineage/lineage-errors.ts` |
 
 改文档前先跑：
 

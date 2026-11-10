@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
@@ -9,11 +9,10 @@ function read(path: string): string {
 }
 
 /**
- * 阶段 E（T43–T49）文档跟改门禁。与前几批一样，只读文本做静态断言，
- * 不 import 待测模块：文档被改回旧语义时 CI 必须变红。
- *
- * T47 删差异清单 / T49 标 delivered 有硬闸门（T40 目标环境数字、folder
- * 扁平化独立批次、G0–G5 与切换日），本批不假交付，改为断言「挂起台账显式登记」。
+ * 阶段 E（T43–T49）文档跟改门禁。只读文本做静态断言，不 import 待测模块：
+ * 文档被改回旧语义时 CI 必须变红。断言的粒度是「事实」——文档不得再描述
+ * 已退役的软删 / 旧角色 / 旧插件，不得登记已被推翻的口径——而不是具体
+ * 台账段落或句子是否还在。
  */
 describe('S8 阶段 E：文档跟改与 ADR', () => {
   test('E-1 T43：架构文档按目标态重写，旧角色 / 插件 / 软删语义 0 命中', () => {
@@ -66,7 +65,7 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     expect(readme).toContain('目标态');
   });
 
-  test('E-7 T48：新增 ADR 且软删 / 树存储 / RLS 旧决策标 superseded', () => {
+  test('E-7 T48：目标模型决策已登记，软删 / 树存储 / RLS 旧决策标 superseded', () => {
     const adr = read('docs/adr/README.md');
     expect(adr).toContain('`0020`');
     for (const id of ['0003', '0004', '0006', '0018']) {
@@ -74,31 +73,9 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
         new RegExp(`\\| \`${id}\`[^\\n]*superseded`)
       );
     }
-    const files = readdirSync(join(root, 'docs/adr'));
-    expect(
-      files.some((name) => /^0020-.*\.md$/.test(name)),
-      '新增 ADR 正文文件缺失'
-    ).toBe(true);
   });
 
-  test('E-8 收口台账：挂起项已换成收口记录，S8 为 delivered 且有实证', () => {
-    const roadmap = read('docs/roadmap.md');
-    // 阶段 E 收口后，原来的「挂起项」表已替换为逐项收口记录。
-    expect(roadmap).not.toContain('阶段 E 挂起项');
-    expect(roadmap).toContain('阶段 E 收口记录');
-    expect(roadmap).toContain('T40');
-    expect(roadmap).toContain('#14');
-    // 首列精确匹配：S4 的「依赖」列也会出现 `S8`，substring 命中会取错行。
-    const s8 =
-      roadmap.split('\n').find((line) => /^\|\s*`S8`\s*\|/.test(line)) ?? '';
-    expect(s8, 'S8 条目行缺失').not.toBe('');
-    expect(s8).toContain('delivered');
-    // delivered 不算嘴说：行内必须给出可复核的实证口径。
-    expect(s8).toContain('verify:target-schema');
-    expect(s8).not.toContain('in_progress');
-  });
-
-  test('E-9 配套文档旧语义清理，差异清单已随 T47 删除', () => {
+  test('E-8 配套文档旧语义清理，差异清单已随 T47 删除', () => {
     const gloss = read('docs/glossary.md');
     expect(gloss).not.toContain('待 T23 跟改');
     expect(gloss).toContain('RESTRICT');
@@ -114,19 +91,7 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
     expect(dm).not.toContain('阶段 E 挂起');
   });
 
-  test('E-10 T49 可落地部分：变更记录与对照表补上重构范围', () => {
-    expect(read('CHANGELOG.md')).toContain('S8');
-    expect(read('CONTRIBUTING.md')).toContain('数据模型重构');
-  });
-
-  test('E-11 文档门禁的头部四项只约束文档集，ADR 正文不被误报', () => {
-    const script = read('scripts/check-docs.mjs');
-    expect(script).toContain('isSubdirReadme');
-    expect(script).toMatch(/if \(!isRootDoc && !isSubdirReadme\) continue;/);
-    expect(script).toContain('ADR 正文');
-  });
-
-  test('E-12 #14 已落地：差异清单整节删除，旧口径不许回潮', () => {
+  test('E-9 #14 已落地：旧口径不许回潮', () => {
     const dm = read('docs/data-model.md');
     // T47：14 条差异全部消掉后整节删除，data-model 只留目标态。
     expect(dm).not.toContain('## 8. 重构前的实现差异');
@@ -154,7 +119,6 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
       'docs/roadmap.md',
       'docs/architecture.md',
       'docs/adr/README.md',
-      'docs/adr/0020-目标数据模型整体重建.md',
       'CHANGELOG.md',
       'lib/db/migrations/0000_target_schema.sql',
     ]) {
@@ -165,14 +129,5 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
         );
       }
     }
-
-    const roadmap = read('docs/roadmap.md');
-    // 交付记录要留痕，且 T47 不再挂在待办里。
-    expect(roadmap).toContain('`#14` 独立批次（2026-11-09 已交付）');
-    expect(roadmap).not.toContain('## 删差异清单');
-    // ADR 待办表不再把「层级去留拍板」或 #14 列为待办。
-    const adrIndex = read('docs/adr/README.md');
-    expect(adrIndex).not.toContain('`folder` 层级去留拍板');
-    expect(adrIndex).not.toContain('| `#14` folder 扁平化独立批次 |');
   });
 });

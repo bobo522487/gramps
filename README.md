@@ -65,7 +65,7 @@ pnpm arch:check
 │   ├── data-model.md              目标态数据模型规格：实体分层、不变量与删除语义
 │   ├── nfr.md                     性能 / 安全 / 可用性 / 合规 + 可度量阈值
 │   ├── contracts/                 跨 feature 接口契约，唯一真相源
-│   ├── adr/                       决策记录，只写「为什么」
+│   ├── adr/                       决策索引：一行结论 + 取代关系，不存正文
 │   ├── roadmap.md                 编排核心：切片顺序、范围、依赖、状态
 │   └── runbooks/                  上线、排障、回滚
 │
@@ -110,13 +110,12 @@ pnpm arch:check
 
 > 不可协商的原则在 `.specify/memory/constitution.md`；本节只写日常可执行的规则，不重述原则。
 
-- **单一真相源**：术语只在 `glossary.md`；接口契约只在 `docs/contracts/`；整体架构只在 `architecture.md`；全局实体只在 `data-model.md`；非功能阈值只在 `nfr.md`；状态与编排只在 `roadmap.md`。feature 文档只引用，不复制。
+- **单一真相源**：术语、契约、架构、实体、阈值、状态各有唯一归属文件；完整映射只在 [`.specify/memory/constitution.md`](.specify/memory/constitution.md) §5，本文件不复制那张表。feature 文档只引用，不复制。
 - **原则只引用**：`plan.md` 的 Constitution Check 逐条对照 constitution 编号，不把原则抄进每个 plan。
 - **roadmap 先改，再改 spec**：范围变化先落到 roadmap 那一行，再动受影响的子 spec；条目 ID 一旦被引用就不可改，子 spec 在头部 `Input` 行写 `Parent roadmap → entry <ID>` 回链。
 - **feature 目录可整体删除而不失真**：删掉任一 `specs/NNN-xxx/` 后，`docs/` 仍须讲得清系统在做什么。
 - **ADR 只记为什么**：为什么选 A 不选 B、代价是什么，不记「我们用了 A」——后者属于 architecture。
 - **测试是最终事实来源**：文字与 `tests/` 冲突时先确认哪个是意图，再同步两边，不允许长期双轨。
-- **交付后归档**：每次交付完成，整目录打版本标签移入 `specs/_archive/`；已归档目录只读，行为变化开新目录。
 
 变更要跟改哪些文档、提交与评审规则见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
