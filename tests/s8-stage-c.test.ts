@@ -155,7 +155,7 @@ describe('S8 阶段 C · 隔离层核对', () => {
     // 而是 Server Action 在 withOrg 事务内调库内 SECURITY DEFINER 函数。
     // 接口地图若只写「写只走 Server Action」就漏了这一层，读图的人会以为
     // 存在直写 organization / organization_member 的合法通道。
-    const doc = read('docs/interfaces.md');
+    const doc = read('docs/api.md');
     expect(doc).toContain('SECURITY DEFINER');
     expect(doc).toContain('withOrg');
     for (const fn of [

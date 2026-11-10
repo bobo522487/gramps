@@ -17,13 +17,23 @@ const DOC_SET = [
   'CONTRIBUTING.md',
   'CHANGELOG.md',
   '.specify/memory/constitution.md',
-  'docs/vision.md',
-  'docs/glossary.md',
+  'docs/README.md',
+  'docs/overview.md',
   'docs/architecture.md',
-  'docs/interfaces.md',
+  'docs/directory-structure.md',
   'docs/data-model.md',
+  'docs/api.md',
+  'docs/glossary.md',
+  'docs/infrastructure.md',
+  'docs/development.md',
   'docs/nfr.md',
   'docs/roadmap.md',
+  'docs/code-index.md',
+  'docs/modules/README.md',
+  'docs/modules/auth-org-project.md',
+  'docs/modules/lineage.md',
+  'docs/modules/article-media.md',
+  'docs/modules/book.md',
   'docs/adr/README.md',
   'docs/contracts/README.md',
   'docs/runbooks/README.md',
@@ -31,7 +41,9 @@ const DOC_SET = [
 const ENTRY = 'AGENTS.md';
 
 const RETIRED = [
-  'docs/README.md',
+  'docs/vision.md',
+  'docs/interfaces.md',
+  'docs/code-wiki',
   'docs/architecture/00-文档说明.md',
   'docs/decisions/README.md',
   'docs/guides/testing.md',
@@ -43,7 +55,7 @@ const RETIRED = [
 ];
 
 describe('document set', () => {
-  test('all 14 new documents and the AGENTS.md entry pointer exist', () => {
+  test('all expected documents and the AGENTS.md entry pointer exist', () => {
     for (const path of [...DOC_SET, ENTRY]) {
       expect(existsSync(join(root, path)), `${path} missing`).toBe(true);
     }
@@ -63,11 +75,11 @@ describe('document set', () => {
     expect(agents.length).toBeLessThan(4000);
   });
 
-  test('docs/ contains exactly the three contract directories', () => {
+  test('docs/ contains exactly the four supported directories', () => {
     const dirs = readdirSync(join(root, 'docs'))
       .filter((entry) => statSync(join(root, 'docs', entry)).isDirectory())
       .sort();
-    expect(dirs).toEqual(['adr', 'contracts', 'runbooks']);
+    expect(dirs).toEqual(['adr', 'contracts', 'modules', 'runbooks']);
   });
 
   test('constitution keeps I–V numbering so plan.md gates still resolve', () => {
@@ -79,7 +91,7 @@ describe('document set', () => {
 
   test('new documents never cite retired authority paths', () => {
     const retired =
-      /docs\/architecture\/|docs\/decisions\/|docs\/guides\/|docs\/README\.md|docs\/archive\/|docs\/superpowers\/|specs\/00[1-3]-/;
+      /docs\/architecture\/|docs\/decisions\/|docs\/guides\/|docs\/code-wiki\/|docs\/archive\/|docs\/superpowers\/|specs\/00[1-3]-/;
     for (const path of [...DOC_SET, ENTRY]) {
       expect(read(path), path).not.toMatch(retired);
     }
@@ -131,7 +143,7 @@ describe('document set', () => {
     expect(read('CONTRIBUTING.md')).toContain('权威口径（目标态例外）');
     for (const path of [
       'docs/architecture.md',
-      'docs/interfaces.md',
+      'docs/api.md',
       'docs/contracts/README.md',
       'docs/nfr.md',
     ]) {

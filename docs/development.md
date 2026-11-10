@@ -1,4 +1,8 @@
-# 10 · 开发、测试与部署
+# 开发与测试（Development）
+
+> **回答什么问题**：本地怎么跑起来、命令是什么、测试分几层、CI 与部署怎么走、常见故障怎么排。
+> **读者**：开发 · 新人 · 值班　**长度上限**：6 页
+> **不写什么**：架构与依赖规则（`docs/architecture.md`）、表结构（`docs/data-model.md`）、生产发布与回滚步骤（`docs/runbooks/`）、可度量阈值（`docs/nfr.md`）。
 
 ## 1. 前置条件
 
@@ -48,7 +52,7 @@ pnpm dev             # next dev --turbopack → http://localhost:3000
 
 ## 3. 环境变量
 
-见 [09-infrastructure.md](09-infrastructure.md) 的完整表格。最小可用 `.env`：
+见 [infrastructure.md](infrastructure.md) 的完整表格。最小可用 `.env`：
 
 ```dotenv
 POSTGRES_URL=postgresql://postgres:postgres@localhost:54322/postgres

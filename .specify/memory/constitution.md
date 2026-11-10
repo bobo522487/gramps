@@ -2,7 +2,7 @@
 
 > **回答什么问题**：哪些事永远不能做、偏离了怎么留档、文档怎么维护。
 > **读者**：全员 · 新人第一份 · AI Agent　**长度上限**：3 页
-> **不写什么**：产品意图与明确不做（`docs/vision.md`）、术语（`docs/glossary.md`）、系统边界与技术栈（`docs/architecture.md`）、表与列（`docs/data-model.md`）、可度量阈值（`docs/nfr.md`）、接口契约（`docs/contracts/`）、编排与进度（`docs/roadmap.md`）、决策理由（`docs/adr/`）、可执行流程与 PR 清单（`CONTRIBUTING.md`）。
+> **不写什么**：产品意图与明确不做（`docs/overview.md`）、术语（`docs/glossary.md`）、系统边界与技术栈（`docs/architecture.md`）、表与列（`docs/data-model.md`）、可度量阈值（`docs/nfr.md`）、接口契约（`docs/contracts/`）、编排与进度（`docs/roadmap.md`）、决策理由（`docs/adr/`）、可执行流程与 PR 清单（`CONTRIBUTING.md`）。
 
 治理层唯一文件。原则正文**只在本文**；其余文档只引用编号，不复制第二份。编号沿用 `I`–`V`，是为了让已有 `plan.md` 的 Constitution Check 回链继续成立；正文与权威文本索引按本结构重写，不继承线上版本线。
 
@@ -28,7 +28,7 @@
 
 认证身份是全局的、组织成员关系是本系统的，两者 MUST NOT 合并成一套模型；业务侧 MUST NOT 直接读写认证 schema，只引用用户 ID；密钥、密码哈希、整行用户数据 MUST NOT 进入客户端。
 
-- 权威文本：`docs/data-model.md` §2 / §3、`docs/vision.md` §7
+- 权威文本：`docs/data-model.md` §2 / §3、`docs/overview.md` §8
 - 证据：安全路径测试；评审第②③项「信息泄露 / 认证语义」
 
 ### III. 写路径单事务
@@ -56,10 +56,10 @@
 
 | 约束 | 权威文本 | 证据 |
 | --- | --- | --- |
-| 租户数据不出组织；邮箱只读、密码不可逆、应用不接触哈希 | `docs/vision.md` §7 | 安全路径测试 |
+| 租户数据不出组织；邮箱只读、密码不可逆、应用不接触哈希 | `docs/overview.md` §8 | 安全路径测试 |
 | 日志脱敏：不记录密码、token、身份证、完整住址；结构化 JSON 带请求 ID | `docs/nfr.md`、`docs/runbooks/README.md` §4 | 巡检 SQL |
 | 不把数据库错误或堆栈展示给用户，失败返回中文文案 | `docs/contracts/README.md` §2 | 错误态用例 |
-| 全简体中文，不引入 i18n 框架 | `docs/vision.md` §7 | 文案评审 |
+| 全简体中文，不引入 i18n 框架 | `docs/overview.md` §8 | 文案评审 |
 | 零后台任务 / 队列 / 定时器，无独立缓存层 | `docs/architecture.md`、`docs/adr/` 的 `0005` | `docs/data-model.md` §7 非目标 |
 | 迁移与业务代码分开提交，不在构建流程里执行 DDL | `CONTRIBUTING.md` §5、`docs/architecture.md` | CI 迁移漂移检查 |
 
@@ -80,10 +80,10 @@
 
 | 关注点 | 去哪读 |
 | --- | --- |
-| 产品意图、范围边界、明确不做 | `docs/vision.md` |
+| 产品意图、范围边界、明确不做 | `docs/overview.md` |
 | 术语 | `docs/glossary.md` |
 | 系统边界 / 模块 / 技术栈 / 部署形态 | `docs/architecture.md` |
-| 接口地图与契约 | `docs/interfaces.md`、`docs/contracts/README.md` |
+| 接口地图与契约 | `docs/api.md`、`docs/contracts/README.md` |
 | 全局实体与关系（目标态规格） | `docs/data-model.md` |
 | 可度量阈值 | `docs/nfr.md` |
 | 编排与状态 | `docs/roadmap.md` |

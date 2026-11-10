@@ -1,6 +1,10 @@
-# 08 · 页面路由、Route Handler 与 Server Action
+# 接口地图（API）
 
-本文件是「对外接口地图」：哪个 URL 渲染什么、读什么数据、由哪个 Action 写入。
+> **回答什么问题**：系统有几条通道、哪个 URL 渲染什么、Route Handler 与 Server Action 落在哪、返回怎么表达。
+> **读者**：开发 · 前端 · AI Agent　**长度上限**：5 页
+> **不写什么**：单个 Action 的入参与错误码全集（`docs/contracts/`）、权限矩阵（`docs/contracts/`）、表与列（`docs/data-model.md`）、系统分层（`docs/architecture.md`）、目录树（`docs/directory-structure.md`）。
+
+本文件是「接口地图」：哪个 URL 渲染什么、读什么数据、由哪个 Action 写入。契约正文只在 `docs/contracts/`。
 
 ## 1. 页面路由
 
@@ -181,7 +185,39 @@ const [state, action, pending] = useActionState(createProjectAction, {});
 | 客户端轮询/第三方回调/二进制 | `app/api/**/route.ts`，用 `withApiLogging` |
 | 跨页面复用读取 | 查询层 + `cache()`（如 `lib/article/nav.ts`） |
 
-## 5. 导航数据（侧边栏）
+## 5. 四条通道与边界
+
+| 通道 | 谁发起 | 用途 | 授权入口 |
+| --- | --- | --- | --- |
+| RSC 页面 | 浏览器首次导航 | 首屏读，服务端直接查库 | `requireOrgContext` / `requireProjectContext` |
+| Server Action | 表单 / 客户端组件 | **唯一写通道**，成功后触发刷新 | `validatedAction*` + `withOrgWrite(..., '<permission>')` |
+| Route Handler | 客户端刷新、探活、图片字节 | 只读 JSON + 健康检查 + 图片通道 | `withApiLogging` → `getSessionUser()`；组织级再加成员校验 |
+| TanStack Query | 客户端组件 | 缓存服务端状态，只调只读 Route Handler | 同一 Cookie，服务端仍按会话与成员关系判定 |
+
+**没有 REST 层与公开 API**：没有第三方消费者、分享页、`/api/auth/*`。写只走 Server Action，例外只有两个，且必须带理由：
+
+- 谱文图片字节走 `POST /api/blob/upload`、`/api/media/upload`、`GET /api/media/[...key]`：10MB 图片超过 Action 与 Vercel 函数请求体上限；
+- 谱文 Action 收 JSON 对象而非 FormData：正文是嵌套 ProseMirror 文档。
+
+**库内写入口**：建组织、接受邀请、改名、归档、移除成员、改角色不直写表，而是在 `withOrg` 事务内调 `SECURITY DEFINER` 函数——`app.create_organization` / `app.accept_invite` / `app.rename_organization` / `app.archive_organization` / `app.remove_org_member` / `app.set_org_member_role`。**这不是绕过 Server Action**，而是它唯一的库内落点：RLS 只做可见性，写授权与 last-owner 守卫在函数体内判定，失败抛 `42501` / `22023`。契约见 `docs/contracts/` 与 `docs/data-model.md`。
+
+两条硬规则：
+
+- Action 入参只用内部 UUID；公开 `slug` / `ref` 只用于 URL，永不作为授权依据；
+- 只返回显式 DTO，不返回整行；SQL、堆栈、密码哈希不出服务端。
+
+## 6. 错误表达
+
+| 出口 | 形状 | 约定 |
+| --- | --- | --- |
+| Server Action | `ActionState` | 恒为返回值、永不 throw；`error` / `success` 是中文文案，`code` 是稳定机器码，`fieldErrors` 是字段级错误 |
+| Route Handler | 英文 JSON + 显式状态码 | 非 2xx 形如 `{ "error": "Unauthorized" }`；`x-request-id` 进响应头与日志；未捕获异常由 `withApiLogging` 转 JSON 500 |
+
+三层原则：Action 不 throw；用户看中文、日志与客户端看机器码；不泄露内部细节。
+
+> 目标态与现状冲突时，裁决顺序见 `CONTRIBUTING.md` §2「权威口径」。
+
+## 7. 导航数据（侧边栏）
 
 | 函数 | 位置 | 说明 |
 | --- | --- | --- |

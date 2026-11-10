@@ -1,4 +1,8 @@
-# 01 · 项目概览
+# 项目概览（Overview）
+
+> **回答什么问题**：产品是什么、给谁用、明确不做什么、怎么算成功、技术栈是什么。
+> **读者**：全员 · 新人第一份 · 产品 / 需求评审　**长度上限**：5 页
+> **不写什么**：系统分层与部署（`docs/architecture.md`）、表与不变量（`docs/data-model.md`）、接口契约（`docs/api.md`、`docs/contracts/`）、可度量技术阈值（`docs/nfr.md`）、排期（`docs/roadmap.md`）。
 
 ## 1. 产品定位
 
@@ -95,7 +99,7 @@
 2. **写走 Action、读走 RSC / Query**：Server Action 只做「校验 → 事务 → 失效」，不做展示逻辑；页面只读查询。
 3. **作用域即安全边界**：任何组织数据访问必须处于 `withOrg()` 事务内，由 RLS + 事务内权限复核双重保护。
 4. **边界校验**：所有写入口使用 Zod schema（`lib/*/schemas.ts`），Service 层信任已校验输入。
-5. **依赖方向受 Biome 限制**：客户端组件不得直接 import ORM / 数据库；`lib/db` 不得反向依赖 Next 运行时；查询层不得依赖 Action 层（详见 [11-dependencies.md](11-dependencies.md)）。
+5. **依赖方向受 Biome 限制**：客户端组件不得直接 import ORM / 数据库；`lib/db` 不得反向依赖 Next 运行时；查询层不得依赖 Action 层（详见 [architecture.md](architecture.md#9-依赖方向)）。
 6. **文件规模上限 F6**：`app/ components/ lib/ hooks/` 下普通文件 ≤ 400 行，超限需显式豁免（`scripts/check-file-size.mjs`）。
 7. **配置单一入口 F7**：只有 `lib/config.ts` 可以读取 `process.env`（`scripts/check-env-access.mjs`）。
 
@@ -109,4 +113,24 @@
                     └─ Better Auth 端点 ──> Neon PostgreSQL（认证连接 auth_service）
 ```
 
-本地开发时数据库可用 Docker 启动（`lib/db/setup.ts` 会生成 `docker-compose.yml`），图片默认写本地文件系统（`MEDIA_MODE=fs`）；生产使用 `MEDIA_MODE=blob`。
+本地开发时数据库可用 Docker 启动（`lib/db/setup.ts` 会生成 `docker-compose.yml`）。图片存储由 `BLOB_READ_WRITE_TOKEN` 是否配置决定：未配置走本地文件系统，配置后走 Vercel Blob（`lib/config.ts` 的 `getMediaMode()`）。
+
+## 7. 目标用户与成功度量
+
+| 用户 | 核心诉求 | 典型场景 |
+| --- | --- | --- |
+| 修谱主事人 | 把纸质、口述与聊天记录里的信息结构化存下来 | 建云谱空间、录始祖与各房人丁、核对世次 |
+| 修谱工作室 | 一个账号服务多个家族，数据互不串 | 按客户建组织、切换项目、交付前检查编目 |
+| 族内协作者 | 只改自己那一支，不怕改坏别处 | 录入本房人丁、补字辈与配偶关系 |
+
+上线 6 个月目标：激活率 ≥ 40%、次月留存 ≥ 50%、单组织人丁中位数 ≥ 200、单条人丁录入中位耗时 < 15 秒、保存失败率 < 0.1%。指标采集尚未全部落地，当前是目标而非已验证承诺。
+
+## 8. 约束与前提
+
+| 类别 | 约束 |
+| --- | --- |
+| 团队 | 1–3 人全栈，无专职运维 / DBA，靠 CI 门禁兜底 |
+| 托管 | 只用 Vercel + Neon，不自建数据库与中间件 |
+| 运行 | 零常驻进程，允许分钟级发布中断 |
+| 数据合规 | 租户数据不出组织；日志不记录密码、token、身份证、完整住址 |
+| 界面 | 全简体中文、桌面优先，不引入 i18n 框架 |

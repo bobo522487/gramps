@@ -1,240 +1,249 @@
 # 系统架构（Architecture）
 
-> **回答什么问题**：系统边界在哪、代码怎么分层、依赖只允许朝哪个方向、跑在什么上面。
-> **读者**：全员 · 新人第二份　**长度上限**：6 页
-> **不写什么**：接口清单与 DTO（`docs/interfaces.md`、`docs/contracts/`）、表与列（`docs/data-model.md`）、可度量阈值（`docs/nfr.md`）、进度与编排（`docs/roadmap.md`）、命令与排障（`docs/runbooks/`）、「为什么选 A 不选 B」（`docs/adr/`）。
+> **回答什么问题**：系统怎么分层、请求怎么走、模块依赖往哪边、部署成什么形态。
+> **读者**：开发 · 架构评审 · AI Agent　**长度上限**：6 页
+> **不写什么**：表与不变量（`docs/data-model.md`）、接口清单与返回契约（`docs/api.md`、`docs/contracts/`）、目录树（`docs/directory-structure.md`）、可度量阈值（`docs/nfr.md`）、操作步骤（`docs/development.md`、`docs/runbooks/`）。
 
-术语一律按 `docs/glossary.md`。本文只写**当前实现**；架构变了先改本文，再改引用方，不在 `plan.md` 里重述整体架构。
+## 1. 架构风格
 
----
+云谱是**模块化单体（Modular Monolith）**：
 
-## 1. 系统边界
+- 一个 Next.js 16 应用同时提供页面、Server Action、Route Handler；
+- 一个 PostgreSQL 承载全部业务域，没有微服务、消息队列、后台任务或独立缓存；
+- 模块边界由**目录 + 依赖方向规则 + 数据库 RLS**共同保证，而不是进程边界。
 
-**模块化单体**：一个 Next.js 应用承载页面、Server Action 与 Route Handler，全部业务域共用一个 PostgreSQL。没有微服务、消息队列、后台任务、独立缓存层、API 网关。Better Auth 是应用内嵌的库，自己持有 `auth` schema，**不是外部身份提供方**。
+设计目标不是「可拆分」，而是「在单体内让每个域有清晰的写入口、读入口与安全边界」。
 
-| 能力 | 落地位置 |
-| --- | --- |
-| 账号与会话 | `lib/auth/`、`app/(login)/` |
-| 组织：成员 / 角色 / 邀请 | `lib/org/`、`app/(dashboard)/dashboard/org/` |
-| 云谱空间（`project`）与设置 | `lib/project/`、`app/(dashboard)/dashboard/project/[projectRef]/` |
-| 分类树 | `lib/folder/` |
-| 谱系、人丁、世次、字辈、世系画布 | `lib/lineage/`、`components/lineage/` |
-| 谱文：列表 / 三区编辑器 / 正文插图 | `lib/article/`、`components/article/` |
-| 只读刷新 / 健康检查 / 图片通道 | `app/api/` |
-| 打印 | 谱系工作区的 `print:` 样式，不是独立路由 |
+## 2. 分层模型
 
-外部依赖只有 **Vercel**（运行时）与 **Neon**（数据库），任一不可用即全站不可用，没有降级路径。产品范围的「明确不做」在 `docs/vision.md`；架构层面的刻意排除（无后台任务、无队列、无独立缓存、无网关）连同重新考虑条件在 `docs/adr/`，本文不重列。
+```mermaid
+flowchart TB
+  subgraph Delivery["交付层 app/ + components/"]
+    Pages["RSC 页面 page.tsx / layout.tsx"]
+    Client["客户端组件（'use client'）"]
+    Routes["Route Handlers app/api/**"]
+  end
 
----
+  subgraph Domain["领域层 lib/<domain>/"]
+    Actions["actions.ts<br/>'use server' · Zod · ActionState"]
+    Services["services.ts / *-services.ts<br/>事务 · 不变量 · 错误语义"]
+    Schemas["schemas.ts / constants.ts"]
+  end
 
-## 2. 运行时结构
+  subgraph Data["数据层 lib/db/"]
+    Queries["queries/*.ts<br/>只读、组织作用域"]
+    Write["write.ts withOrgWrite()"]
+    Schema["schema/*.ts Drizzle 表定义"]
+    Conn["drizzle.ts withOrg()"]
+  end
 
-```text
-浏览器
-  RSC 首屏 ───────────────────────────┐
-  客户端组件 ─ TanStack Query 缓存 ────┤
-                                      ↓
-  ┌── Next.js 应用（Vercel 函数，无状态） ──────────────────────┐
-  │  proxy.ts            Cookie 存在性乐观门禁，不查库            │
-  │  Server Action       唯一写通道 → lib/<domain>/actions.ts    │
-  │  Route Handler       只读刷新 · 健康检查 · 图片通道           │
-  │  Better Auth         进程内库，数据库会话 + scrypt            │
-  └───────┬───────────────────────────────┬────────────────────┘
-          │ APP_POSTGRES_URL               │ AUTH_POSTGRES_URL
-          │ pooled · 事务内 SET LOCAL ROLE genealogy_app
-          │                               │ direct · 固定 auth_service
-          ↓                               ↓
-     Neon PostgreSQL 18   public schema（RLS，非 FORCE） / auth schema
+  subgraph Cross["横切基础设施"]
+    Auth["auth/ context · permissions · middleware"]
+    Config["config.ts"]
+    Log["logger / request-context / api"]
+    Errors["errors / db/errors"]
+  end
+
+  Pages --> Queries
+  Client --> Actions
+  Client --> Routes
+  Actions --> Services
+  Actions --> Auth
+  Services --> Write
+  Services --> Schema
+  Queries --> Conn
+  Write --> Conn
+  Routes --> Queries
+  Routes --> Auth
+  Conn --> Config
 ```
 
-浏览器里的 zustand **只存谱系工作区的视图状态**，不存实体、不 persist；实体来自 RSC props 与 Action 结果。
+### 2.1 各层职责
 
-三条不能碰的运行期规则：
+| 层 | 目录 | 允许做的事 | 禁止做的事 |
+| --- | --- | --- | --- |
+| 交付层 | `app/`、`components/` | 渲染、表单、交互、调用 Action | 直接 import ORM / 数据库（客户端组件硬性禁止） |
+| Action 层 | `lib/*/actions.ts` | 鉴权包装、Zod 校验、调用 service、映射错误、`revalidateWholeConsole()` | 写 SQL、拼装展示数据 |
+| Service 层 | `lib/*/services.ts` | 事务、不变量校验、行锁、复合写入、返回领域错误 | 读取 cookie / session、返回 JSX |
+| 查询层 | `lib/db/queries/*.ts` | 只读 SQL、投影、组织作用域过滤 | 依赖 Action、写数据 |
+| 连接层 | `lib/db/drizzle.ts`、`write.ts` | 连接池、`SET LOCAL`、事务、权限复核 | 业务规则 |
+| 横切 | `lib/auth`、`lib/config`、`lib/logger`、`lib/api` | 会话、权限矩阵、配置、日志 | 领域逻辑 |
 
-1. **两条连接不能混用**：业务用 `APP_POSTGRES_URL`（基线创建的 LOGIN 角色 `genealogy_app`，`withOrg` 内 `SET LOCAL ROLE genealogy_app` 把角色钉死），认证用 `AUTH_POSTGRES_URL`（`auth_runtime` → 固定 `auth_service`）。认证侧必须独立：`auth.*` 四表无 RLS，共用业务角色会让它直读密码哈希与会话 token。`SET LOCAL` 是事务级；会话级 `SET` 会把角色与声明泄漏给下一个借用该连接的请求。
-2. **组织隔离三层**：应用层按成员关系过滤 + RLS（`genealogy_app` + `app.visible_org_array()` 的 InitPlan 谓词）+ 复合外键。**RLS 是兜底，不是替代品**；公开 `slug` / `ref` 只用于定位，不是授权凭证，非成员一律 404。
-3. **读走 RSC、写走 Server Action**：首屏服务端直接查库；客户端不手写 `fetch`，`queryKey` 一律从 `lib/query-keys.ts` 取，缓存新鲜度只由 `staleTime` 决定。
+依赖方向由 `biome.json` 的 `noRestrictedImports` 强制，见 §9。
 
----
+## 3. Server Action 统一契约
 
-## 3. 模块划分
+所有写操作返回 `ActionState<T>`（`lib/auth/types.ts`）：
 
-四层，依赖只朝下。读路径不引入 repository 抽象，写路径不引入 service 三层文件。
-
-```text
-app/**/page.tsx · app/api/**/route.ts        入口层
-        ↓
-lib/<domain>/actions.ts · *-services.ts       应用层
-        ↓
-lib/db/queries/<domain>.ts                    查询层
-        ↓
-lib/db/drizzle.ts · lib/db/auth-db.ts         连接层
-        ↓
-PostgreSQL（业务 genealogy_app / 认证 auth_service）
+```ts
+export type ActionState<T = undefined> = {
+  error?: string;        // 面向用户的中文提示
+  code?: string;         // 稳定的机器码：UNAUTHORIZED / FORBIDDEN / NOT_FOUND / ...
+  success?: string;
+  fieldErrors?: Record<string, string>;
+  data?: T;              // 成功时的结构化载荷（如保存时间、回显页）
+  // 便捷 ID 字段：orgId / orgSlug / projectId / projectRef / lineageId / nodeId ...
+};
 ```
 
-| 层 | 职责 | 禁止 |
-| --- | --- | --- |
-| 入口层 `app/` | 解析 URL 与 scope、取首屏数据 | 不拼 SQL、不手写权限判断、不做多步写 |
-| 应用层 `lib/<domain>/` | Zod 校验、`hasPermission`、开事务、返回 `ActionState` | 不串联多个独立事务、不抛异常堆栈给 UI |
-| 查询层 `lib/db/queries/` | 按 `organization_id` + `project_id` 做项目内过滤（跨组织由 RLS 兜底，查询层不重复判权） | 不 import Action、不读 `auth.*`、不开事务 |
-| 连接层 `lib/db/drizzle.ts` | 两个连接单例、`SET LOCAL` 上下文 | 不写业务逻辑、不用会话级 `SET` |
+典型 Action 的固定节奏：
 
-物理目录树与「新增一样东西放哪」见下文「项目结构」。每张表有且只有一个 owner，跨域读调用 owner 域的查询函数，不直接 join 别人的表。
+1. `validatedActionWithUser(schema, formData, handler)`（`lib/auth/middleware.ts`）读取会话并做 Zod 校验；
+2. 继续做业务级权限判断（`hasPermission` / `withOrgWrite` 内部复核）；
+3. 调用 service，拿到 `T | { ok: false; reason: ... }`；
+4. 用 `actionError(code, message)` 映射为 `ActionState`；
+5. 结构性变更后调用 `revalidateWholeConsole()`。
 
-| 域 | 拥有的表 | 写入口 |
-| --- | --- | --- |
-| `auth` | `auth.user` / `session` / `account` / `verification` | `lib/auth/`、`auth.api.*`（认证连接） |
-| `organization` | `organization` / `organization_member` / `invite` | 组织 / 成员写不直写表，走库内 `app.*` SECURITY DEFINER 函数（`lib/org/actions.ts` 在 `withOrg` 事务内调用）；认证写仍走 `auth.api.*` |
-| `project` | `project` | `lib/project/` |
-| `folder` | `folder` | `lib/folder/` |
-| `lineage` | `lineage` / `node` | `lib/lineage/` |
-| `article` | `article` | `lib/article/actions.ts`、`lib/db/queries/articles.ts` |
-| 谱书 / 编目 | `book` / `book_catalog` / `book_export` | **无**：表已落库，无 Action 与查询函数 |
-| 事实层 | `person` / `person_name` / `family` / `family_*` / `event` | 应用主数据源：写走 Server Action（`lib/<domain>/actions.ts`）、读走查询层 `lib/db/queries/`；`node` 只是 `person` 在谱系树上的位置引用 |
+错误码定义在 `lib/errors.ts`：`UNAUTHORIZED | FORBIDDEN | NOT_FOUND | CONFLICT | VALIDATION | RATE_LIMITED | INTERNAL`。
 
-**schema 文件名不等于域所有权**：`project.ts` 同时定义 `project` 与 `folder`，但 `folder` 的写入口在 `lib/folder/`；`content.ts` 定义 `article` / `book` / `book_catalog`，但业务域叫 **`article`**，不存在一个叫 `content` 的域。schema 按内容分组，域按写入口划分，两套名字不要互相代入。
+## 4. 读路径：RSC + 查询层
 
-事实层六表是身份、姓名、亲属关系与生卒等事实的**主数据源**，由应用直接读写：写走 Server Action、读走查询层，不再有回填 / 对账 CLI。谱系层 `node` 只是 `person` 在树上的位置引用，不再承载完整身份。**目标态全库业务表没有软删列**：删除一律 `ON DELETE RESTRICT`，无可恢复删除，也没有回收站 UI；`organization` 用 `status = 'closed'` 归档而非删除。`folder` 是项目内的**扁平单层分类**（`docs/data-model.md` §6）：谱系 / 谱文 / 谱书共用一套分类，没有 `kind`、没有 `parent_id`，名字在项目内唯一。
+页面是 React Server Component，直接调用查询函数：
 
----
-
-## 4. 依赖方向与事务
-
-三条依赖方向由 Biome `noRestrictedImports` 自动拦截（`pnpm check`）：客户端组件不得 import `@/lib/db/*` 与 `drizzle-orm`；`lib/db/**` 不得 import `next/*`；`lib/db/queries/**` 不得 import `@/lib/*/actions`。其余靠评审。
-
-事务：一个写入口一个事务，由 Action 或该域 `*-services.ts` 打开，`*Tx` 变体只接已有事务、不再开新事务。`withOrgWrite()` 把「开组织范围事务 + 事务内复权」合成一步——事务外读到的角色可能已过期，必须用 `getOrgRoleInTx(tx, ...)` 锁定读重判。多步写失败整体回滚，不留半成品；没有补偿任务、没有重试队列。
-
----
-
-## 5. 技术栈
-
-> **版本基线唯一在 `package.json`**：本表不写精确版本号，也不写「放弃的替代」——那是决策记录的职责。新增依赖须说明为什么现有能力不够。
-
-| 层 | 选型 | 作用 |
-| --- | --- | --- |
-| 框架与运行时 | Next.js App Router · React · Node.js 24 LTS · pnpm | RSC 首屏直读、写走 Server Action；与 Vercel 运行时一致 |
-| 语言与检查 | TypeScript（strict）· Biome · Zod | 类型、依赖方向与格式、外部输入统一校验 |
-| 数据库与 ORM | PostgreSQL 18（Neon）· Drizzle | 需要 `ltree` / RLS / 非属主角色；迁移可读可审 |
-| 认证 | 自托管 Better Auth（仅核心四模型） | 数据库会话 + scrypt，不依赖外部 IdP；Better Auth 的组织能力已拆除，组织 / 成员由自有三表 + 库内 SECDEF 写入口承接 |
-| 客户端数据 | TanStack Query · zustand | 只读刷新缓存；zustand 只管谱系工作区视图状态 |
-| UI 与画布 | Tailwind · shadcn/ui · @xyflow/react | 组件源码进仓库；可交互世系画布 |
-| 富文本与图片 | TipTap · Vercel Blob | 谱文正文编辑与插图；本地 / CI 落 `.data/media/` |
-| 测试 | Vitest · Playwright | 单测 + 真实 PostgreSQL 集成测试 + 关键路径 E2E |
-| 部署 | Vercel · Neon | 无状态函数 + 托管数据库，无常驻进程 |
-
-`postgres`（本地 / CI）与 `pg`（生产）两个驱动并存是刻意的：生产要 `attachDatabasePool` 在实例冻结时回收连接，本地要 prepared statements。差异由 `lib/db/drizzle.ts` 与 `lib/db/auth-db.ts` 吸收，查询层不直接 import 驱动。
-
----
-
-## 6. 项目结构
-
-> 与 `README.md` 的文档分层树互补：那份回答「文档按变化频率放哪层」，这份是**整个仓库的物理地图**。逻辑分层与域所有权见上文「模块划分」，本节只回答「文件放哪」。
-
-只列到二级；树里的路径都以仓库实际存在为准。
-
-```text
-/
-├── app/                    路由与页面：(marketing) / (login) / (dashboard) / api
-├── components/             控制台框架、谱系工作区、谱文编辑器、components/ui 基础组件
-├── lib/                    服务端逻辑
-│   ├── <domain>/           actions.ts / *-services.ts（域按写入口划分）
-│   ├── db/schema/          表定义（按内容分组，文件名不等于域）
-│   ├── db/queries/         只读查询与单表写
-│   ├── db/migrations/      迁移 SQL 与 meta/_journal.json（唯一清单）
-│   └── config.ts           唯一读 process.env 的地方
-├── hooks/                  客户端 React hook
-├── scripts/                文档 / 架构 / 部署校验脚本
-├── tests/                  单测 + 真实 PostgreSQL 集成测试 + Playwright E2E
-├── .github/workflows/      CI 与生产迁移 job
-├── .specify/               治理层：constitution 与 spec / plan / tasks 模板
-├── docs/                   项目层长期活文档（本文件所在层）
-├── specs/                  交付层：NNN-xxx/ 工作产物（模板在 .specify/templates/）
-└── <根配置>                package.json / tsconfig.json / biome.json / next.config.ts /
-                             drizzle.config.ts / proxy.ts / instrumentation.ts /
-                             vitest*.config.ts / playwright.config.ts / .env.example
+```tsx
+// app/(dashboard)/dashboard/org/[orgSlug]/layout.tsx（示意）
+const context = await requireOrgContext(orgSlug);
+const projects = await getProjects(context.user.id, context.organization.id);
 ```
 
-**落点规则**（新增一样东西时照表放，不要另起一套）：
+- `requireOrgContext` / `requireProjectContext` 同时完成**解析公开 ID → 校验成员身份 → 取 scope**，失败时 `redirect()` 或 `notFound()`。
+- 查询函数内部统一通过 `withOrg(userId, tx => ...)` 执行，RLS 依据 `app.user_id` 过滤可见组织。
+- RSC 结果通过 `QueryProvider` 的 `initialData` 注入 TanStack Query，客户端后续可用 `useConsoleOrgs()` / `useConsoleProjects()` 复用。
 
-| 要加的东西 | 放哪 | 不要放哪 |
-| --- | --- | --- |
-| 新表 | `lib/db/schema/<domain>.ts` | 不在页面或 Action 里建表 |
-| 新查询 | `lib/db/queries/<domain>.ts` | 不在页面里拼 SQL |
-| 新写操作 | `lib/<domain>/actions.ts` | 不放进 Route Handler |
-| 多步事务 | `lib/<domain>/*-services.ts` | 不在 Action 里串联多个事务 |
-| 新页面 | `app/(dashboard)/` | 不放进 `components/` |
-| 新组件 | `components/<区域>/` 或 `components/ui/` | 不在页面里堆大段 JSX |
-| 校验 schema | `lib/auth/`、`lib/genealogy/` | 不散落在组件里 |
-| 迁移 | `lib/db/migrations/`（生成后人工 review） | 不手抄编号、不夹带数据修复 |
-| 校验脚本 | `scripts/` | 不混进业务测试 |
-| 验收测试 | `tests/` | 不放进 feature 目录当文档 |
-
-两条硬规则：
-
-- **没有 `src/modules`**，不用 `*.service.ts` / `*.repo.ts` 后缀；目录跟着已存在的调用方长，不跟着预测长。
-- **基线只留一处**：版本与命令在 `package.json`，环境变量在 `lib/config.ts`，迁移清单在 `lib/db/migrations/meta/_journal.json`，术语在 `docs/glossary.md`。文档不另立基线表，也不写「当前有 N 张表 / N 个依赖」这类会过期的汇总数字。
-
----
-
-## 7. 部署形态
-
-| 部署单元 | 跑什么 |
-| --- | --- |
-| Vercel 函数 | 页面 / Action / Route Handler / Better Auth；按请求自动水平扩，实例间无共享状态 |
-| Neon 计算实例 | `public` + `auth` 两个 schema；空闲可自动挂起 |
-| 本地 Docker | 仅 PostgreSQL，应用跑 `next dev`；不构建应用镜像、不起反向代理 |
-| CI runner | 构建、单测、集成测试、E2E、部署校验 |
-| 生产迁移 job | `lib/db/migrations/**` 变更时对生产库执行迁移，**不在 Vercel 构建里** |
-
-发布顺序：PR 全绿 → 合并 `main`（改了迁移则生产迁移 job 先执行）→ Vercel 构建部署 → `GET /api/health` 自检。**迁移必须先于应用启动**：反了会出现「新代码访问旧表」的窗口；塞进构建则会在多次构建或 Preview 中重复执行 DDL。
-
-目标态数据层是一次性停服 **big-bang 切换**：唯一全量 SQL 基线整份执行，旧迁移与 snapshot 退役、journal 重置为 1 条。**没有 down 迁移**，也没有应用层回滚脚本——旧代码读不了目标态表，所以「Vercel 回退上一部署」不能单独作为数据层回滚手段；失败只能按 `docs/runbooks/` 的「切换失败恢复剧本」从切换前恢复点整体恢复。
-
-环境变量全部集中在 `lib/config.ts`，由 `getServerConfig()` 在 `instrumentation.ts` 启动时用 Zod 校验，缺项或格式错直接抛错，不带病运行。变量清单与作用域在 `docs/runbooks/`。对象存储只有一处例外：谱文正文插图走 Vercel Blob 私有桶。
-
----
-
-## 8. 以代码为准
-
-适用范围：本节只对 [现状] 成立；[目标] 以 `docs/data-model.md` 为准，裁决顺序见 `CONTRIBUTING.md` §2「权威口径」。
-
-> 文档与代码冲突时**以代码为准**，然后回来改文档。以下结论都有仓库内依据，不以「文档曾写过什么」为凭。
-
-| 结论 | 依据 |
-| --- | --- |
-| 谱文编辑已实现，业务域叫 `article` 不叫 `content` | `lib/article/actions.ts`、`lib/db/queries/articles.ts`、`components/article/editor/tiptap-editor.tsx` |
-| TipTap 已安装并在用 | `package.json` 的 `@tiptap/core` / `react` / `starter-kit` / `pm` / `extension-image` / `extension-text-style` |
-| 谱文插图上传已实现 | `app/api/media/upload/route.ts`、`app/api/blob/upload/route.ts`、`app/api/media/[...key]/route.ts`、`lib/article/media/` |
-| Route Handler 共 7 个，不止只读刷新 | 4 条只读（`health` / `orgs` / `projects` / `user`）+ 3 条图片通道 |
-| 谱书与编目仍无写入口 | `lib/db/schema/content.ts` 有 `book` / `book_catalog`，但 `lib/db/queries/` 无对应查询、`components/` 无编目编辑器 |
-| 云谱空间是 `project`，不是组织的别名 | `docs/glossary.md`；`lib/db/schema/project.ts` |
-
-改文档前先跑：
-
-```bash
-ls lib/
-find app/api -name route.ts | sort
-grep -rn "pgTable(" lib/db/schema/
-grep -n "@tiptap" package.json
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant R as RSC page.tsx
+  participant C as requireProjectContext
+  participant Q as getXxx(userId, ...)
+  participant D as withOrg()
+  participant P as PostgreSQL
+  B->>R: GET /dashboard/project/:ref/lineages
+  R->>C: 解析 projectRef
+  C->>P: 查询成员与项目 scope（RLS）
+  C-->>R: { user, organization, project }
+  R->>Q: 读取谱系列表
+  Q->>D: withOrg(userId)
+  D->>P: SET LOCAL role genealogy_app; set_config('app.user_id')
+  P-->>Q: 仅返回可见行
+  Q-->>R: 数据
+  R-->>B: HTML + RSC payload
 ```
 
----
+## 5. 写路径：Action → Service → 事务
 
-## 9. 约束要有执行者
+```mermaid
+sequenceDiagram
+  participant C as Client Component
+  participant A as Server Action
+  participant M as validatedActionWithUser
+  participant W as withOrgWrite()
+  participant S as Service
+  participant P as PostgreSQL
+  C->>A: formData / 参数
+  A->>M: 读取 session + Zod 校验
+  M-->>A: userId + 已校验数据
+  A->>W: userId, orgId, permission
+  W->>P: BEGIN; SET LOCAL role genealogy_app; set_config('app.user_id')
+  W->>W: requireOrgPermission(tx, ...) 事务内复核
+  W->>S: tx + 领域参数
+  S->>P: 行锁 / 不变量检查 / 复合写入
+  P-->>S: 结果
+  S-->>A: T 或 { ok:false, reason }
+  A->>A: revalidateWholeConsole()
+  A-->>C: ActionState
+```
 
-> 写在文档里但拦不住的规则，等于没有规则。新增规则前先确认它能让 CI 变红。
+关键点：
 
-| 约束 | 执行者 |
+- **权限复核在事务内**（`requireOrgPermission`），避免「页面校验通过后角色被改」的窗口；
+- `withOrgWrite` 返回 `{ ok: false, reason: 'forbidden' }` 而不是抛异常，保持 `ActionState` 契约；
+- 每个写入入口都先锁作用域行（如谱系 `SELECT ... FOR UPDATE`），避免并发分配冲突；
+- 事务提交后再失效缓存。
+
+## 6. 缓存与失效
+
+- 所有 RSC 路由都是动态渲染（`ƒ Dynamic`），没有预渲染 HTML。
+- 写操作统一调用 `revalidateWholeConsole()` → `revalidatePath('/dashboard', 'layout')`，失效整个控制台。
+- **例外**：谱文页级保存、加页、删页、重排**不失效**，否则服务端快照会在用户编辑期间被推回编辑器，覆盖本地输入（详见 [modules/article-media.md](modules/article-media.md)）。
+- 当前不做按子树收窄：Action 入参只有 UUID，缺少 `orgSlug/projectRef`；这是已知后续任务。
+
+## 7. 安全边界
+
+```mermaid
+flowchart LR
+  Req["请求"] --> MW["proxy.ts<br/>仅做 cookie 存在性乐观检查"]
+  MW --> RSC["RSC / Action"]
+  RSC --> CTX["requireUser / requireOrgContext / requireProjectContext"]
+  CTX --> TX["withOrg / withOrgWrite"]
+  TX --> RLS["PostgreSQL RLS<br/>org_isolation USING visible_org_array()"]
+  TX --> PERM["事务内 requireOrgPermission"]
+```
+
+四层防线：
+
+1. `proxy.ts`：对 `/dashboard` 做 cookie 存在性判断，**不做真实身份校验**（避免边缘运行时依赖）；
+2. `getSessionUser` / `require*Context`：服务端读取真实 session，校验 org/project 成员身份；
+3. `withOrg()`：切换数据库角色并注入 `app.user_id`，使 RLS 生效；
+4. `requireOrgPermission`：在同一事务内按权限矩阵二次判断。
+
+数据库角色隔离：
+
+- `genealogy_app`：业务 DML + `app` schema EXECUTE，**无 auth schema 访问权**；
+- `auth_service` / `auth_runtime`：仅认证链路使用，凭据表无 RLS，因此必须与业务连接分离。
+
+## 8. 错误处理
+
+| 场景 | 机制 |
 | --- | --- |
-| 单文件 ≤400 行（`app` / `components` / `lib` / `hooks`，存量豁免只许缩不许涨） | `pnpm arch:check` → `scripts/check-file-size.mjs` |
-| `process.env` 只在 `lib/config.ts` 读 | `pnpm arch:check` → `scripts/check-env-access.mjs` |
-| 三条依赖方向 | `pnpm check` → Biome `noRestrictedImports` |
-| 组织隔离与 `genealogy_app` 读 `auth.user` 被拒 | `tests/integration/org-scope.test.ts` |
-| 迁移漂移（生成后无未提交 DDL） | CI：`pnpm db:generate` 后检查 `lib/db/migrations` 无改动，并捕获 drizzle-kit 非 TTY 下的静默交互报错 |
-| 目标态 DDL / 正反例 SQLSTATE / fail-closed / TS ↔ 基线结构对比 | `pnpm verify:target-schema`（`scripts/verify-target-schema.mjs`，CI 的 T36–T42：自建干净库重建唯一基线后逐条执行 P1–P32 / N1–N31）；§7 的 EXPLAIN 数字仍需目标环境重跑，脚本显式 `SKIP` |
-| 生产迁移先于部署 | `.github/workflows/migrate-production.yml` |
-| 文档链接与过期路径 | `pnpm docs:check --strict` |
-| 部署后自检 | `pnpm verify:deploy` → `scripts/verify-deployment.mjs` |
+| 表单校验失败 | Zod → `fieldErrors` + `code: 'VALIDATION'` |
+| 未登录 | `UNAUTHORIZED`，页面层 `redirect('/sign-in')` |
+| 无权限 | Action 返回 `FORBIDDEN`；RSC 直接 `notFound()` 隐藏资源存在性 |
+| 资源不存在 | `NOT_FOUND` / `notFound()` |
+| 唯一约束冲突 | `isUniqueViolation()` → `CONFLICT` |
+| 外键 / 子表引用 | `isForeignKeyViolationOf()` → 友好文案（如项目删除） |
+| 数据库 RAISE EXCEPTION | `isRaisedException(error, 'last_owner' \| 'org_archived')` → 专用文案 |
+| Route Handler 未捕获异常 | `withApiLogging` 返回 JSON 500 + `x-request-id`，不泄漏堆栈 |
+| 页面渲染异常 | `app/error.tsx` / `app/global-error.tsx` + `RouteError` |
 
-这些约束的「为什么」在 `docs/adr/`；本文只记**现在是什么、谁在拦**。
+## 9. 依赖方向
+
+这些不是文档约定，而是 `pnpm check` 会失败的硬规则（`biome.json` 的 `noRestrictedImports`）：
+
+| 作用范围 | 禁止 import | 原因 |
+| --- | --- | --- |
+| `components/**`、`hooks/**` | `drizzle-orm`、`@/lib/db/**` | 客户端不得直接依赖 ORM / 数据库 |
+| `lib/db/**` | `next/*` | 基础设施不依赖 Next 运行时，保证可测试、可迁移 |
+| `lib/db/queries/**` | `@/lib/*/actions` | 查询层不得反向依赖 Action 层 |
+| `lib/*/services.ts` | `next/headers`、`next/navigation` | 领域服务不读会话 / 不跳转，由 Action 负责 |
+| 除 `lib/article/**`、`components/article/editor/**` 外 | `@tiptap/**`、`prosemirror-*` | 编辑器依赖必须有明确消费者 |
+
+领域间只允许单向依赖：
+
+- `app/` 页面 → 查询层 / `auth/context`；
+- `components/` → 纯函数、常量、Server Action（不 import 服务端领域模块）；
+- `org` → `auth` / `db/auth-db`；`project / folder / lineage / article` → `db/write`；
+- `lineage` → `db/queries/nodes`；`article` → `db/queries/articles` / `console/revalidate`。
+
+**禁止双向依赖**：`db/queries` ↛ `*/actions`、`lib/db` ↛ `next/*`、客户端 ↛ `lib/db/**`。
+
+## 10. 部署形态
+
+```mermaid
+flowchart LR
+  GH["GitHub main"] --> CI["GitHub Actions ci.yml<br/>provision roles → migrate → verify schema → test/coverage"]
+  CI --> V1["Vercel 应用"]
+  CI --> V2["Neon PostgreSQL"]
+  V1 -->|"APP_POSTGRES_URL（genealogy_app）"| V2
+  V1 -->|"AUTH_POSTGRES_URL（auth_runtime → auth_service）"| V2
+  V1 -->|"BLOB_READ_WRITE_TOKEN"| Blob["Vercel Blob"]
+```
+
+- 应用：Vercel（Fluid Compute），Next.js 16；
+- 数据库：Neon PostgreSQL 18；
+- 图片：生产 `@vercel/blob`，本地 fs；
+- 迁移：`drizzle-kit migrate` + 自定义脚本校验（`verify-target-schema`、`verify-deployment`）；
+- 迁移前必须先 `provision-roles` 创建数据库角色，否则 RLS / 权限校验失败（CI 与 `migrate-production.yml` 均按此顺序）。
+- 验证：`pnpm verify:target-schema`（DDL / 约束 / RLS / EXPLAIN）、`pnpm verify:deploy`（角色、函数、权限）。
+
+> 目标态与现状冲突时，裁决顺序见 `CONTRIBUTING.md` §2「权威口径」。

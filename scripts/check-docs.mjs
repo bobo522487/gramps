@@ -105,8 +105,10 @@ for (const file of allDocs) {
 const HEADER_FIELDS = ['回答什么问题', '读者', '长度上限', '不写什么'];
 for (const file of allDocs) {
   const rel = relative(DOCS, file);
-  const isRootDoc = !rel.includes('/');
-  const isSubdirReadme = /^(adr|contracts|runbooks)[/]README\.md$/.test(rel);
+  const isRootDoc = !rel.includes('/') && rel !== 'README.md';
+  const isSubdirReadme = /^(adr|contracts|runbooks|modules)[/]README\.md$/.test(
+    rel
+  );
   if (!isRootDoc && !isSubdirReadme) continue;
   const header = readFileSync(file, 'utf8').split('\n').slice(0, 15).join('\n');
   for (const field of HEADER_FIELDS) {
@@ -116,38 +118,62 @@ for (const file of allDocs) {
   }
 }
 
-// 3. 文档集结构：根级 7 份具名文档 + 允许的子目录（各自一份 README.md）。
-const ROOT_DOCS = [
-  'vision.md',
-  'glossary.md',
-  'architecture.md',
-  'interfaces.md',
-  'data-model.md',
-  'nfr.md',
-  'roadmap.md',
-];
-const SUBDIRS = ['adr', 'contracts', 'runbooks', 'code-wiki'];
+// 3. 文档集结构：一个 README 入口 + 稳定命名的根级文档 + 允许的子目录。
+const SUBDIRS = ['adr', 'contracts', 'runbooks', 'modules'];
+const README = join(DOCS, 'README.md');
 
-for (const name of ROOT_DOCS) {
-  if (!existsSync(join(DOCS, name))) {
-    addIssue(
-      join(DOCS, name),
-      1,
-      'doc-set',
-      `missing root document: docs/${name}`
-    );
+if (!existsSync(README)) {
+  addIssue(README, 1, 'doc-set', 'missing docs/README.md');
+} else {
+  const readme = readFileSync(README, 'utf8');
+  for (const entry of readdirSync(DOCS)) {
+    const full = join(DOCS, entry);
+    if (statSync(full).isDirectory()) continue;
+    if (extname(entry) !== '.md' || entry === 'README.md') continue;
+    if (!/^[a-z0-9-]+\.md$/.test(entry)) {
+      addIssue(
+        full,
+        1,
+        'doc-set',
+        `root document must use kebab-case: ${entry}`
+      );
+    }
+    if (!readme.includes(`](${entry})`)) {
+      addIssue(
+        full,
+        1,
+        'doc-set',
+        `root document is not linked from README: ${entry}`
+      );
+    }
   }
 }
+
 for (const entry of readdirSync(DOCS)) {
   const full = join(DOCS, entry);
-  if (statSync(full).isDirectory()) {
-    if (!SUBDIRS.includes(entry)) {
-      addIssue(full, 1, 'doc-set', `unexpected docs/ subdirectory: ${entry}`);
-    } else if (!existsSync(join(full, 'README.md'))) {
-      addIssue(full, 1, 'doc-set', `missing ${entry}/README.md`);
+  if (!statSync(full).isDirectory()) continue;
+  if (!SUBDIRS.includes(entry)) {
+    addIssue(full, 1, 'doc-set', `unexpected docs/ subdirectory: ${entry}`);
+    continue;
+  }
+  if (!existsSync(join(full, 'README.md'))) {
+    addIssue(full, 1, 'doc-set', `missing ${entry}/README.md`);
+  }
+}
+
+const modulesReadme = join(DOCS, 'modules/README.md');
+if (existsSync(modulesReadme)) {
+  const readme = readFileSync(modulesReadme, 'utf8');
+  for (const entry of readdirSync(join(DOCS, 'modules'))) {
+    if (extname(entry) !== '.md' || entry === 'README.md') continue;
+    if (!readme.includes(`](${entry})`)) {
+      addIssue(
+        join(DOCS, 'modules', entry),
+        1,
+        'doc-set',
+        `module document is not linked from modules/README.md: ${entry}`
+      );
     }
-  } else if (extname(entry) === '.md' && !ROOT_DOCS.includes(entry)) {
-    addIssue(full, 1, 'doc-set', `unexpected root document: docs/${entry}`);
   }
 }
 
@@ -156,7 +182,7 @@ const RETIRED_PATHS = [
   'docs/architecture/',
   'docs/decisions/',
   'docs/guides/',
-  'docs/README.md',
+  'docs/code-wiki/',
   'docs/archive/',
   'docs/superpowers/',
   '00-文档说明.md',

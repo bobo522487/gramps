@@ -56,7 +56,7 @@ describe('S8 阶段 E：文档跟改与 ADR', () => {
   });
 
   test('E-6 T46：产品意图与入口文件按无软删目标态跟改', () => {
-    const vision = read('docs/vision.md');
+    const vision = read('docs/overview.md');
     expect(vision).not.toContain('统计口径定义在 `docs/data-model.md`');
     expect(vision).not.toContain('删了找不回');
     expect(vision).not.toContain('软删兜底');

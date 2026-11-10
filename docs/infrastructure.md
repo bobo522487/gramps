@@ -1,10 +1,14 @@
-# 09 · 基础设施
+# 基础设施（Infrastructure）
+
+> **回答什么问题**：配置从哪读、业务与认证如何分连接、权限守卫、日志、缓存、限流与安全头怎么落地。
+> **读者**：平台 / 后端开发 · 值班　**长度上限**：5 页
+> **不写什么**：系统分层（`docs/architecture.md`）、表结构（`docs/data-model.md`）、接口契约（`docs/api.md`）、本地启动步骤（`docs/development.md`）、发布流程（`docs/runbooks/`）。
 
 本文件描述所有领域共享的横切能力：配置、数据库连接与事务、权限守卫、错误识别、日志、缓存、限流、ID、HTTP 安全头。
 
 ## 1. 配置（F7 单一入口）
 
-[`lib/config.ts`](../../lib/config.ts) 是全项目**唯一**允许读取 `process.env` 的模块（由 `scripts/check-env-access.mjs` 强制）。
+[`lib/config.ts`](../lib/config.ts) 是全项目**唯一**允许读取 `process.env` 的模块（由 `scripts/check-env-access.mjs` 强制）。
 
 ### 1.1 环境变量
 
@@ -20,7 +24,7 @@
 
 ### 1.2 校验时机
 
-- 由 [`instrumentation.ts`](../../instrumentation.ts) 在进程启动时调用 `getServerConfig()`；
+- 由 [`instrumentation.ts`](../instrumentation.ts) 在进程启动时调用 `getServerConfig()`；
 - 跳过 `NEXT_RUNTIME !== 'nodejs'`（边缘运行时）与 `phase-production-build`；
 - 校验失败直接抛错，让错误部署**启动即失败**，而不是首个请求 500；
 - `AUTH_POSTGRES_URL` 在非构建阶段禁止 pooled endpoint（`-pooler.` 主机名），因为认证连接用启动参数固定 `role=auth_service`，PgBouncer 不接受。
@@ -90,7 +94,7 @@ queryRows<T>(executor, query): Promise<T[]>
 
 ## 3. 权限守卫
 
-[`lib/db/guards.ts`](../../lib/db/guards.ts)：
+[`lib/db/guards.ts`](../lib/db/guards.ts)：
 
 ```ts
 requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
@@ -101,7 +105,7 @@ requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
 
 ## 4. 错误识别
 
-[`lib/db/errors.ts`](../../lib/db/errors.ts) 解决三个现实问题：
+[`lib/db/errors.ts`](../lib/db/errors.ts) 解决三个现实问题：
 
 1. Drizzle / Better Auth 会把驱动异常多层包裹，SQLSTATE 在 `cause` / `body.cause` 深处；
 2. postgres.js 与 node-postgres 的字段名不同（`constraint_name` vs `constraint`）；
@@ -120,7 +124,7 @@ requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
 
 ### 5.1 Logger
 
-[`lib/logger.ts`](../../lib/logger.ts)：
+[`lib/logger.ts`](../lib/logger.ts)：
 
 - 输出**单行 JSON**：`{ level, time, message, ...context }`；
 - 级别：debug 10 / info 20 / warn 30 / error 40；
@@ -129,7 +133,7 @@ requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
 
 ### 5.2 请求上下文
 
-[`lib/server/request-context.ts`](../../lib/server/request-context.ts)：
+[`lib/server/request-context.ts`](../lib/server/request-context.ts)：
 
 ```ts
 runWithRequestContext({ request_id, method, path }, fn)
@@ -164,7 +168,7 @@ withApiLogging(name, handler)
 
 ## 7. 限流
 
-[`lib/auth/rate-limit.ts`](../../lib/auth/rate-limit.ts)：
+[`lib/auth/rate-limit.ts`](../lib/auth/rate-limit.ts)：
 
 - 内存滑动窗口（单实例有效，Vercel 多实例不共享）；
 - 用于登录、改密码等敏感动作；
@@ -174,7 +178,7 @@ withApiLogging(name, handler)
 
 ## 8. ID
 
-[`lib/ids.ts`](../../lib/ids.ts)：
+[`lib/ids.ts`](../lib/ids.ts)：
 
 | 函数 | 说明 |
 | --- | --- |
@@ -195,7 +199,7 @@ fetcher<T>(url): Promise<T>   // 非 2xx 抛 Error & { status }
 
 ## 10. HTTP 安全头
 
-[`next.config.ts`](../../next.config.ts) 对所有路径设置：
+[`next.config.ts`](../next.config.ts) 对所有路径设置：
 
 | 头 | 值 |
 | --- | --- |

@@ -1,4 +1,8 @@
-# 03 · 目录结构
+# 目录结构（Directory Structure）
+
+> **回答什么问题**：顶层目录、`app/` 路由树、`lib/` 模块地图、组件与脚本分别放在哪。
+> **读者**：开发 · 新人　**长度上限**：4 页
+> **不写什么**：接口契约（`docs/api.md`）、表结构（`docs/data-model.md`）、分层规则（`docs/architecture.md`）、操作命令（`docs/development.md`）。
 
 ## 1. 顶层
 
