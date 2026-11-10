@@ -116,7 +116,7 @@ for (const file of allDocs) {
   }
 }
 
-// 3. 文档集结构：根级 7 份具名文档 + 3 个子目录各一份 README.md。
+// 3. 文档集结构：根级 7 份具名文档 + 允许的子目录（各自一份 README.md）。
 const ROOT_DOCS = [
   'vision.md',
   'glossary.md',
@@ -126,7 +126,7 @@ const ROOT_DOCS = [
   'nfr.md',
   'roadmap.md',
 ];
-const SUBDIRS = ['adr', 'contracts', 'runbooks'];
+const SUBDIRS = ['adr', 'contracts', 'runbooks', 'code-wiki'];
 
 for (const name of ROOT_DOCS) {
   if (!existsSync(join(DOCS, name))) {
