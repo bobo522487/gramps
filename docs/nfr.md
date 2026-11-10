@@ -22,7 +22,7 @@
 | 类别 | 阈值 / 当前值 | 来源（唯一） | 谁让它变红 |
 | --- | --- | --- | --- |
 | 单文件体积 | `F6_LIMIT = 400` 行；扫 `app/` `components/` `lib/` `hooks/`。7 个存量豁免各带行数上限，文件涨过上限或豁免已失效都算违规 | `scripts/lib/file-size.mjs`、`scripts/check-file-size.mjs` | `pnpm arch:check` |
-| 环境变量读取 | `process.env` 只在 `lib/config.ts` 读，**零豁免**；根入口 `instrumentation.ts` / `proxy.ts` 只放行 `NEXT_RUNTIME` / `NEXT_PHASE` 标记 | `scripts/check-env-access.mjs` | `pnpm arch:check` |
+| 环境变量读取 | 应用目录 `app/` `components/` `lib/` `hooks/` 内零豁免（`lib/config.ts` 是唯一读取方）；`scripts/**` 与根级 `*.config.ts` 是已声明的直接读取方，逐项登记在 `scripts/check-env-access.mjs` 的 `EXEMPT`；根入口 `instrumentation.ts` / `proxy.ts` 只放行 `NEXT_RUNTIME` / `NEXT_PHASE` 标记 | `scripts/check-env-access.mjs` | `pnpm arch:check` |
 | 覆盖率全局下限 | lines 76 / statements 76 / functions 84 / branches 65 | `vitest.coverage.config.ts` | `pnpm test:coverage` |
 | 覆盖率局部下限 | `lib/db/queries/**` 98 / 98；`lib/project/services.ts` 92 / 98；`lib/lineage/node-services.ts` 84 / 94（lines / functions） | `vitest.coverage.config.ts` | `pnpm test:coverage` |
 | 依赖方向 | `biome.json` 的 `noRestrictedImports` 按目录切互斥分区，每个分区自带该目录被禁的全部 import：客户端禁 `drizzle-orm` / `@/lib/db/*` / schema；`lib/db/**` 禁 `next/*`；`lib/db/queries/**` 禁 `@/lib/*/actions`；`lib/*/services.ts` 与 `lib/*/*-services.ts` 禁 `next/headers` / `next/navigation`；`@tiptap/**` 与 `prosemirror-*` 只允许 `lib/article/**`、`components/article/editor/**`，其余每个分区都要重复写一次这条禁令（Biome 2.x 对同名规则不合并 options，详见 `docs/architecture.md` §9）。组数会随规则增减，以配置为准 | `biome.json`，`tests/docs-guard.test.ts` 交叉探针逐分区验证既拦得住也无误伤 | `pnpm check`、`pnpm test` |
