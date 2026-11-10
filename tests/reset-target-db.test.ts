@@ -111,3 +111,60 @@ describe('R5 迁移 job 不再相信 drizzle 的 success 字面量', () => {
     expect(rolesAt).toBeGreaterThan(guard);
   });
 });
+
+/**
+ * 2026-11-09 的另一处自证：清库步骤原来写 `--confirm="$DB"`，而 `$DB` 就是从
+ * 同一个 `POSTGRES_URL_DIRECT` 解析出来的——逐字匹配永远为真，脚本里的 `--confirm`
+ * 门禁在 CI 里退化成空操作，加上只需勾一个 boolean 就能清库。以下断言要求确认值
+ * 只能由人输入。
+ */
+describe('R8 清库确认必须来自人工输入，不能由连接串推导', () => {
+  const workflow = read('.github/workflows/migrate-production.yml');
+  const resetAt = workflow.indexOf('- name: Reset target database');
+  const applyAt = workflow.indexOf(
+    'pnpm db:reset-target --apply --confirm="$DB"'
+  );
+  const resetBlock = workflow.slice(resetAt, applyAt);
+
+  test('confirm_db 是 workflow_dispatch 的 string 输入，且默认空', () => {
+    expect(workflow).toMatch(/confirm_db:[\s\S]{0,200}?type: string/);
+    expect(workflow).toMatch(/confirm_db:[\s\S]{0,200}?default: ''/);
+  });
+
+  test('校验的是 inputs.confirm_db，不是从连接串推出来的值', () => {
+    expect(resetBlock).toMatch(/CONFIRM_DB: \$\{\{ inputs\.confirm_db \}\}/);
+    expect(resetBlock).toContain('[ "$CONFIRM_DB" != "$DB" ]');
+    // 空值也要拦：只比 `!=` 时，空串与库名不等，但显式拦一次更清楚。
+    expect(resetBlock).toContain('[ -z "$CONFIRM_DB" ]');
+  });
+
+  test('校验必须早于任何动库命令', () => {
+    const checkAt = resetBlock.indexOf('[ "$CONFIRM_DB" != "$DB" ]');
+    const dryRunAt = workflow.indexOf('pnpm db:reset-target');
+    expect(checkAt).toBeGreaterThan(-1);
+    expect(resetAt + checkAt).toBeLessThan(dryRunAt);
+  });
+
+  test('不匹配时报错退出，且错误分支不打印期望库名（否则又是自证）', () => {
+    const checkAt = resetBlock.indexOf('[ "$CONFIRM_DB" != "$DB" ]');
+    const errorBlock = resetBlock.slice(
+      checkAt,
+      resetBlock.indexOf('\n          fi', checkAt)
+    );
+    expect(errorBlock).toContain('::error::');
+    expect(errorBlock).toContain('exit 1');
+    // 打印期望值等于把答案递给触发者，门禁又变回自证。
+    expect(errorBlock).not.toContain('目标库 $DB');
+  });
+});
+
+describe('R9 生产迁移 job 引用 production environment', () => {
+  const workflow = read('.github/workflows/migrate-production.yml');
+
+  test('job 上有 environment: production', () => {
+    // required reviewers / 等待计时器 由仓库设置提供，代码侧只负责引用。
+    const envAt = workflow.indexOf('\n    environment: production');
+    expect(envAt).toBeGreaterThan(workflow.indexOf('\njobs:'));
+    expect(envAt).toBeLessThan(workflow.indexOf('\n    steps:'));
+  });
+});

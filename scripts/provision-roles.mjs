@@ -23,6 +23,7 @@
  */
 
 import postgres from 'postgres';
+import { authGrants } from './lib/auth-grants.mjs';
 import { ensureRole } from './lib/role-provisioning.mjs';
 import { loadEnv } from './load-env.mjs';
 
@@ -55,27 +56,10 @@ const appPassword = process.env.APP_DB_PASSWORD ?? '';
 // 4 字符弱口令，而该角色读得到 auth.user 的密码哈希与会话 token。
 const runtimePassword = process.env.AUTH_DB_PASSWORD ?? '';
 
-/** 认证侧可写的三张租户表；其余业务表一律不给。 */
-const TENANT_TRIO = ['organization', 'organization_member', 'invite'];
-
 const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
 
-const authGrants = [
-  'REVOKE ALL ON SCHEMA app FROM auth_service',
-  'REVOKE ALL ON SCHEMA public FROM auth_service',
-  'REVOKE ALL ON SCHEMA auth FROM auth_service',
-  'GRANT USAGE ON SCHEMA auth TO auth_service',
-  'GRANT USAGE ON SCHEMA app TO auth_service',
-  'GRANT USAGE ON SCHEMA public TO auth_service',
-  'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA app TO auth_service',
-  'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA auth TO auth_service',
-  ...TENANT_TRIO.map(
-    (table) =>
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON public.${table} TO auth_service`
-  ),
-  'ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_service',
-  'GRANT auth_service TO auth_runtime',
-];
+// 认证侧权限矩阵整表在 scripts/lib/auth-grants.mjs：先收回（schema + 表 / 序列 /
+// 函数三类对象）再授予，顺序即语义，单测按行为断言顺序与覆盖面。
 
 try {
   if (!apply) {

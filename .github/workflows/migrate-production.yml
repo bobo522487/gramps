@@ -20,6 +20,11 @@ on:
         description: '重建模式：先清空目标库再执行基线（G0① 需要；日常迁移不要勾）'
         type: boolean
         default: false
+      confirm_db:
+        description: '仅重建模式必填：逐字输入目标库名（见 POSTGRES_URL_DIRECT 的库名）。不填或填错即拒绝执行'
+        type: string
+        required: false
+        default: ''
 
 # 迁移不能并发，也不能被新提交取消：一个只跑到一半的迁移比没跑更糟。
 concurrency:
@@ -34,6 +39,10 @@ jobs:
     name: Apply migrations to production
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 把生产 secret 收拢到 environment 作用域：仓库没配保护规则时 GitHub 自动建同名
+    # environment，job 照旧可跑（兼容现有用法）；配了 required reviewers / 等待计时器
+    # 才会真正拦人。仓库级 secret 仍然可见，所以不需要迁移 secret。
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -81,14 +90,24 @@ jobs:
             exit 1
           fi
 
-      # 只由人工触发的重建模式。默认 dry-run 打印范围，确认参数正确才动库。
+      # 只由人工触发的重建模式，三道门禁：workflow_dispatch + inputs.reset + 手输库名。
+      # 2026-11-09 的 `--confirm="$DB"` 由同一个连接串推导，逐字匹配恒为真——门禁自证，
+      # 等于没有。现在 confirm_db 只能由人填，脚本不再有能自动得出正确值的路径。
+      # 非重建路径（push 触发的日常迁移）不经过这一步，两者互不影响。
       - name: Reset target database (rebuild mode only)
         if: github.event_name == 'workflow_dispatch' && inputs.reset
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
+          # 人填，不与连接串同源。
+          CONFIRM_DB: ${{ inputs.confirm_db }}
         run: |
           DB=$(node -e "console.log(decodeURIComponent(new URL(process.env.POSTGRES_URL_DIRECT).pathname.slice(1)))")
-          echo "重建模式：目标库 $DB"
+          if [ -z "$CONFIRM_DB" ] || [ "$CONFIRM_DB" != "$DB" ]; then
+            echo "::error::重建模式需要 confirm_db 与连接串里的库名逐字一致；校验未通过，未执行任何清空。"
+            echo "::error::请自行核对 POSTGRES_URL_DIRECT 的库名后重新触发（此处不打印期望值，避免门禁自证）。"
+            exit 1
+          fi
+          echo "重建模式：confirm_db 校验通过，目标库 $DB"
           echo "::warning::重建会清空 $DB 的 public / auth / app / drizzle 四个 schema。"
           pnpm db:reset-target
           pnpm db:reset-target --apply --confirm="$DB"
