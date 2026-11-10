@@ -45,11 +45,34 @@ export type NodeProjectionInput = {
   displayName: string | null;
   sex: string | null;
   primaryName: string | null;
+  courtesy?: string | null;
   birthText?: string | null;
   deathText?: string | null;
+  birthYear?: number | null;
+  deathYear?: number | null;
+  burialPlace?: string | null;
+  isAlive?: boolean;
 };
 
-const emptyDates = { birthText: null, deathText: null };
+type PersonFacts = {
+  courtesy: string | null;
+  birthText: string | null;
+  deathText: string | null;
+  birthYear: number | null;
+  deathYear: number | null;
+  burialPlace: string | null;
+  isAlive: boolean;
+};
+
+const emptyFacts: PersonFacts = {
+  courtesy: null,
+  birthText: null,
+  deathText: null,
+  birthYear: null,
+  deathYear: null,
+  burialPlace: null,
+  isAlive: true,
+};
 
 /**
  * Fact layer → NodeView projection. This is the single place where tree
@@ -87,17 +110,25 @@ export function toNodeViewRows(rows: NodeProjectionInput[]): NodeViewRow[] {
       surname,
       fullName,
       sex: row.sex === 'male' ? 1 : 0,
-      courtesy: null,
+      courtesy: row.courtesy ?? null,
       namePrefix: null,
-      isAlive: true,
-      birthText: row.birthText ?? emptyDates.birthText,
-      deathText: row.deathText ?? emptyDates.deathText,
-      birthYear: null,
-      deathYear: null,
-      burialPlace: null,
+      isAlive: row.isAlive ?? true,
+      birthText: row.birthText ?? null,
+      deathText: row.deathText ?? null,
+      birthYear: row.birthYear ?? null,
+      deathYear: row.deathYear ?? null,
+      burialPlace: row.burialPlace ?? null,
       biography: null,
     };
   });
+}
+
+function yearOf(dateSort: string | null): number | null {
+  const year = dateSort?.slice(0, 4);
+  if (!year || !/^[0-9]{4}$/.test(year)) {
+    return null;
+  }
+  return Number.parseInt(year, 10);
 }
 
 /**
@@ -170,16 +201,15 @@ export async function getNodes(
           .filter((id): id is string => id !== null)
       ),
     ];
-    const dates = new Map<
-      string,
-      { birthText: string | null; deathText: string | null }
-    >();
+    const facts = new Map<string, PersonFacts>();
     if (personIds.length > 0) {
-      const facts = await tx
+      const eventRows = await tx
         .select({
           personId: events.personId,
           kind: events.kind,
           dateText: events.dateText,
+          dateSort: events.dateSort,
+          placeText: events.placeText,
         })
         .from(events)
         .where(
@@ -187,20 +217,42 @@ export async function getNodes(
             eq(events.orgId, orgId),
             eq(events.projectId, projectId),
             inArray(events.personId, personIds),
-            inArray(events.kind, ['birth', 'death'])
+            inArray(events.kind, ['birth', 'death', 'burial'])
           )
         );
-      for (const fact of facts) {
+      for (const fact of eventRows) {
         if (!fact.personId) {
           continue;
         }
-        const entry = dates.get(fact.personId) ?? { ...emptyDates };
+        const entry = facts.get(fact.personId) ?? { ...emptyFacts };
         if (fact.kind === 'birth') {
           entry.birthText = fact.dateText;
+          entry.birthYear = yearOf(fact.dateSort);
         } else if (fact.kind === 'death') {
           entry.deathText = fact.dateText;
+          entry.deathYear = yearOf(fact.dateSort);
+          entry.isAlive = false;
+        } else if (fact.kind === 'burial') {
+          entry.burialPlace = fact.placeText;
         }
-        dates.set(fact.personId, entry);
+        facts.set(fact.personId, entry);
+      }
+
+      const courtesyNames = await tx
+        .select({ personId: personNames.personId, value: personNames.value })
+        .from(personNames)
+        .where(
+          and(
+            eq(personNames.orgId, orgId),
+            eq(personNames.projectId, projectId),
+            inArray(personNames.personId, personIds),
+            eq(personNames.kind, 'courtesy')
+          )
+        );
+      for (const name of courtesyNames) {
+        const entry = facts.get(name.personId) ?? { ...emptyFacts };
+        entry.courtesy = name.value;
+        facts.set(name.personId, entry);
       }
     }
 
@@ -208,8 +260,8 @@ export async function getNodes(
       rows.map((row) => ({
         ...row,
         ...(row.personId
-          ? (dates.get(row.personId) ?? emptyDates)
-          : emptyDates),
+          ? (facts.get(row.personId) ?? emptyFacts)
+          : emptyFacts),
       }))
     );
   });

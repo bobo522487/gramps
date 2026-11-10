@@ -202,20 +202,17 @@ test('critical path: sign up, create project, record founder, add child, edit in
   await expect(personNodes).toHaveCount(2);
   // 刷新后没有选中人丁：右侧不留空占位。
   await expect(page.getByText('未选择族人')).toHaveCount(0);
-  // A′ 中间态：字/号、生卒、传记等档案字段尚未落到 person_name / event
-  // （见 lib/lineage/node-services.ts 的 toNodeDetails 注释：阶段 C 才补对应行）。
-  // 保存流程仍成功，但刷新后这些字段回到空值。阶段 C 落库后把下面三条
-  // toHaveValue('') 恢复为 '伯' / '' / '伯'，重新覆盖持久化。
+  // 字/号现在落在 person_name（kind=courtesy），刷新后仍能读回。
   await personNodes.filter({ hasText: '世' }).click();
   await expect(page.getByText(/当前选中：二世/)).toBeVisible();
-  await expect(page.locator('#inspector-courtesy')).toHaveValue('');
+  await expect(page.locator('#inspector-courtesy')).toHaveValue('伯');
   // 换人丁时抽屉整体换内容，不串上一个人的字段值。
   await personNodes.filter({ hasText: '公' }).click();
   await expect(page.getByText(/当前选中：太公/)).toBeVisible();
   await expect(page.locator('#inspector-courtesy')).toHaveValue('');
   await personNodes.filter({ hasText: '世' }).click();
   await expect(page.getByText(/当前选中：二世/)).toBeVisible();
-  await expect(page.locator('#inspector-courtesy')).toHaveValue('');
+  await expect(page.locator('#inspector-courtesy')).toHaveValue('伯');
   // 抽屉可用 Esc 关闭，关闭后不留残影。
   await page.keyboard.press('Escape');
   await expect(page.locator('#inspector-courtesy')).toBeHidden();

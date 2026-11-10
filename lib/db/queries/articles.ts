@@ -9,6 +9,7 @@ import {
   bookCatalogs,
   books,
   folders,
+  orgMembers,
 } from '../schema';
 
 /**
@@ -243,6 +244,36 @@ export async function getArticleScope(
         title: articles.title,
       })
       .from(articles)
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
+      .limit(1);
+    return rows[0] ?? null;
+  });
+}
+
+/**
+ * Membership and article scope in one transaction (and one round trip).
+ * The media read proxy calls this once per image instead of resolving the
+ * role and the article separately.
+ */
+export async function getArticleScopeForMember(
+  userId: string,
+  orgId: string,
+  articleId: string
+): Promise<ArticleScope | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({
+        id: articles.id,
+        orgId: articles.orgId,
+        projectId: articles.projectId,
+        folderId: articles.folderId,
+        title: articles.title,
+      })
+      .from(articles)
+      .innerJoin(
+        orgMembers,
+        and(eq(orgMembers.organizationId, orgId), eq(orgMembers.userId, userId))
+      )
       .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);
     return rows[0] ?? null;

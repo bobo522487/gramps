@@ -1,5 +1,6 @@
 import { count, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
+import { createArticleInTransaction } from '@/lib/article/services';
 import { getFolders } from '@/lib/db/queries/folders';
 import { articles, books, folders, lineages, nodes } from '@/lib/db/schema';
 import {
@@ -74,6 +75,43 @@ describe('folder service', () => {
       .from(folders)
       .where(eq(folders.orgId, organization.id));
     expect(row?.value).toBe(2);
+  });
+
+  it('shares one default folder between lineage and article creation', async () => {
+    const { user, organization, project } = await setup();
+
+    const lineage = await createLineageInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      projectId: project.id,
+      name: '默认分类谱系',
+    });
+    const article = await createArticleInTransaction({
+      userId: user.id,
+      orgId: organization.id,
+      projectId: project.id,
+      title: '默认分类谱文',
+    });
+    expect(lineage.ok && article.ok).toBe(true);
+    if (!lineage.ok || !article.ok) return;
+
+    const rows = await getTestDb()
+      .select({ id: folders.id, name: folders.name })
+      .from(folders)
+      .where(eq(folders.orgId, organization.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe('默认分类');
+
+    const [storedLineage] = await getTestDb()
+      .select({ folderId: lineages.folderId })
+      .from(lineages)
+      .where(eq(lineages.id, lineage.lineage.id));
+    const [storedArticle] = await getTestDb()
+      .select({ folderId: articles.folderId })
+      .from(articles)
+      .where(eq(articles.id, article.articleId));
+    expect(storedLineage?.folderId).toBe(rows[0]?.id);
+    expect(storedArticle?.folderId).toBe(rows[0]?.id);
   });
 
   it('deletes the folder and unfiles the content under it', async () => {

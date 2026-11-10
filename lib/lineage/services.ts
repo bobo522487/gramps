@@ -12,7 +12,7 @@ import {
   projects,
 } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
-import { DEFAULT_LINEAGE_FOLDER_NAME } from '@/lib/lineage/constants';
+import { ensureDefaultFolderInTx } from '@/lib/folder/services';
 
 type LineageFailure =
   | 'forbidden'
@@ -43,72 +43,6 @@ async function validProjectFolder(
     )
     .limit(1);
   return Boolean(folder);
-}
-
-/**
- * 创建谱系时确定归属分类。项目还没有分类时，在同一事务内创建或复用
- * 「默认分类」。压平后它和谱文侧共用同一条，`folder_name_unique` 保证
- * 全项目只有一条，并发插入靠 `onConflictDoNothing` + 重查收敛。
- */
-async function resolveFolderInTx(
-  tx: DbTransaction,
-  params: {
-    orgId: string;
-    projectId: string;
-    folderId?: string;
-  }
-): Promise<string> {
-  const { orgId, projectId, folderId } = params;
-  if (folderId) {
-    return folderId;
-  }
-
-  const [existing] = await tx
-    .select({ id: folders.id })
-    .from(folders)
-    .where(
-      and(
-        eq(folders.orgId, orgId),
-        eq(folders.projectId, projectId),
-        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME)
-      )
-    )
-    .limit(1);
-  if (existing) {
-    return existing.id;
-  }
-
-  const created = await tx
-    .insert(folders)
-    .values({
-      orgId,
-      projectId,
-      name: DEFAULT_LINEAGE_FOLDER_NAME,
-      seq: 0,
-    })
-    .onConflictDoNothing({ target: [folders.projectId, folders.name] })
-    .returning({ id: folders.id });
-
-  if (created[0]) {
-    return created[0].id;
-  }
-
-  // 并发下另一条事务刚插进去：重查一次拿它的 id。
-  const [raced] = await tx
-    .select({ id: folders.id })
-    .from(folders)
-    .where(
-      and(
-        eq(folders.orgId, orgId),
-        eq(folders.projectId, projectId),
-        eq(folders.name, DEFAULT_LINEAGE_FOLDER_NAME)
-      )
-    )
-    .limit(1);
-  if (!raced) {
-    throw new Error('failed to resolve the default folder');
-  }
-  return raced.id;
 }
 
 /**
@@ -144,11 +78,8 @@ export async function createLineageInTransaction(params: {
         return { ok: false, reason: 'invalid_folder' as const };
       }
 
-      const resolvedFolderId = await resolveFolderInTx(tx, {
-        orgId,
-        projectId,
-        folderId,
-      });
+      const resolvedFolderId =
+        folderId ?? (await ensureDefaultFolderInTx(tx, orgId, projectId));
 
       const [lineage] = await tx
         .insert(lineages)

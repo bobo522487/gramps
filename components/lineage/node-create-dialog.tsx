@@ -11,7 +11,6 @@ import type { NodeView } from '@/components/lineage/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import type { ActionState } from '@/lib/auth/types';
 import {
   addChildAction,
@@ -375,22 +374,6 @@ export function NodeCreateDialog({
               />
               <FieldError message={state.fieldErrors?.courtesy} />
             </div>
-            <div>
-              <Label
-                htmlFor="create-node-prefix"
-                className="text-[11px] text-muted-foreground"
-              >
-                前缀
-              </Label>
-              <Input
-                id="create-node-prefix"
-                name="namePrefix"
-                placeholder="如：讳、字"
-                maxLength={60}
-                className="mt-1 h-8 text-xs"
-              />
-              <FieldError message={state.fieldErrors?.namePrefix} />
-            </div>
           </div>
 
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -536,24 +519,6 @@ export function NodeCreateDialog({
               className="mt-1 h-8 text-xs"
             />
             <FieldError message={state.fieldErrors?.burialPlace} />
-          </div>
-
-          <div>
-            <Label
-              htmlFor="create-node-biography"
-              className="text-[11px] text-muted-foreground"
-            >
-              行传
-            </Label>
-            <Textarea
-              id="create-node-biography"
-              name="biography"
-              rows={3}
-              maxLength={2000}
-              placeholder="生平事略、功名、迁徙等"
-              className="mt-1 text-xs"
-            />
-            <FieldError message={state.fieldErrors?.biography} />
           </div>
 
           {state.error ? (

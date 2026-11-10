@@ -270,14 +270,12 @@ export const updateNodeAction = validatedActionWithUser(
       surname: data.surname,
       sex: data.sex,
       courtesy: data.courtesy,
-      namePrefix: data.namePrefix,
       isAlive: data.isAlive,
       birthText: data.birthText,
       deathText: data.deathText,
       birthYear: data.birthYear,
       deathYear: data.deathYear,
       burialPlace: data.burialPlace,
-      biography: data.biography,
     };
 
     const result = await updateNodeInTransaction({

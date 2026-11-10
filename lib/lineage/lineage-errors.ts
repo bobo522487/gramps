@@ -14,6 +14,7 @@ export const LINEAGE_ERRORS = {
   invalid_parent: '父节点无效',
   cycle: '不能把节点移动到自己的子孙下面',
   invalid_order: '排序数据无效',
+  not_supported: '当前版本暂不支持该操作',
   project_surname_missing: '项目未填写姓氏，请先完善项目基本信息',
 } as const;
 

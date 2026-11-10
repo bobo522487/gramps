@@ -5,8 +5,7 @@ import {
 } from '@/lib/article/media/path';
 import { getMediaStore } from '@/lib/article/media/store';
 import { getSessionUser } from '@/lib/auth/context';
-import { getOrgRole } from '@/lib/auth/permissions';
-import { getArticleScope } from '@/lib/db/queries/articles';
+import { getArticleScopeForMember } from '@/lib/db/queries/articles';
 
 /**
  * The read proxy (ADR 0019): private image bytes never have a public URL, so
@@ -35,14 +34,15 @@ async function readMedia(
     return notFound();
   }
 
-  const role = await getOrgRole(user.id, parts.orgId);
-  if (!role) {
-    return notFound();
-  }
-  // 谱文行不存在 → 图片也不给。目标态没有 `deleted_at`，删除就是真删，这一条
-  // 天然成立；删字节是提交后的尽力而为（ADR 0019），万一没删成，这条判断仍然
-  // 兑现「删除成功后新请求取不到」（FR-029）。
-  const article = await getArticleScope(user.id, parts.orgId, parts.articleId);
+  // Membership + article scope in one transaction: a non-member or a deleted
+  // article both yield null. Target state has no `deleted_at`, so this also
+  // fulfils "after a successful delete, new requests cannot read the bytes"
+  // (FR-029).
+  const article = await getArticleScopeForMember(
+    user.id,
+    parts.orgId,
+    parts.articleId
+  );
   if (!article) {
     return notFound();
   }

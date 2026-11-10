@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getNodes } from '@/lib/db/queries/nodes';
 import { nodes } from '@/lib/db/schema';
 import {
   addChildInTransaction,
@@ -60,14 +61,12 @@ describe('toNodeDetails', () => {
   it('fills neutral values for an absent form payload', () => {
     expect(toNodeDetails(undefined)).toEqual({
       courtesy: null,
-      namePrefix: null,
       isAlive: false,
       birthText: null,
       deathText: null,
       birthYear: null,
       deathYear: null,
       burialPlace: null,
-      biography: null,
     });
   });
 
@@ -77,19 +76,44 @@ describe('toNodeDetails', () => {
         courtesy: '伯',
         isAlive: true,
         birthYear: 1894,
-        biography: '传略',
       })
     ).toMatchObject({
       courtesy: '伯',
       isAlive: true,
       birthYear: 1894,
-      biography: '传略',
       deathText: null,
     });
   });
 });
 
 describe('node creation paths', () => {
+  it('persists the form facts alongside the node', async () => {
+    const ctx = await setup();
+    const result = await createRootNodeInTransaction(
+      createParams(ctx, {
+        details: {
+          courtesy: '子安',
+          isAlive: false,
+          birthText: '光绪二十年',
+          birthYear: 1894,
+          deathText: '一九六八年',
+          burialPlace: '村东祖坟',
+        },
+      })
+    );
+    if (!result.ok) throw new Error('root creation failed');
+
+    const [view] = await getNodes(ctx.user.id, ctx.orgId, ctx.lineage.id);
+    expect(view).toMatchObject({
+      courtesy: '子安',
+      isAlive: false,
+      birthText: '光绪二十年',
+      birthYear: 1894,
+      deathText: '一九六八年',
+      burialPlace: '村东祖坟',
+    });
+  });
+
   it('creates a root as person + primary name + sparse path', async () => {
     const ctx = await setup();
     const result = await createRootNodeInTransaction(createParams(ctx));
@@ -173,7 +197,7 @@ describe('node creation paths', () => {
     ).toEqual({ ok: false, reason: 'not_found' });
   });
 
-  it('never writes a fake spouse: the target node has no spouse edge', async () => {
+  it('reports spouses as unsupported without writing a fake node', async () => {
     const ctx = await setup();
     const root = await createRootNodeInTransaction(createParams(ctx));
     if (!root.ok) throw new Error('root creation failed');
@@ -183,13 +207,7 @@ describe('node creation paths', () => {
         ...createParams(ctx),
         anchorId: root.node.id,
       })
-    ).toEqual({ ok: false, reason: 'invalid_target' });
-    expect(
-      await addSpouseInTransaction({
-        ...createParams(ctx),
-        anchorId: '00000000-0000-0000-0000-000000000000',
-      })
-    ).toEqual({ ok: false, reason: 'not_found' });
+    ).toEqual({ ok: false, reason: 'not_supported' });
     expect(await getTestDb().select().from(nodes)).toHaveLength(1);
   });
 });
@@ -210,11 +228,49 @@ describe('node mutation paths', () => {
         surname: '陈',
         sex: 'female',
         courtesy: '伯',
+        isAlive: false,
+        birthText: '光绪二十年',
+        birthYear: 1894,
+        deathText: '一九六八年',
+        burialPlace: '桐梓凤凰山',
       },
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.node.displayName).toBe('陈元英');
+
+    const [view] = await getNodes(ctx.user.id, ctx.orgId, ctx.lineage.id);
+    expect(view).toMatchObject({
+      courtesy: '伯',
+      isAlive: false,
+      birthText: '光绪二十年',
+      birthYear: 1894,
+      deathText: '一九六八年',
+      deathYear: null,
+      burialPlace: '桐梓凤凰山',
+    });
+  });
+
+  it('clears the death fact when the person is marked alive again', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(
+      createParams(ctx, {
+        details: { isAlive: false, deathText: '一九六八年' },
+      })
+    );
+    if (!root.ok) throw new Error('root creation failed');
+
+    await updateNodeInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+      nodeId: root.node.id,
+      updates: { name: '实', surname: '陈', sex: 'male', isAlive: true },
+    });
+
+    const [view] = await getNodes(ctx.user.id, ctx.orgId, ctx.lineage.id);
+    expect(view?.isAlive).toBe(true);
+    expect(view?.deathText).toBeNull();
   });
 
   it('refuses to update a missing node', async () => {
@@ -277,7 +333,7 @@ describe('node mutation paths', () => {
     expect(await getTestDb().select().from(nodes)).toHaveLength(1);
   });
 
-  it('rejects every subtree move instead of writing a broken tree', async () => {
+  it('reports subtree moves as unsupported and leaves the tree untouched', async () => {
     const ctx = await setup();
     const root = await createRootNodeInTransaction(createParams(ctx));
     if (!root.ok) throw new Error('root creation failed');
@@ -288,97 +344,32 @@ describe('node mutation paths', () => {
       }) as Parameters<typeof addChildInTransaction>[0]
     );
     if (!child.ok) throw new Error('child creation failed');
-    const grandchild = await addChildInTransaction(
-      createParams(ctx, {
-        name: '三',
-        parentId: child.node.id,
-      }) as Parameters<typeof addChildInTransaction>[0]
-    );
-    if (!grandchild.ok) throw new Error('grandchild creation failed');
 
-    const base = {
-      userId: ctx.user.id,
-      orgId: ctx.orgId,
-      lineageId: ctx.lineage.id,
-    };
     expect(
       await moveNodeInTransaction({
-        ...base,
-        nodeId: root.node.id,
-        newParentId: child.node.id,
-      })
-    ).toEqual({ ok: false, reason: 'invalid_target' });
-    expect(
-      await moveNodeInTransaction({
-        ...base,
-        nodeId: child.node.id,
-        newParentId: child.node.id,
-      })
-    ).toEqual({ ok: false, reason: 'invalid_parent' });
-    expect(
-      await moveNodeInTransaction({
-        ...base,
-        nodeId: child.node.id,
-        newParentId: '00000000-0000-0000-0000-000000000000',
-      })
-    ).toEqual({ ok: false, reason: 'invalid_parent' });
-    expect(
-      await moveNodeInTransaction({
-        ...base,
-        nodeId: child.node.id,
-        newParentId: grandchild.node.id,
-      })
-    ).toEqual({ ok: false, reason: 'cycle' });
-    expect(
-      await moveNodeInTransaction({
-        ...base,
+        userId: ctx.user.id,
+        orgId: ctx.orgId,
+        lineageId: ctx.lineage.id,
         nodeId: child.node.id,
         newParentId: root.node.id,
       })
-    ).toEqual({ ok: false, reason: 'invalid_target' });
+    ).toEqual({ ok: false, reason: 'not_supported' });
+    expect(await getTestDb().select().from(nodes)).toHaveLength(2);
   });
 
-  it('rejects sibling reordering with explicit reasons', async () => {
+  it('reports sibling reordering as unsupported', async () => {
     const ctx = await setup();
     const root = await createRootNodeInTransaction(createParams(ctx));
     if (!root.ok) throw new Error('root creation failed');
-    const child = await addChildInTransaction(
-      createParams(ctx, {
-        name: '二',
-        parentId: root.node.id,
-      }) as Parameters<typeof addChildInTransaction>[0]
-    );
-    if (!child.ok) throw new Error('child creation failed');
 
-    const base = {
-      userId: ctx.user.id,
-      orgId: ctx.orgId,
-      lineageId: ctx.lineage.id,
-      parentId: root.node.id,
-    };
     expect(
       await reorderSiblingsInTransaction({
-        ...base,
+        userId: ctx.user.id,
+        orgId: ctx.orgId,
+        lineageId: ctx.lineage.id,
+        parentId: root.node.id,
         orderedIds: [],
       })
-    ).toEqual({ ok: true });
-    expect(
-      await reorderSiblingsInTransaction({
-        ...base,
-        orderedIds: [child.node.id, child.node.id],
-      })
-    ).toEqual({ ok: false, reason: 'invalid_order' });
-    expect(
-      await reorderSiblingsInTransaction({
-        ...base,
-        orderedIds: [child.node.id, '00000000-0000-0000-0000-000000000000'],
-      })
-    ).toEqual({ ok: false, reason: 'invalid_order' });
-    expect(
-      await reorderSiblingsInTransaction({
-        ...base,
-        orderedIds: [child.node.id],
-      })
-    ).toEqual({ ok: false, reason: 'invalid_order' });
+    ).toEqual({ ok: false, reason: 'not_supported' });
   });
 });

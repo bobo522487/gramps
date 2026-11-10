@@ -178,14 +178,12 @@ const nodeNameFields = {
 
 const nodeDetailsFields = {
   courtesy: optionalText(60, '字号不能超过 60 个字符'),
-  namePrefix: optionalText(60, '前缀不能超过 60 个字符'),
   isAlive: booleanField,
   birthText: optionalText(60, '生辰不能超过 60 个字符'),
   deathText: optionalText(60, '忌辰不能超过 60 个字符'),
   birthYear: clearableYear,
   deathYear: clearableYear,
   burialPlace: optionalText(100, '葬地不能超过 100 个字符'),
-  biography: optionalText(2000, '行传不能超过 2000 个字符'),
 };
 
 const optionalSpouseFields = {
@@ -275,14 +273,12 @@ export const updateNodeSchema = z.object({
   surname: text('姓氏', 30),
   sex,
   courtesy: clearableText(60, '字号不能超过 60 个字符'),
-  namePrefix: clearableText(60, '前缀不能超过 60 个字符'),
   isAlive: booleanField,
   birthText: clearableText(60, '生辰不能超过 60 个字符'),
   deathText: clearableText(60, '忌辰不能超过 60 个字符'),
   birthYear: clearableYear,
   deathYear: clearableYear,
   burialPlace: clearableText(100, '葬地不能超过 100 个字符'),
-  biography: clearableText(2000, '行传不能超过 2000 个字符'),
 });
 
 export const deleteNodeSchema = z.object({

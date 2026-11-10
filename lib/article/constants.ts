@@ -63,8 +63,6 @@ export const ARTICLE_TITLE_MAX_LENGTH = 60;
 
 /** 未分类的展示名（FR-002、FR-005）。 */
 export const UNFILED_ARTICLE_FOLDER_NAME = '未分类';
-/** 没选分类时，服务端在同一事务里确保它存在（FR-001）。 */
-export const DEFAULT_ARTICLE_FOLDER_NAME = '默认分类';
 
 /**
  * 服务端返回给界面的稳定错误码（全小写）与中文文案。

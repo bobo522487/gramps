@@ -16,8 +16,11 @@ export const FORBIDDEN = { ok: false, reason: 'forbidden' } as const;
 import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
-import type { ArticleErrorCode } from '@/lib/article/constants';
-import { DEFAULT_ARTICLE_FOLDER_NAME } from '@/lib/article/constants';
+import {
+  type ArticleErrorCode,
+  MAX_IMAGES_PER_PAGE,
+  MAX_PAGES_PER_ARTICLE,
+} from '@/lib/article/constants';
 import { type ArticleContent, eachImageAttrs } from '@/lib/article/doc';
 import { articleContentSchema } from '@/lib/article/schemas';
 import type { DbTransaction } from '@/lib/db/drizzle';
@@ -29,7 +32,6 @@ import {
   folders,
   projects,
 } from '@/lib/db/schema';
-import { nextFolderSeq } from '@/lib/folder/services';
 
 /**
  * `withOrgWrite` 的拒绝和业务自己的失败都是 `{ ok: false }` 形状，只有 `reason`
@@ -80,66 +82,6 @@ export async function articleFolderIdOrNull(
   return rows[0]?.id ?? null;
 }
 
-/**
- * 「默认分类」在同一事务里确保存在（FR-001）。分类管理入口属于
- * `project.write`，编辑者看不到新建分类按钮，所以不能要求他先建分类才能写谱文。
- *
- * 压平后「默认分类」全项目只有一条，谱系侧与谱文侧共用；并发创建靠
- * `folder_name_unique` 收敛，空返回即别人刚插过，重查即可。
- */
-export async function ensureDefaultFolder(
-  tx: DbTransaction,
-  orgId: string,
-  projectId: string,
-  _userId: string
-): Promise<string> {
-  const [found] = await tx
-    .select({ id: folders.id })
-    .from(folders)
-    .where(
-      and(
-        eq(folders.orgId, orgId),
-        eq(folders.projectId, projectId),
-        eq(folders.name, DEFAULT_ARTICLE_FOLDER_NAME)
-      )
-    )
-    .limit(1);
-  if (found) {
-    return found.id;
-  }
-
-  const created = await tx
-    .insert(folders)
-    .values({
-      orgId,
-      projectId,
-      name: DEFAULT_ARTICLE_FOLDER_NAME,
-      seq: await nextFolderSeq(tx, orgId, projectId),
-    })
-    .onConflictDoNothing({ target: [folders.projectId, folders.name] })
-    .returning({ id: folders.id });
-
-  if (created[0]) {
-    return created[0].id;
-  }
-
-  const [raced] = await tx
-    .select({ id: folders.id })
-    .from(folders)
-    .where(
-      and(
-        eq(folders.orgId, orgId),
-        eq(folders.projectId, projectId),
-        eq(folders.name, DEFAULT_ARTICLE_FOLDER_NAME)
-      )
-    )
-    .limit(1);
-  if (!raced) {
-    throw new Error('创建默认分类失败');
-  }
-  return raced.id;
-}
-
 /** 锁定谱文行；返回 `null` 表示不存在或不属于本组织。 */
 export async function lockArticle(
   tx: DbTransaction,
@@ -180,18 +122,23 @@ export function validateContent(
   content: ArticleContent,
   scope: { orgId: string; articleId: string }
 ): ArticleErrorCode | null {
-  const parsed = articleContentSchema(scope).safeParse(content);
-  if (parsed.success) {
-    return null;
-  }
-  const message = parsed.error.issues[0]?.message ?? '';
-  if (message.includes('张图片')) {
-    return 'too_many_images';
-  }
-  if (message.includes('页')) {
+  // Domain limits have stable codes; never infer them from user-facing copy.
+  if (content.pages.length > MAX_PAGES_PER_ARTICLE) {
     return 'max_pages';
   }
-  return 'invalid_doc';
+  const imagesPerPage = new Map<string, number>();
+  eachImageAttrs(content, (_attrs, pageId) => {
+    imagesPerPage.set(pageId, (imagesPerPage.get(pageId) ?? 0) + 1);
+  });
+  for (const count of imagesPerPage.values()) {
+    if (count > MAX_IMAGES_PER_PAGE) {
+      return 'too_many_images';
+    }
+  }
+
+  return articleContentSchema(scope).safeParse(content).success
+    ? null
+    : 'invalid_doc';
 }
 
 export function pageIdsOf(content: ArticleContent): string[] {

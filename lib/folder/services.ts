@@ -11,6 +11,7 @@ import {
   projects,
 } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
+import { DEFAULT_FOLDER_NAME } from './constants';
 
 type FolderFailure = 'forbidden' | 'not_found' | 'conflict';
 
@@ -45,6 +46,63 @@ export async function nextFolderSeq(
     .from(folders)
     .where(and(eq(folders.orgId, orgId), eq(folders.projectId, projectId)));
   return (row?.value ?? -1) + 1;
+}
+
+/**
+ * 「默认分类」在同一事务里确保存在。谱系与谱文共用这一份竞态处理：
+ * 先查，未命中则插入，`folder_name_unique` 冲突说明并发方刚插过，重查即可。
+ */
+export async function ensureDefaultFolderInTx(
+  tx: DbTransaction,
+  orgId: string,
+  projectId: string,
+  name = DEFAULT_FOLDER_NAME
+): Promise<string> {
+  const [existing] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(
+      and(
+        eq(folders.orgId, orgId),
+        eq(folders.projectId, projectId),
+        eq(folders.name, name)
+      )
+    )
+    .limit(1);
+  if (existing) {
+    return existing.id;
+  }
+
+  const created = await tx
+    .insert(folders)
+    .values({
+      orgId,
+      projectId,
+      name,
+      seq: await nextFolderSeq(tx, orgId, projectId),
+    })
+    .onConflictDoNothing({ target: [folders.projectId, folders.name] })
+    .returning({ id: folders.id });
+
+  if (created[0]) {
+    return created[0].id;
+  }
+
+  const [raced] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(
+      and(
+        eq(folders.orgId, orgId),
+        eq(folders.projectId, projectId),
+        eq(folders.name, name)
+      )
+    )
+    .limit(1);
+  if (!raced) {
+    throw new Error('failed to resolve the default folder');
+  }
+  return raced.id;
 }
 
 export async function createFolderInTransaction(params: {

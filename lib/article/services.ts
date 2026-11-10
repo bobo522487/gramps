@@ -9,7 +9,6 @@ import {
 import {
   type ArticleResult,
   articleFolderIdOrNull,
-  ensureDefaultFolder,
   FORBIDDEN,
   hasCatalogReferenceInTx,
   imagePathsOf,
@@ -19,6 +18,7 @@ import {
 } from '@/lib/article/mutations';
 import { articles } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
+import { ensureDefaultFolderInTx } from '@/lib/folder/services';
 
 export async function createArticleInTransaction(params: {
   userId: string;
@@ -51,7 +51,7 @@ export async function createArticleInTransaction(params: {
         }
         folderId = resolved;
       } else {
-        folderId = await ensureDefaultFolder(tx, orgId, projectId, userId);
+        folderId = await ensureDefaultFolderInTx(tx, orgId, projectId);
       }
 
       const content = createEmptyArticleContent();

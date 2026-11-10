@@ -13,7 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import type { ActionState } from '@/lib/auth/types';
 import { updateNodeAction } from '@/lib/lineage/actions';
 
@@ -264,23 +263,6 @@ function PersonInspectorForm({
                 />
                 <FieldError message={state.fieldErrors?.courtesy} />
               </div>
-              <div>
-                <Label
-                  htmlFor="inspector-prefix"
-                  className="text-[11px] text-muted-foreground"
-                >
-                  前缀
-                </Label>
-                <Input
-                  id="inspector-prefix"
-                  name="namePrefix"
-                  defaultValue={node.namePrefix ?? ''}
-                  maxLength={60}
-                  className="mt-1 h-8 text-xs"
-                  readOnly={readOnly}
-                />
-                <FieldError message={state.fieldErrors?.namePrefix} />
-              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2.5">
@@ -511,21 +493,6 @@ function PersonInspectorForm({
               readOnly={readOnly}
             />
             <FieldError message={state.fieldErrors?.burialPlace} />
-          </section>
-
-          <section className="space-y-2 border-t border-border/60 pt-3">
-            <h4 className="text-xs font-bold text-muted-foreground">行传</h4>
-            <Textarea
-              name="biography"
-              defaultValue={node.biography ?? ''}
-              rows={4}
-              maxLength={2000}
-              placeholder="生平事略、功名、迁徙等"
-              className="text-xs"
-              aria-label="行传"
-              readOnly={readOnly}
-            />
-            <FieldError message={state.fieldErrors?.biography} />
           </section>
 
           {state.error ? (
