@@ -13,6 +13,9 @@ loadEnv();
 const args = process.argv.slice(2);
 const skipHttp = args.includes('--skip-http');
 const skipDb = args.includes('--skip-db');
+// 生产迁移 job 显式声明「运行期 RLS 必须真的连过 genealogy_app」。缺连接串就
+// 判红，不能像本地 verify:deploy 那样静默 SKIP 后打印 passed（2026-11-09 假绿）。
+const requireRuntimeRls = args.includes('--require-runtime-rls');
 
 function argValue(name) {
   const index = args.indexOf(name);
@@ -657,6 +660,15 @@ async function checkDb() {
 
 if (!skipHttp) {
   await checkHttp();
+}
+
+// 放在主流程而非 checkRuntimeRls() 内：--skip-db 会连 checkRuntimeRls() 一起
+// 跳过，缺连接串的门禁必须独立于是否连了库都生效。
+if (requireRuntimeRls && !appDatabaseUrl) {
+  fail(
+    'runtime RLS checks',
+    'set APP_POSTGRES_URL to connect as the login role'
+  );
 }
 
 if (!skipDb) {

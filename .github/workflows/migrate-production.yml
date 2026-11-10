@@ -150,4 +150,5 @@ jobs:
       - name: Verify production schema
         env:
           POSTGRES_URL_DIRECT: ${{ secrets.POSTGRES_URL_DIRECT }}
-        run: node scripts/verify-deployment.mjs --skip-http
+          APP_POSTGRES_URL: ${{ secrets.APP_POSTGRES_URL }}
+        run: node scripts/verify-deployment.mjs --skip-http --require-runtime-rls
