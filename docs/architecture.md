@@ -2,7 +2,7 @@
 
 > **回答什么问题**：系统怎么分层、请求怎么走、模块依赖往哪边、部署成什么形态。
 > **读者**：开发 · 架构评审 · AI Agent　**长度上限**：6 页
-> **不写什么**：表与不变量（`docs/data-model.md`）、接口清单与返回契约（`docs/api.md`、`docs/contracts/`）、目录树（`docs/directory-structure.md`）、可度量阈值（`docs/nfr.md`）、操作步骤（`docs/development.md`、`docs/runbooks/`）。
+> **不写什么**：表与不变量（`docs/data-model.md`）、接口清单与返回契约（`docs/api.md`、`docs/contracts/`）、目录树（以源码为准，不另立手抄清单）、可度量阈值（`docs/nfr.md`）、操作步骤（`docs/development.md`、`docs/runbooks/`）。
 
 ## 1. 架构风格
 

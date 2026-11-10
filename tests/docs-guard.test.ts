@@ -267,3 +267,35 @@ describe('治理层收敛', () => {
     expect(contributing).toContain('四个字段');
   });
 });
+
+describe('删掉已腐烂的手抄索引与占位文档', () => {
+  test('三份文件不存在、不在 docSet、全仓无残留引用', () => {
+    const removed = [
+      ['docs', 'directory-structure.md'],
+      ['docs', 'code-index.md'],
+      ['docs', 'modules', 'book.md'],
+    ].map((parts) => parts.join('/'));
+
+    const manifest = JSON.parse(read('scripts/doc-manifest.json')) as {
+      docSet: string[];
+    };
+    for (const path of removed) {
+      expect(existsSync(join(root, path)), path).toBe(false);
+      expect(manifest.docSet, path).not.toContain(path);
+    }
+
+    const tracked = execFileSync('git', ['ls-files'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+      .trim()
+      .split('\n')
+      .filter((file) => /\.(md|ts|tsx|mjs|json|yml|yaml)$/.test(file));
+    for (const file of tracked) {
+      const content = readFileSync(join(root, file), 'utf8');
+      for (const path of removed) {
+        expect(content, `${file} -> ${path}`).not.toContain(path);
+      }
+    }
+  });
+});

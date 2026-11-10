@@ -2,7 +2,7 @@
 
 > **回答什么问题**：系统有几条通道、哪个 URL 渲染什么、Route Handler 与 Server Action 落在哪、返回怎么表达。
 > **读者**：开发 · 前端 · AI Agent　**长度上限**：5 页
-> **不写什么**：单个 Action 的入参与错误码全集（`docs/contracts/`）、权限矩阵（`docs/contracts/`）、表与列（`docs/data-model.md`）、系统分层（`docs/architecture.md`）、目录树（`docs/directory-structure.md`）。
+> **不写什么**：单个 Action 的入参与错误码全集（`docs/contracts/`）、权限矩阵（`docs/contracts/`）、表与列（`docs/data-model.md`）、系统分层（`docs/architecture.md`）、目录树（以源码为准，不另立手抄清单）。
 
 本文件是「接口地图」：哪个 URL 渲染什么、读什么数据、由哪个 Action 写入。契约正文只在 `docs/contracts/`。
 

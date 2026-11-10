@@ -9,4 +9,5 @@
 | 认证 / 组织 / 项目 / 分类 | [auth-org-project.md](auth-org-project.md) | 会话、RBAC、邀请、组织生命周期、project/folder |
 | 谱系 | [lineage.md](lineage.md) | person/node 分离、ltree 路径、画布、检视器 |
 | 谱文与媒体 | [article-media.md](article-media.md) | 分页文档、自动保存、TipTap、图片上传与读取 |
-| 谱书 | [book.md](book.md) | 编目树与导出占位（暂无写入口） |
+
+谱书三表已落库但当前没有写入口；等写入链路落地再补一篇模块导读，不先建占位文档。

@@ -10,16 +10,14 @@
 | --- | --- | --- |
 | [overview.md](overview.md) | 产品定位、范围、技术栈、成功度量 | 所有人，第一份 |
 | [architecture.md](architecture.md) | 分层、请求生命周期、依赖方向、部署 | 架构评审、新人 |
-| [directory-structure.md](directory-structure.md) | 目录树、路由树、组件地图 | 查找代码 |
 | [data-model.md](data-model.md) | 实体、约束、RLS、删除语义 | 改表 / 排查数据 |
 | [api.md](api.md) | 四条通道、Route Handler、Server Action、返回契约 | 接口对接 |
 | [glossary.md](glossary.md) | 领域术语 | 写规格 / 读代码 |
 | [nfr.md](nfr.md) | 可度量阈值、容量口径 | 性能 / 容量评审 |
 | [roadmap.md](roadmap.md) | 编排与状态 | 规划 / 交付 |
-| [code-index.md](code-index.md) | 关键符号索引 | 日常查阅 |
 | [infrastructure.md](infrastructure.md) | 配置、双连接、权限守卫、日志、限流 | 平台 / 后端 |
 | [development.md](development.md) | 本地启动、命令、测试、CI、排障 | 第一次跑起来 |
-| [modules/](modules/README.md) | 领域导读：认证组织、谱系、谱文媒体、谱书 | 功能开发 |
+| [modules/](modules/README.md) | 领域导读：认证组织、谱系、谱文媒体 | 功能开发 |
 | [contracts/](contracts/README.md) | 错误码、权限矩阵、Action 契约 | 接口 / 前端 |
 | [adr/](adr/README.md) | 架构决策 | 改动前查历史 |
 | [runbooks/](runbooks/README.md) | 发布、回滚、排障 | 值班 / 运维 |
@@ -28,7 +26,7 @@
 
 | 我要做的事 | 顺序 |
 | --- | --- |
-| 第一次加入 | overview → architecture → directory-structure → development |
+| 第一次加入 | overview → architecture → development |
 | 新增页面 / Action | architecture → api → modules → contracts |
 | 改数据表 / 迁移 | data-model → development（迁移章节）→ runbooks |
 | 开发谱系功能 | data-model → modules/lineage → api |
