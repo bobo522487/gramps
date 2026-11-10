@@ -113,7 +113,7 @@ end
 
 - 路径每段固定 4 位数字，段间以 `.` 分隔，例如 `0010.0020.0010`。
 - 兄弟节点分配采用**稀疏步长 10**：`max(trailing segment) + 10`，为中间插入留空间。
-- **世次 = `nlevel(path) + base_generation - 1`**，不落库，读时派生。
+- **世次不落库，读时派生**：查询层 `generation = nlevel(path)`；展示层如需字辈偏移则 `nlevel(path) + base_generation - 1`。`base_generation` 默认 1，两者此时相等。公式只在这里定义，其他文档引用本节，不复制。
 - 子树判定：`path <@ ancestor_path`。
 - 兄弟排序：路径文本序即为显示序。
 - `node_parent_fk` 指向 `(project_id, lineage_id, path)`，因此父节点必须存在；由于约束不可延迟，**整棵子树移动无法在一个事务内先改父再改子**，这是移动暂未实现的根因。
@@ -136,7 +136,7 @@ end
 | 角色 | 权限 | 连接 |
 | --- | --- | --- |
 | `genealogy_app` | public schema DML + `app` schema 函数 EXECUTE；**无 auth schema 权限** | 业务连接（`APP_POSTGRES_URL`） |
-| `auth_service` / `auth_runtime` | auth schema 读写 | 认证连接（`POSTGRES_AUTH_URL`） |
+| `auth_service` / `auth_runtime` | auth schema 读写 | 认证连接（`AUTH_POSTGRES_URL`） |
 | DDL 角色（迁移用） | 建表/策略/函数，需 `GRANT ... ON auth.user` | 仅迁移脚本 |
 
 ### 5.2 策略

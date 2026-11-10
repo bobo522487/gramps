@@ -95,7 +95,7 @@ nextPath(tx, orgId, lineageId, parentPath):
 
 - 段固定 4 位，超过 9999 抛 `node path segment overflow`；
 - 稀疏步长 10 为后续中间插入留空间；
-- 世次 = `nlevel(path)`（查询层）或 `nlevel(path) + base_generation - 1`（展示层，若启用字辈偏移）。
+- 世次派生公式只在 `docs/data-model.md` §3 定义，本模块不复制第二份。
 
 ### 2.4 三表写入
 

@@ -60,7 +60,7 @@
 | 日志脱敏：不记录密码、token、身份证、完整住址；结构化 JSON 带请求 ID | `docs/nfr.md`、`docs/runbooks/README.md` §4 | 巡检 SQL |
 | 不把数据库错误或堆栈展示给用户，失败返回中文文案 | `docs/contracts/README.md` §2 | 错误态用例 |
 | 全简体中文，不引入 i18n 框架 | `docs/overview.md` §8 | 文案评审 |
-| 零后台任务 / 队列 / 定时器，无独立缓存层 | `docs/architecture.md`、`docs/adr/` 的 `0005` | `docs/data-model.md` §7 非目标 |
+| 零后台任务 / 队列 / 定时器，无独立缓存层 | `docs/architecture.md`、`docs/adr/` 的 `0005` | `docs/data-model.md` §12「触发器例外」（定时任务 0、视图 0） |
 | 迁移与业务代码分开提交，不在构建流程里执行 DDL | `CONTRIBUTING.md` §5、`docs/architecture.md` | CI 迁移漂移检查 |
 
 ## 4. 禁止清单

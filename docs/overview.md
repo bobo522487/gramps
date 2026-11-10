@@ -65,7 +65,7 @@
 | 事件 | `event` | 出生、去世、葬地、迁徙等事实 |
 | 谱文 | `article` | 分页富文本文章，正文序列化在 `article.body` |
 | 谱书 | `book` / `book_catalog` / `book_export` | 谱书、编目树、导出任务（暂未开放写入） |
-| 世次 | `generation` | 由 ltree 路径段数派生，不落库 |
+| 世次 | `generation` | 由 ltree 路径段数派生，不落库；公式见 `docs/data-model.md` §3 |
 | 字号 / 生卒 / 葬地 | `person_name(kind='courtesy')` / `event` | 人丁事实；写入 `writePersonFacts()`，读回由 `getNodes` 投影 |
 | 前缀 / 行传 | — | 目标态无对应列，已从表单与服务契约移除，避免静默丢弃输入 |
 

@@ -97,6 +97,10 @@
                   {
                     "group": ["@/lib/*/actions"],
                     "message": "查询层不得依赖 Action 层"
+                  },
+                  {
+                    "group": ["next/*"],
+                    "message": "lib/db 是基础设施层，不得依赖 Next 运行时（F1'）"
                   }
                 ]
               }
@@ -110,7 +114,11 @@
         "**/*.ts",
         "**/*.tsx",
         "!lib/article/**",
-        "!components/article/editor/**"
+        "!components/article/editor/**",
+        "!components/**",
+        "!hooks/**",
+        "!lib/db/**",
+        "!lib/*/services.ts"
       ],
       "linter": {
         "rules": {
@@ -122,6 +130,26 @@
                   {
                     "group": ["@tiptap/**", "prosemirror-*"],
                     "message": "编辑器依赖只允许出现在 lib/article/** 与 components/article/editor/**（ADR 0010：依赖必须有消费者）"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["lib/*/services.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["next/headers", "next/navigation"],
+                    "message": "领域服务不读会话 / 不跳转，由 Action 负责"
                   }
                 ]
               }
