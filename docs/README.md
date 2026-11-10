@@ -8,7 +8,7 @@
 
 | 文档 | 内容 | 适合谁 |
 | --- | --- | --- |
-| [overview.md](overview.md) | 产品定位、范围、术语、技术栈、成功度量 | 所有人，第一份 |
+| [overview.md](overview.md) | 产品定位、范围、技术栈、成功度量 | 所有人，第一份 |
 | [architecture.md](architecture.md) | 分层、请求生命周期、依赖方向、部署 | 架构评审、新人 |
 | [directory-structure.md](directory-structure.md) | 目录树、路由树、组件地图 | 查找代码 |
 | [data-model.md](data-model.md) | 实体、约束、RLS、删除语义 | 改表 / 排查数据 |

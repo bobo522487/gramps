@@ -208,3 +208,62 @@ describe('content consistency', () => {
     }
   });
 });
+
+describe('治理层收敛', () => {
+  test('README 只指路，不复制文档地图', () => {
+    const readme = read('README.md');
+    expect(readme).not.toContain('### 3.1 目录结构');
+    expect(readme).not.toContain('| 你要做的事 |');
+    expect(readme).toContain('docs/README.md');
+  });
+
+  test('术语表只有 docs/glossary.md 一份', () => {
+    const overview = read('docs/overview.md');
+    expect(overview).not.toContain('## 3. 术语');
+    expect(overview).toContain('docs/glossary.md');
+    expect(read('docs/README.md')).not.toContain('产品定位、范围、术语');
+  });
+
+  test('模块文档标题不带旧 Code Wiki 编号', () => {
+    for (const [file, marker] of [
+      ['docs/modules/auth-org-project.md', '05 ·'],
+      ['docs/modules/lineage.md', '06 ·'],
+      ['docs/modules/article-media.md', '07 ·'],
+    ] as const) {
+      expect(read(file), file).not.toContain(marker);
+    }
+  });
+
+  test('ADR 索引不再同时声称「不存正文」又引用「正文」', () => {
+    const adr = read('docs/adr/README.md');
+    expect(adr).toContain('只存索引，不存正文');
+    for (const phrase of [
+      '正文标注',
+      '正文未标',
+      '不回改正文',
+      '正文不回改',
+      '正文保留',
+      '修订已在正文',
+      'ADR 正文',
+      '17 份正文',
+      '正文能说',
+      '决策正文文件',
+    ]) {
+      expect(adr, phrase).not.toContain(phrase);
+    }
+  });
+
+  test('完整映射只有一处，入口不再做假断言', () => {
+    expect(read('AGENTS.md')).not.toContain('其余文档只引用编号');
+    expect(read('AGENTS.md')).not.toContain('对照表只在');
+    expect(read('CONTRIBUTING.md')).not.toContain('§5 与本文 §1');
+    expect(read('CONTRIBUTING.md')).toContain('constitution.md');
+    expect(read('README.md')).toContain('.specify/memory/constitution.md');
+  });
+
+  test('文档头模板说清四个字段', () => {
+    const contributing = read('CONTRIBUTING.md');
+    expect(contributing).not.toContain('写清三件事');
+    expect(contributing).toContain('四个字段');
+  });
+});

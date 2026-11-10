@@ -17,7 +17,7 @@
 | 全局实体与关系 | `docs/data-model.md` | 相关 spec 的实体引用 | 技术负责人 |
 | 数据模型重构（DDL 基线、隔离层、验收层） | `lib/db/migrations/0000_target_schema.sql` | `docs/data-model.md` 的 §8 执行者表、`docs/architecture.md` 角色与域所有权、`docs/contracts/` 谱系契约、`docs/runbooks/` 处置 SQL、`docs/glossary.md` 删除语义、`docs/nfr.md` §5、`docs/roadmap.md` 状态、**新增 ADR 并把旧决策标 `superseded`** | 技术负责人 |
 | 性能 / 安全 / 可用性 / 合规阈值 | `docs/nfr.md` | `tests/` 中对应验收用例 | 测试 + 运维 |
-| 技术选型理由 | `docs/adr/NNNN-xxx.md` | 一般不改已生效 ADR，新增一条 supersede | 技术负责人 |
+| 技术选型理由 | `docs/adr/README.md` §3 索引 | 结论写进当次提交信息与 PR 描述；结论变了在索引新增一行并标 `superseded by` | 技术负责人 |
 | 单个 feature 的行为 | `specs/NNN-xxx/spec.md` | `plan.md`、`tasks.md`、`tests/` | 产品 + 测试 |
 | 上线 / 排障 / 回滚步骤 | `docs/runbooks/` | `CHANGELOG.md` | 运维 |
 | 文档结构或原则本身 | `.specify/memory/constitution.md` | 全部模板与引用方 | 全员评审 |
@@ -28,7 +28,7 @@
 
 ## 2. 单一真相源速记
 
-归属关系的完整映射只在 `constitution.md` §5 与本文 §1，这里只补三条流程上最容易搞错的规则。
+归属关系的完整映射只在 [`.specify/memory/constitution.md`](.specify/memory/constitution.md) §5，本文 §1 只列「变更 → 跟改文档」的操作对照表。这里只补三条流程上最容易搞错的规则。
 
 - 原则只在 `constitution.md`：`plan.md` 的 Constitution Check 逐条对照原则编号，不把原则原文抄进每个 plan。
 - **roadmap 先改，再改 spec**：范围变化先落到 roadmap 那一行，再动受影响的子 spec；条目 ID 一旦被引用就不可改、不复用。
@@ -38,13 +38,15 @@
 
 ## 3. 每份文档的开头
 
-新增或重写文档时，先在开头写清三件事，便于读者判断该不该读：
+新增或重写文档时，先在开头写清四个字段，便于读者判断该不该读：
 
 ```
 > **回答什么问题**：...
 > **读者**：...　**长度上限**：N 页
 > **不写什么**：...（明确排除的内容，指向它的归属文件）
 ```
+
+四个字段里「读者」与「长度上限」通常合写一行；`pnpm docs:check --strict` 逐份核对这四个字段（见 `scripts/check-docs.mjs`），`docs/` 根级文档与四个子目录的 `README.md` 都必须有。
 
 正文里既有现状又有目标时，用 `[现状]` / `[目标]` 前缀标出段落边界，不要靠目录位置暗示。
 

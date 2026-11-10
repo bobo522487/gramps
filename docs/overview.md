@@ -49,25 +49,9 @@
 - **子树移动 / 同级重排**：`node_move_dialog` 已存在界面，但服务层因非 deferrable 外键暂不支持真正移动，直接返回 `not_supported`，不再用“目标无效”误导用户。
 - **谱系删除**：会先删除该谱系全部 `node` 行，再删谱系；被谱书编目引用时拒绝。`person` 事实行不会级联删除。
 
-## 3. 术语表
+## 3. 领域语言
 
-| 术语 | 代码名 | 含义 |
-| --- | --- | --- |
-| 组织 | `organization` | 租户边界，一个家族或修谱工作室 |
-| 成员 | `organization_member` | 用户与组织的多对多关系，带角色 |
-| 云谱空间 | `project` | 组织内的一棵谱牒工程，所有内容的二级作用域 |
-| 分类 | `folder` | 云谱空间内的**单层**分类，谱系/谱文/谱书共享 |
-| 谱系 | `lineage` | 一次修谱的世系树，含字辈诗、始迁祖、基础世次 |
-| 人丁 / 节点 | `node` | 谱系树中的一个位置，引用 `person` |
-| 人物 | `person` | 事实层身份（性别），与谱系位置解耦 |
-| 姓名 | `person_name` | 人物的一个名字（主名 / 别名） |
-| 家庭 | `family` / `family_partner` / `family_child` | 婚姻与亲子关系事实 |
-| 事件 | `event` | 出生、去世、葬地、迁徙等事实 |
-| 谱文 | `article` | 分页富文本文章，正文序列化在 `article.body` |
-| 谱书 | `book` / `book_catalog` / `book_export` | 谱书、编目树、导出任务（暂未开放写入） |
-| 世次 | `generation` | 由 ltree 路径段数派生，不落库；公式见 `docs/data-model.md` §3 |
-| 字号 / 生卒 / 葬地 | `person_name(kind='courtesy')` / `event` | 人丁事实；写入 `writePersonFacts()`，读回由 `getNodes` 投影 |
-| 前缀 / 行传 | — | 目标态无对应列，已从表单与服务契约移除，避免静默丢弃输入 |
+术语定义与禁用同义词只在 [`docs/glossary.md`](glossary.md)；写规格与读代码前先读它，本文件不复制第二份。世次派生公式只在 `docs/data-model.md` §3 定义。
 
 ## 4. 技术栈
 

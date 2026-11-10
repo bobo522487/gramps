@@ -60,24 +60,16 @@ pnpm arch:check
 
 变化快的放深、变化慢的放浅：一次变更的影响范围被自然隔离，评审时也清楚该找谁签字。
 
-### 3.3 新人怎么读
-
-按 [`docs/README.md`](docs/README.md) 的阅读路线走，读完应能说清：系统边界在哪、现在做到哪、下一步是什么。
-
 ---
 
 ## 4. 文档纪律
 
 > 不可协商的原则在 `.specify/memory/constitution.md`；本节只写日常可执行的规则，不重述原则。
 
-- **单一真相源**：术语、契约、架构、实体、阈值、状态各有唯一归属文件；完整映射只在 [`.specify/memory/constitution.md`](.specify/memory/constitution.md) §5，本文件不复制那张表。feature 文档只引用，不复制。
-- **原则只引用**：`plan.md` 的 Constitution Check 逐条对照 constitution 编号，不把原则抄进每个 plan。
-- **roadmap 先改，再改 spec**：范围变化先落到 roadmap 那一行，再动受影响的子 spec；条目 ID 一旦被引用就不可改，子 spec 在头部 `Input` 行写 `Parent roadmap → entry <ID>` 回链。
-- **feature 目录可整体删除而不失真**：删掉任一 `specs/NNN-xxx/` 后，`docs/` 仍须讲得清系统在做什么。
-- **ADR 只记为什么**：为什么选 A 不选 B、代价是什么，不记「我们用了 A」——后者属于 architecture。
+- **单一真相源**：术语、契约、架构、实体、阈值、状态各有唯一归属文件；完整映射只在 [`.specify/memory/constitution.md`](.specify/memory/constitution.md) §5，本文件不复制那张表。
 - **测试是最终事实来源**：文字与 `tests/` 冲突时先确认哪个是意图，再同步两边，不允许长期双轨。
 
-变更要跟改哪些文档、提交与评审规则见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+其余可执行规则（原则只引用、roadmap 先改、feature 目录可删、ADR 只记为什么）、变更要跟改哪些文档、提交与评审规则，见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ---
 

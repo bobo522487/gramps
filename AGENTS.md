@@ -2,17 +2,17 @@
 
 > **回答什么问题**：规则正文在哪、改东西该读哪份文档。
 > **读者**：AI Agent · 新人 · 全员　**长度上限**：1 页
-> **不写什么**：原则正文（`.specify/memory/constitution.md`）、可执行流程与「改什么 → 读什么」对照表（`CONTRIBUTING.md`）、任何产品 / 架构 / 数据 / 阈值细节（`docs/`）。
+> **不写什么**：原则正文（`.specify/memory/constitution.md`）、文档清单与阅读路线（`docs/README.md`）、文档维护与 PR 流程（`CONTRIBUTING.md`）、任何产品 / 架构 / 数据 / 阈值细节（`docs/`）。
 
-本文件**只是入口指针**：指路，不承载规则。原则正文唯一在 `.specify/memory/constitution.md`（编号 `I`–`V`），其余文档只引用编号，不复制第二份。
+本文件**只是入口指针**：指路，不承载规则。原则正文唯一在 `.specify/memory/constitution.md`（编号 `I`–`V`）；本文件不复制原则，也不列文档清单。
 
 ## 读的顺序
 
-1. `README.md` — 项目是什么、怎么跑起来、文档地图
+1. `README.md` — 项目是什么、怎么跑起来
 2. `.specify/memory/constitution.md` — 哪些事永远不能做
 3. `CONTRIBUTING.md` — 改一处要跟改哪些文档、怎么提 PR、什么算完成
-4. `docs/glossary.md` — 领域语言（写 spec 前必读）
-5. 按任务取 `docs/` 对应文档；「改什么 → 读什么」的对照表只在 `CONTRIBUTING.md` §1
+4. `docs/README.md` — 文档清单与「改什么 → 读什么」阅读路线
+5. 按任务取 `docs/` 对应文档；领域语言见 `docs/glossary.md`
 
 ## 不要做的事
 
