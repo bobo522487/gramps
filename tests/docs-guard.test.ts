@@ -99,6 +99,20 @@ describe('documentation guard', () => {
     }
   });
 
+  test('gate fails on bad refs without --strict (default is strict)', () => {
+    const tmp = fixture();
+    try {
+      // 默认调用不能再靠 --strict 才失败：本地门禁与 CI 的 no-op 开关都走这条路径。
+      const result = spawnSync(process.execPath, [GATE, '--root', tmp], {
+        encoding: 'utf8',
+      });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('backtick-path');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   test('real repo passes the gate', () => {
     const result = gate();
     expect(result.status).toBe(0);
