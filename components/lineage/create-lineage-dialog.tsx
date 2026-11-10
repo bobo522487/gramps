@@ -22,15 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import type { ActionState } from '@/lib/auth/types';
 import { createLineageAction } from '@/lib/lineage/actions';
-import {
-  MAX_LINEAGE_HALL_CODE_LENGTH,
-  MAX_LINEAGE_NAME_LENGTH,
-  MAX_LINEAGE_NOTES_LENGTH,
-  MAX_LINEAGE_REGION_LENGTH,
-} from '@/lib/lineage/constants';
+import { MAX_LINEAGE_NAME_LENGTH } from '@/lib/lineage/constants';
 import {
   canSubmitLineage,
   hasInheritedSurname,
@@ -51,7 +45,6 @@ export function CreateLineageDialog({
   projectRef,
   projectThemeName,
   projectSurname,
-  projectRegion,
   canProjectWrite,
   folders,
   defaultFolderId,
@@ -62,6 +55,7 @@ export function CreateLineageDialog({
   projectRef: string;
   projectThemeName: string;
   projectSurname: string;
+  // 上游 LineageSidebar / LineageWorkspace 沿项目上下文统一透传，弹窗已不再读取。
   projectRegion: string;
   canProjectWrite: boolean;
   folders: FolderOption[];
@@ -79,20 +73,13 @@ export function CreateLineageDialog({
   const fallbackFolderId = defaultFolderId ?? options[0]?.id ?? '';
   const [folderId, setFolderId] = useState(fallbackFolderId);
   const [name, setName] = useState('');
-  const [region, setRegion] = useState(projectRegion);
-  const [hallCode, setHallCode] = useState('');
-  const [notes, setNotes] = useState('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   // 分类可能在弹窗打开期间被删掉，提交值必须对着当前列表校验。
   const effectiveFolderId = resolveSelectedFolderId(options, folderId);
 
-  // 预填的地区不算「用户改过」，否则一打开弹窗就必然触发放弃确认。
   const isDirty =
     name.trim().length > 0 ||
-    region !== projectRegion ||
-    hallCode.trim().length > 0 ||
-    notes.trim().length > 0 ||
     effectiveFolderId !== resolveSelectedFolderId(options, fallbackFolderId);
 
   const surnameMissing = !hasInheritedSurname(projectSurname);
@@ -100,7 +87,6 @@ export function CreateLineageDialog({
     !surnameMissing &&
     canSubmitLineage({
       name,
-      region,
       folderId: hasFolders ? effectiveFolderId : 'default',
     });
 
@@ -244,75 +230,6 @@ export function CreateLineageDialog({
               该项目未填写姓氏，无法创建谱系。请所有者或管理员先完善项目基本信息。
             </p>
           ) : null}
-
-          <div>
-            <Label htmlFor="lineage-region">
-              地区
-              <RequiredMark />
-            </Label>
-            <Input
-              id="lineage-region"
-              name="region"
-              value={region}
-              onChange={(event) => setRegion(event.target.value)}
-              placeholder="例如：中国/北京/东城"
-              maxLength={MAX_LINEAGE_REGION_LENGTH}
-              aria-invalid={Boolean(state.fieldErrors?.region)}
-              aria-describedby={
-                state.fieldErrors?.region ? 'lineage-region-error' : undefined
-              }
-            />
-            {state.fieldErrors?.region ? (
-              <p
-                id="lineage-region-error"
-                className="mt-1 text-xs text-destructive"
-              >
-                {state.fieldErrors.region}
-              </p>
-            ) : null}
-          </div>
-
-          <div>
-            <Label htmlFor="lineage-hall">郡望堂号</Label>
-            <Input
-              id="lineage-hall"
-              name="hallCode"
-              value={hallCode}
-              onChange={(event) => setHallCode(event.target.value)}
-              placeholder="请输入郡望堂号"
-              maxLength={MAX_LINEAGE_HALL_CODE_LENGTH}
-            />
-            {state.fieldErrors?.hallCode ? (
-              <p className="mt-1 text-xs text-destructive">
-                {state.fieldErrors.hallCode}
-              </p>
-            ) : null}
-          </div>
-
-          <div>
-            <Label htmlFor="lineage-notes">备注</Label>
-            <Textarea
-              id="lineage-notes"
-              name="notes"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder="请输入谱系备注"
-              maxLength={MAX_LINEAGE_NOTES_LENGTH}
-              className="min-h-16"
-              aria-invalid={Boolean(state.fieldErrors?.notes)}
-              aria-describedby={
-                state.fieldErrors?.notes ? 'lineage-notes-error' : undefined
-              }
-            />
-            {state.fieldErrors?.notes ? (
-              <p
-                id="lineage-notes-error"
-                className="mt-1 text-xs text-destructive"
-              >
-                {state.fieldErrors.notes}
-              </p>
-            ) : null}
-          </div>
 
           {state.error ? (
             <p

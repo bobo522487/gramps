@@ -49,9 +49,6 @@ export const createLineageAction = validatedActionWithUser(
       projectId: data.projectId,
       folderId: data.folderId,
       name: data.name,
-      // The form still posts region / hallCode / notes; the target-model
-      // `lineage` has no such columns (appendix A.4), so they are dropped at
-      // this boundary rather than written to a look-alike column.
     });
 
     if (!result.ok) {
@@ -69,9 +66,6 @@ export const createLineageAction = validatedActionWithUser(
 export const updateLineageAction = validatedActionWithUser(
   updateLineageSchema,
   async (data, _, user) => {
-    // Only target-model `lineage` columns are forwarded. The remaining form
-    // fields (hallCode / region / notes / generationWords) are retained as a
-    // stable form contract but have no target-model column.
     const updates: LineageUpdates = {};
     if (data.folderId !== undefined) {
       updates.folderId = data.folderId;

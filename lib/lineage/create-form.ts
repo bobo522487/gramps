@@ -17,14 +17,10 @@ export function hasInheritedSurname(surname: string): boolean {
 
 export function canSubmitLineage({
   name,
-  region,
   folderId,
 }: {
   name: string;
-  region: string;
   folderId: string;
 }): boolean {
-  return (
-    name.trim().length > 0 && region.trim().length > 0 && folderId.length > 0
-  );
+  return name.trim().length > 0 && folderId.length > 0;
 }

@@ -116,12 +116,6 @@ test('critical path: sign up, create project, record founder, add child, edit in
   await page.locator('#lineage-name').fill('E2E 谱系');
   await expect(submitLineage).toBeEnabled();
 
-  // 地区预填项目地区，清空后不可提交。
-  await page.locator('#lineage-region').fill('');
-  await expect(submitLineage).toBeDisabled();
-  await page.locator('#lineage-region').fill('中国/福建');
-  await expect(submitLineage).toBeEnabled();
-
   await submitLineage.click();
   await expect(page).toHaveURL(/\/lineages\/[^/]+$/);
 

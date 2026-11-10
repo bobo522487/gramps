@@ -25,15 +25,14 @@ describe('resolveSelectedFolderId', () => {
 });
 
 describe('canSubmitLineage', () => {
-  const base = { name: '颍川陈氏', region: '中国/福建', folderId: 'f1' };
+  const base = { name: '颍川陈氏', folderId: 'f1' };
 
   it('accepts a complete form', () => {
     expect(canSubmitLineage(base)).toBe(true);
   });
 
-  it('rejects blank name, region or folder', () => {
+  it('rejects blank name or folder', () => {
     expect(canSubmitLineage({ ...base, name: '   ' })).toBe(false);
-    expect(canSubmitLineage({ ...base, region: '   ' })).toBe(false);
     expect(canSubmitLineage({ ...base, folderId: '' })).toBe(false);
   });
 });

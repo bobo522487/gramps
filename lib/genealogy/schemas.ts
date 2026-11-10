@@ -1,11 +1,6 @@
 import { z } from 'zod';
 import { PERSON_SEX_VALUES } from '@/lib/genealogy/constants';
-import {
-  MAX_LINEAGE_HALL_CODE_LENGTH,
-  MAX_LINEAGE_NAME_LENGTH,
-  MAX_LINEAGE_NOTES_LENGTH,
-  MAX_LINEAGE_REGION_LENGTH,
-} from '@/lib/lineage/constants';
+import { MAX_LINEAGE_NAME_LENGTH } from '@/lib/lineage/constants';
 
 const orgId = z.uuid('组织 ID 无效');
 const projectId = z.uuid('云谱空间 ID 无效');
@@ -122,12 +117,6 @@ export const createLineageSchema = z.object({
   // 空值表示项目还没有分类，由服务端在同一事务内创建「默认分类」。
   folderId: optionalUuid('分类无效'),
   name: text('谱系名称', MAX_LINEAGE_NAME_LENGTH),
-  hallCode: optionalText(
-    MAX_LINEAGE_HALL_CODE_LENGTH,
-    '郡望/堂号不能超过 60 个字符'
-  ),
-  region: text('地区', MAX_LINEAGE_REGION_LENGTH),
-  notes: optionalText(MAX_LINEAGE_NOTES_LENGTH, '备注不能超过 500 个字符'),
 });
 
 export const updateLineageSchema = z.object({
@@ -135,34 +124,6 @@ export const updateLineageSchema = z.object({
   lineageId,
   folderId: clearableUuid('分类无效'),
   name: text('谱系名称', MAX_LINEAGE_NAME_LENGTH).optional(),
-  hallCode: clearableText(60, '郡望/堂号不能超过 60 个字符'),
-  region: clearableText(MAX_LINEAGE_REGION_LENGTH, '地区不能超过 100 个字符'),
-  notes: clearableText(MAX_LINEAGE_NOTES_LENGTH, '备注不能超过 500 个字符'),
-  generationWords: z.preprocess(
-    (value) => (value === null ? undefined : value),
-    z
-      .string()
-      .trim()
-      .max(240, '字辈不能超过 240 个字符')
-      .optional()
-      .transform((value, ctx) => {
-        if (value === undefined) {
-          return undefined;
-        }
-        if (!value) {
-          return [] as string[];
-        }
-        const words = value.split(/[\s,，、]+/).filter(Boolean);
-        if (words.length > 40) {
-          ctx.addIssue({
-            code: 'custom',
-            message: '字辈最多 40 个字',
-          });
-          return z.NEVER;
-        }
-        return words;
-      })
-  ),
 });
 
 export const deleteLineageSchema = z.object({
