@@ -9,11 +9,11 @@
 
 | 你要改的东西 | 唯一归属地 | 必须跟改 | 建议评审人 |
 | --- | --- | --- | --- |
-| 产品意图、范围边界、明确不做 | `docs/vision.md` | `docs/roadmap.md` | 产品负责人 |
+| 产品意图、范围边界、明确不做 | `docs/overview.md` | `docs/roadmap.md` | 产品负责人 |
 | 需求范围、切片顺序、依赖、状态 | `docs/roadmap.md` | 受影响子 spec 的 `Input` 行 | 产品 + 技术负责人 |
 | 术语、领域语言 | `docs/glossary.md` | 所有引用该术语的 spec、`docs/data-model.md` | 全员（语言对齐） |
-| 系统边界、模块、技术栈、部署形态 | `docs/architecture.md` | `docs/interfaces.md`、相关 `docs/adr/` | 技术负责人 |
-| 接口契约（Action、DTO、错误码） | `docs/contracts/` | `docs/interfaces.md`、相关 feature 的 `contracts/` | 调用双方负责人 |
+| 系统边界、模块、技术栈、部署形态 | `docs/architecture.md` | `docs/api.md`、相关 `docs/adr/` | 技术负责人 |
+| 接口契约（Action、DTO、错误码） | `docs/contracts/` | `docs/api.md`、相关 feature 的 `contracts/` | 调用双方负责人 |
 | 全局实体与关系 | `docs/data-model.md` | 相关 spec 的实体引用 | 技术负责人 |
 | 数据模型重构（DDL 基线、隔离层、验收层） | `lib/db/migrations/0000_target_schema.sql` | `docs/data-model.md` 的 §8 执行者表、`docs/architecture.md` 角色与域所有权、`docs/contracts/` 谱系契约、`docs/runbooks/` 处置 SQL、`docs/glossary.md` 删除语义、`docs/nfr.md` §5、`docs/roadmap.md` 状态、**新增 ADR 并把旧决策标 `superseded`** | 技术负责人 |
 | 性能 / 安全 / 可用性 / 合规阈值 | `docs/nfr.md` | `tests/` 中对应验收用例 | 测试 + 运维 |
@@ -32,7 +32,7 @@
 
 - 原则只在 `constitution.md`：`plan.md` 的 Constitution Check 逐条对照原则编号，不把原则原文抄进每个 plan。
 - **roadmap 先改，再改 spec**：范围变化先落到 roadmap 那一行，再动受影响的子 spec；条目 ID 一旦被引用就不可改、不复用。
-- **权威口径（目标态例外）**：`docs/data-model.md` 是目标态规格，代码按它重建；`docs/architecture.md`、`docs/interfaces.md`、`docs/contracts/README.md`、`docs/nfr.md` 里标了「本节只对 [现状] 成立」的小节，与该规格冲突时以 `data-model.md` 为准，其余内容与代码冲突时以代码为准。数据层重构已交付，目标态就是当前代码；两者再出现分叉，说明是遗漏而不是「目标尚未落地」。
+- **权威口径（目标态例外）**：`docs/data-model.md` 是目标态规格，代码按它重建；`docs/architecture.md`、`docs/api.md`、`docs/contracts/README.md`、`docs/nfr.md` 里标了「本节只对 [现状] 成立」的小节，与该规格冲突时以 `data-model.md` 为准，其余内容与代码冲突时以代码为准。数据层重构已交付，目标态就是当前代码；两者再出现分叉，说明是遗漏而不是「目标尚未落地」。
 
 ---
 

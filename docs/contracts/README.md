@@ -2,7 +2,7 @@
 
 > **回答什么问题**：Action 长什么样、有哪些错误码、谁有哪个权限、每条 HTTP 路由返回什么。
 > **读者**：开发 · 前端 · AI Agent　**长度上限**：6 页
-> **不写什么**：谁调谁与变更流程（`docs/interfaces.md`）、系统分层（`docs/architecture.md`）、表与列（`docs/data-model.md`）、本 feature 的一次性变更记录（`specs/NNN-xxx/`）。
+> **不写什么**：谁调谁与变更流程（`docs/api.md`）、系统分层（`docs/architecture.md`）、表与列（`docs/data-model.md`）、本 feature 的一次性变更记录（`specs/NNN-xxx/`）。
 
 本文件是**跨 feature 共用契约的唯一真相源**：同一份事实只在这里写一次，feature 目录只放本 feature 新增或修改的差异并引用本文件，不复制全文。术语按 `docs/glossary.md`。
 
@@ -176,7 +176,7 @@ FormData 通道用 `Object.fromEntries(formData)` 拍平，嵌套结构与 `null
 
 ## 6. 谁在验证契约
 
-> 变更规则以 `docs/interfaces.md` 为准，本文件不复制一遍。这里只列验证者——只改文档不改测试的契约等于没落地。
+> 变更规则以 `CONTRIBUTING.md` §1 为准，本文件不复制一遍。这里只列验证者——只改文档不改测试的契约等于没落地。
 
 | 契约 | 验证者 |
 | --- | --- |

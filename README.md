@@ -45,34 +45,9 @@ pnpm arch:check
 
 ## 3. 去哪看设计
 
-### 3.1 目录结构
+### 3.1 去哪看文档
 
-```
-/
-├── README.md                      30 秒导航
-├── CONTRIBUTING.md                变更→跟改文档、提交与评审
-├── CHANGELOG.md
-│
-├── .specify/                      治理层（最稳定，改动影响全项目）
-│   ├── memory/constitution.md     不可协商的原则 + 文档维护约定
-│   └── templates/                 项目定制的 spec / plan / tasks / checklist 模板
-│
-├── docs/                          项目层（长期活文档，跨 feature 共用）
-│   ├── vision.md                  产品意图、范围边界、明确不做
-│   ├── glossary.md                全项目唯一术语表
-│   ├── architecture.md            系统边界、模块划分、技术栈、部署形态
-│   ├── interfaces.md              接口地图（谁调谁），细节指向 contracts/
-│   ├── data-model.md              目标态数据模型规格：实体分层、不变量与删除语义
-│   ├── nfr.md                     性能 / 安全 / 可用性 / 合规 + 可度量阈值
-│   ├── contracts/                 跨 feature 接口契约，唯一真相源
-│   ├── adr/                       决策索引：一行结论 + 取代关系，不存正文
-│   ├── roadmap.md                 编排核心：切片顺序、范围、依赖、状态
-│   └── runbooks/                  上线、排障、回滚
-│
-├── specs/                         交付层：NNN-xxx/ 工作产物（模板在 .specify/templates/）
-│
-└── tests/                         可执行的验收标准（最终事实来源）
-```
+文档清单、阅读路线与「改什么 → 读什么」只在 [`docs/README.md`](docs/README.md) 维护一份，本文件不复制。
 
 ### 3.2 按变化频率分层
 
@@ -85,24 +60,9 @@ pnpm arch:check
 
 变化快的放深、变化慢的放浅：一次变更的影响范围被自然隔离，评审时也清楚该找谁签字。
 
-### 3.3 新人只读三份
+### 3.3 新人怎么读
 
-`README.md` → `docs/architecture.md` → `docs/roadmap.md`。
-读完应能说清：系统边界在哪、现在做到哪、下一步是什么。说不清，说明项目层漏了东西。
-
-### 3.4 按任务读什么
-
-| 你要做的事 | 先读 |
-| --- | --- |
-| 任何事 | constitution → roadmap |
-| 第一天加入 | README → architecture → runbooks → CONTRIBUTING |
-| 改表 / 加迁移 | data-model → contracts → 对应 spec |
-| 加页面 / Action / API | interfaces → contracts → 对应 spec |
-| 写测试 | 对应 spec 的验收标准 → `tests/` |
-| 值班 / 故障 | runbooks → nfr |
-| 评估一个改动 / 讨论要不要做 | vision → architecture → `adr/` |
-| 产品 / 需求评审 | vision → roadmap → 对应 spec |
-| AI Agent | constitution → roadmap → 对应 spec |
+按 [`docs/README.md`](docs/README.md) 的阅读路线走，读完应能说清：系统边界在哪、现在做到哪、下一步是什么。
 
 ---
 

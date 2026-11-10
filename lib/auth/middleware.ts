@@ -81,7 +81,7 @@ type ValidatedActionObjectFunction<S extends z.ZodType, T> = (
  * 对象入参通道：认证与校验链路和 `validatedActionWithUser` 完全一致，只是入参
  * 是客户端传来的对象。谱文的正文是分页文档树、页标识可能为 `null`，而 FormData
  * 通道靠 `Object.fromEntries(formData)` 拍平——嵌套结构与非字符串标量都会在路上
- * 丢掉。写操作仍然是 Server Action（写通道见 `docs/interfaces.md`），只是不走 `<form>` 提交。
+ * 丢掉。写操作仍然是 Server Action（写通道见 `docs/api.md`），只是不走 `<form>` 提交。
  */
 export function validatedActionWithUserObject<S extends z.ZodType, T>(
   schema: S,

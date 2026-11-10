@@ -110,7 +110,7 @@
 | `serializeArticleContent()` | [lib/article/doc.ts:90](../lib/article/doc.ts#L90) | 文档包 → JSON |
 | `parseArticleContent()` | [lib/article/doc.ts:230](../lib/article/doc.ts#L230) | 容错解析 |
 | `normalizePageDoc()` / `createEmptyPageDoc()` | [lib/article/doc.ts](../lib/article/doc.ts) | 空文档补形 |
-| `validateContent()` | [lib/article/mutations.ts:179](../lib/article/mutations.ts#L179) | 整篇白名单校验 |
+| `validateContent()` | [lib/article/mutations.ts:121](../lib/article/mutations.ts#L121) | 整篇白名单校验 |
 | `imagePathsOf()` / `isPageReferenced()` | [lib/article/mutations.ts](../lib/article/mutations.ts) | 图片引用分析 |
 | `lockArticle()` | [lib/article/mutations.ts](../lib/article/mutations.ts) | 行锁读取正文 |
 | `createArticleInTransaction` | [lib/article/services.ts](../lib/article/services.ts) | 创建谱文 |

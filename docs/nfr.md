@@ -2,7 +2,7 @@
 
 > **回答什么问题**：性能 / 安全 / 可用性 / 合规承诺到什么程度，靠什么自动证明，哪些明确不承诺。
 > **读者**：全员 · 运维 · AI Agent　**长度上限**：3 页
-> **不写什么**：架构机制与依赖方向（`docs/architecture.md`）、接口形状与错误码（`docs/interfaces.md`、`docs/contracts/`）、表与列（`lib/db/schema/`）、失败处置步骤（`docs/runbooks/`）、风险登记（`docs/roadmap.md`）、术语（`docs/glossary.md`）。
+> **不写什么**：架构机制与依赖方向（`docs/architecture.md`）、接口形状与错误码（`docs/api.md`、`docs/contracts/`）、表与列（`lib/db/schema/`）、失败处置步骤（`docs/runbooks/`）、风险登记（`docs/roadmap.md`）、术语（`docs/glossary.md`）。
 
 全项目唯一**可度量阈值**归属地。只写能从脚本、配置或测试里读出来的数；读不出来的写定性判定，不编造目标。本文描述当前实现，不写「现状 / 目标」双轨。
 

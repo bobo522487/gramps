@@ -2,7 +2,7 @@
 
 > **回答什么问题**：定了哪些代价高或难回头的决策、为什么选 A 不选 B、接受什么代价、出现什么信号该重估。
 > **读者**：技术负责人 · 新人 · AI Agent　**长度上限**：3 页
-> **不写什么**：实现现状与模块划分（`docs/architecture.md`）、接口契约（`docs/interfaces.md`、`docs/contracts/`）、可度量阈值（`docs/nfr.md`）、编排与进度（`docs/roadmap.md`）、不可协商的原则（`.specify/memory/constitution.md`）、术语（`docs/glossary.md`）、表与列（`docs/data-model.md`）。
+> **不写什么**：实现现状与模块划分（`docs/architecture.md`）、接口契约（`docs/api.md`、`docs/contracts/`）、可度量阈值（`docs/nfr.md`）、编排与进度（`docs/roadmap.md`）、不可协商的原则（`.specify/memory/constitution.md`）、术语（`docs/glossary.md`）、表与列（`docs/data-model.md`）。
 
 ADR 记的是**理由**，不是现状。「我们用了 A」写在架构与接口文档；「为什么是 A 而不是 B、为此长期承担什么」只写在这里。同一份结论不在两处各写一遍。
 

@@ -52,7 +52,10 @@
     "specs/001-lineage-edit-preview",
     "specs/002-article-authoring",
     "specs/003-article-editor-wordlike",
-    ".specify/bugs/lineage-generation-order"
+    ".specify/bugs/lineage-generation-order",
+    "docs/vision.md",
+    "docs/interfaces.md",
+    "specs/_archive/"
   ],
   "subdirs": ["adr", "contracts", "modules", "runbooks"],
   "headerFields": ["回答什么问题", "读者", "长度上限", "不写什么"],

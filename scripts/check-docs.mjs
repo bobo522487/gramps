@@ -8,6 +8,7 @@
 // 所有清单（文档集 / 退役路径 / 子目录 / 文档头字段）只有一份真相源：
 // scripts/doc-manifest.json。tests/docs-consistency.test.ts 读同一份文件。
 // --root <dir> 让 tests/docs-guard.test.ts 能在临时 fixture 上做端到端验证。
+// --strict 保留为 CI 兼容参数：护栏现在默认严格，有任何 issue 都失败。
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
@@ -22,17 +23,16 @@ const MANIFEST = JSON.parse(
   readFileSync(join(ROOT, 'scripts/doc-manifest.json'), 'utf8')
 );
 const DOCS = join(ROOT, 'docs');
-const STRICT = process.argv.includes('--strict');
 const issues = [];
 
-function walk(dir) {
+function collect(dir, exts) {
   if (!existsSync(dir)) return [];
   const files = [];
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) {
-      files.push(...walk(full));
-    } else if (extname(name) === '.md') {
+      files.push(...collect(full, exts));
+    } else if (exts.includes(extname(name))) {
       files.push(full);
     }
   }
@@ -72,7 +72,23 @@ function headingsOf(file) {
   return headingCache.get(file);
 }
 
-const allDocs = walk(DOCS);
+const allDocs = collect(DOCS, ['.md']);
+const ROOT_MD = [
+  'README.md',
+  'CONTRIBUTING.md',
+  'CHANGELOG.md',
+  'AGENTS.md',
+  join('.specify', 'memory', 'constitution.md'),
+]
+  .map((path) => join(ROOT, path))
+  .filter((path) => existsSync(path));
+const CODE_EXT = ['.ts', '.tsx', '.mjs'];
+const codeFiles = ['app', 'components', 'lib', 'hooks', 'tests'].flatMap(
+  (dir) => collect(join(ROOT, dir), CODE_EXT)
+);
+// 链接/锚点/文档头只在 docs/ 内校验（根级治理文档的相对链接基准不同）；
+// 退役短语与反引号路径扫到根级文档与代码注释，那里才是坏引用的藏身处。
+const scanned = [...allDocs, ...ROOT_MD, ...codeFiles];
 
 // 1. 链接与锚点：与文档结构无关的通用护栏，继续保留。
 const linkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
@@ -104,6 +120,19 @@ for (const file of allDocs) {
         'link',
         `missing anchor: ${target}`
       );
+    }
+    // 行号锚点：#L179 指向 158 行的文件是坏引用，过去完全没人查。
+    const lineAnchor = anchor && /^L(\d+)$/.exec(anchor);
+    if (lineAnchor && statSync(resolved).isFile()) {
+      const total = readFileSync(resolved, 'utf8').split('\n').length;
+      if (Number(lineAnchor[1]) > total) {
+        addIssue(
+          file,
+          lineOf(content, match.index),
+          'line-anchor',
+          `line anchor out of range: ${target} (file has ${total} lines)`
+        );
+      }
     }
   }
 }
@@ -190,9 +219,9 @@ if (existsSync(modulesReadme)) {
 }
 
 // 4. 已下线的旧文档路径不得被写回，防止有人把删掉的文件当权威引用。
-// 清单来自 scripts/doc-manifest.json；消费者自身（脚本与测试）不含这些字面串。
+// 清单来自 scripts/doc-manifest.json；定义清单的 JSON 不在扫描范围内。
 const RETIRED_PATHS = MANIFEST.retiredPhrases;
-for (const file of allDocs) {
+for (const file of scanned) {
   const content = readFileSync(file, 'utf8');
   for (const phrase of RETIRED_PATHS) {
     let index = content.indexOf(phrase);
@@ -204,6 +233,57 @@ for (const file of allDocs) {
         `retired reference: ${phrase}`
       );
       index = content.indexOf(phrase, index + phrase.length);
+    }
+  }
+}
+
+// 5. 反引号里的仓库相对路径必须存在。过去只查 Markdown 链接，
+// 一次重命名就让 13 处反引号引用失效而门禁全绿。
+// 只认带已知扩展名的文件路径：lib/config 这类无扩展名模块名是概念引用，
+// NNN / xxx / ${...} 等占位符也不是路径。
+const PATH_PREFIX =
+  /^(?:docs|lib|app|components|hooks|scripts|tests|\.specify|specs|\.github)\//;
+const PATH_EXT = /\.(?:md|ts|tsx|mjs|js|json|sql|yml|yaml|sh)$/;
+const SKIP_TOKEN = /[\s<>*]|\$\{|…|\.\.\.|NNN|xxx/i;
+
+function cleanToken(raw) {
+  let token = raw.trim();
+  if (SKIP_TOKEN.test(token)) return null;
+  token = token.replace(/#.*$/, '').replace(/:\d+$/, '').replace(/:$/, '');
+  if (token.endsWith('/')) return null;
+  if (!PATH_PREFIX.test(token) || !PATH_EXT.test(token)) return null;
+  return token;
+}
+
+for (const file of scanned) {
+  const content = readFileSync(file, 'utf8');
+  for (const match of content.matchAll(/`([^`\n]+)`/g)) {
+    const raw = match[1].trim();
+    if (SKIP_TOKEN.test(raw)) continue;
+    const lineRef = /^(.+?):(\d+)$/.exec(raw);
+    const cleaned = cleanToken(lineRef ? lineRef[1] : raw);
+    if (!cleaned) continue;
+    const target = resolve(ROOT, cleaned);
+    const line = lineOf(content, match.index);
+    if (!existsSync(target)) {
+      addIssue(
+        file,
+        line,
+        'backtick-path',
+        `missing backtick path: ${cleaned}`
+      );
+      continue;
+    }
+    if (lineRef && statSync(target).isFile()) {
+      const total = readFileSync(target, 'utf8').split('\n').length;
+      if (Number(lineRef[2]) > total) {
+        addIssue(
+          file,
+          line,
+          'line-anchor',
+          `line reference out of range: ${raw} (file has ${total} lines)`
+        );
+      }
     }
   }
 }
@@ -220,6 +300,6 @@ for (const issue of issues) {
 }
 console.log(`${issues.length} issue(s)`);
 
-if (STRICT && issues.length > 0) {
+if (issues.length > 0) {
   process.exit(1);
 }

@@ -219,10 +219,10 @@ tests/
 
 | 目录 | 作用 |
 | --- | --- |
-| `docs/vision.md` | 产品意图、成功度量、明确不做 |
+| `docs/overview.md` | 产品意图、成功度量、明确不做 |
 | `docs/glossary.md` | 全项目唯一术语表 |
 | `docs/architecture.md` | 系统边界、技术栈、部署 |
-| `docs/interfaces.md` | 接口地图（谁调谁） |
+| `docs/api.md` | 接口地图（谁调谁） |
 | `docs/data-model.md` | 目标态数据模型规格 |
 | `docs/nfr.md` | 性能/安全/可用性阈值 |
 | `docs/contracts/` | 跨 feature 接口契约（唯一真相源） |

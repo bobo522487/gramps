@@ -7,6 +7,10 @@
 
 ## [未发布]
 
+- **文档去重与门禁前置（2026-11-10）**：覆盖率阈值、环境变量清单各自只收成一份真相源，`docs/development.md`、`docs/infrastructure.md`、`docs/architecture.md` 改为指路到配置与模板；`docs/data-model.md` 合并重复的删除语义与 RLS 两节并重编号；五组依赖方向硬规则改由 `tests/docs-guard.test.ts` 端到端验证，组数不再写死。`pnpm docs:check` 前置到提交前门禁且默认即失败，文档里的命令口径统一（CI 保留历史开关作 no-op 兼容）。
+- **文档体系合并（2026-11-10）**：Code Wiki 落到 `docs/` 后随即删去重复正文，模块导读搬到 `docs/modules/`，产品意图与接口地图分别改名 `docs/overview.md` / `docs/api.md`。重组只搬文件未同步导航，留下多处失效引用与代码注释，而当时的文档测试与门禁全绿——退役清单在 `scripts/check-docs.mjs` 和 `tests/docs-consistency.test.ts` 各存一份，且只检查 Markdown 链接。
+- **文档护栏整改（2026-11-10）**：清单收敛到 `scripts/doc-manifest.json` 单一数据源；`scripts/check-docs.mjs` 新增反引号路径 / 行号锚 / 退役短语校验并扫描根级文档与代码注释，默认即失败（`--strict` 保留为兼容开关）；新增 `tests/docs-guard.test.ts` 用临时仓库 fixture 端到端验证坏引用会让门禁变红；逐条修掉失效引用，删掉 `README.md` 手写目录树与任务表，导航只留 `docs/README.md`；裁决世次公式、修正环境变量名，并给 `biome.json` 补上 `lib/*/services.ts` 的真实 override。删掉当天即腐烂的手写符号索引、目录结构说明与谱书占位文档：这类清单和「以后要补」的占位都没有执行者，目录与符号一律以源码为准。
+
 - **数据模型整体重建（`S8`，2026-11-09 交付）**：`lib/db/migrations/` 重建为唯一全量 SQL 基线；事实层六表升为主数据源、`node` 退为 `ltree` 位置引用；`book_export`、复合主键与全局 `project.id` 落地；组织 / 成员写入收敛到 `app.*` SECURITY DEFINER 函数；业务角色 `genealogy_app` 与认证角色 `auth_service` 分离；新增 `pnpm verify:target-schema` 进 CI。决策见 `docs/adr/` 的 `0020` 行。
 - **`folder` 压平为项目内单层分类**：`kind` / `parent_id` / `sort` / `created_by` 与三条旧约束退役，`folder_name_unique (project_id, name)` 成为唯一口径；同名撞名返回 `conflict`；前端分类树改为按名称平铺。
 - **`verify:target-schema --explain` 从占位改为实跑**：自建 10 万行压测集，Q1 / Q3 进 CI 每次重测；Q3 按选择率走 Seq Scan 属合理计划，只断言 `InitPlan`、谓词下推与耗时上限，不硬凑索引。
@@ -16,7 +20,7 @@
 - **`AUTH_DB_PASSWORD` 去掉默认口令兜底**：`provision-roles.mjs` 曾写 `AUTH_DB_PASSWORD ?? 'auth'`，缺变量的机器会把 `auth_runtime`（读得到 `auth.user` 的密码哈希与会话 token）静默改成 4 字符口令。现与 `genealogy_app` 同口径——没给口令就跳过并打印「未设置，未改口令」，脚本里没有任何默认口令；生产 workflow 补上对称的 `AUTH_DB_PASSWORD` 前置校验。角色判定抽到 `scripts/lib/role-provisioning.mjs`，对应测试从 grep 源码改为注入假连接的**行为断言**（缺失 / 空串时不得发出任何 `ALTER ROLE … PASSWORD`）。
 - **认证侧权限矩阵改为「按对象回收」**：原来只 `REVOKE ALL ON SCHEMA …`，而 schema 级 REVOKE 收不回表级授权，迁移过的旧库上 `auth_service` 可能仍握着 public 全表 DML（ADR 0020 之前的旧口径），矩阵只是文档。现按 `auth` / `app` / `public` 三个 schema 分别回收**表 / 序列 / 函数**再重授，只针对 `auth_service`，不动基线管的 `genealogy_app`；`public` / `app` 侧从未给认证角色设过 DEFAULT ACL，故不补对称的默认权限 REVOKE。矩阵移到 `scripts/lib/auth-grants.mjs`，单测断言「回收先于授予」与覆盖面。
 - **生产清库的确认不再自证**：`migrate-production.yml` 原来 `--confirm="$DB"`，`$DB` 由同一个连接串解析，逐字匹配恒为真。现改为 `workflow_dispatch` 的 `confirm_db` **由人逐字输入**，不匹配即 `::error::` 退出且不打印期望值；`migrate` job 引用 `environment: production`（required reviewers 由仓库设置提供）。非重建路径（push 触发的日常迁移）不经过该步骤。
-- **文档系统收敛**：`docs/roadmap.md` 只保留编排状态，逐批进度与收口台账删去（历史留在提交历史与本文件）；`docs/adr/` 改为只有结论索引、不存正文，不再计划逐份迁回 17 份旧正文；未启用的 `specs/_archive/` 归档流程从入口文档删除。
+- **文档系统收敛**：`docs/roadmap.md` 只保留编排状态，逐批进度与收口台账删去（历史留在提交历史与本文件）；`docs/adr/` 改为只有结论索引、不存正文，不再计划逐份迁回 17 份旧正文；未启用的 feature 归档流程从入口文档删除。
 - **角色 provisioning 的属性与口令解耦**：`ensureRole` 曾在属性 ALTER 失败时直接 return，导致本来能改的口令一句没发、还被判致命（托管库常见边界：属性 42501、PASSWORD 放行）。现返回 `attributesCompliant` 与 `canSetPassword` 两个独立结果，口令分支总会独立尝试，属性不合规交给 `verify-deployment.mjs` 兜底；「本次没要求改口令」不再被算作口令改不动。
 - **角色口令改为写入 SCRAM-SHA-256 verifier**：`ALTER ROLE … PASSWORD '<明文>'` 的语句文本会落进托管库查询历史与 `log_statement` 日志。现由 `scripts/lib/scram-verifier.mjs` 在客户端按 RFC 5802 / RFC 7677 算出 `SCRAM-SHA-256$<iter>:<salt>$<key>:<server>`，SQL 里只出现 base64 的 salt 与派生密钥，明文不出进程；迭代 4096、salt 16 字节随机。PostgreSQL ≥ 10 接受预哈希串（本仓库 CI `postgres:18-alpine`、生产 Neon 均支持），因此不保留明文回退路径；正确性由 RFC 7677 官方测试向量逐字节比对保证。
 - **42501 报错指引与结论对齐**：去掉「目标角色的属主」说法——PG 角色没有属主概念（`pg_roles` 无 `rolowner` 列），改为「成员（带 ADMIN OPTION）、CREATEROLE 或超级用户」。
