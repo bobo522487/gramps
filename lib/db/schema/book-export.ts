@@ -10,15 +10,10 @@ import {
 } from 'drizzle-orm/pg-core';
 import { books } from './content';
 import { projects } from './project';
-import { scopedUuid, timestamptz } from './shared';
+import { enumValues, scopedUuid, timestamptz } from './shared';
 
 /** Appendix A.5 (432–433): closed value set for the export format. */
 const exportFormats = ['pdf', 'typst', 'epub', 'html', 'other'] as const;
-
-/** Renders a closed value set as a SQL literal list for a CHECK constraint. */
-function valueSet(values: readonly string[]) {
-  return sql.raw(`(${values.map((value) => `'${value}'`).join(', ')})`);
-}
 
 /**
  * Metadata for an export artifact, not a content snapshot (appendix A.5,
@@ -56,7 +51,10 @@ export const bookExports = pgTable(
       sql`btrim(${t.artifactUri}) <> ''`
     ),
     check('book_export_checksum', sql`${t.checksum} ~ '^[0-9a-f]{64}$'`),
-    check('book_export_format', sql`${t.format} in ${valueSet(exportFormats)}`),
+    check(
+      'book_export_format',
+      sql`${t.format} in ${enumValues(exportFormats)}`
+    ),
     foreignKey({
       columns: [t.projectId, t.bookId],
       foreignColumns: [books.projectId, books.id],

@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { persons } from './person';
 import { projects } from './project';
-import { scopedUuid, timestamptz } from './shared';
+import { enumValues, scopedUuid, timestamptz } from './shared';
 
 /**
  * CHECK domains below are copied from appendix A.3 (168–240) of the target
@@ -36,11 +36,6 @@ const childKinds = [
   'ritual_heir',
   'unknown',
 ] as const;
-
-/** Renders a closed value set as a SQL literal list for a CHECK constraint. */
-function valueSet(values: readonly string[]) {
-  return sql.raw(`(${values.map((value) => `'${value}'`).join(', ')})`);
-}
 
 /**
  * One union (婚配/家庭). A family is a join row, not a person: partners and
@@ -116,7 +111,7 @@ export const familyPartners = pgTable(
       name: 'family_partner_scope_fk',
     }).onDelete('restrict'),
     index('family_partner_person_idx').on(t.projectId, t.personId),
-    check('family_partner_role', sql`${t.role} in ${valueSet(partnerRoles)}`),
+    check('family_partner_role', sql`${t.role} in ${enumValues(partnerRoles)}`),
     check(
       'family_partner_rank_positive',
       sql`${t.rank} is null or ${t.rank} > 0`
@@ -195,7 +190,7 @@ export const familyChildren = pgTable(
       name: 'family_child_scope_fk',
     }).onDelete('restrict'),
     index('family_child_person_idx').on(t.projectId, t.personId),
-    check('family_child_kind', sql`${t.kind} in ${valueSet(childKinds)}`),
+    check('family_child_kind', sql`${t.kind} in ${enumValues(childKinds)}`),
     check(
       'family_child_mother_role',
       sql`${t.motherRole} in ('wife', 'concubine')`
