@@ -39,7 +39,9 @@
       "includes": [
         "components/**/*.ts",
         "components/**/*.tsx",
-        "hooks/**/*.ts"
+        "hooks/**/*.ts",
+        "hooks/**/*.tsx",
+        "!components/article/editor/**"
       ],
       "linter": {
         "rules": {
@@ -57,6 +59,10 @@
                   {
                     "group": ["@/lib/db/schema/*"],
                     "message": "客户端组件不得 import 数据库 schema（含按域拆分的子路径）"
+                  },
+                  {
+                    "group": ["@tiptap/**", "prosemirror-*"],
+                    "message": "编辑器依赖只允许出现在 lib/article/** 与 components/article/editor/**（ADR 0010：依赖必须有消费者）"
                   }
                 ]
               }
@@ -77,6 +83,10 @@
                   {
                     "group": ["next/*"],
                     "message": "lib/db 是基础设施层，不得依赖 Next 运行时（F1'）"
+                  },
+                  {
+                    "group": ["@tiptap/**", "prosemirror-*"],
+                    "message": "编辑器依赖只允许出现在 lib/article/** 与 components/article/editor/**（ADR 0010：依赖必须有消费者）"
                   }
                 ]
               }
@@ -101,6 +111,10 @@
                   {
                     "group": ["next/*"],
                     "message": "lib/db 是基础设施层，不得依赖 Next 运行时（F1'）"
+                  },
+                  {
+                    "group": ["@tiptap/**", "prosemirror-*"],
+                    "message": "编辑器依赖只允许出现在 lib/article/** 与 components/article/editor/**（ADR 0010：依赖必须有消费者）"
                   }
                 ]
               }
@@ -118,7 +132,8 @@
         "!components/**",
         "!hooks/**",
         "!lib/db/**",
-        "!lib/*/services.ts"
+        "!lib/*/services.ts",
+        "!lib/*/*-services.ts"
       ],
       "linter": {
         "rules": {
@@ -139,7 +154,7 @@
       }
     },
     {
-      "includes": ["lib/*/services.ts"],
+      "includes": ["lib/*/services.ts", "lib/*/*-services.ts"],
       "linter": {
         "rules": {
           "style": {
@@ -150,6 +165,39 @@
                   {
                     "group": ["next/headers", "next/navigation"],
                     "message": "领域服务不读会话 / 不跳转，由 Action 负责"
+                  },
+                  {
+                    "group": ["@tiptap/**", "prosemirror-*"],
+                    "message": "编辑器依赖只允许出现在 lib/article/** 与 components/article/editor/**（ADR 0010：依赖必须有消费者）"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "components/article/editor/**/*.ts",
+        "components/article/editor/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "drizzle-orm": "客户端组件不得直接依赖 ORM；数据访问走 lib/db/queries",
+                  "@/lib/db/drizzle": "客户端组件不得访问数据库",
+                  "@/lib/db/auth-db": "认证连接只属于服务端",
+                  "@/lib/db/schema": "客户端组件不得 import 数据库 schema"
+                },
+                "patterns": [
+                  {
+                    "group": ["@/lib/db/schema/*"],
+                    "message": "客户端组件不得 import 数据库 schema（含按域拆分的子路径）"
                   }
                 ]
               }

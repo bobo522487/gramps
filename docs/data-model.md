@@ -233,7 +233,7 @@ flowchart LR
 ## 8. 约束要有执行者
 
 - `scripts/verify-target-schema.mjs` 会在独立测试库重建目标态并比对 **DDL / 约束 / RLS / TS 与 SQL 列一致性 / EXPLAIN**；
-- `npm run verify:deploy` 在部署后校验角色、schema、关键函数是否存在；
+- `pnpm verify:deploy` 在部署后校验角色、schema、关键函数是否存在；
 - 新增表必须同时满足：TS schema、SQL 迁移、`ENABLE RLS`、`org_isolation` 策略、`genealogy_app` 授权（基线注释明确要求）；
 - 日常入口是 `pnpm verify:target-schema` / `pnpm verify:deploy`；性能数字见 [nfr.md](nfr.md)。
 

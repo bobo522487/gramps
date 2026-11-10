@@ -18,10 +18,21 @@ const rootFlag = process.argv.indexOf('--root');
 const ROOT =
   rootFlag === -1
     ? resolve(dirname(fileURLToPath(import.meta.url)), '..')
-    : resolve(process.argv[rootFlag + 1]);
-const MANIFEST = JSON.parse(
-  readFileSync(join(ROOT, 'scripts/doc-manifest.json'), 'utf8')
-);
+    : resolve(process.argv[rootFlag + 1] ?? '');
+if (rootFlag !== -1 && !process.argv[rootFlag + 1]) {
+  console.error('--root 需要一个目录参数');
+  process.exit(1);
+}
+if (!existsSync(ROOT)) {
+  console.error(`--root 指向的目录不存在: ${ROOT}`);
+  process.exit(1);
+}
+const manifestPath = join(ROOT, 'scripts/doc-manifest.json');
+if (!existsSync(manifestPath)) {
+  console.error(`缺少清单文件: ${relative(ROOT, manifestPath)}`);
+  process.exit(1);
+}
+const MANIFEST = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const DOCS = join(ROOT, 'docs');
 const issues = [];
 
@@ -73,26 +84,27 @@ function headingsOf(file) {
 }
 
 const allDocs = collect(DOCS, ['.md']);
+// 根级治理文档清单来自 manifest：docSet 里不在 docs/ 下的项 + 入口文件。
 const ROOT_MD = [
-  'README.md',
-  'CONTRIBUTING.md',
-  'CHANGELOG.md',
-  'AGENTS.md',
-  join('.specify', 'memory', 'constitution.md'),
+  ...MANIFEST.docSet.filter((path) => !path.startsWith('docs/')),
+  MANIFEST.entry,
 ]
   .map((path) => join(ROOT, path))
   .filter((path) => existsSync(path));
-const CODE_EXT = ['.ts', '.tsx', '.mjs'];
-const codeFiles = ['app', 'components', 'lib', 'hooks', 'tests'].flatMap(
-  (dir) => collect(join(ROOT, dir), CODE_EXT)
+// 扫描目录与扩展名也来自 manifest：scripts/ 的 .mjs 与 .github/workflows 的
+// .yml 过去都是死配置（目录不在列表里），现在一并纳入。
+const codeFiles = MANIFEST.scanDirs.flatMap((dir) =>
+  collect(join(ROOT, dir), MANIFEST.scanExtensions)
 );
-// 链接/锚点/文档头只在 docs/ 内校验（根级治理文档的相对链接基准不同）；
-// 退役短语与反引号路径扫到根级文档与代码注释，那里才是坏引用的藏身处。
-const scanned = [...allDocs, ...ROOT_MD, ...codeFiles];
+// 链接/锚点只在「文档」里校验：根级治理文档也在内；代码字符串里的
+// [text](x) 多为示例/正则，纳入会误报。退役短语与反引号路径扫到全部文件。
+const linked = [...allDocs, ...ROOT_MD];
+const scanned = [...linked, ...codeFiles];
 
-// 1. 链接与锚点：与文档结构无关的通用护栏，继续保留。
+// 1. 链接与锚点：文档 + 根级治理文档都校验；代码字符串里的
+// [text](x) 多为示例或正则，不纳入以免误报。
 const linkPattern = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-for (const file of allDocs) {
+for (const file of linked) {
   const content = readFileSync(file, 'utf8');
   for (const match of content.matchAll(linkPattern)) {
     const target = match[1];

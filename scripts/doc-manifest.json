@@ -34,7 +34,10 @@
     "docs/superpowers",
     "specs/001-lineage-edit-preview",
     "specs/002-article-authoring",
-    "specs/003-article-editor-wordlike"
+    "specs/003-article-editor-wordlike",
+    "docs/directory-structure.md",
+    "docs/code-index.md",
+    "docs/modules/book.md"
   ],
   "retiredPhrases": [
     "docs/architecture/",
@@ -52,8 +55,21 @@
     ".specify/bugs/lineage-generation-order",
     "docs/vision.md",
     "docs/interfaces.md",
-    "specs/_archive/"
+    "specs/_archive/",
+    "docs/directory-structure.md",
+    "docs/code-index.md",
+    "docs/modules/book.md"
   ],
+  "scanDirs": [
+    "app",
+    "components",
+    "lib",
+    "hooks",
+    "tests",
+    "scripts",
+    ".github"
+  ],
+  "scanExtensions": [".ts", ".tsx", ".mjs", ".mts", ".yml", ".yaml", ".sh"],
   "subdirs": ["adr", "contracts", "modules", "runbooks"],
   "headerFields": ["回答什么问题", "读者", "长度上限", "不写什么"],
   "retiredFeatureSpecs": [

@@ -210,13 +210,16 @@ flowchart LR
 
 这些不是文档约定，而是 `pnpm check` 会失败的硬规则（`biome.json` 的 `noRestrictedImports`）：
 
+> **Biome 2.x 的 `overrides` 对同名 `noRestrictedImports` 不合并 options**：一个文件命中多个 override 时，后匹配的组会**整体替换**前面的禁物清单。因此 `biome.json` 按目录切互斥分区，**每个分区都自带该目录被禁止的全部 import**；编辑器依赖（`@tiptap/**`、`prosemirror-*`）在除下列两个合法落点外的每个分区都要重复写一次，不能只写在「全局」组里。`tests/docs-guard.test.ts` 用交叉探针逐个分区验证，既拦得住也无误伤。
+
 | 作用范围 | 禁止 import | 原因 |
 | --- | --- | --- |
-| `components/**`、`hooks/**` | `drizzle-orm`、`@/lib/db/**` | 客户端不得直接依赖 ORM / 数据库 |
-| `lib/db/**` | `next/*` | 基础设施不依赖 Next 运行时，保证可测试、可迁移 |
-| `lib/db/queries/**` | `@/lib/*/actions` | 查询层不得反向依赖 Action 层 |
-| `lib/*/services.ts` | `next/headers`、`next/navigation` | 领域服务不读会话 / 不跳转，由 Action 负责 |
-| 除 `lib/article/**`、`components/article/editor/**` 外 | `@tiptap/**`、`prosemirror-*` | 编辑器依赖必须有明确消费者 |
+| `components/**`、`hooks/**`（含 `.tsx`，排除编辑器目录） | `drizzle-orm`、`@/lib/db/**`、`@tiptap/**`、`prosemirror-*` | 客户端不得直接依赖 ORM / 数据库，也不得引入编辑器依赖 |
+| `lib/db/**` | `next/*`、`@tiptap/**`、`prosemirror-*` | 基础设施不依赖 Next 运行时，保证可测试、可迁移 |
+| `lib/db/queries/**` | `@/lib/*/actions`、`next/*`、`@tiptap/**`、`prosemirror-*` | 查询层不得反向依赖 Action 层 |
+| `lib/*/services.ts`、`lib/*/*-services.ts` | `next/headers`、`next/navigation`、`@tiptap/**`、`prosemirror-*` | 领域服务不读会话 / 不跳转，由 Action 负责 |
+| 其余 `.ts` / `.tsx` | `@tiptap/**`、`prosemirror-*` | 编辑器依赖必须有明确消费者 |
+| `lib/article/**`、`components/article/editor/**` | 仅上述 drizzle / ORM 约束（编辑器目录）；编辑器依赖在这两处合法 | 编辑器实现与其领域逻辑的落点 |
 
 领域间只允许单向依赖：
 

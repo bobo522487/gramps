@@ -29,7 +29,7 @@ function gate(rootDir?: string): { status: number; stdout: string } {
 // fixture 里的坏样本用拼接构造，避免护栏扫到本测试文件自身。
 function fixture(): string {
   const tmp = mkdtempSync(join(tmpdir(), 'docs-guard-'));
-  for (const dir of ['docs', 'scripts', 'lib']) {
+  for (const dir of ['docs', 'scripts', 'lib', '.github/workflows']) {
     mkdirSync(join(tmp, dir), { recursive: true });
   }
   writeFileSync(
@@ -39,6 +39,16 @@ function fixture(): string {
   writeFileSync(join(tmp, 'lib/foo.ts'), 'const a = 1;\nconst b = 2;\n');
   const missing = ['docs', 'nope.md'].join('/');
   const retired = ['docs', 'vision.md'].join('/');
+  // 根级治理文档 / 脚本 / workflow 也是坏引用的藏身处，逐处埋一个。
+  writeFileSync(join(tmp, 'README.md'), `[坏链](${missing})\n`);
+  writeFileSync(
+    join(tmp, 'scripts/probe.mjs'),
+    `// 旧路径 ${retired} 已下线。\n`
+  );
+  writeFileSync(
+    join(tmp, '.github/workflows/probe.yml'),
+    `# 旧路径 ${retired} 已下线。\n`
+  );
   const header = [
     '> **回答什么问题**：fixture',
     '> **读者**：护栏',
@@ -108,6 +118,23 @@ describe('documentation guard', () => {
       });
       expect(result.status).toBe(1);
       expect(result.stdout).toContain('backtick-path');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('gate also scans root docs, scripts and workflows', () => {
+    const tmp = fixture();
+    try {
+      const result = gate(tmp);
+      expect(result.status).toBe(1);
+      // 根级治理文档的坏链接：过去规则 1 只扫 docs/，这里完全漏掉。
+      expect(result.stdout).toContain('README.md:1: [link]');
+      // 脚本与 workflow 里的退役引用：过去 codeFiles 不含这两个目录。
+      expect(result.stdout).toContain('scripts/probe.mjs:1: [retired-path]');
+      expect(result.stdout).toContain(
+        '.github/workflows/probe.yml:1: [retired-path]'
+      );
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -292,10 +319,15 @@ describe('删掉已腐烂的手抄索引与占位文档', () => {
 
     const manifest = JSON.parse(read('scripts/doc-manifest.json')) as {
       docSet: string[];
+      retired: string[];
+      retiredPhrases: string[];
     };
     for (const path of removed) {
       expect(existsSync(join(root, path)), path).toBe(false);
       expect(manifest.docSet, path).not.toContain(path);
+      // 删掉的路径必须登记进退役清单，否则「单一数据源」名不副实。
+      expect(manifest.retired, path).toContain(path);
+      expect(manifest.retiredPhrases, path).toContain(path);
     }
 
     const tracked = execFileSync('git', ['ls-files'], {
@@ -304,7 +336,13 @@ describe('删掉已腐烂的手抄索引与占位文档', () => {
     })
       .trim()
       .split('\n')
-      .filter((file) => /\.(md|ts|tsx|mjs|json|yml|yaml)$/.test(file));
+      .filter(
+        (file) =>
+          /\.(md|ts|tsx|mjs|json|yml|yaml)$/.test(file) &&
+          // 清单本身必须列出这些路径，跳过它自己；测试文件用拼接构造不在此列。
+          file !== 'scripts/doc-manifest.json' &&
+          file !== 'tests/docs-guard.test.ts'
+      );
     for (const file of tracked) {
       const content = readFileSync(join(root, file), 'utf8');
       for (const path of removed) {
@@ -365,5 +403,159 @@ describe('内容去重与本地门禁前置', () => {
     const nfr = read('docs/nfr.md');
     expect(nfr).not.toContain('4 组 `noRestrictedImports`');
     expect(nfr).toContain('tests/docs-guard.test.ts');
+  });
+});
+
+// Critical 回归锁：Biome 2.6.3 的 overrides 对同名 noRestrictedImports
+// 不合并 options，后匹配组整体替换前匹配组。此前为让 5 组互斥，给全局
+// 组加了 `!components/**` 等排除，结果 @tiptap/** 规则在这四类路径静默
+// 失活，而「五组都真的会拦」只给每组喂自己的违例，测试全绿却给假保证。
+// 这里改成交叉矩阵：每个分区都必须同时拦住「自己的专属禁物」和
+// 「全局编辑器依赖」，合法区（编辑器目录、app 的 Server Action）不误伤。
+describe('Biome override 交叉覆盖', () => {
+  const TIPTAP_MSG = '编辑器依赖只允许出现在 lib/article/**';
+
+  function lint(
+    tmp: string,
+    file: string,
+    source: string
+  ): { status: number; output: string } {
+    const target = join(tmp, file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, source);
+    const result = spawnSync(
+      join(root, 'node_modules/.bin/biome'),
+      ['lint', '--config-path', tmp, target],
+      { encoding: 'utf8' }
+    );
+    return {
+      status: result.status ?? 1,
+      output: `${result.stdout}${result.stderr}`,
+    };
+  }
+
+  test('每个分区都拦得住编辑器依赖，且合法区不误伤', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'docs-biome-cross-'));
+    try {
+      writeFileSync(join(tmp, 'biome.json'), read('biome.json'));
+      writeFileSync(join(tmp, '.gitignore'), '');
+      execFileSync('git', ['init', '-q'], { cwd: tmp, stdio: 'ignore' });
+
+      const blocked: Array<{ file: string; source: string; message: string }> =
+        [
+          // 客户端 / hooks：drizzle 专属 + 编辑器依赖
+          {
+            file: 'components/foo/probe.tsx',
+            source: "import 'drizzle-orm';\n",
+            message: '客户端组件不得直接依赖 ORM',
+          },
+          {
+            file: 'components/foo/tiptap.tsx',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+          {
+            file: 'hooks/useFoo.ts',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+          {
+            file: 'hooks/foo.tsx',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+          {
+            file: 'hooks/foo.tsx',
+            source: "import 'drizzle-orm';\n",
+            message: '客户端组件不得直接依赖 ORM',
+          },
+          // 基础设施层 / 查询层：next/* + actions 专属 + 编辑器依赖
+          {
+            file: 'lib/db/foo/probe.ts',
+            source: "import { cookies } from 'next/headers';\n",
+            message: 'lib/db 是基础设施层',
+          },
+          {
+            file: 'lib/db/foo/tiptap.ts',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+          {
+            file: 'lib/db/queries/probe.ts',
+            source: "import { save } from '@/lib/lineage/actions';\n",
+            message: '查询层不得依赖 Action 层',
+          },
+          {
+            file: 'lib/db/queries/next.ts',
+            source: "import { cookies } from 'next/headers';\n",
+            message: 'lib/db 是基础设施层',
+          },
+          {
+            file: 'lib/db/queries/tiptap.ts',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+          // 领域服务（含 *-services.ts）：会话/跳转专属 + 编辑器依赖
+          {
+            file: 'lib/foo/services.ts',
+            source: "import { redirect } from 'next/navigation';\n",
+            message: '领域服务不读会话 / 不跳转',
+          },
+          {
+            file: 'lib/foo/services.ts',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+          {
+            file: 'lib/lineage/node-services.ts',
+            source: "import { redirect } from 'next/navigation';\n",
+            message: '领域服务不读会话 / 不跳转',
+          },
+          {
+            file: 'lib/lineage/node-services.ts',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+          // 全局兜底分区
+          {
+            file: 'app/foo/tiptap.ts',
+            source: "import '@tiptap/core';\n",
+            message: TIPTAP_MSG,
+          },
+        ];
+
+      for (const { file, source, message } of blocked) {
+        const { status, output } = lint(tmp, file, source);
+        expect(status, `${file} <- ${source.trim()}`).toBe(1);
+        expect(output, `${file} <- ${source.trim()}`).toContain(
+          'lint/style/noRestrictedImports'
+        );
+        expect(output, `${file} <- ${source.trim()}`).toContain(message);
+      }
+
+      const allowed: Array<{ file: string; source: string }> = [
+        // 编辑器依赖的两个合法落点
+        {
+          file: 'components/article/editor/probe.tsx',
+          source: "import '@tiptap/core';\n",
+        },
+        { file: 'lib/article/probe.ts', source: "import '@tiptap/core';\n" },
+        // Server Action 读会话、基础设施层用 ORM 都是正常写法
+        {
+          file: 'app/foo/action.ts',
+          source: "import { cookies } from 'next/headers';\n",
+        },
+        { file: 'lib/db/foo/ok.ts', source: "import 'drizzle-orm';\n" },
+      ];
+      for (const { file, source } of allowed) {
+        const { status, output } = lint(tmp, file, source);
+        expect(status, `${file} <- ${source.trim()}`).toBe(0);
+        expect(output, `${file} <- ${source.trim()}`).not.toContain(
+          'noRestrictedImports'
+        );
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

@@ -7,6 +7,7 @@
 
 ## [未发布]
 
+- **文档护栏回归修复（2026-11-10）**：审查发现 `biome.json` 为让各依赖方向 override 互斥而排除的目录，反而使编辑器依赖禁令在这些目录失活——Biome 2.x 对同名 `noRestrictedImports` 不合并 options、后匹配组整体替换。改为按目录切互斥分区、每区自带该目录被禁的全部 import，`tests/docs-guard.test.ts` 用交叉探针逐分区验证「拦得住且无误伤」。护栏扫描范围从 `docs/` 扩到根级治理文档的链接、`scripts/` 与 `.github/` 的退役短语与反引号路径，扫描清单与根级文档都收进 `scripts/doc-manifest.json`；新删的三份文档登记进退役清单。ADR 索引的溯源口径由「正文」统一为提交信息与 PR 描述（该目录按设计只存索引），并同步 `docs/adr/README.md` 的机检说明。
 - **文档去重与门禁前置（2026-11-10）**：覆盖率阈值、环境变量清单各自只收成一份真相源，`docs/development.md`、`docs/infrastructure.md`、`docs/architecture.md` 改为指路到配置与模板；`docs/data-model.md` 合并重复的删除语义与 RLS 两节并重编号；五组依赖方向硬规则改由 `tests/docs-guard.test.ts` 端到端验证，组数不再写死。`pnpm docs:check` 前置到提交前门禁且默认即失败，文档里的命令口径统一（CI 保留历史开关作 no-op 兼容）。
 - **文档体系合并（2026-11-10）**：Code Wiki 落到 `docs/` 后随即删去重复正文，模块导读搬到 `docs/modules/`，产品意图与接口地图分别改名 `docs/overview.md` / `docs/api.md`。重组只搬文件未同步导航，留下多处失效引用与代码注释，而当时的文档测试与门禁全绿——退役清单在 `scripts/check-docs.mjs` 和 `tests/docs-consistency.test.ts` 各存一份，且只检查 Markdown 链接。
 - **文档护栏整改（2026-11-10）**：清单收敛到 `scripts/doc-manifest.json` 单一数据源；`scripts/check-docs.mjs` 新增反引号路径 / 行号锚 / 退役短语校验并扫描根级文档与代码注释，默认即失败（`--strict` 保留为兼容开关）；新增 `tests/docs-guard.test.ts` 用临时仓库 fixture 端到端验证坏引用会让门禁变红；逐条修掉失效引用，删掉 `README.md` 手写目录树与任务表，导航只留 `docs/README.md`；裁决世次公式、修正环境变量名，并给 `biome.json` 补上 `lib/*/services.ts` 的真实 override。删掉当天即腐烂的手写符号索引、目录结构说明与谱书占位文档：这类清单和「以后要补」的占位都没有执行者，目录与符号一律以源码为准。
