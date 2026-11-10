@@ -151,7 +151,9 @@ PR #13 合并后，main 的 `Migrate production database` job 红了一次。读
 - 修法的关键不是「换个强口令」，而是**承认角色不该在基线里**：`CREATE ROLE` 是集群级操作，基线描述的是单库 schema；口令本来就是「每个环境一份」的部署配置。基线的第一条 GRANT 现在隐含要求角色已存在，缺角色时报 `42704`（比静默弱口令上线好得多）。
 - 顺带修掉一个方向错：授权步骤原先跟着角色一起跑在迁移**前**，而 `app` schema 是基线建的，于是撞 `3F000 schema "app" does not exist`。现在拆成 `--roles-only`（前）与 `--grants-only`（后）。
 
-**生产环境必须配置的 secret**：`APP_DB_PASSWORD`（`genealogy_app` 的口令，≥20 位、含大小写+数字+符号）、`AUTH_DB_PASSWORD`（`auth_runtime`）。缺 `APP_DB_PASSWORD` 时 workflow 第一步就报 `::error::APP_DB_PASSWORD secret is missing` 并退出，不会跑到清库那一步。
+**生产环境必须配置的 secret**：`APP_DB_PASSWORD`（`genealogy_app` 的口令，≥20 位、含大小写+数字+符号）、`AUTH_DB_PASSWORD`（`auth_runtime`）。两个都缺不得，workflow 在动库之前各有一条前置校验：缺 `APP_DB_PASSWORD` 报 `::error::APP_DB_PASSWORD secret is missing`，缺 `AUTH_DB_PASSWORD` 报 `::error::AUTH_DB_PASSWORD secret is missing` 并退出，不会跑到清库那一步。
+
+> 脚本侧对两个口令是**同一口径**：给了才 `ALTER ROLE … PASSWORD`，没给就跳过并打印「未设置，未改口令」。不要指望脚本有默认口令——曾经 `AUTH_DB_PASSWORD ?? 'auth'` 就是这样一个兜底，缺变量的机器会把 `auth_runtime`（读得到 `auth.user` 的密码哈希与会话 token）静默改成 4 字符口令，本地 PG 还照单全收。
 
 **事故记录：Neon 只放行 `ALTER ROLE … PASSWORD`，属性 DDL 一律 42501（2026-11-09）**
 

@@ -69,6 +69,18 @@ jobs:
             exit 1
           fi
 
+      # 2026-11-09 补：`AUTH_DB_PASSWORD` 与 `APP_DB_PASSWORD` 同一口径。脚本曾经
+      # 用 `?? 'auth'` 兜底，缺 secret 时会把 auth_runtime 的口令静默改成 4 字符；
+      # 现在脚本不再给默认值，这里也不允许出现「静默跳过改口令」的路径。
+      - name: Refuse to run without the auth DB password
+        env:
+          AUTH_DB_PASSWORD: ${{ secrets.AUTH_DB_PASSWORD }}
+        run: |
+          if [ -z "$AUTH_DB_PASSWORD" ]; then
+            echo "::error::AUTH_DB_PASSWORD secret is missing; auth_runtime cannot be provisioned."
+            exit 1
+          fi
+
       # 只由人工触发的重建模式。默认 dry-run 打印范围，确认参数正确才动库。
       - name: Reset target database (rebuild mode only)
         if: github.event_name == 'workflow_dispatch' && inputs.reset
