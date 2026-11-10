@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import type { z } from 'zod';
 import { getSessionUser } from '@/lib/auth/context';
 import type { SessionUser } from '@/lib/auth/types';
 import { actionError } from '@/lib/errors';
+import { runWithRequestContext } from '@/lib/server/request-context';
 
 export type { ActionState } from './types';
 
@@ -33,6 +35,13 @@ function validationState(error: z.ZodError, formData: FormData): ActionState {
   };
 }
 
+// 每个 Server Action 都从这里进入。用一个 request_id 建立日志上下文，
+// 让 action 内部的 addLogContext({ user_id }) 与 logger 输出能落到同一条链路。
+// 只生成 id、不读 next/headers：单测直接 await action(...) 时也能跑。
+function inRequestContext<T>(action: () => Promise<T>): Promise<T> {
+  return runWithRequestContext({ request_id: randomUUID() }, action);
+}
+
 export function validatedAction<S extends z.ZodType, T>(
   schema: S,
   action: ValidatedActionFunction<S, T>
@@ -43,7 +52,7 @@ export function validatedAction<S extends z.ZodType, T>(
       return validationState(result.error, formData);
     }
 
-    return action(result.data, formData);
+    return inRequestContext(() => action(result.data, formData));
   };
 }
 
@@ -68,7 +77,7 @@ export function validatedActionWithUser<S extends z.ZodType, T>(
       return validationState(result.error, formData);
     }
 
-    return action(result.data, formData, user);
+    return inRequestContext(() => action(result.data, formData, user));
   };
 }
 
@@ -101,6 +110,6 @@ export function validatedActionWithUserObject<S extends z.ZodType, T>(
       };
     }
 
-    return action(result.data, user);
+    return inRequestContext(() => action(result.data, user));
   };
 }

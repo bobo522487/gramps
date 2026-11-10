@@ -7,39 +7,59 @@ const LEVEL_PRIORITY: Record<Level, number> = {
   error: 40,
 };
 
-// This module is shared by Server Components and the client error boundary, so
-// it cannot import lib/config.ts (which is server-only). instrumentation.ts
-// installs the validated level at startup; the fallback keeps the browser quiet.
-let levelOverride: Level | null = null;
+type LogContext = Record<string, unknown>;
+
+type LoggerState = {
+  level: Level | null;
+  contextProvider: (() => LogContext | undefined) | undefined;
+};
+
+// This module is bundled twice (Server Components + the client error boundary).
+// Module-level `let` would give each bundle its own state, so instrumentation.ts
+// setting the level in one instance would leave the other stuck at the quiet
+// 'error' fallback. A well-known symbol on globalThis gives every instance the
+// same single owner. The client bundle never calls setLogLevel, so it still
+// falls back to 'error' and stays quiet. This file cannot import lib/config.ts
+// (server-only); the validated level is installed by instrumentation.ts.
+const STATE_KEY = Symbol.for('gramps.logger');
+
+function state(): LoggerState {
+  const host = globalThis as unknown as {
+    [k: symbol]: LoggerState | undefined;
+  };
+  let current = host[STATE_KEY];
+  if (!current) {
+    current = { level: null, contextProvider: undefined };
+    host[STATE_KEY] = current;
+  }
+  return current;
+}
 
 /** Called once from instrumentation.ts with the level from lib/config.ts. */
 export function setLogLevel(level: Level) {
-  levelOverride = level;
+  state().level = level;
 }
 
 function currentLevel(): Level {
-  return levelOverride ?? 'error';
+  return state().level ?? 'error';
 }
-
-type LogContext = Record<string, unknown>;
 
 // Server-only module registers a provider backed by AsyncLocalStorage so every
 // log line carries request_id/user_id without threading context through calls.
-let contextProvider: (() => LogContext | undefined) | undefined;
-
 export function setLogContextProvider(
   provider: (() => LogContext | undefined) | undefined
 ) {
-  contextProvider = provider;
+  state().contextProvider = provider;
 }
 
 function write(level: Level, message: string, context?: LogContext) {
+  const current = state();
   if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[currentLevel()]) return;
   const line = JSON.stringify({
     level,
     time: new Date().toISOString(),
     message,
-    ...(contextProvider?.() ?? {}),
+    ...(current.contextProvider?.() ?? {}),
     ...(context ?? {}),
   });
   if (level === 'error') {
