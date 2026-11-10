@@ -81,4 +81,4 @@ flowchart TB
 - **一个事实只有一个家**：产品意图在 `overview`，结构与依赖在 `architecture`，表与不变量在 `data-model`，接口在 `api`，错误码与权限矩阵在 `contracts`，阈值在 `nfr`。
 - 文中路径均相对于仓库根目录；函数签名以源码为准。
 - 「未实现 / 明确不做」会显式标注，避免把路线图当成现状。
-- 新增或改名文档后跑 `pnpm docs:check --strict`。
+- 新增或改名文档后跑 `pnpm docs:check`；门禁默认即失败，无需额外开关。

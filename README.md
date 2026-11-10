@@ -35,7 +35,7 @@ pnpm dev           # http://localhost:3000
 
 ```bash
 pnpm check && pnpm typecheck && pnpm test
-pnpm arch:check
+pnpm arch:check && pnpm docs:check
 ```
 
 完整命令表、环境变量、测试分层与 CI：[`docs/runbooks/`](docs/runbooks/) 与 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

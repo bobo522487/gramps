@@ -234,9 +234,9 @@ flowchart LR
   GH["GitHub main"] --> CI["GitHub Actions ci.yml<br/>provision roles → migrate → verify schema → test/coverage"]
   CI --> V1["Vercel 应用"]
   CI --> V2["Neon PostgreSQL"]
-  V1 -->|"APP_POSTGRES_URL（genealogy_app）"| V2
-  V1 -->|"AUTH_POSTGRES_URL（auth_runtime → auth_service）"| V2
-  V1 -->|"BLOB_READ_WRITE_TOKEN"| Blob["Vercel Blob"]
+  V1 -->|"业务连接（genealogy_app，pooled）"| V2
+  V1 -->|"认证连接（auth_service，direct）"| V2
+  V1 -->|"媒体模式（blob / fs）"| Blob["Vercel Blob"]
 ```
 
 - 应用：Vercel（Fluid Compute），Next.js 16；
@@ -245,5 +245,6 @@ flowchart LR
 - 迁移：`drizzle-kit migrate` + 自定义脚本校验（`verify-target-schema`、`verify-deployment`）；
 - 迁移前必须先 `provision-roles` 创建数据库角色，否则 RLS / 权限校验失败（CI 与 `migrate-production.yml` 均按此顺序）。
 - 验证：`pnpm verify:target-schema`（DDL / 约束 / RLS / EXPLAIN）、`pnpm verify:deploy`（角色、函数、权限）。
+- 连接串变量名、必填性与 pooled / direct 约束见 [infrastructure.md](infrastructure.md) §1 与 [`.env.example`](../.env.example)；本图只画角色与拓扑，不复制清单。
 
 > 目标态与现状冲突时，裁决顺序见 `CONTRIBUTING.md` §2「权威口径」。

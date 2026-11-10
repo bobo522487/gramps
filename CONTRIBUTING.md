@@ -46,7 +46,7 @@
 > **不写什么**：...（明确排除的内容，指向它的归属文件）
 ```
 
-四个字段里「读者」与「长度上限」通常合写一行；`pnpm docs:check --strict` 逐份核对这四个字段（见 `scripts/check-docs.mjs`），`docs/` 根级文档与四个子目录的 `README.md` 都必须有。
+四个字段里「读者」与「长度上限」通常合写一行；`pnpm docs:check` 逐份核对这四个字段（见 `scripts/check-docs.mjs`），`docs/` 根级文档与四个子目录的 `README.md` 都必须有。
 
 正文里既有现状又有目标时，用 `[现状]` / `[目标]` 前缀标出段落边界，不要靠目录位置暗示。
 
@@ -80,7 +80,7 @@
 
 全部勾选、没有半成品业务功能，才算完成。勾选前须有命令输出为证，不以勾选框代替证据。
 
-- [ ] `pnpm check && pnpm typecheck && pnpm test` 全绿；`pnpm arch:check`、`pnpm docs:check --strict` 无 issue。
+- [ ] `pnpm check && pnpm typecheck && pnpm test` 全绿；`pnpm arch:check`、`pnpm docs:check` 无 issue。
 - [ ] 涉及 SQL / 约束 / 成员隔离 / 多步事务的改动补了 `pnpm test:integration`，失败路径不留半成品数据。
 - [ ] CI 的 `test:coverage`、`test:e2e`、`verify:deploy` 与迁移漂移检查能通过。
 - [ ] 新增的组织级查询 / 写入都带 `orgId` 且做成员校验；公开 ID 查询带 `userId`，非成员一律 404。

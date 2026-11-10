@@ -25,7 +25,7 @@
 | 环境变量读取 | `process.env` 只在 `lib/config.ts` 读，**零豁免**；根入口 `instrumentation.ts` / `proxy.ts` 只放行 `NEXT_RUNTIME` / `NEXT_PHASE` 标记 | `scripts/check-env-access.mjs` | `pnpm arch:check` |
 | 覆盖率全局下限 | lines 76 / statements 76 / functions 84 / branches 65 | `vitest.coverage.config.ts` | `pnpm test:coverage` |
 | 覆盖率局部下限 | `lib/db/queries/**` 98 / 98；`lib/project/services.ts` 92 / 98；`lib/lineage/node-services.ts` 84 / 94（lines / functions） | `vitest.coverage.config.ts` | `pnpm test:coverage` |
-| 依赖方向 | 4 组 `noRestrictedImports`：客户端禁 `drizzle-orm` / `@/lib/db/*` / schema；`lib/db/**` 禁 `next/*`；`lib/db/queries/**` 禁 `@/lib/*/actions`；`@tiptap/**` 与 `prosemirror-*` 只允许 `lib/article/**`、`components/article/editor/**` | `biome.json` | `pnpm check` |
+| 依赖方向 | `biome.json` 的 `noRestrictedImports` 分组（客户端禁 `drizzle-orm` / `@/lib/db/*` / schema；`lib/db/**` 禁 `next/*`；`lib/db/queries/**` 禁 `@/lib/*/actions`；`lib/*/services.ts` 禁 `next/headers` / `next/navigation`；`@tiptap/**` 与 `prosemirror-*` 只允许 `lib/article/**`、`components/article/editor/**`）。组数会随规则增减，以配置为准 | `biome.json`，`tests/docs-guard.test.ts` 端到端验证每组真的会拦 | `pnpm check`、`pnpm test` |
 | 会话与密码 | 会话 7 天过期、滑动续期 1 天；`cookieCache.enabled: false`（每次校验查库）；密码 8–100；邀请 7 天过期；邮箱验证关闭、改邮箱关闭、组织不可删 | `lib/auth/better-auth.ts` | `tests/integration/better-auth.test.ts` |
 | 限流 | 登录 10 次 / 15 分钟（IP + 邮箱）、注册 5 次 / 1 小时（IP）、改密 5 次 / 15 分钟（IP + 用户）、删号 3 次 / 1 小时（IP + 用户）。进程内滑动窗口，**重启清零、多实例不共享，不是安全边界** | `lib/auth/rate-limit.ts`；`lib/auth/actions/session.ts`、`lib/auth/actions/account.ts` | `tests/rate-limit.test.ts` |
 | 数据库连接池 | 仅 Vercel 上 `new Pool({ max: 5 })` + `attachDatabasePool`；本地与 CI 走 `postgres.js` 直连，不受这层保护 | `lib/db/drizzle.ts` | **无自动执行者**；靠 Neon 连接数指标 |

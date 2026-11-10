@@ -52,22 +52,7 @@ pnpm dev             # next dev --turbopack → http://localhost:3000
 
 ## 3. 环境变量
 
-见 [infrastructure.md](infrastructure.md) 的完整表格。最小可用 `.env`：
-
-```dotenv
-POSTGRES_URL=postgresql://postgres:postgres@localhost:54322/postgres
-BETTER_AUTH_SECRET=<32+ 字符随机串>
-BETTER_AUTH_URL=http://localhost:3000
-LOG_LEVEL=info
-```
-
-生产额外：
-
-```dotenv
-APP_POSTGRES_URL=postgresql://app:...@<pooled-host>/db
-AUTH_POSTGRES_URL=postgresql://auth_runtime:...@<direct-host>/db   # 必须直连
-BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
-```
+变量名、取值与最小可用 `.env` 见 [`.env.example`](../.env.example)（复制为 `.env` 即可本地启动）；校验逻辑见 [`lib/config.ts`](../lib/config.ts) 与 [infrastructure.md](infrastructure.md) §1。本文件不复制第二份清单。
 
 > `.env` 必须是 `.env`，不是 `.env.local`（`db:setup` 与脚本按此约定读取）。
 
@@ -145,16 +130,9 @@ flowchart LR
 
 ### 6.2 覆盖率
 
-- 唯一阈值来源：`docs/nfr.md` §2；
+- 阈值数值只在 [`vitest.coverage.config.ts`](../vitest.coverage.config.ts) 的 `thresholds` 定义，本文不复制；「谁让它变红」的登记见 [`docs/nfr.md`](nfr.md) §2；
 - 由 `pnpm test:coverage` 执行（单测 + 集成）；
 - CI 上传 `coverage/` 产物。
-
-| 范围 | 下限（lines / functions） |
-| --- | --- |
-| 全局 | 76 / 84（statements 76、branches 65） |
-| `lib/db/queries/**` | 98 / 98 |
-| `lib/project/services.ts` | 92 / 98 |
-| `lib/lineage/node-services.ts` | 84 / 94 |
 
 阈值是**下限不是目标**：刻意比实测基线低约 2 点，基线上涨后只许抬高。
 
@@ -174,7 +152,7 @@ Playwright（chromium 单 worker 串行）：
 flowchart TB
   A["checkout + pnpm + node(.nvmrc)"] --> B["pnpm install --frozen-lockfile"]
   B --> C["pnpm check"]
-  C --> D["pnpm docs:check --strict"]
+  C --> D["pnpm docs:check"]
   D --> E["pnpm arch:check (F6/F7)"]
   E --> F["pnpm typecheck"]
   F --> G["provision roles --roles-only"]
@@ -204,10 +182,7 @@ AUTH_POSTGRES_URL=postgres://auth_runtime:auth@localhost:5432/gramps_test
 | --- | --- |
 | Node | 24.x |
 | 构建 | `pnpm build` |
-| `APP_POSTGRES_URL` | Neon pooled endpoint（`genealogy_app`） |
-| `AUTH_POSTGRES_URL` | Neon **direct** endpoint（`auth_runtime` → `auth_service`） |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob 绑定 |
-| `BETTER_AUTH_URL` | 生产绝对 URL |
+| 环境变量 | 以 [`.env.example`](../.env.example) 与 [infrastructure.md](infrastructure.md) §1 为准：业务连接走 pooled endpoint、认证连接必须 direct、Blob token 决定媒体模式、`BETTER_AUTH_URL` 为生产绝对 URL |
 
 ### 8.2 迁移 job
 

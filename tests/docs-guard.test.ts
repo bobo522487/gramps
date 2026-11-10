@@ -299,3 +299,57 @@ describe('删掉已腐烂的手抄索引与占位文档', () => {
     }
   });
 });
+
+describe('内容去重与本地门禁前置', () => {
+  test('覆盖率数值只在配置里定义，development 只指路', () => {
+    const dev = read('docs/development.md');
+    expect(dev).not.toContain('| 范围 | 下限（lines / functions） |');
+    expect(dev).not.toContain('| 全局 | 76 / 84');
+    expect(dev).toContain('vitest.coverage.config.ts');
+    expect(dev).toContain('docs/nfr.md');
+  });
+
+  test('环境变量清单只有一份，三份文档只指路', () => {
+    const infra = read('docs/infrastructure.md');
+    const dev = read('docs/development.md');
+    const arch = read('docs/architecture.md');
+    expect(infra).not.toContain('| 变量 | 必填 | 说明 |');
+    expect(dev).not.toContain('POSTGRES_URL=postgresql://postgres');
+    expect(dev).not.toContain('Neon pooled endpoint');
+    expect(arch).not.toContain('APP_POSTGRES_URL（genealogy_app）');
+    expect(infra).toContain('.env.example');
+    expect(infra).toContain('lib/config.ts');
+    expect(dev).toContain('.env.example');
+  });
+
+  test('data-model 删掉重复的两节并重新编号', () => {
+    const model = read('docs/data-model.md');
+    expect(model).not.toContain('## 10. 删除语义补充');
+    expect(model).not.toContain('## 11. RLS 与验证口径');
+    expect(model).toContain('## 10. 触发器例外');
+    expect(model).toContain('23001');
+    expect(model).toContain('InitPlan');
+  });
+
+  test('本地门禁前置 docs:check，全仓口径统一', () => {
+    expect(read('README.md')).toContain('pnpm docs:check');
+    expect(read('CONTRIBUTING.md')).toContain('pnpm docs:check');
+    const readme = read('docs/README.md');
+    expect(readme).not.toContain('docs:check --strict');
+    expect(readme).toContain('默认即失败');
+    for (const file of [
+      'CONTRIBUTING.md',
+      '.specify/memory/constitution.md',
+      'docs/contracts/README.md',
+      'docs/development.md',
+    ]) {
+      expect(read(file), file).not.toContain('docs:check --strict');
+    }
+  });
+
+  test('依赖方向口径不写死组数，指向 biome.json', () => {
+    const nfr = read('docs/nfr.md');
+    expect(nfr).not.toContain('4 组 `noRestrictedImports`');
+    expect(nfr).toContain('tests/docs-guard.test.ts');
+  });
+});

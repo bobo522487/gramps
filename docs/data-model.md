@@ -148,6 +148,8 @@ end
 organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{}'::uuid[]))
 ```
 
+`app.visible_org_array()` 必须写成子查询（InitPlan）而不是裸函数调用，否则逐行求值；`'{}'::uuid[]` 保证 GUC 未设置时 fail-closed。
+
 - `organization` 表自身把谓词里的 `organization_id` 替换为 `id`；
 - 不再需要多级 join 才能判断租户，RLS 可走单列索引；
 - `app.visible_org_array()` 读取 GUC `app.user_id`：
@@ -200,10 +202,19 @@ flowchart LR
   DelSeries["删除谱系/谱文"] -->|"RESTRICT"| Catalog["被 book_catalog 引用 → 拒绝"]
 ```
 
-- `project` 删除前由 `lib/project/services.ts` 探测子表引用，避免数据库 23503 直接暴露给用户；
-- `folder` 删除不删内容，只把 `folder_id` 置空（未分类）；
-- `lineage` 删除先清空其 `node` 行再删谱系，返回删除的节点数；被 `book_catalog` 引用时拒绝；
-- `article` 被 `book_catalog` 引用时禁止删除。
+| 操作 | 结果 |
+| --- | --- |
+| 删 `project` | `lib/project/services.ts` 先探测 13 张子表；有内容返回 `not_empty`，不发出会失败的 `DELETE`，避免数据库外键错误直接暴露给用户 |
+| 删 `folder` | `lineage / article / book` 的 `folder_id` 置空（未分类），内容不删 |
+| 删 `lineage` | 先删全部 `node` 再删谱系，返回删除的节点数；被 `book_catalog` 引用时拒绝 |
+| 删 `node` | `path <@ target.path` 整棵子树；`person` 事实行保留 |
+| 删 `article` | 被 `book_catalog` 引用时拒绝；提交后尽力删除图片字节 |
+
+三个实测坑：
+
+1. `ON DELETE RESTRICT` 违约的 SQLSTATE 是 **`23001`**，不是 `23503`（后者是 `NO ACTION` / 插入类外键）。
+2. postgres.js 会记住事务内第一条失败 query，并在 COMMIT 重抛，**即使 JS 已 catch**；所以 `deleteProject` 必须先探查再删。
+3. `ON DELETE SET NULL` 的复合外键必须带列清单，否则会把 `project_id` 一起置空并报 `23502`。
 
 ## 7. 索引要点
 
@@ -223,7 +234,8 @@ flowchart LR
 
 - `scripts/verify-target-schema.mjs` 会在独立测试库重建目标态并比对 **DDL / 约束 / RLS / TS 与 SQL 列一致性 / EXPLAIN**；
 - `npm run verify:deploy` 在部署后校验角色、schema、关键函数是否存在；
-- 新增表必须同时满足：TS schema、SQL 迁移、`ENABLE RLS`、`org_isolation` 策略、`genealogy_app` 授权（基线注释明确要求）。
+- 新增表必须同时满足：TS schema、SQL 迁移、`ENABLE RLS`、`org_isolation` 策略、`genealogy_app` 授权（基线注释明确要求）；
+- 日常入口是 `pnpm verify:target-schema` / `pnpm verify:deploy`；性能数字见 [nfr.md](nfr.md)。
 
 ## 9. 硬不变量
 
@@ -239,30 +251,7 @@ flowchart LR
 | 租户键不可搬移 | 16 条 `trg_*_tenant_immutable` 触发器 + `app.forbid_tenant_move()` |
 | 注册必建个人组织 | `trg_auth_user_created` → `public.handle_new_user()` |
 
-## 10. 删除语义补充
-
-| 操作 | 结果 |
-| --- | --- |
-| 删 `project` | 先探测 13 张子表；有内容返回 `not_empty`，不发出会失败的 `DELETE` |
-| 删 `folder` | `lineage / article / book` 的 `folder_id` 置空，内容不删 |
-| 删 `lineage` | 先删全部 `node`，再删谱系；被 `book_catalog` 引用时拒绝 |
-| 删 `node` | `path <@ target.path` 整棵子树；`person` 事实行保留 |
-| 删 `article` | 被 `book_catalog` 引用时拒绝；提交后尽力删除图片字节 |
-
-三个实测坑：
-
-1. `ON DELETE RESTRICT` 违约的 SQLSTATE 是 **`23001`**，不是 `23503`（后者是 `NO ACTION` / 插入类外键）。
-2. postgres.js 会记住事务内第一条失败 query，并在 COMMIT 重抛，**即使 JS 已 catch**；所以 `deleteProject` 必须先探查再删。
-3. `ON DELETE SET NULL` 的复合外键必须带列清单，否则会把 `project_id` 一起置空并报 `23502`。
-
-## 11. RLS 与验证口径
-
-- 统一谓词：`organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{}'::uuid[]))`；`organization` 表把 `organization_id` 换成 `id`。
-- 必须写成子查询（InitPlan）而不是裸函数调用，否则逐行求值；`'{}'::uuid[]` 保证 GUC 未设置时 fail-closed。
-- 应用在**同一事务**内执行 `SET LOCAL role genealogy_app` + `set_config('app.user_id', $1, true)`；`SET LOCAL` 防止连接池复用串租户。
-- 验证：`pnpm verify:target-schema`（DDL / 约束 / RLS / EXPLAIN）、`pnpm verify:deploy`（角色、函数、权限）。性能数字见 [nfr.md](nfr.md)。
-
-## 12. 触发器例外
+## 10. 触发器例外
 
 全库用户定义触发器 2 类共 17 条（全是完整性守卫，不含业务逻辑）、定时任务 0、视图 0。声明式约束在 PostgreSQL 里表达不出、又必须与写入同事务的，只剩这两类：
 

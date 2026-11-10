@@ -12,15 +12,7 @@
 
 ### 1.1 环境变量
 
-| 变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `POSTGRES_URL` | 是 | 数据库连接（本地/CI 可作业务与认证的共用 URL） |
-| `APP_POSTGRES_URL` | Vercel 必填 | 业务专用非 owner 登录角色（`app` / `genealogy_app`） |
-| `AUTH_POSTGRES_URL` | Vercel 必填 | 认证专用连接（`auth_service`），**必须直连、不能走 PgBouncer pooler** |
-| `BETTER_AUTH_SECRET` | 是 | ≥ 32 字符 |
-| `BETTER_AUTH_URL` | 是 | 合法 URL，用于邀请链接与回调 |
-| `BLOB_READ_WRITE_TOKEN` | 否 | 有值 → Blob 媒体模式；空串等价未配置 |
-| `LOG_LEVEL` | 否 | `debug/info/warn/error`；默认开发 debug、生产 info |
+变量名、必填性、取值格式与默认值只写一次：模板见 [`.env.example`](../.env.example)，解析与校验见 [`lib/config.ts`](../lib/config.ts)（全项目唯一读 `process.env` 的模块）。本文件不复制第二份清单；下面两节只写校验时机与媒体模式——那是配置本身不表达的机制。
 
 ### 1.2 校验时机
 
