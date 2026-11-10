@@ -8,6 +8,8 @@
  * `AUTH_DB_PASSWORD ?? 'auth'` 在缺变量时静默把认证角色改成 4 字符口令。
  */
 
+import { scramSha256 } from './scram-verifier.mjs';
+
 /** PostgreSQL 字符串字面量转义，供 create/alter role 的 password 子句。 */
 export function literal(value) {
   return `'${value.replaceAll("'", "''")}'`;
@@ -47,52 +49,82 @@ export function roleFixups(current, want) {
 /**
  * 建角色或把它修到目标属性。
  *
- * 已存在且属性合规 → 直接返回 `ok（属性已合规）`，不发 ALTER（见 describeRole）。
- * 已存在且属性不合规 → 尝试修；改不动就如实报「修不了」，由调用方决定是否致命。
+ * 属性与口令是**两件独立的事**，返回结构也分开了：
+ * - `attributesCompliant`：目标属性是否与库内一致（或已修好）。不合规也不阻止
+ *   后面的口令分支——2026-11-09 的 S1 问题就是属性 ALTER 一失败就 return，
+ *   本来能改的口令一句没发，还被判致命。
+ * - `canSetPassword`：口令是否已设置/已更新，或本次根本没要求改口令。致命判定
+ *   只看它（且只在调用方确实给了口令、需要改时），属性不合规交给
+ *   `verify-deployment.mjs` 兜底。
  *
  * `password` 为空表示**本次不改口令**。调用方拿不到口令时必须传空，不许用
  * 默认值兜底：口令是「每个环境一份」的部署配置，猜一个弱口令写进生产角色，
  * 比明确跳过危险得多。
+ *
+ * 口令以 SCRAM-SHA-256 verifier 写入（见 scram-verifier.mjs），SQL 文本里不出现
+ * 明文——它本来会落进托管库的查询历史与 log_statement 日志。
  */
 export async function ensureRole(sql, name, { login, password }) {
   const current = await describeRole(sql, name);
   if (!current) {
     const attrs = `${login ? 'login' : 'nologin'} nosuperuser nobypassrls`;
-    const pwd = password ? ` password ${literal(password)}` : '';
+    const pwd = password ? ` password ${literal(scramSha256(password))}` : '';
     await sql.unsafe(`create role "${name}" ${attrs}${pwd}`);
-    return { status: 'created', canSetPassword: Boolean(password) };
+    return {
+      status: 'created',
+      attributesCompliant: true,
+      canSetPassword: true,
+    };
   }
 
   const fixes = roleFixups(current, { login });
+  let attributesCompliant = fixes.length === 0;
+  const notes = [];
   if (fixes.length > 0) {
     try {
       await sql.unsafe(`alter role "${name}" ${fixes.join(' ')}`);
+      attributesCompliant = true;
     } catch (error) {
       // 属性改不动不是致命的：可能是托管库禁止，也可能角色本就该这样。
-      // 真正的合规判定交给 verify-deployment.mjs，那里会红。
+      // 合规判定交给 verify-deployment.mjs，但口令该改还得改。
       const code = error?.code ?? '?';
-      return {
-        status: `属性不合规且改不动（需要 ${fixes.join(' ')}，SQLSTATE ${code}）`,
-        canSetPassword: false,
-      };
+      notes.push(
+        `属性不合规且改不动（需要 ${fixes.join(' ')}，SQLSTATE ${code}）`
+      );
     }
   }
 
-  // 属性已合规，剩下的只有口令。托管库通常允许这一条。
-  if (password) {
-    try {
-      await sql.unsafe(`alter role "${name}" password ${literal(password)}`);
-      return { status: 'ok（属性已合规，口令已更新）', canSetPassword: true };
-    } catch (error) {
-      const code = error?.code ?? '?';
-      return {
-        status: `属性已合规，但口令改不动（SQLSTATE ${code}）`,
-        canSetPassword: false,
-      };
-    }
+  if (!password) {
+    return {
+      status: attributesCompliant
+        ? 'ok（属性已合规，未提供口令，未改口令）'
+        : `${notes.join('；')}；未提供口令，未改口令`,
+      attributesCompliant,
+      // 没要求改口令 → 这一项不该成为致命判定依据。
+      canSetPassword: true,
+    };
   }
-  return {
-    status: 'ok（属性已合规，未提供口令，未改口令）',
-    canSetPassword: false,
-  };
+
+  // 属性可能改不动，但口令这一条通常能过（Neon 实测只放行 PASSWORD），必须独立尝试。
+  try {
+    await sql.unsafe(
+      `alter role "${name}" password ${literal(scramSha256(password))}`
+    );
+    notes.push('口令已更新');
+    return {
+      status: attributesCompliant
+        ? 'ok（属性已合规，口令已更新）'
+        : `${notes.join('；')}`,
+      attributesCompliant,
+      canSetPassword: true,
+    };
+  } catch (error) {
+    const code = error?.code ?? '?';
+    notes.push(`口令改不动（SQLSTATE ${code}）`);
+    return {
+      status: notes.join('；'),
+      attributesCompliant,
+      canSetPassword: false,
+    };
+  }
 }

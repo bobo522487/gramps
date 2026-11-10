@@ -150,8 +150,10 @@ try {
   if (code === '42501') {
     console.error(
       [
-        '42501 是权限问题，不是 SQL 写错。ALTER / GRANT ROLE 要求执行者是目标角色',
-        '的成员或其属主，或超级用户。托管库上先跑 `node scripts/diagnose-drizzle-state.mjs`',
+        '42501 是权限问题，不是 SQL 写错。PG 的角色没有「属主」概念（pg_roles 无',
+        'rolowner 列），只有成员资格与 CREATEROLE：ALTER / GRANT ROLE 要求执行者',
+        '是目标角色的成员（带 ADMIN OPTION）、持有 CREATEROLE，或是超级用户。',
+        '托管库上先跑 `node scripts/diagnose-drizzle-state.mjs`',
         '看「→ ALTER <role>: 可/不可」那一行，再决定：换连接角色、或把该角色的',
         '成员资格授予迁移连接（GRANT <role> TO <migration_role> WITH ADMIN OPTION）。',
       ].join('\n')

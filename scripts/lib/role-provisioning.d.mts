@@ -18,6 +18,9 @@ export interface EnsureRoleOptions {
 
 export interface EnsureRoleResult {
   status: string;
+  /** 目标属性是否与库内一致（或已修好）；不合规交给 verify-deployment 兜底。 */
+  attributesCompliant: boolean;
+  /** 口令已设置/已更新，或本次没要求改口令。只有「要求改却改不动」才是 false。 */
   canSetPassword: boolean;
 }
 
