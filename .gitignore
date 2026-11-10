@@ -1,57 +1,75 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# 忽略规则按「由谁生成」分组。
+# 以 "/" 开头只作用于仓库根目录；其余规则对任意层级生效。
+# 治理层 .specify/、文档 docs/ 与交付层 specs/ 必须入仓，不要加整目录通配忽略。
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
+# 依赖 / 包管理器
+/node_modules/
+/.pnp/
+.pnp.*
 .yarn/install-state.gz
 
-# testing
-/coverage
-/playwright-report
-/test-results
-
-# next.js
+# 构建产物（Next.js / TypeScript）
 /.next/
 /out/
+/build/
+*.tsbuildinfo
+next-env.d.ts
+.turbo/
 
-# production
-/build
+# 测试与 E2E 产物
+/coverage/
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/
 
-# misc
-.DS_Store
+# 环境变量与密钥；模板 .env.example 必须入仓
+.env*
+!.env.example
 *.pem
+*.p12
+*.key
 
-# local-only native libs extracted for Playwright (see ledger)
-/.local-libs/
-
-# debug
+# 日志与调试
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# local env files
-.env
+# 操作系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-.vscode
-
-# Docker
+# 本地数据与原生依赖
+# .local-libs/：Playwright 缺 libasound.so.2 时解出的本地原生库
+/.local-libs/
+# .data/：本地媒体兜底驱动的图片落点（生产走 Vercel Blob，见 ADR 0019）
+/.data/
 postgres_data/
-.env*.local
 
-# 本地媒体兜底驱动的图片落点（生产走 Vercel Blob，见 ADR 0019）
-.data/
+# 部署平台
+.vercel/
 
-# Qoder CLI
+# AI / 工具本地工作区
 .qoder/
-.env*
 .worktrees/
-
-# SDD (subagent-driven-development) scratch workspace
 .superpowers/
+.claude/settings.local.json
+
+# Spec Kit（.specify/ 治理层）
+# 不能整体写 /.specify/：README.md §3.1 把它定为治理层，CONTRIBUTING.md §4
+# 从 .specify/templates/ 生成 spec，tests/docs-consistency.test.ts 断言
+# .specify/memory/constitution.md 存在。这里只忽略 CLI 新增的机器本地文件，
+# 治理目录与共享配置用白名单放回仓库；feature.json 与
+# extensions/*/local-config.yml 已由 .specify/.gitignore 管理，不在此重复一份。
+/.specify/*
+!/.specify/*/
+!/.specify/.gitignore
+!/.specify/init-options.json
+!/.specify/integration.json
+!/.specify/extensions.yml
