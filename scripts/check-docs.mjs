@@ -4,12 +4,23 @@
 // 旧结构规则（architecture/ 00–13 连续编号、decisions/ 待决策表、guides/、
 // docs/ 根级仅 README、旧实现措辞黑名单）随旧文档体系下线一并退役。
 // 退役语义（软删 / 旧角色 / 旧插件）的黑名单在 tests/ 里按目标态重定，见 tests/s8-stage-e.test.ts。
+//
+// 所有清单（文档集 / 退役路径 / 子目录 / 文档头字段）只有一份真相源：
+// scripts/doc-manifest.json。tests/docs-consistency.test.ts 读同一份文件。
+// --root <dir> 让 tests/docs-guard.test.ts 能在临时 fixture 上做端到端验证。
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const rootFlag = process.argv.indexOf('--root');
+const ROOT =
+  rootFlag === -1
+    ? resolve(dirname(fileURLToPath(import.meta.url)), '..')
+    : resolve(process.argv[rootFlag + 1]);
+const MANIFEST = JSON.parse(
+  readFileSync(join(ROOT, 'scripts/doc-manifest.json'), 'utf8')
+);
 const DOCS = join(ROOT, 'docs');
 const STRICT = process.argv.includes('--strict');
 const issues = [];
@@ -98,17 +109,18 @@ for (const file of allDocs) {
 }
 
 // 2. 每份文档头部四项（CONTRIBUTING.md §3）。
-// 只约束「文档集」：根级 7 份 + adr / contracts / runbooks 各一份 README。
-// 根级名单与子目录名单由下面的规则 3 钉死，这里按结构判断，不另抄一份清单。
+// 只约束「文档集」：docs/ 根级文档 + 允许子目录各一份 README。
+// 字段清单与子目录清单都来自 scripts/doc-manifest.json，这里不另抄一份。
 // ADR 正文有自己的模板（`docs/adr/README.md` §5），feature 工作产物用
-// `.specify/templates/`；把它们纳入会误报，也会挡住 17 份 ADR 正文逐份迁入。
-const HEADER_FIELDS = ['回答什么问题', '读者', '长度上限', '不写什么'];
+// `.specify/templates/`；把它们纳入会误报。
+const HEADER_FIELDS = MANIFEST.headerFields;
+const SUBDIR_README = new RegExp(
+  `^(${MANIFEST.subdirs.join('|')})[/]README\\.md$`
+);
 for (const file of allDocs) {
   const rel = relative(DOCS, file);
   const isRootDoc = !rel.includes('/') && rel !== 'README.md';
-  const isSubdirReadme = /^(adr|contracts|runbooks|modules)[/]README\.md$/.test(
-    rel
-  );
+  const isSubdirReadme = SUBDIR_README.test(rel);
   if (!isRootDoc && !isSubdirReadme) continue;
   const header = readFileSync(file, 'utf8').split('\n').slice(0, 15).join('\n');
   for (const field of HEADER_FIELDS) {
@@ -119,7 +131,7 @@ for (const file of allDocs) {
 }
 
 // 3. 文档集结构：一个 README 入口 + 稳定命名的根级文档 + 允许的子目录。
-const SUBDIRS = ['adr', 'contracts', 'runbooks', 'modules'];
+const SUBDIRS = MANIFEST.subdirs;
 const README = join(DOCS, 'README.md');
 
 if (!existsSync(README)) {
@@ -178,21 +190,8 @@ if (existsSync(modulesReadme)) {
 }
 
 // 4. 已下线的旧文档路径不得被写回，防止有人把删掉的文件当权威引用。
-const RETIRED_PATHS = [
-  'docs/architecture/',
-  'docs/decisions/',
-  'docs/guides/',
-  'docs/code-wiki/',
-  'docs/archive/',
-  'docs/superpowers/',
-  '00-文档说明.md',
-  '11-需求与实现状态.md',
-  'AGENTS.md §',
-  'specs/001-lineage-edit-preview',
-  'specs/002-article-authoring',
-  'specs/003-article-editor-wordlike',
-  '.specify/bugs/lineage-generation-order',
-];
+// 清单来自 scripts/doc-manifest.json；消费者自身（脚本与测试）不含这些字面串。
+const RETIRED_PATHS = MANIFEST.retiredPhrases;
 for (const file of allDocs) {
   const content = readFileSync(file, 'utf8');
   for (const phrase of RETIRED_PATHS) {

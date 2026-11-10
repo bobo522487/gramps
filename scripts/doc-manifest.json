@@ -1,0 +1,77 @@
+{
+  "entry": "AGENTS.md",
+  "docSet": [
+    "README.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    ".specify/memory/constitution.md",
+    "docs/README.md",
+    "docs/overview.md",
+    "docs/architecture.md",
+    "docs/directory-structure.md",
+    "docs/data-model.md",
+    "docs/api.md",
+    "docs/glossary.md",
+    "docs/infrastructure.md",
+    "docs/development.md",
+    "docs/nfr.md",
+    "docs/roadmap.md",
+    "docs/code-index.md",
+    "docs/modules/README.md",
+    "docs/modules/auth-org-project.md",
+    "docs/modules/lineage.md",
+    "docs/modules/article-media.md",
+    "docs/modules/book.md",
+    "docs/adr/README.md",
+    "docs/contracts/README.md",
+    "docs/runbooks/README.md"
+  ],
+  "retired": [
+    "docs/vision.md",
+    "docs/interfaces.md",
+    "docs/code-wiki",
+    "docs/architecture/00-文档说明.md",
+    "docs/decisions/README.md",
+    "docs/guides/testing.md",
+    "docs/archive",
+    "docs/superpowers",
+    "specs/001-lineage-edit-preview",
+    "specs/002-article-authoring",
+    "specs/003-article-editor-wordlike"
+  ],
+  "retiredPhrases": [
+    "docs/architecture/",
+    "docs/decisions/",
+    "docs/guides/",
+    "docs/code-wiki/",
+    "docs/archive/",
+    "docs/superpowers/",
+    "00-文档说明.md",
+    "11-需求与实现状态.md",
+    "AGENTS.md §",
+    "specs/001-lineage-edit-preview",
+    "specs/002-article-authoring",
+    "specs/003-article-editor-wordlike",
+    ".specify/bugs/lineage-generation-order"
+  ],
+  "subdirs": ["adr", "contracts", "modules", "runbooks"],
+  "headerFields": ["回答什么问题", "读者", "长度上限", "不写什么"],
+  "retiredFeatureSpecs": [
+    "001-lineage-edit-preview",
+    "002-article-authoring",
+    "003-article-editor-wordlike"
+  ],
+  "numerals": ["I", "II", "III", "IV", "V"],
+  "authority": {
+    "file": "CONTRIBUTING.md",
+    "needle": "权威口径（目标态例外）",
+    "docs": [
+      "docs/architecture.md",
+      "docs/api.md",
+      "docs/contracts/README.md",
+      "docs/data-model.md",
+      "docs/nfr.md"
+    ],
+    "pointer": "裁决顺序见 `CONTRIBUTING.md` §2「权威口径」"
+  }
+}
