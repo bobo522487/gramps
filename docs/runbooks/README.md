@@ -113,6 +113,10 @@ APP_DB_PASSWORD=<强口令> AUTH_DB_PASSWORD=<强口令> \
 POSTGRES_URL_DIRECT=<目标环境> pnpm db:reset-target
 POSTGRES_URL_DIRECT=<目标环境> pnpm db:reset-target --apply --confirm=<库名>
 #    清空后 public schema 会被重建为空（不保留原 schema 会丢 search_path 目标）
+#    走 GitHub 时多三道门：workflow_dispatch + 勾 reset + 把库名**逐字填进 confirm_db**。
+#    不填或填错直接红，workflow 不会自己算出「对」的值（旧版的 --confirm="$DB" 是
+#    从同一个连接串推导的，等于自证）。需要人工放行，就在仓库设置里给 production
+#    environment 配 required reviewers——代码侧只引用 environment: production。
 
 # 2) 建表：唯一基线
 POSTGRES_URL_DIRECT=<目标环境> pnpm db:migrate        # migrations applied successfully
@@ -140,7 +144,7 @@ PR #13 合并后，main 的 `Migrate production database` job 红了一次。读
 - 校验阶段的报错文案也有坑：`FAIL RLS enabled: 17: organization, ...` 读起来像「17 张表全都不存在」，实际是「这 17 张表全都在，只是没启用 RLS」。该文案已改为 `all 17 tables: ...`，并抽到 `scripts/lib/deployment-report.mjs` 加单测。
 - 另一条假红：`auth_service owns identity and tenant writes` 断言认证角色拥有业务表写权限，是「业务侧认证侧全量统一」时期的旧口径。ADR 0020 已修订为「业务侧统一、认证侧独立」，基线根本不给 `auth_service` 任何 public 表权限——这条断言在**正确**的库上必然报红。已改为断言真正的边界（认证角色写不了业务表）。
 
-**结论**：判定迁移成败只看 `verify-deployment.mjs` 的结构校验，不看 drizzle 的日志。重建路径见上面第 1 步；`db:reset-target` 有 `R1–R7` 七条门槛（dry-run 默认、`--confirm` 逐字匹配库名、拒绝系统库、public 必须重建、CI 里清空只允许人工重建模式、角色/授权两阶段顺序、缺口令前置拦截）。
+**结论**：判定迁移成败只看 `verify-deployment.mjs` 的结构校验，不看 drizzle 的日志。重建路径见上面第 1 步；`db:reset-target` 有 `R1–R9` 九条门槛（dry-run 默认、`--confirm` 逐字匹配库名、拒绝系统库、public 必须重建、CI 里清空只允许人工重建模式、角色/授权两阶段顺序、缺口令前置拦截、CI 清库必须人工手输库名而不是从连接串推导、迁移 job 引用 `production` environment）。
 
 **事故记录：Neon 拒掉弱口令，生产库被清空后停在无表状态（2026-11-09）**
 

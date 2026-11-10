@@ -125,7 +125,9 @@ describe('S8 #14：folder 压平为单层（附录 A.2）', () => {
     // 压平后「默认分类」全项目只应有一条，并发创建必须靠唯一键兜住；
     // 这段逻辑已经下沉到 folder 域，与谱系侧共用。
     const folderServices = read('lib/folder/services.ts');
-    expect(folderServices).toMatch(/onConflictDoNothing|on conflict do nothing/i);
+    expect(folderServices).toMatch(
+      /onConflictDoNothing|on conflict do nothing/i
+    );
   });
 
   test('F-7 入参与 Action：createFolder 不再收 kind / parentId', () => {

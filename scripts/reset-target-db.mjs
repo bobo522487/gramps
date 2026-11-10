@@ -132,7 +132,7 @@ try {
 
   if (!apply) {
     console.log(
-      '\n# 未做任何修改。确认无误后追加 --apply --confirm=' + databaseName
+      `\n# 未做任何修改。确认无误后追加 --apply --confirm=${databaseName}`
     );
     await sql.end({ timeout: 5 });
     process.exit(0);

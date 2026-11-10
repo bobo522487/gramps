@@ -48,6 +48,19 @@ export async function grantRuntimeRoles(sql: Sql): Promise<void> {
   await sql.unsafe('REVOKE ALL ON SCHEMA app FROM auth_service');
   await sql.unsafe('REVOKE ALL ON SCHEMA public FROM auth_service');
   await sql.unsafe('REVOKE ALL ON SCHEMA auth FROM auth_service');
+  // schema 级 REVOKE 收不回表级授权：与 scripts/lib/auth-grants.mjs 保持同一张
+  // 矩阵，表 / 序列 / 函数三类对象各回收一次（只针对 auth_service）。
+  for (const schema of ['app', 'public', 'auth']) {
+    await sql.unsafe(
+      `REVOKE ALL ON ALL TABLES IN SCHEMA ${schema} FROM auth_service`
+    );
+    await sql.unsafe(
+      `REVOKE ALL ON ALL SEQUENCES IN SCHEMA ${schema} FROM auth_service`
+    );
+    await sql.unsafe(
+      `REVOKE ALL ON ALL FUNCTIONS IN SCHEMA ${schema} FROM auth_service`
+    );
+  }
 
   await sql.unsafe('GRANT USAGE ON SCHEMA auth TO auth_service');
   await sql.unsafe('GRANT USAGE ON SCHEMA app TO auth_service');
