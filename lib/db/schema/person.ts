@@ -17,19 +17,7 @@ import {
   PERSON_SEX_VALUES,
 } from '../../genealogy/constants';
 import { projects } from './project';
-import { scopedUuid, timestamptz } from './shared';
-
-/**
- * Renders a closed value set as a SQL literal list for a CHECK constraint.
- *
- * The values always come from `lib/genealogy/constants.ts`, never from a user,
- * so building the list with `sql.raw` is safe here; the alternative — copying
- * the literals by hand — is exactly what lets the DDL and the TypeScript union
- * drift. `readCheckConstraintValues` asserts the two stay equal.
- */
-function valueSet(values: readonly string[]) {
-  return sql.raw(`(${values.map((value) => `'${value}'`).join(', ')})`);
-}
+import { enumValues, scopedUuid, timestamptz } from './shared';
 
 /**
  * A person fact, independent of the lineage tree (appendix A.3).
@@ -55,7 +43,10 @@ export const persons = pgTable(
       foreignColumns: [projects.orgId, projects.id],
       name: 'person_scope_fk',
     }).onDelete('restrict'),
-    check('person_sex_check', sql`${t.sex} in ${valueSet(PERSON_SEX_VALUES)}`),
+    check(
+      'person_sex_check',
+      sql`${t.sex} in ${enumValues(PERSON_SEX_VALUES)}`
+    ),
   ]
 );
 
@@ -95,7 +86,7 @@ export const personNames = pgTable(
       .where(sql`${t.isPrimary}`),
     check(
       'person_name_kind',
-      sql`${t.kind} in ${valueSet(PERSON_NAME_TYPE_VALUES)}`
+      sql`${t.kind} in ${enumValues(PERSON_NAME_TYPE_VALUES)}`
     ),
     check('person_name_value_not_blank', sql`btrim(${t.value}) <> ''`),
   ]

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  acceptInviteSchema,
-  createProjectSchema,
   signInSchema,
   signUpSchema,
   updateAccountSchema,
-  updateProjectSchema,
 } from '@/lib/auth/schemas';
+import { acceptInviteSchema } from '@/lib/org/schemas';
+import {
+  createProjectSchema,
+  updateProjectSchema,
+} from '@/lib/project/schemas';
 
 describe('credential schema normalization', () => {
   it('trims and lowercases the email before validation', () => {

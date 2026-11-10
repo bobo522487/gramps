@@ -4,12 +4,12 @@ import 'server-only';
 
 import { revalidatePath } from 'next/cache';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
+import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import {
   createProjectSchema,
   deleteProjectSchema,
   updateProjectSchema,
-} from '@/lib/auth/schemas';
-import { revalidateWholeConsole } from '@/lib/console/revalidate';
+} from '@/lib/project/schemas';
 import {
   createProjectInTransaction,
   deleteProjectInTransaction,

@@ -14,12 +14,7 @@ import { EVENT_KIND_VALUES } from '../../genealogy/constants';
 import { families } from './family';
 import { persons } from './person';
 import { projects } from './project';
-import { scopedUuid, timestamptz } from './shared';
-
-/** Renders a closed value set as a SQL literal list for a CHECK constraint. */
-function valueSet(values: readonly string[]) {
-  return sql.raw(`(${values.map((value) => `'${value}'`).join(', ')})`);
-}
+import { enumValues, scopedUuid, timestamptz } from './shared';
 
 /**
  * One recorded fact about a person or a union (appendix A.3, 242–274).
@@ -65,7 +60,7 @@ export const events = pgTable(
     ),
     check(
       'event_domain_check',
-      sql`${t.kind} in ${valueSet(EVENT_KIND_VALUES)}`
+      sql`${t.kind} in ${enumValues(EVENT_KIND_VALUES)}`
     ),
     check(
       'event_date_sort_format',

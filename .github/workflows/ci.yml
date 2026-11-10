@@ -55,6 +55,11 @@ jobs:
       - name: Lint & format check
         run: pnpm check
 
+      # 依赖审计：把 `pnpm.overrides` 修掉的 4 个漏洞挡在 CI 外。任何 high 及以上
+      # 的生产依赖漏洞都会让流水线直接失败，避免下次又靠人工发现（见审查报告）。
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
       - name: Docs consistency
         run: pnpm run docs:check --strict
 

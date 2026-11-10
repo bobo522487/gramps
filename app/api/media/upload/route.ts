@@ -10,6 +10,7 @@ import {
   parseMediaPathname,
   sniffImageContentType,
 } from '@/lib/article/media/path';
+import { checkUploadLimits } from '@/lib/article/media/upload-guards';
 import { getSessionUser } from '@/lib/auth/context';
 import { getOrgRole, hasPermission } from '@/lib/auth/permissions';
 import { getMediaMode } from '@/lib/config';
@@ -45,15 +46,16 @@ async function uploadMedia(request: Request): Promise<Response> {
   const orgId = String(form.get('orgId') ?? '');
   const articleId = String(form.get('articleId') ?? '');
   const file = form.get('file');
-  if (!(file instanceof File) || file.size === 0) {
-    return json(400, 'missing_file');
+
+  // Reject on size *before* copying the whole payload into memory. The form is
+  // already buffered by `request.formData()`, so this guard caps the in-process
+  // copy, not the platform-level body limit (that lives on Vercel).
+  const guard = checkUploadLimits(file, MAX_IMAGE_BYTES);
+  if (!guard.ok) {
+    return json(guard.status, guard.error);
   }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes.byteLength > MAX_IMAGE_BYTES) {
-    return json(413, 'image_too_large');
-  }
-
+  const bytes = new Uint8Array(await guard.file.arrayBuffer());
   const contentType = sniffImageContentType(bytes);
   const allowed: readonly string[] = ARTICLE_IMAGE_CONTENT_TYPES;
   if (!contentType || !allowed.includes(contentType)) {

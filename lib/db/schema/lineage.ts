@@ -13,15 +13,10 @@ import {
 } from 'drizzle-orm/pg-core';
 import { persons } from './person';
 import { folders, projects } from './project';
-import { ltree, scopedUuid, timestamptz } from './shared';
+import { enumValues, ltree, scopedUuid, timestamptz } from './shared';
 
 /** Appendix A.4 (312–313): a node is a primary entry, a repeat, or an annotation. */
 const nodeKinds = ['primary', 'repeat', 'annotation'] as const;
-
-/** Renders a closed value set as a SQL literal list for a CHECK constraint. */
-function valueSet(values: readonly string[]) {
-  return sql.raw(`(${values.map((value) => `'${value}'`).join(', ')})`);
-}
 
 /**
  * One genealogy tree inside a project (appendix A.4, 280–299). Display order is
@@ -102,7 +97,7 @@ export const nodes = pgTable(
       'node_annotation_person',
       sql`(${t.kind} = 'annotation') = (${t.personId} is null)`
     ),
-    check('node_kind_check', sql`${t.kind} in ${valueSet(nodeKinds)}`),
+    check('node_kind_check', sql`${t.kind} in ${enumValues(nodeKinds)}`),
     unique('node_path_unique').on(t.projectId, t.lineageId, t.path),
     foreignKey({
       columns: [t.projectId, t.lineageId],

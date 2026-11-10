@@ -14,15 +14,6 @@ import {
   getOrgRole,
   hasPermission,
 } from '@/lib/auth/permissions';
-import {
-  acceptInviteSchema,
-  createOrgSchema,
-  deleteOrgSchema,
-  inviteOrgMemberSchema,
-  removeOrgMemberSchema,
-  renameOrgSchema,
-  updateOrgMemberRoleSchema,
-} from '@/lib/auth/schemas';
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { queryRows, withOrg } from '@/lib/db/drizzle';
@@ -31,6 +22,15 @@ import { getOrgById } from '@/lib/db/queries/organizations';
 import { organizations, orgMembers } from '@/lib/db/schema';
 import { logger } from '@/lib/logger';
 import { hashInviteToken, issueInvitation } from '@/lib/org/invitations';
+import {
+  acceptInviteSchema,
+  createOrgSchema,
+  deleteOrgSchema,
+  inviteOrgMemberSchema,
+  removeOrgMemberSchema,
+  renameOrgSchema,
+  updateOrgMemberRoleSchema,
+} from '@/lib/org/schemas';
 
 const SLUG_ATTEMPTS = 3;
 
