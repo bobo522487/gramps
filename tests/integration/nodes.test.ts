@@ -17,8 +17,7 @@ import {
  * 编号 ltree、parent_path 生成列、自引用闭包外键与 annotation 约束落在库里。
  *
  * S8 阶段 A′ 把旧「node 即人丁主体」的写入层集成测试整体退役：目标态 `node`
- * 只是一条位置引用，身份在 `person`、姓名在 `person_name`。写入层的静态契约
- * 由 `tests/s8-stage-a-prime.test.ts` 唯一覆盖（不双写），配偶 / 移动 / 重排
+ * 只是一条位置引用，身份在 `person`、姓名在 `person_name`。配偶 / 移动 / 重排
  * 的应用集成测试留到阶段 C 恢复功能后重建，登记见实施计划 §3.3。
  * DDL 基线尚未落库，本文件只保证结构与列形状按目标态写对。
  */

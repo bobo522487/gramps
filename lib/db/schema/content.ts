@@ -98,8 +98,8 @@ export const books = pgTable(
     folderId: uuid('folder_id'),
     title: text('title').notNull(),
     // 基线独有、可空的两列（附录 A.5）；TS 旧 schema 的 name/surname/hallCode/
-    // volumeNo/author/compiledAt/coverSpec/backCoverSpec/sort/createdBy 整体退役
-    // （见 tests/s8-stage-book.test.ts BOOK-1），那些列从未被业务代码引用。
+    // volumeNo/author/compiledAt/coverSpec/backCoverSpec/sort/createdBy 整体退役，
+    // 那些列从未被业务代码引用。
     editionText: text('edition_text'),
     compilerText: text('compiler_text'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),

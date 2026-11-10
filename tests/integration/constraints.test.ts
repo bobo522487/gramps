@@ -182,8 +182,7 @@ describe('database constraints', () => {
    * 下面两条守的是新语义——重发必须是「换 token 续期」，且已消费的邀请
    * 不给重发（A.7 的 `WHERE accepted_at IS NULL` 影响 0 行）。
    *
-   * 这条覆盖的是 A.7 SQL 的形状；应用层 `issueInvitation()` 的行为由
-   * `tests/s8-stage-b2b.test.ts` B2b-5 静态断言。
+   * 这条覆盖的是 A.7 SQL 的形状，不覆盖应用层 `issueInvitation()` 的行为。
    */
   it('reissues by rotating the token on the same row, never a second invite', async () => {
     const invitedBy = await createUser();

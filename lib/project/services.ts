@@ -124,7 +124,8 @@ export async function updateProjectInTransaction(params: {
  * 新增任何引用 `project(organization_id, id)` 的表，都必须在这里登记，
  * 否则删除会走「未登记约束」的报错分支而不是友好提示——这是刻意的：
  * 静默吞掉未知 FK 故障比报错更难查。
- * 该清单由 `tests/s8-stage-b2a.test.ts` 的 B2a-11 与基线 DDL 交叉校验。
+ * 该清单须与 `lib/db/migrations/0000_target_schema.sql` 保持一致；漏登记的
+ * 报错分支由 `tests/integration/project-delete-errors.test.ts` 的反向用例覆盖。
  */
 const PROJECT_CHILD_CONSTRAINTS = [
   'article_scope_fk',

@@ -3,7 +3,7 @@
 // 文档集门禁（按当前文档结构）。
 // 旧结构规则（architecture/ 00–13 连续编号、decisions/ 待决策表、guides/、
 // docs/ 根级仅 README、旧实现措辞黑名单）随旧文档体系下线一并退役。
-// 退役语义（软删 / 旧角色 / 旧插件）的黑名单在 tests/ 里按目标态重定，见 tests/s8-stage-e.test.ts。
+// 退役路径、旧文档名与过时措辞的黑名单见 scripts/doc-manifest.json 的 retiredPhrases / retiredPaths。
 //
 // 所有清单（文档集 / 退役路径 / 子目录 / 文档头字段）只有一份真相源：
 // scripts/doc-manifest.json。tests/docs-consistency.test.ts 读同一份文件。
