@@ -63,7 +63,8 @@ describe('P8 口令缺失时不得发出任何改口令的 ALTER', () => {
       );
 
       expect(statements).toEqual([]);
-      expect(result.canSetPassword).toBe(false);
+      // 本次没要求改口令 → 不能算作「口令改不动」而致命。
+      expect(result.canSetPassword).toBe(true);
       expect(result.status).toContain('未提供口令');
     });
 
@@ -112,8 +113,8 @@ describe('P9 认证角色与 genealogy_app 同一口径', () => {
   });
 });
 
-describe('P10 给了口令才 ALTER，且只改口令', () => {
-  test('属性已合规时不发属性语句，只发一条 password 语句', async () => {
+describe('P10 给了口令才 ALTER，且口令是 SCRAM verifier 而非明文', () => {
+  test('属性已合规时不发属性语句，只发一条 SCRAM password 语句', async () => {
     const statements: string[] = [];
     const result = await ensureRole(
       fakeSql(statements, compliant(true)),
@@ -121,14 +122,33 @@ describe('P10 给了口令才 ALTER，且只改口令', () => {
       { login: true, password: "S3cret-'x" }
     );
 
-    // 单引号走 literal() 转义，断言顺带覆盖口令里的引号。
-    expect(statements).toEqual([
-      `alter role "auth_runtime" password 'S3cret-''x'`,
-    ]);
+    // SQL 文本里出现的是 base64 的 verifier，绝不含明文或明文里的引号。
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(
+      /^alter role "auth_runtime" password 'SCRAM-SHA-256\$4096:[A-Za-z0-9+/]+=*\$[A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*'$/
+    );
+    expect(statements[0]).not.toContain("S3cret-'x");
+    expect(statements[0]).not.toContain("''");
     expect(result.canSetPassword).toBe(true);
+    expect(result.attributesCompliant).toBe(true);
   });
 
-  test('属性不合规时先改属性，再改口令', async () => {
+  test('同一口令两次生成的 verifier 不同（salt 随机），但都可被服务端接受', async () => {
+    const statements: string[] = [];
+    await ensureRole(fakeSql(statements, compliant(true)), 'auth_runtime', {
+      login: true,
+      password: 'pw',
+    });
+    const first = statements[0];
+    statements.length = 0;
+    await ensureRole(fakeSql(statements, compliant(true)), 'auth_runtime', {
+      login: true,
+      password: 'pw',
+    });
+    expect(statements[0]).not.toBe(first);
+  });
+
+  test('属性不合规时先改属性，再改口令（口令仍是 verifier）', async () => {
     const statements: string[] = [];
     await ensureRole(
       fakeSql(statements, {
@@ -140,10 +160,64 @@ describe('P10 给了口令才 ALTER，且只改口令', () => {
       { login: true, password: 'pw' }
     );
 
-    expect(statements).toEqual([
-      'alter role "genealogy_app" login nosuperuser',
-      `alter role "genealogy_app" password 'pw'`,
-    ]);
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toBe('alter role "genealogy_app" login nosuperuser');
+    expect(statements[1]).toMatch(
+      /^alter role "genealogy_app" password 'SCRAM-SHA-256\$/
+    );
+  });
+});
+
+describe('S1 属性改不动不阻止口令更新，两个结果各自独立', () => {
+  /** 属性 ALTER 全拒、口令 ALTER 放行——Neon 实测就是这个边界。 */
+  function attributeDeniedPasswordAllowed(statements: string[]): RoleSql {
+    const sql = fakeSql(statements, {
+      rolcanlogin: false,
+      rolsuper: true,
+      rolbypassrls: true,
+    });
+    sql.unsafe = async (statement: string) => {
+      statements.push(statement);
+      if (!statement.includes('password')) {
+        throw Object.assign(new Error('permission denied to alter role'), {
+          code: '42501',
+        });
+      }
+      return [];
+    };
+    return sql;
+  }
+
+  test('属性 42501 但口令能改：仍发出 password 语句，canSetPassword=true', async () => {
+    const statements: string[] = [];
+    const result = await ensureRole(
+      attributeDeniedPasswordAllowed(statements),
+      'genealogy_app',
+      { login: true, password: 'pw' }
+    );
+
+    // 旧实现在属性失败时 return，这里会漏掉 password 且被判致命。
+    expect(statements.some((statement) => statement.includes('password'))).toBe(
+      true
+    );
+    expect(result.canSetPassword).toBe(true);
+    expect(result.attributesCompliant).toBe(false);
+    expect(result.status).toContain('属性不合规且改不动');
+    expect(result.status).toContain('42501');
+    expect(result.status).toContain('口令已更新');
+  });
+
+  test('属性 42501 且未给口令：不致命，但如实报告属性不合规', async () => {
+    const statements: string[] = [];
+    const result = await ensureRole(
+      attributeDeniedPasswordAllowed(statements),
+      'auth_runtime',
+      { login: true, password: null }
+    );
+
+    expect(result.canSetPassword).toBe(true);
+    expect(result.attributesCompliant).toBe(false);
+    expect(result.status).toContain('未提供口令');
   });
 });
 

@@ -17,6 +17,9 @@
 - **认证侧权限矩阵改为「按对象回收」**：原来只 `REVOKE ALL ON SCHEMA …`，而 schema 级 REVOKE 收不回表级授权，迁移过的旧库上 `auth_service` 可能仍握着 public 全表 DML（ADR 0020 之前的旧口径），矩阵只是文档。现按 `auth` / `app` / `public` 三个 schema 分别回收**表 / 序列 / 函数**再重授，只针对 `auth_service`，不动基线管的 `genealogy_app`；`public` / `app` 侧从未给认证角色设过 DEFAULT ACL，故不补对称的默认权限 REVOKE。矩阵移到 `scripts/lib/auth-grants.mjs`，单测断言「回收先于授予」与覆盖面。
 - **生产清库的确认不再自证**：`migrate-production.yml` 原来 `--confirm="$DB"`，`$DB` 由同一个连接串解析，逐字匹配恒为真。现改为 `workflow_dispatch` 的 `confirm_db` **由人逐字输入**，不匹配即 `::error::` 退出且不打印期望值；`migrate` job 引用 `environment: production`（required reviewers 由仓库设置提供）。非重建路径（push 触发的日常迁移）不经过该步骤。
 - **文档系统收敛**：`docs/roadmap.md` 只保留编排状态，逐批进度与收口台账删去（历史留在提交历史与本文件）；`docs/adr/` 改为只有结论索引、不存正文，不再计划逐份迁回 17 份旧正文；未启用的 `specs/_archive/` 归档流程从入口文档删除。
+- **角色 provisioning 的属性与口令解耦**：`ensureRole` 曾在属性 ALTER 失败时直接 return，导致本来能改的口令一句没发、还被判致命（托管库常见边界：属性 42501、PASSWORD 放行）。现返回 `attributesCompliant` 与 `canSetPassword` 两个独立结果，口令分支总会独立尝试，属性不合规交给 `verify-deployment.mjs` 兜底；「本次没要求改口令」不再被算作口令改不动。
+- **角色口令改为写入 SCRAM-SHA-256 verifier**：`ALTER ROLE … PASSWORD '<明文>'` 的语句文本会落进托管库查询历史与 `log_statement` 日志。现由 `scripts/lib/scram-verifier.mjs` 在客户端按 RFC 5802 / RFC 7677 算出 `SCRAM-SHA-256$<iter>:<salt>$<key>:<server>`，SQL 里只出现 base64 的 salt 与派生密钥，明文不出进程；迭代 4096、salt 16 字节随机。PostgreSQL ≥ 10 接受预哈希串（本仓库 CI `postgres:18-alpine`、生产 Neon 均支持），因此不保留明文回退路径；正确性由 RFC 7677 官方测试向量逐字节比对保证。
+- **42501 报错指引与结论对齐**：去掉「目标角色的属主」说法——PG 角色没有属主概念（`pg_roles` 无 `rolowner` 列），改为「成员（带 ADMIN OPTION）、CREATEROLE 或超级用户」。
 
 <!-- 条目模板
 ## YYYY-MM-DD · 主题
