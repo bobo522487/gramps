@@ -4,7 +4,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
 import { type Node, nodes, personNames, persons } from '@/lib/db/schema';
 import type { PersonSex } from '@/lib/genealogy/constants';
-import { withCreateWrite, withLineageWrite } from './lineage-write';
+import { withLineageWrite } from './lineage-write';
 import { writePersonFacts } from './person-facts';
 
 /**
@@ -256,7 +256,7 @@ function createContext(
 export async function createRootNodeInTransaction(
   params: NodeCreateParams
 ): Promise<NodeMutationResult> {
-  return withCreateWrite(params, async (tx, lineage) => {
+  return withLineageWrite(params, async (tx, lineage) => {
     const [existing] = await tx
       .select({ id: nodes.id })
       .from(nodes)
@@ -285,7 +285,7 @@ export async function createRootNodeInTransaction(
 export async function addChildInTransaction(
   params: NodeCreateParams & { parentId: string }
 ): Promise<NodeMutationResult> {
-  return withCreateWrite(params, async (tx, lineage) => {
+  return withLineageWrite(params, async (tx, lineage) => {
     const parent = await loadNode(
       tx,
       params.orgId,
@@ -308,7 +308,7 @@ export async function addChildInTransaction(
 export async function addSiblingInTransaction(
   params: NodeCreateParams & { siblingOfId: string }
 ): Promise<NodeMutationResult> {
-  return withCreateWrite(params, async (tx, lineage) => {
+  return withLineageWrite(params, async (tx, lineage) => {
     const sibling = await loadNode(
       tx,
       params.orgId,
@@ -339,7 +339,7 @@ export async function addSiblingInTransaction(
 export async function addSpouseInTransaction(
   params: Omit<NodeCreateParams, 'spouse'> & { anchorId: string }
 ): Promise<NodeMutationResult> {
-  return withCreateWrite(params, async () => {
+  return withLineageWrite(params, async () => {
     return { ok: false, reason: 'not_supported' as const };
   });
 }

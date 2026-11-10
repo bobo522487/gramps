@@ -4,19 +4,13 @@ import { and, eq } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
 import { type Lineage, lineages } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
-import type { NodeFailure, NodeMutationResult } from './node-services';
+import type { NodeFailure } from './node-services';
 
 /**
  * Shared write preamble for lineage mutations.
  *
  * Lives in its own file because `lib/lineage/node-services.ts` sits at the
  * `check-file-size.mjs` exemption ceiling and must only shrink.
- *
- * S8 stage A′: the R31 create-idempotency shell (`request_id` lookup + 23505
- * replay) was retired with the target-model `node` table, which has no
- * `request_id` column. `withCreateWrite` is now a thin semantic alias so the
- * four creation call sites keep a single, obvious place to reintroduce
- * idempotency if the target model later gains a submission key.
  */
 
 /** Locks the lineage row so sibling path allocation stays serialized. */
@@ -52,16 +46,4 @@ export async function withLineageWrite<T>(
     }
     return fn(tx, lineage);
   });
-}
-
-/**
- * Creation-path alias. Target-model uniqueness (`node_path_unique`,
- * `node_one_primary`) is enforced by the database; replay protection is a
- * registered follow-up, not a silent `request_id` substitute.
- */
-export async function withCreateWrite(
-  params: { userId: string; orgId: string; lineageId: string },
-  fn: (tx: DbTransaction, lineage: Lineage) => Promise<NodeMutationResult>
-): Promise<NodeMutationResult> {
-  return withLineageWrite(params, fn) as Promise<NodeMutationResult>;
 }

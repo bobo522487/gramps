@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { Activity, ChevronRight, LogOut, Shield, UserCog } from 'lucide-react';
+import { ChevronRight, LogOut, Shield, UserCog } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -19,7 +19,6 @@ import { queryKeys } from '@/lib/query-keys';
 
 const ACCOUNT_ITEMS = [
   { href: '/dashboard/general', icon: UserCog, label: '通用' },
-  { href: '/dashboard/activity', icon: Activity, label: '活动' },
   { href: '/dashboard/security', icon: Shield, label: '安全' },
 ];
 

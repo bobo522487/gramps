@@ -4,8 +4,6 @@ export type ArticleResult<T> =
   | ({ ok: true } & T)
   | { ok: false; reason: ArticleMutationFailure };
 
-export const FORBIDDEN = { ok: false, reason: 'forbidden' } as const;
-
 /**
  * 谱文写入层的共用件（宪法 III：每个入口一个事务；权限在事务内复核）。
  *
@@ -32,20 +30,6 @@ import {
   folders,
   projects,
 } from '@/lib/db/schema';
-
-/**
- * `withOrgWrite` 的拒绝和业务自己的失败都是 `{ ok: false }` 形状，只有 `reason`
- * 能区分——一律当「没权限」会把「不存在」报成「没权限」。
- */
-export function refused(
-  result: unknown
-): result is { ok: false; reason: 'forbidden' } {
-  if (typeof result !== 'object' || result === null) {
-    return false;
-  }
-  const failure = result as { ok?: unknown; reason?: unknown };
-  return failure.ok === false && failure.reason === 'forbidden';
-}
 
 /** 云谱空间必须属于本组织；公开 ID 与 UUID 都算不得授权凭证。 */
 export async function projectExists(

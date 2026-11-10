@@ -9,12 +9,10 @@ import {
 import {
   type ArticleResult,
   articleFolderIdOrNull,
-  FORBIDDEN,
   hasCatalogReferenceInTx,
   imagePathsOf,
   lockArticle,
   projectExists,
-  refused,
 } from '@/lib/article/mutations';
 import { articles } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
@@ -75,7 +73,7 @@ export async function createArticleInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
 
 export async function updateArticleTitleInTransaction(params: {
@@ -107,7 +105,7 @@ export async function updateArticleTitleInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
 
 export async function moveArticleInTransaction(params: {
@@ -151,7 +149,7 @@ export async function moveArticleInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
 
 /**
@@ -189,7 +187,7 @@ export async function deleteArticleInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
 
 /**

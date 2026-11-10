@@ -16,11 +16,9 @@ import {
 } from '@/lib/article/doc';
 import {
   type ArticleResult,
-  FORBIDDEN,
   imagePathsOf,
   lockArticle,
   pageIdsOf,
-  refused,
   validateContent,
 } from '@/lib/article/mutations';
 import { articles } from '@/lib/db/schema';
@@ -96,7 +94,7 @@ export async function saveArticlePageInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
 
 export async function addArticlePageInTransaction(params: {
@@ -145,7 +143,7 @@ export async function addArticlePageInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
 
 /** 删页。返回该页独有（其他页不再引用）的图片，交给 Action 在提交后清字节。 */
@@ -198,7 +196,7 @@ export async function deleteArticlePageInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
 
 export async function reorderArticlePagesInTransaction(params: {
@@ -247,5 +245,5 @@ export async function reorderArticlePagesInTransaction(params: {
     }
   );
 
-  return refused(result) ? FORBIDDEN : result;
+  return result;
 }
