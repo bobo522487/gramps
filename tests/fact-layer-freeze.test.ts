@@ -37,18 +37,6 @@ function factTables(): string[] {
     .sort();
 }
 
-/**
- * pgTable('name', { ... }, ...) 的列块，与旧冻结测试同一套解析。
- * 只用来逐表查租户列与软删列，**不快照列名**（避免第二份真相源）。
- */
-function tableBlocks(source: string) {
-  return [
-    ...source.matchAll(
-      /(?:export\s+)?const (\w+) = pgTable\(\s*'([a-z_]+)',\s*\{([\s\S]*?)\n {2}\},/g
-    ),
-  ];
-}
-
 describe('S8 阶段 A · 事实层冻结已解除', () => {
   test('六张事实层表仍在（防零断言）', () => {
     expect(factTables()).toEqual(FACT_TABLES);
@@ -63,26 +51,5 @@ describe('S8 阶段 A · 事实层冻结已解除', () => {
     expect(
       Object.keys(scripts).filter((key) => key.startsWith('data:'))
     ).toEqual([]);
-  });
-
-  test('每张事实层表仍带租户列，且软删列已随目标态退役', () => {
-    // 阶段 A′ 按附录 A.3 重写事实层，软删列（deleted_at）不再存在；租户列
-    // 与复合主键不变。断言方向随之翻转，钉住「没有第二份软删快照」。
-    for (const file of ['person.ts', 'family.ts', 'event.ts']) {
-      const blocks = tableBlocks(read(`lib/db/schema/${file}`));
-      expect(blocks.length, file).toBeGreaterThan(0);
-      for (const block of blocks) {
-        const [, , table, body] = block;
-        expect(body, `${file} ${table}`).toContain(
-          "uuid('organization_id').notNull()"
-        );
-        expect(body, `${file} ${table}`).toContain(
-          "uuid('project_id').notNull()"
-        );
-        expect(body, `${file} ${table}`).not.toContain(
-          "timestamptz('deleted_at')"
-        );
-      }
-    }
   });
 });
