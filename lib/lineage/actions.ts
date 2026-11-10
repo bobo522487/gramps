@@ -26,7 +26,6 @@ import {
   deleteNodeInTransaction,
   moveNodeInTransaction,
   type NodeUpdates,
-  type OptionalSpouse,
   toNodeDetails,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
@@ -37,15 +36,9 @@ import {
   updateLineageInTransaction,
 } from '@/lib/lineage/services';
 
-function coSpouse(data: {
-  spouseName?: string;
-  spouseSurname?: string;
-}): OptionalSpouse | undefined {
-  if (!data.spouseName || !data.spouseSurname) {
-    return undefined;
-  }
-  return { name: data.spouseName, surname: data.spouseSurname };
-}
+// 配偶录入尚未接线：node 是纯位置引用，配偶关系要落在 family_*，而四个创建
+// 路径目前只写 person + node。填了配偶却回「已保存」是静默丢数据，改成诚实
+// 报错。schema 与录入弹窗的输入都保留，等 family_* 接线时再撤掉这道守卫。
 
 export const createLineageAction = validatedActionWithUser(
   createLineageSchema,
@@ -129,6 +122,10 @@ export const deleteLineageAction = validatedActionWithUser(
 export const createRootNodeAction = validatedActionWithUser(
   createRootNodeSchema,
   async (data, _, user) => {
+    if (data.spouseName || data.spouseSurname) {
+      return lineageError('not_supported');
+    }
+
     const result = await createRootNodeInTransaction({
       userId: user.id,
       orgId: data.orgId,
@@ -137,7 +134,6 @@ export const createRootNodeAction = validatedActionWithUser(
       surname: data.surname,
       sex: data.sex,
       details: toNodeDetails(data),
-      spouse: coSpouse(data),
     });
 
     if (!result.ok) {
@@ -148,7 +144,6 @@ export const createRootNodeAction = validatedActionWithUser(
     return {
       success: '始祖已录入',
       nodeId: result.node.id,
-      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
     };
   }
 );
@@ -156,6 +151,10 @@ export const createRootNodeAction = validatedActionWithUser(
 export const addChildAction = validatedActionWithUser(
   addChildSchema,
   async (data, _, user) => {
+    if (data.spouseName || data.spouseSurname) {
+      return lineageError('not_supported');
+    }
+
     const result = await addChildInTransaction({
       userId: user.id,
       orgId: data.orgId,
@@ -165,7 +164,6 @@ export const addChildAction = validatedActionWithUser(
       surname: data.surname,
       sex: data.sex,
       details: toNodeDetails(data),
-      spouse: coSpouse(data),
     });
 
     if (!result.ok) {
@@ -176,7 +174,6 @@ export const addChildAction = validatedActionWithUser(
     return {
       success: '子女已添加',
       nodeId: result.node.id,
-      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
     };
   }
 );
@@ -184,6 +181,10 @@ export const addChildAction = validatedActionWithUser(
 export const addSiblingAction = validatedActionWithUser(
   addSiblingSchema,
   async (data, _, user) => {
+    if (data.spouseName || data.spouseSurname) {
+      return lineageError('not_supported');
+    }
+
     const result = await addSiblingInTransaction({
       userId: user.id,
       orgId: data.orgId,
@@ -193,7 +194,6 @@ export const addSiblingAction = validatedActionWithUser(
       surname: data.surname,
       sex: data.sex,
       details: toNodeDetails(data),
-      spouse: coSpouse(data),
     });
 
     if (!result.ok) {
@@ -204,7 +204,6 @@ export const addSiblingAction = validatedActionWithUser(
     return {
       success: '兄弟已添加',
       nodeId: result.node.id,
-      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
     };
   }
 );
@@ -212,6 +211,10 @@ export const addSiblingAction = validatedActionWithUser(
 export const addPersonAction = validatedActionWithUser(
   addPersonSchema,
   async (data, _, user) => {
+    if (data.spouseName || data.spouseSurname) {
+      return lineageError('not_supported');
+    }
+
     const params = {
       userId: user.id,
       orgId: data.orgId,
@@ -220,7 +223,6 @@ export const addPersonAction = validatedActionWithUser(
       surname: data.surname,
       sex: data.sex,
       details: toNodeDetails(data),
-      spouse: coSpouse(data),
     };
     const result = data.parentId
       ? await addChildInTransaction({ ...params, parentId: data.parentId })
@@ -234,7 +236,6 @@ export const addPersonAction = validatedActionWithUser(
     return {
       success: data.parentId ? '族人已添加' : '始祖已录入',
       nodeId: result.node.id,
-      ...(result.spouse ? { spouseId: result.spouse.id } : {}),
     };
   }
 );

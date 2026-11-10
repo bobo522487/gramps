@@ -143,6 +143,8 @@ FormData 通道用 `Object.fromEntries(formData)` 拍平，嵌套结构与 `null
 
 **谱系 Action 的目标态语义**：`node` 是纯位置引用，`person` 是主体。一次「录人丁」在同一个事务里先写事实层（`person` / `person_name` / `event` / `family_*`），再写一条 `node` 位置行，`node.person_id` 指回事实主体；`node.path` 决定它在谱系树上的世次与兄弟序，姓名、性别、生卒都不在 `node` 上。因此成功返回的 `nodeId` 是**位置行**的 id，不是人丁身份 id；删掉一条 `node` 不等于删掉这个人，反过来事实层被 `RESTRICT` 引用时也不能直接删。
 
+**当前版本配偶录入未接线**：上面写 `family_*` 是目标态，不是已兑现能力。四个创建类 Action（`createRootNodeAction` / `addChildAction` / `addSiblingAction` / `addPersonAction`）收到 `spouseName` / `spouseSurname` 入参时返回 `not_supported`（「当前版本暂不支持该操作」），不写库；`addSpouseAction` / `moveNodeAction` 同样恒失败。录入弹窗仍保留配偶输入，但填写后得到的是诚实错误，不是「已保存」。等 `family_*` 接线后再撤掉守卫。
+
 四条容易写错的规则：
 
 - **提交标识不提供重放幂等**：`requestId` 在 `lib/genealogy/schemas.ts` 里是**可选**的 `z.uuid()`，Action 与 `*-services.ts` 都不消费它，`node` 表也没有 `request_id` 列或配套的唯一索引。重复提交会产生两份事实与位置行，**不提供重放幂等**；这是已知缺口，不写进契约当作已兑现能力，需要幂等时另开规格。
