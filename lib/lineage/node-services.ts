@@ -6,6 +6,7 @@ import { type Node, nodes, personNames, persons } from '@/lib/db/schema';
 import type { PersonSex } from '@/lib/genealogy/constants';
 import { deleteUnreferencedPersons } from './delete-facts';
 import { withLineageWrite } from './lineage-write';
+import { nextPath } from './path';
 import { writePersonFacts } from './person-facts';
 
 /**
@@ -24,10 +25,8 @@ import { writePersonFacts } from './person-facts';
  * - spouse pairing: `node` has no spouse edge; the relationship belongs in
  *   `family` / `family_partner`, whose write layer is not part of A′. The
  *   co-created-spouse input is accepted but not persisted.
- * - whole-subtree move / sibling reorder: `node_parent_fk` is non-deferrable,
- *   so rewriting parent paths needs the phase-B DDL (deferrable FK or a
- *   three-stage prefix swap). These two entry points validate their input and
- *   return an explicit failure instead of writing a broken tree.
+ * - sibling reorder still returns `not_supported`. A free-slot subtree move
+ *   is one UPDATE; `parent_path` is generated from the new path.
  * - the create-idempotency key was retired with the target-model `node`;
  *   replay protection is a stage-C follow-up.
  */
@@ -92,17 +91,6 @@ export function toNodeDetails(
   };
 }
 
-/** Four-digit sparse ltree label; +10 leaves gaps for later insertions. */
-const PATH_STEP = 10;
-
-function segment(value: number): string {
-  const label = String(value).padStart(4, '0');
-  if (label.length !== 4) {
-    throw new Error('node path segment overflow');
-  }
-  return label;
-}
-
 async function loadNode(
   tx: DbTransaction,
   orgId: string,
@@ -121,41 +109,6 @@ async function loadNode(
     )
     .limit(1);
   return node ?? null;
-}
-
-/**
- * Allocates the next path under `parentPath`: the largest trailing segment in
- * that sibling group plus `PATH_STEP`, padded to four digits. Roots have a
- * NULL `parent_path` (generated column) and are grouped together.
- */
-async function nextPath(
-  tx: DbTransaction,
-  orgId: string,
-  lineageId: string,
-  parentPath: string | null
-): Promise<string> {
-  // The trailing segment is the sibling order. Let PostgreSQL return the
-  // maximum label instead of pulling every sibling row into Node.
-  const [row] = await tx
-    .select({
-      max: sql<
-        string | null
-      >`max(split_part(${nodes.path}::text, '.', nlevel(${nodes.path})))`,
-    })
-    .from(nodes)
-    .where(
-      and(
-        eq(nodes.orgId, orgId),
-        eq(nodes.lineageId, lineageId),
-        parentPath === null
-          ? isNull(nodes.parentPath)
-          : sql`${nodes.parentPath} = ${parentPath}::ltree`
-      )
-    );
-
-  const max = Number.parseInt(row?.max ?? '0', 10) || 0;
-  const leaf = segment(max + PATH_STEP);
-  return parentPath === null ? leaf : `${parentPath}.${leaf}`;
 }
 
 type WriteContext = {
@@ -454,25 +407,7 @@ export async function deleteNodeInTransaction(params: {
   });
 }
 
-/**
- * Moving a subtree requires rewriting every descendant path; the non-deferrable
- * parent FK cannot express that yet. Fail with `not_supported` instead of
- * running validations only to reject a valid target.
- */
-export async function moveNodeInTransaction(params: {
-  userId: string;
-  orgId: string;
-  lineageId: string;
-  nodeId: string;
-  newParentId: string;
-  ipAddress?: string;
-}): Promise<NodeMutationResult> {
-  return withLineageWrite(params, async () => {
-    return { ok: false, reason: 'not_supported' as const };
-  });
-}
-
-/** Sibling reorder has the same path-rewrite dependency as move. */
+/** Sibling reorder still collides on the non-deferrable path unique. */
 export async function reorderSiblingsInTransaction(params: {
   userId: string;
   orgId: string;
@@ -484,3 +419,5 @@ export async function reorderSiblingsInTransaction(params: {
     return { ok: false, reason: 'not_supported' as const };
   });
 }
+
+export { moveNodeInTransaction } from './move-node';

@@ -350,28 +350,85 @@ describe('node mutation paths', () => {
     expect(await getTestDb().select().from(nodes)).toHaveLength(1);
   });
 
-  it('reports subtree moves as unsupported and leaves the tree untouched', async () => {
+  it('moves a subtree onto a free slot with one path rewrite', async () => {
     const ctx = await setup();
     const root = await createRootNodeInTransaction(createParams(ctx));
-    if (!root.ok) throw new Error('root creation failed');
-    const child = await addChildInTransaction(
-      createParams(ctx, {
-        name: '二',
-        parentId: root.node.id,
-      }) as Parameters<typeof addChildInTransaction>[0]
-    );
-    if (!child.ok) throw new Error('child creation failed');
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+    const grandchild = await addChildInTransaction({
+      ...createParams(ctx, { name: '三' }),
+      parentId: child.node.id,
+    });
+    if (!grandchild.ok) throw new Error('grandchild failed');
+    const uncle = await addChildInTransaction({
+      ...createParams(ctx, { name: '叔', surname: '陈' }),
+      parentId: root.node.id,
+    });
+    if (!uncle.ok) throw new Error('uncle failed');
 
+    const moved = await moveNodeInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+      nodeId: child.node.id,
+      newParentId: uncle.node.id,
+    });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+
+    const rows = await getTestDb().select().from(nodes);
+    const byId = new Map(rows.map((row) => [row.id, row.path]));
+    expect(byId.get(child.node.id)).toBe(`${uncle.node.path}.0010`);
+    expect(byId.get(grandchild.node.id)).toBe(`${uncle.node.path}.0010.0010`);
+    expect(byId.get(root.node.id)).toBe(root.node.path);
+  });
+
+  it('refuses to move the root', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+    const moved = await moveNodeInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+      nodeId: root.node.id,
+      newParentId: child.node.id,
+    });
+    expect(moved).toEqual({ ok: false, reason: 'root_forbidden' });
+  });
+
+  it('refuses to move a node under its descendant', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+    const grandchild = await addChildInTransaction({
+      ...createParams(ctx, { name: '三' }),
+      parentId: child.node.id,
+    });
+    if (!grandchild.ok) throw new Error('grandchild failed');
     expect(
       await moveNodeInTransaction({
         userId: ctx.user.id,
         orgId: ctx.orgId,
         lineageId: ctx.lineage.id,
         nodeId: child.node.id,
-        newParentId: root.node.id,
+        newParentId: grandchild.node.id,
       })
-    ).toEqual({ ok: false, reason: 'not_supported' });
-    expect(await getTestDb().select().from(nodes)).toHaveLength(2);
+    ).toEqual({ ok: false, reason: 'cycle' });
   });
 
   it('reports sibling reordering as unsupported', async () => {

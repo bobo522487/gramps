@@ -57,7 +57,7 @@ addSiblingInTransaction(params)          // 兄弟
 addSpouseInTransaction(params)           // 直接返回 not_supported
 updateNodeInTransaction(params)
 deleteNodeInTransaction(params)
-moveNodeInTransaction(params)            // 直接返回 not_supported
+moveNodeInTransaction(params)            // 空槽一条 UPDATE
 reorderSiblingsInTransaction(params)     // 直接返回 not_supported
 ```
 
@@ -134,11 +134,11 @@ deleteNodeInTransaction({ userId, orgId, lineageId, nodeId })
 ### 2.7 移动与重排（已知限制）
 
 ```ts
-moveNodeInTransaction(...)          // 直接返回 not_supported
+moveNodeInTransaction(...)          // 空槽：一条 UPDATE
 reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 ```
 
-原因：`node_parent_fk` 是**非 deferrable** 自引用复合外键。移动子树需要同时重写所有后代的 `path`，事务中途会短暂违反父引用。正确实现需要三阶段临时前缀交换与 Phase-B DDL，因此当前不做任何读取或校验，直接返回明确的“暂不支持”，避免把系统限制误报成目标无效。
+移到空闲槽位是一条 `UPDATE`：新前缀接上旧路径切下来的尾巴，`parent_path` 生成列跟着变。目标是自己或自己的子孙时返回 `cycle`。始祖返回 `root_forbidden`。已经在该父节点下则不写。兄弟重排仍会撞上非延迟的路径唯一约束，继续返回 `not_supported`。
 
 ## 3. Server Actions
 
@@ -156,7 +156,7 @@ reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 | `addSpouseAction` | `addSpouseInTransaction` | 失败（`not_supported`） |
 | `updateNodeAction` | `updateNodeInTransaction` | — |
 | `deleteNodeAction` | `deleteNodeInTransaction` | 删除节点数 |
-| `moveNodeAction` | `moveNodeInTransaction` | 失败（`not_supported`） |
+| `moveNodeAction` | `moveNodeInTransaction` | 新路径；环与始祖失败 |
 
 失败原因由 `lib/lineage/lineage-errors.ts` 统一映射为中文，如：
 
