@@ -59,3 +59,15 @@ test('CHANGELOG 的 [未发布] 记录了本次运行时升级', () => {
   const pattern = /## \[未发布\][\s\S]*?Node\.js 26\.13\.0/;
   expect(read('CHANGELOG.md')).toMatch(pattern);
 });
+
+test('ADR 0021 索引行存在', () => {
+  expect(read('docs/adr/README.md')).toMatch(/^\| `0021` \|/m);
+});
+
+test('runbook 2.3 有 HTTP/2 回退开关与回滚口径', () => {
+  const runbook = read('docs/runbooks/README.md');
+  const section = runbook.split('### 2.3')[1]?.split(/^## 3\./m)[0] ?? '';
+  expect(section).toContain('VERCEL_FETCH_DISABLE_H2=1');
+  expect(section).toContain('>=24.0.0 <25');
+  expect(section).toContain('.nvmrc');
+});
