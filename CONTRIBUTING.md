@@ -10,17 +10,17 @@
 | 你要改的东西 | 唯一归属地 | 必须跟改 | 建议评审人 |
 | --- | --- | --- | --- |
 | 产品意图、范围边界、明确不做 | `docs/overview.md` | `docs/roadmap.md` | 产品负责人 |
-| 需求范围、切片顺序、依赖、状态 | `docs/roadmap.md` | 受影响子 spec 的 `Input` 行 | 产品 + 技术负责人 |
-| 术语、领域语言 | `docs/glossary.md` | 所有引用该术语的 spec、`docs/data-model.md` | 全员（语言对齐） |
+| 需求范围、切片顺序、依赖、状态 | `docs/roadmap.md` | 仓库根级实施计划 | 产品 + 技术负责人 |
+| 术语、领域语言 | `docs/glossary.md` | 所有引用该术语的文档、`docs/data-model.md` | 全员（语言对齐） |
 | 系统边界、模块、技术栈、部署形态 | `docs/architecture.md` | `docs/api.md`、相关 `docs/adr/` | 技术负责人 |
-| 接口契约（Action、DTO、错误码） | `docs/contracts/` | `docs/api.md`、相关 feature 的 `contracts/` | 调用双方负责人 |
-| 全局实体与关系 | `docs/data-model.md` | 相关 spec 的实体引用 | 技术负责人 |
+| 接口契约（Action、DTO、错误码） | `docs/contracts/` | `docs/api.md`、`docs/contracts/README.md` | 调用双方负责人 |
+| 全局实体与关系 | `docs/data-model.md` | 引用该实体的文档与测试 | 技术负责人 |
 | 数据模型重构（DDL 基线、隔离层、验收层） | `lib/db/migrations/0000_target_schema.sql` | `docs/data-model.md` 的 §8 执行者表、`docs/architecture.md` 角色与域所有权、`docs/contracts/` 谱系契约、`docs/runbooks/` 处置 SQL、`docs/glossary.md` 删除语义、`docs/nfr.md` §5、`docs/roadmap.md` 状态、**新增 ADR 并把旧决策标 `superseded`** | 技术负责人 |
 | 性能 / 安全 / 可用性 / 合规阈值 | `docs/nfr.md` | `tests/` 中对应验收用例 | 测试 + 运维 |
 | 技术选型理由 | `docs/adr/README.md` §3 索引 | 结论写进当次提交信息与 PR 描述；结论变了在索引新增一行并标 `superseded by` | 技术负责人 |
-| 单个 feature 的行为 | `specs/NNN-xxx/spec.md` | `plan.md`、`tasks.md`、`tests/` | 产品 + 测试 |
+| 单个 feature 的行为 | 仓库根级实施计划 | `tests/`、受影响文档 | 产品 + 测试 |
 | 上线 / 排障 / 回滚步骤 | `docs/runbooks/` | `CHANGELOG.md` | 运维 |
-| 文档结构或原则本身 | `.specify/memory/constitution.md` | 全部模板与引用方 | 全员评审 |
+| 文档结构或原则本身 | `.specify/memory/constitution.md` | 所有引用方 | 全员评审 |
 
 **同一事实只写一份。** 发现两处写同一件事，删掉一处、留链接，不要两边都改。
 
@@ -30,8 +30,8 @@
 
 归属关系的完整映射只在 [`.specify/memory/constitution.md`](.specify/memory/constitution.md) §5，本文 §1 只列「变更 → 跟改文档」的操作对照表。这里只补三条流程上最容易搞错的规则。
 
-- 原则只在 `constitution.md`：`plan.md` 的 Constitution Check 逐条对照原则编号，不把原则原文抄进每个 plan。
-- **roadmap 先改，再改 spec**：范围变化先落到 roadmap 那一行，再动受影响的子 spec；条目 ID 一旦被引用就不可改、不复用。
+- 原则只在 `constitution.md`：实施计划开头逐条对照原则编号，不把原则原文抄进每个计划。
+- **roadmap 先改，再写实施计划**：范围变化先落到 roadmap 那一行，再改仓库根级实施计划；条目 ID 一旦被引用就不可改、不复用。
 - **权威口径（目标态例外）**：`docs/data-model.md` 是目标态规格，代码按它重建；`docs/architecture.md`、`docs/api.md`、`docs/contracts/README.md`、`docs/nfr.md` 里标了「本节只对 [现状] 成立」的小节，与该规格冲突时以 `data-model.md` 为准，其余内容与代码冲突时以代码为准。数据层重构已交付，目标态就是当前代码；两者再出现分叉，说明是遗漏而不是「目标尚未落地」。
 
 ---
@@ -55,13 +55,12 @@
 ## 4. feature 交付流程
 
 1. **roadmap 先改**：在 `docs/roadmap.md` 建行，拿到不可变条目 ID。
-2. **specify**：从 `.specify/templates/` 的模板生成 `specs/NNN-xxx/`（编号三位递增、旧 `001`–`003` 不复用），在 `spec.md` 头部 `Input` 行写 `Parent roadmap → entry <ID>`。
-3. **写 spec.md**：按 EARS 句式写需求（始终约束 / 事件触发 / 异常处理 / 状态期间 / 可选特性），补齐边界值、异常状态、权限矩阵、数据口径、埋点与可验收标准；每条需求有稳定 `FR-xxx` ID。
-4. **plan**：Constitution Check 逐条引用原则编号；记录技术方案、接口、数据结构、兼容性与风险；选型理由落一条 ADR。
-5. **tasks**：拆到可执行粒度，每条任务标注覆盖的 `FR-xxx`。任务清单只留一份。
-6. **implement**：代码与 `tests/` 同批提交，测试用例 ID 回链 `FR-xxx`。
+2. **实施计划写在仓库根级**：不进 `docs/`——`scripts/check-docs.mjs` 会扫描该目录下所有 `.md` 并校验文档头与命名，实施计划不属于文档集。计划固定写 `Goal` / `Architecture` / `Tech Stack` / `Spec` / `Global Constraints` / `Review Focus`，每个 `### Task N:` 自带 Files、Interfaces 与 TDD 步骤（写失败测试 → 跑 RED → 实现 → 跑 GREEN → 提交）。
+3. **逐任务 TDD**：每个 Task 先落一个失败测试并跑出 RED，再写生产代码跑 GREEN，单独提交；`tests/` 与实现同批提交，不写没有失败测试的生产代码。
+4. **门禁**：`pnpm check && pnpm typecheck && pnpm test` 与 `pnpm arch:check && pnpm docs:check` 全绿，命令输出留证（见 §6）。
+5. **PR**：按 §5 提交规范、§6 自查清单与 §7 评审顺序自检。
 
-`spec.md` 只写「要什么、为什么、怎么验收」；表结构、文件路径、函数名属于 `plan.md`。
+实施计划只写「怎么改、改哪些文件、怎么验收」；原则正文只认 `.specify/memory/constitution.md`，不在计划里重述。
 
 ---
 
@@ -88,8 +87,8 @@
 - [ ] 安全路径有测试（越权、信息泄露、认证语义、错误处理）。
 - [ ] 没有把业务功能做成半成品。
 - [ ] 文档已按第 1 节对照表跟改；**状态只写 `docs/roadmap.md`**，其他文档不声明进度。
-- [ ] 任一 `FR-xxx` 能一路 grep 到 plan 决策、ADR、tasks 任务与 `tests/` 用例。
-- [ ] 删掉本 feature 目录后，`docs/` 仍然自洽。
+- [ ] 实施计划里每个 Task 都能一路 grep 到 ADR（若有）、对应测试与提交。
+- [ ] 删掉仓库根级实施计划后，`docs/` 仍然自洽。
 - [ ] `CHANGELOG.md` 已记录。
 
 ---
