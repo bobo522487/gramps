@@ -113,6 +113,16 @@ describe('P9 认证角色与 genealogy_app 同一口径', () => {
   });
 });
 
+describe('P11 生产 app 角色可进入 genealogy_app', () => {
+  test('只在 app 与 genealogy_app 都存在时授予成员资格', () => {
+    // 生产 APP_POSTGRES_URL 以 Neon 托管的 `app` 登录，而 withOrg() 会
+    // `SET LOCAL ROLE genealogy_app`；缺这条授权时组织页统一 42501。
+    expect(script).toContain("rolname = 'app'");
+    expect(script).toContain("rolname = 'genealogy_app'");
+    expect(script).toContain('GRANT genealogy_app TO app');
+  });
+});
+
 describe('P10 给了口令才 ALTER，且口令是 SCRAM verifier 而非明文', () => {
   test('属性已合规时不发属性语句，只发一条 SCRAM password 语句', async () => {
     const statements: string[] = [];
