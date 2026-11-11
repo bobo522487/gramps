@@ -12,7 +12,7 @@
 
 | 用途               | 连接串                               | 角色                                                              |
 | ------------------ | ------------------------------------ | ----------------------------------------------------------------- |
-| 应用运行           | `APP_POSTGRES_URL`（Neon pooled）    | `genealogy_app`（基线创建的 LOGIN 角色），受 RLS 约束             |
+| 应用运行           | `APP_POSTGRES_URL`（Neon pooled）    | 生产登录角色 `app`，经 `SET LOCAL ROLE genealogy_app` 进入 RLS；本地/CI 可直接用 `genealogy_app` |
 | 认证运行           | `AUTH_POSTGRES_URL`（Neon direct）   | `auth_runtime` → 启动参数固定 `auth_service`；pooler 会拒绝该参数 |
 | 迁移 / 运维 / 备份 | `POSTGRES_URL_DIRECT`（Neon direct） | 迁移角色，拥有 `BYPASSRLS`                                        |
 

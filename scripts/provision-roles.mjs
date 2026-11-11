@@ -115,6 +115,19 @@ try {
     );
   }
 
+  // 生产 APP_POSTGRES_URL 的登录角色是 Neon 托管的 `app`，而 withOrg() 会
+  // `SET LOCAL ROLE genealogy_app`。两者没有成员关系时，所有组织页在
+  // `set local role` 处 42501；本地/CI 没有 `app`，条件判断保证 no-op。
+  await sql.unsafe(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app')
+         AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'genealogy_app') THEN
+        GRANT genealogy_app TO app;
+      END IF;
+    END $$;
+  `);
+
   // 授权必须在迁移之后：`app` schema 与业务表都是基线建的。
   if (!rolesOnly) {
     for (const statement of authGrants) {

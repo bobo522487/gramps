@@ -135,7 +135,7 @@ end
 
 | 角色 | 权限 | 连接 |
 | --- | --- | --- |
-| `genealogy_app` | public schema DML + `app` schema 函数 EXECUTE；**无 auth schema 权限** | 业务连接（`APP_POSTGRES_URL`） |
+| `genealogy_app` | public schema DML + `app` schema 函数 EXECUTE；**无 auth schema 权限** | 业务连接（`APP_POSTGRES_URL`；生产以 `app` 登录后 `SET LOCAL ROLE genealogy_app`） |
 | `auth_service` / `auth_runtime` | auth schema 读写 | 认证连接（`AUTH_POSTGRES_URL`） |
 | DDL 角色（迁移用） | 建表/策略/函数，需 `GRANT ... ON auth.user` | 仅迁移脚本 |
 
