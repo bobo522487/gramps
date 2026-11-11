@@ -21,7 +21,7 @@
 
 ## 2. 怎么跑
 
-前置：Node.js 24 LTS · pnpm 12 · PostgreSQL 18（本地可用 Docker）。
+前置：Node.js 26 LTS · pnpm 12 · PostgreSQL 18（本地可用 Docker）。
 
 ```bash
 pnpm install

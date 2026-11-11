@@ -7,6 +7,7 @@
 
 ## [未发布]
 
+- **Node.js 运行时升级（2026-11-11）**：运行时锚点从 Node.js 24 LTS 切到 Node.js 26.13.0 LTS（Lithium）。`.nvmrc` 钉到 `26.13.0`，`package.json` 的 `engines.node` 改为 `>=26.0.0 <27`；CI 两个 workflow 经 `node-version-file: .nvmrc` 自动继承版本，无需改文件。新增护栏 `tests/node-version.test.ts` 断言锚点、ABI 147 与文档不残留 24。类型侧 `@types/node` 与锁文件在可写 pnpm store 环境下以 `pnpm add -D @types/node@26.6.6` 跟进（计划 Task 2）。
 - **文档护栏回归修复（2026-11-10）**：审查发现 `biome.json` 为让各依赖方向 override 互斥而排除的目录，反而使编辑器依赖禁令在这些目录失活——Biome 2.x 对同名 `noRestrictedImports` 不合并 options、后匹配组整体替换。改为按目录切互斥分区、每区自带该目录被禁的全部 import，`tests/docs-guard.test.ts` 用交叉探针逐分区验证「拦得住且无误伤」。护栏扫描范围从 `docs/` 扩到根级治理文档的链接、`scripts/` 与 `.github/` 的退役短语与反引号路径，扫描清单与根级文档都收进 `scripts/doc-manifest.json`；新删的三份文档登记进退役清单。ADR 索引的溯源口径由「正文」统一为提交信息与 PR 描述（该目录按设计只存索引），并同步 `docs/adr/README.md` 的机检说明。
 - **文档去重与门禁前置（2026-11-10）**：覆盖率阈值、环境变量清单各自只收成一份真相源，`docs/development.md`、`docs/infrastructure.md`、`docs/architecture.md` 改为指路到配置与模板；`docs/data-model.md` 合并重复的删除语义与 RLS 两节并重编号；五组依赖方向硬规则改由 `tests/docs-guard.test.ts` 端到端验证，组数不再写死。`pnpm docs:check` 前置到提交前门禁且默认即失败，文档里的命令口径统一（CI 保留历史开关作 no-op 兼容）。
 - **文档体系合并（2026-11-10）**：Code Wiki 落到 `docs/` 后随即删去重复正文，模块导读搬到 `docs/modules/`，产品意图与接口地图分别改名 `docs/overview.md` / `docs/api.md`。重组只搬文件未同步导航，留下多处失效引用与代码注释，而当时的文档测试与门禁全绿——退役清单在 `scripts/check-docs.mjs` 和 `tests/docs-consistency.test.ts` 各存一份，且只检查 Markdown 链接。

@@ -36,3 +36,26 @@ describe('Node.js 运行时版本锚点', () => {
     }
   });
 });
+
+test('开发文档与 CHANGELOG 只写 26，不残留 24', () => {
+  expect(read('README.md')).toContain('Node.js 26 LTS');
+
+  const dev = read('docs/development.md');
+  expect(dev).toContain('`>=26.0.0 <27`');
+  expect(dev).toContain('`.nvmrc` 固定 26.13.0');
+  expect(dev).toContain('# v26.x');
+
+  expect(read('docs/overview.md')).toContain('26.13.0（`.nvmrc`）');
+
+  for (const path of ['README.md', 'docs/development.md', 'docs/overview.md']) {
+    const text = read(path);
+    for (const stale of ['24.22.1', '>=24.0.0 <25', 'v24.x', 'Node.js 24 LTS']) {
+      expect(text).not.toContain(stale);
+    }
+  }
+});
+
+test('CHANGELOG 的 [未发布] 记录了本次运行时升级', () => {
+  const pattern = /## \[未发布\][\s\S]*?Node\.js 26\.13\.0/;
+  expect(read('CHANGELOG.md')).toMatch(pattern);
+});
