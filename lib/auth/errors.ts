@@ -126,6 +126,14 @@ export function isAuthErrorCode(error: unknown, code: string): boolean {
   return errorCode(error) === code;
 }
 
+/** Safe structured fields for server logs; never includes SQL or credentials. */
+export function authErrorDetails(error: unknown): {
+  code: string | null;
+  status: number | null;
+} {
+  return { code: errorCode(error), status: errorStatus(error) };
+}
+
 /** Slug collisions surface as either a Better Auth code or a raw unique index. */
 export function isSlugConflict(error: unknown): boolean {
   return (

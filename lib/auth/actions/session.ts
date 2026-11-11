@@ -5,7 +5,7 @@ import 'server-only';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getAuth } from '@/lib/auth/better-auth';
-import { authErrorMessage } from '@/lib/auth/errors';
+import { authErrorDetails, authErrorMessage } from '@/lib/auth/errors';
 import { validatedAction } from '@/lib/auth/middleware';
 import {
   checkRateLimit,
@@ -93,6 +93,7 @@ export const signUp = validatedAction(signUpSchema, async (data) => {
       headers: await headers(),
     });
   } catch (error) {
+    logger.error('sign-up failed', error, authErrorDetails(error));
     return { error: authErrorMessage(error), email };
   }
 
