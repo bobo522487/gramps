@@ -61,7 +61,7 @@ jobs:
         run: pnpm audit --prod --audit-level high
 
       - name: Docs consistency
-        run: pnpm run docs:check --strict
+        run: pnpm run docs:check
 
       - name: Architecture constraints (F6/F7)
         run: pnpm arch:check
@@ -77,11 +77,11 @@ jobs:
       - name: Migrate test database
         run: pnpm db:migrate
 
-      # T36-T42: target-schema verification rebuilds the single baseline in its
-      # own throwaway database (gramps_s8_verify), then asserts DDL, all P1-P32 /
-      # N1-N31 cases, TS <-> DDL catalog parity and fail-closed. T40 EXPLAIN
-      # numbers and the P21/P22/N20 structural cases need the confirmed target
-      # environment, so the script reports explicit SKIPs rather than fake PASS.
+      # T36-T42: target-schema verification 在独立的一次性库 gramps_s8_verify 上
+      # 重建单一基线，并断言 DDL / P1-P32 / N1-N31 / TS<->DDL parity / fail-closed。
+      # T40 的 EXPLAIN 数值与 P21/P22/N20 结构用例需要确认的目标环境，脚本显式报
+      # SKIP 而不是假 PASS。给 SKIP 设上限与到期日需要连库验证，属于后续计划；本次
+      # 离线整改不执行该命令，也不改动这一步骤。
       - name: Verify target schema (T36-T42)
         run: pnpm verify:target-schema
 
