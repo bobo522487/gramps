@@ -162,6 +162,36 @@ const MESSAGE_OVERRIDES: ReadonlyArray<{
 ];
 
 /**
+ * SECDEF 抛出的这些中文就是写给最终用户的文案，逐字透传，不再转写成兜底句。
+ * org 写 Action 收敛成单事务、删掉应用层 JS 预检后，用户可见文案只能由
+ * 数据库原文保证；逐字对齐基线 SECDEF 的 RAISE EXCEPTION 文本。
+ */
+const PASSTHROUGH_MESSAGES: ReadonlyArray<{
+  sqlState: string;
+  needles: readonly string[];
+}> = [
+  {
+    sqlState: '42501',
+    needles: [
+      '只有所有者可以修改组织设置',
+      '只有所有者或管理员可以移除成员',
+      '你没有调整该成员角色的权限',
+      '管理员不能管理其他管理员',
+    ],
+  },
+  {
+    sqlState: '22023',
+    needles: [
+      '不能移除自己，请先转让所有权',
+      '不能修改所有者的角色',
+      '该成员不在此组织中',
+      '组织不存在或已归档',
+      '不能把成员改成该角色',
+    ],
+  },
+];
+
+/**
  * 把错误链里第一个已知 SQLSTATE 转成 Action 错误码 + 中文文案。
  * 未命中返回 null，让调用方继续走 Better Auth / HTTP status 兜底。
  */
@@ -180,7 +210,15 @@ export function pgErrorOf(
         entry.sqlState === value.code &&
         entry.needles.some((needle) => message.includes(needle))
     );
-    return { code: base.code, message: override?.message ?? base.message };
+    if (override) {
+      return { code: base.code, message: override.message };
+    }
+    const literal = PASSTHROUGH_MESSAGES.find(
+      (entry) =>
+        entry.sqlState === value.code &&
+        entry.needles.some((needle) => message.includes(needle))
+    )?.needles.find((needle) => message.includes(needle));
+    return { code: base.code, message: literal ?? base.message };
   }
   return null;
 }
