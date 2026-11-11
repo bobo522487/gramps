@@ -336,9 +336,7 @@ async function verifyParity(sql) {
     fail('T39 parity 快照', 'lib/db/migrations/meta 下没有 snapshot');
     return false;
   }
-  const snapshot = JSON.parse(
-    read(`lib/db/migrations/meta/${snapshotName}`)
-  );
+  const snapshot = JSON.parse(read(`lib/db/migrations/meta/${snapshotName}`));
   const snapTables = Object.entries(snapshot.tables)
     .filter(([key]) => key.startsWith('public.'))
     .map(([, value]) => value)
