@@ -136,10 +136,9 @@ app/layout.tsx                       session + orgs → QueryProvider / ThemePro
 | `addChildAction` | `lineage.write` | `addChildInTransaction` |
 | `addSiblingAction` | `lineage.write` | `addSiblingInTransaction` |
 | `addPersonAction` | `lineage.write` | child / root 分流 |
-| `addSpouseAction` | `lineage.write` | 显式失败（未接线） |
 | `updateNodeAction` | `lineage.write` | `updateNodeInTransaction` |
 | `deleteNodeAction` | `lineage.delete` | `deleteNodeInTransaction` |
-| `moveNodeAction` | `lineage.write` | 校验后失败（未实现） |
+| `moveNodeAction` | `lineage.write` | 空槽一条 `UPDATE` |
 
 ### 3.6 谱文（`lib/article/actions.ts`）
 

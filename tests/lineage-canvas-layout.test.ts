@@ -45,7 +45,7 @@ function person(
     sort: 0,
     surname: '陈',
     fullName: `陈${overrides.name}`,
-    sex: 0,
+    sex: 'male',
     courtesy: null,
     namePrefix: null,
     isAlive: false,
@@ -74,7 +74,7 @@ function spouseOf(
     sort,
     surname: name.slice(0, 1),
     fullName: name,
-    sex: blood.sex === 0 ? 1 : 0,
+    sex: blood.sex === 'male' ? 'female' : 'male',
   });
 }
 
@@ -187,7 +187,7 @@ describe('book_ltr layout', () => {
       name: '元秀',
       generation: 2,
       parentId: 'r',
-      sex: 1,
+      sex: 'female',
     });
 
     const { result } = layout([root, son, wife, daughter], {
@@ -404,7 +404,7 @@ describe('lineage derived values', () => {
     generation: 2,
     parentId: 'r',
     sort: 2,
-    sex: 1,
+    sex: 'female',
   });
   const wife = spouseOf('w', firstSon, '王氏');
   const grandson = person({
@@ -621,13 +621,19 @@ describe('lineage sidebar tree', () => {
 
   it('labels a spouse with a single neutral rank regardless of sex', () => {
     const index = buildLineageIndex([
-      person({ id: 'a', name: '实', generation: 1, role: 'blood', sex: 0 }),
+      person({
+        id: 'a',
+        name: '实',
+        generation: 1,
+        role: 'blood',
+        sex: 'male',
+      }),
       person({
         id: 'b',
         name: '妻',
         generation: 1,
         role: 'spouse',
-        sex: 1,
+        sex: 'female',
         spouseOfId: 'a',
       }),
       person({
@@ -635,7 +641,7 @@ describe('lineage sidebar tree', () => {
         name: '夫',
         generation: 1,
         role: 'spouse',
-        sex: 0,
+        sex: 'male',
         spouseOfId: 'a',
       }),
     ]);

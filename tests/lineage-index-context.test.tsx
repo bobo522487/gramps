@@ -18,7 +18,7 @@ const nodes: NodeView[] = [
     name: '实',
     surname: '陈',
     fullName: '陈实',
-    sex: 0,
+    sex: 'male',
     courtesy: null,
     namePrefix: null,
     isAlive: true,

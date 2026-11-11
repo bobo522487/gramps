@@ -4,7 +4,9 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
 import { type Node, nodes, personNames, persons } from '@/lib/db/schema';
 import type { PersonSex } from '@/lib/genealogy/constants';
+import { deleteUnreferencedPersons } from './delete-facts';
 import { withLineageWrite } from './lineage-write';
+import { nextPath } from './path';
 import { writePersonFacts } from './person-facts';
 
 /**
@@ -20,13 +22,10 @@ import { writePersonFacts } from './person-facts';
  * stable, but the fields the target model cannot store are no longer written.
  *
  * Registered degradations (see implementation plan §3.2, stage C follow-ups):
- * - spouse pairing: `node` has no spouse edge; the relationship belongs in
- *   `family` / `family_partner`, whose write layer is not part of A′. The
- *   co-created-spouse input is accepted but not persisted.
- * - whole-subtree move / sibling reorder: `node_parent_fk` is non-deferrable,
- *   so rewriting parent paths needs the phase-B DDL (deferrable FK or a
- *   three-stage prefix swap). These two entry points validate their input and
- *   return an explicit failure instead of writing a broken tree.
+ * - spouse pairing is not in this slice. `family_partner` still has no writer,
+ *   and the create form no longer accepts a co-recorded spouse.
+ * - sibling reorder still returns `not_supported`. A free-slot subtree move
+ *   is one UPDATE; `parent_path` is generated from the new path.
  * - the create-idempotency key was retired with the target-model `node`;
  *   replay protection is a stage-C follow-up.
  */
@@ -39,12 +38,6 @@ export type NodeCreateDetails = {
   birthYear?: number | null;
   deathYear?: number | null;
   burialPlace?: string | null;
-};
-
-/** Kept for form compatibility; no target-model column in A′. */
-export type OptionalSpouse = {
-  name: string;
-  surname: string;
 };
 
 /** 谱系写入的失败原因；`lib/lineage/lineage-errors.ts` 逐个映射成中文文案。 */
@@ -91,17 +84,6 @@ export function toNodeDetails(
   };
 }
 
-/** Four-digit sparse ltree label; +10 leaves gaps for later insertions. */
-const PATH_STEP = 10;
-
-function segment(value: number): string {
-  const label = String(value).padStart(4, '0');
-  if (label.length !== 4) {
-    throw new Error('node path segment overflow');
-  }
-  return label;
-}
-
 async function loadNode(
   tx: DbTransaction,
   orgId: string,
@@ -120,41 +102,6 @@ async function loadNode(
     )
     .limit(1);
   return node ?? null;
-}
-
-/**
- * Allocates the next path under `parentPath`: the largest trailing segment in
- * that sibling group plus `PATH_STEP`, padded to four digits. Roots have a
- * NULL `parent_path` (generated column) and are grouped together.
- */
-async function nextPath(
-  tx: DbTransaction,
-  orgId: string,
-  lineageId: string,
-  parentPath: string | null
-): Promise<string> {
-  // The trailing segment is the sibling order. Let PostgreSQL return the
-  // maximum label instead of pulling every sibling row into Node.
-  const [row] = await tx
-    .select({
-      max: sql<
-        string | null
-      >`max(split_part(${nodes.path}::text, '.', nlevel(${nodes.path})))`,
-    })
-    .from(nodes)
-    .where(
-      and(
-        eq(nodes.orgId, orgId),
-        eq(nodes.lineageId, lineageId),
-        parentPath === null
-          ? isNull(nodes.parentPath)
-          : sql`${nodes.parentPath} = ${parentPath}::ltree`
-      )
-    );
-
-  const max = Number.parseInt(row?.max ?? '0', 10) || 0;
-  const leaf = segment(max + PATH_STEP);
-  return parentPath === null ? leaf : `${parentPath}.${leaf}`;
 }
 
 type WriteContext = {
@@ -180,13 +127,16 @@ async function recordNode(
   input: CreateInput
 ): Promise<Extract<NodeMutationResult, { ok: true }>> {
   const { orgId, projectId, lineageId } = ctx;
-  const displayName = input.surname
-    ? `${input.surname}${input.name}`
-    : input.name;
+  const surname = input.surname.trim();
 
   const [person] = await tx
     .insert(persons)
-    .values({ orgId, projectId, sex: input.sex })
+    .values({
+      orgId,
+      projectId,
+      sex: input.sex,
+      surname: surname || null,
+    })
     .returning({ id: persons.id });
   if (!person) {
     throw new Error('failed to insert person');
@@ -197,7 +147,7 @@ async function recordNode(
     projectId,
     personId: person.id,
     kind: 'given',
-    value: displayName,
+    value: input.name,
     isPrimary: true,
   });
 
@@ -217,7 +167,6 @@ async function recordNode(
       personId: person.id,
       path,
       kind: 'primary',
-      displayName,
     })
     .returning();
   if (!node) {
@@ -236,7 +185,6 @@ export type NodeCreateParams = {
   surname?: string;
   sex: PersonSex;
   details?: NodeCreateDetails;
-  spouse?: OptionalSpouse;
   ipAddress?: string;
 };
 
@@ -331,22 +279,9 @@ export async function addSiblingInTransaction(
   });
 }
 
-/**
- * Spouse pairing needs `family_partner`; that write layer does not exist yet.
- * Fail with an explicit `not_supported` before doing any reads, so the UI no
- * longer blames the user's chosen anchor.
- */
-export async function addSpouseInTransaction(
-  params: Omit<NodeCreateParams, 'spouse'> & { anchorId: string }
-): Promise<NodeMutationResult> {
-  return withLineageWrite(params, async () => {
-    return { ok: false, reason: 'not_supported' as const };
-  });
-}
-
 export type NodeUpdates = {
   name: string;
-  surname: string;
+  surname: string | null;
   sex: PersonSex;
   courtesy?: string | null;
   isAlive?: boolean;
@@ -373,14 +308,12 @@ export async function updateNodeInTransaction(params: {
       return { ok: false, reason: 'not_found' as const };
     }
 
-    const displayName = updates.surname
-      ? `${updates.surname}${updates.name}`
-      : updates.name;
+    const surname = updates.surname?.trim() || null;
 
     if (current.personId) {
       await tx
         .update(persons)
-        .set({ sex: updates.sex })
+        .set({ sex: updates.sex, surname })
         .where(
           and(
             eq(persons.projectId, lineage.projectId),
@@ -389,7 +322,7 @@ export async function updateNodeInTransaction(params: {
         );
       await tx
         .update(personNames)
-        .set({ value: displayName })
+        .set({ value: updates.name })
         .where(
           and(
             eq(personNames.projectId, lineage.projectId),
@@ -408,19 +341,7 @@ export async function updateNodeInTransaction(params: {
       );
     }
 
-    const [node] = await tx
-      .update(nodes)
-      .set({ displayName })
-      .where(
-        and(
-          eq(nodes.id, nodeId),
-          eq(nodes.projectId, lineage.projectId),
-          eq(nodes.lineageId, lineageId)
-        )
-      )
-      .returning();
-
-    return { ok: true as const, node };
+    return { ok: true as const, node: current };
   });
 }
 
@@ -433,7 +354,7 @@ export async function deleteNodeInTransaction(params: {
 }): Promise<DeleteNodeResult> {
   const { userId, orgId, lineageId, nodeId } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
     const target = await loadNode(tx, orgId, lineageId, nodeId);
     if (!target) {
       return { ok: false, reason: 'not_found' as const };
@@ -453,31 +374,19 @@ export async function deleteNodeInTransaction(params: {
           sql`${nodes.path} <@ ${target.path}::ltree`
         )
       )
-      .returning({ id: nodes.id });
+      .returning({ id: nodes.id, personId: nodes.personId });
+
+    await deleteUnreferencedPersons(
+      tx,
+      { orgId, projectId: lineage.projectId },
+      deleted.flatMap((row) => (row.personId ? [row.personId] : []))
+    );
 
     return { ok: true as const, node: target, deletedNodes: deleted.length };
   });
 }
 
-/**
- * Moving a subtree requires rewriting every descendant path; the non-deferrable
- * parent FK cannot express that yet. Fail with `not_supported` instead of
- * running validations only to reject a valid target.
- */
-export async function moveNodeInTransaction(params: {
-  userId: string;
-  orgId: string;
-  lineageId: string;
-  nodeId: string;
-  newParentId: string;
-  ipAddress?: string;
-}): Promise<NodeMutationResult> {
-  return withLineageWrite(params, async () => {
-    return { ok: false, reason: 'not_supported' as const };
-  });
-}
-
-/** Sibling reorder has the same path-rewrite dependency as move. */
+/** Sibling reorder still collides on the non-deferrable path unique. */
 export async function reorderSiblingsInTransaction(params: {
   userId: string;
   orgId: string;
@@ -489,3 +398,5 @@ export async function reorderSiblingsInTransaction(params: {
     return { ok: false, reason: 'not_supported' as const };
   });
 }
+
+export { moveNodeInTransaction } from './move-node';

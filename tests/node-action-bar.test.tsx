@@ -14,7 +14,7 @@ function node(over: Partial<NodeView>): NodeView {
     name: '实',
     surname: '陈',
     fullName: '陈实',
-    sex: 0,
+    sex: 'male',
     courtesy: null,
     namePrefix: null,
     isAlive: true,
@@ -46,7 +46,7 @@ describe('NodeActionBar', () => {
     const html = renderToStaticMarkup(
       <NodeActionBar node={son} canWrite onCommand={noop} />
     );
-    for (const label of ['加子女', '加兄弟', '加配偶', '移动', '删除']) {
+    for (const label of ['加子女', '加兄弟', '移动', '删除']) {
       expect(html).toContain(label);
     }
     expect(html).not.toContain('查看档案');

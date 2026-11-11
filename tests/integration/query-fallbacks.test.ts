@@ -73,20 +73,28 @@ describe('toNodeViewRows display heuristics', () => {
     expect(row?.spouseOfId).toBeNull();
     expect(row?.role).toBe('blood');
     expect(row?.generation).toBe(1);
-    expect(row?.sex).toBe(0);
+    expect(row?.sex).toBe('unknown');
     expect(row?.birthText).toBeNull();
     expect(row?.deathText).toBeNull();
   });
 
-  it('uses displayName when primaryName is absent and resolves parentPath', () => {
+  it('joins the surname column with the given name and resolves parentPath', () => {
     const [parent, child] = toNodeViewRows([
-      { ...base, id: 'root', path: '0010', displayName: '陈实', sex: 'male' },
+      {
+        ...base,
+        id: 'root',
+        path: '0010',
+        surname: '陈',
+        primaryName: '实',
+        sex: 'male',
+      },
       {
         ...base,
         id: 'child',
         path: '0010.0010',
         parentPath: '0010',
-        primaryName: '陈二',
+        surname: '陈',
+        primaryName: '二',
         sex: 'female',
         birthText: '光绪二十年',
         deathText: '一九六八年',
@@ -96,16 +104,17 @@ describe('toNodeViewRows display heuristics', () => {
         id: 'orphan',
         path: '0020',
         parentPath: '0999',
-        primaryName: '陈三',
+        surname: '陈',
+        primaryName: '三',
       },
     ]);
     expect(parent?.surname).toBe('陈');
     expect(parent?.name).toBe('实');
-    expect(parent?.sex).toBe(1);
+    expect(parent?.sex).toBe('male');
     expect(child?.parentId).toBe('root');
     expect(child?.generation).toBe(2);
     expect(child?.sort).toBe(10);
-    expect(child?.sex).toBe(0);
+    expect(child?.sex).toBe('female');
     expect(child?.birthText).toBe('光绪二十年');
     expect(child?.deathText).toBe('一九六八年');
     expect(child?.fullName).toBe('陈二');

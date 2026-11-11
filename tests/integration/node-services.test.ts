@@ -1,10 +1,10 @@
+import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { getNodes } from '@/lib/db/queries/nodes';
-import { nodes } from '@/lib/db/schema';
+import { events, nodes, personNames, persons } from '@/lib/db/schema';
 import {
   addChildInTransaction,
   addSiblingInTransaction,
-  addSpouseInTransaction,
   createRootNodeInTransaction,
   deleteNodeInTransaction,
   moveNodeInTransaction,
@@ -12,6 +12,7 @@ import {
   toNodeDetails,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
+import { deleteLineageInTransaction } from '@/lib/lineage/services';
 import { getTestDb } from '../helpers/db';
 import {
   createLineage,
@@ -122,7 +123,14 @@ describe('node creation paths', () => {
 
     expect(result.node.path).toBe('0010');
     expect(result.node.parentPath).toBeNull();
-    expect(result.node.displayName).toBe('陈实');
+    expect(result.node.displayName).toBeNull();
+    const [person] = await getTestDb().select().from(persons);
+    const [given] = await getTestDb()
+      .select()
+      .from(personNames)
+      .where(eq(personNames.isPrimary, true));
+    expect(person?.surname).toBe('陈');
+    expect(given?.value).toBe('实');
 
     const rows = await getTestDb().select().from(nodes);
     expect(rows).toHaveLength(1);
@@ -196,20 +204,6 @@ describe('node creation paths', () => {
       )
     ).toEqual({ ok: false, reason: 'not_found' });
   });
-
-  it('reports spouses as unsupported without writing a fake node', async () => {
-    const ctx = await setup();
-    const root = await createRootNodeInTransaction(createParams(ctx));
-    if (!root.ok) throw new Error('root creation failed');
-
-    expect(
-      await addSpouseInTransaction({
-        ...createParams(ctx),
-        anchorId: root.node.id,
-      })
-    ).toEqual({ ok: false, reason: 'not_supported' });
-    expect(await getTestDb().select().from(nodes)).toHaveLength(1);
-  });
 });
 
 describe('node mutation paths', () => {
@@ -237,10 +231,18 @@ describe('node mutation paths', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.node.displayName).toBe('陈元英');
+    expect(result.node.displayName).toBeNull();
+    const [renamed] = await getTestDb()
+      .select()
+      .from(personNames)
+      .where(eq(personNames.isPrimary, true));
+    expect(renamed?.value).toBe('元英');
 
     const [view] = await getNodes(ctx.user.id, ctx.orgId, ctx.lineage.id);
     expect(view).toMatchObject({
+      surname: '陈',
+      name: '元英',
+      fullName: '陈元英',
       courtesy: '伯',
       isAlive: false,
       birthText: '光绪二十年',
@@ -333,28 +335,85 @@ describe('node mutation paths', () => {
     expect(await getTestDb().select().from(nodes)).toHaveLength(1);
   });
 
-  it('reports subtree moves as unsupported and leaves the tree untouched', async () => {
+  it('moves a subtree onto a free slot with one path rewrite', async () => {
     const ctx = await setup();
     const root = await createRootNodeInTransaction(createParams(ctx));
-    if (!root.ok) throw new Error('root creation failed');
-    const child = await addChildInTransaction(
-      createParams(ctx, {
-        name: '二',
-        parentId: root.node.id,
-      }) as Parameters<typeof addChildInTransaction>[0]
-    );
-    if (!child.ok) throw new Error('child creation failed');
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+    const grandchild = await addChildInTransaction({
+      ...createParams(ctx, { name: '三' }),
+      parentId: child.node.id,
+    });
+    if (!grandchild.ok) throw new Error('grandchild failed');
+    const uncle = await addChildInTransaction({
+      ...createParams(ctx, { name: '叔', surname: '陈' }),
+      parentId: root.node.id,
+    });
+    if (!uncle.ok) throw new Error('uncle failed');
 
+    const moved = await moveNodeInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+      nodeId: child.node.id,
+      newParentId: uncle.node.id,
+    });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+
+    const rows = await getTestDb().select().from(nodes);
+    const byId = new Map(rows.map((row) => [row.id, row.path]));
+    expect(byId.get(child.node.id)).toBe(`${uncle.node.path}.0010`);
+    expect(byId.get(grandchild.node.id)).toBe(`${uncle.node.path}.0010.0010`);
+    expect(byId.get(root.node.id)).toBe(root.node.path);
+  });
+
+  it('refuses to move the root', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+    const moved = await moveNodeInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+      nodeId: root.node.id,
+      newParentId: child.node.id,
+    });
+    expect(moved).toEqual({ ok: false, reason: 'root_forbidden' });
+  });
+
+  it('refuses to move a node under its descendant', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+    const grandchild = await addChildInTransaction({
+      ...createParams(ctx, { name: '三' }),
+      parentId: child.node.id,
+    });
+    if (!grandchild.ok) throw new Error('grandchild failed');
     expect(
       await moveNodeInTransaction({
         userId: ctx.user.id,
         orgId: ctx.orgId,
         lineageId: ctx.lineage.id,
         nodeId: child.node.id,
-        newParentId: root.node.id,
+        newParentId: grandchild.node.id,
       })
-    ).toEqual({ ok: false, reason: 'not_supported' });
-    expect(await getTestDb().select().from(nodes)).toHaveLength(2);
+    ).toEqual({ ok: false, reason: 'cycle' });
   });
 
   it('reports sibling reordering as unsupported', async () => {
@@ -371,5 +430,71 @@ describe('node mutation paths', () => {
         orderedIds: [],
       })
     ).toEqual({ ok: false, reason: 'not_supported' });
+  });
+
+  it('stores the surname on person and the given name on person_name', async () => {
+    const ctx = await setup();
+    const created = await createRootNodeInTransaction(
+      createParams(ctx, { surname: '司马', name: '相如' })
+    );
+    if (!created.ok) throw new Error('create failed');
+    const db = getTestDb();
+    const [person] = await db.select().from(persons);
+    const [given] = await db
+      .select()
+      .from(personNames)
+      .where(eq(personNames.isPrimary, true));
+    expect(person?.surname).toBe('司马');
+    expect(given?.value).toBe('相如');
+    expect(created.node.displayName).toBeNull();
+
+    const views = await getNodes(ctx.user.id, ctx.orgId, ctx.lineage.id);
+    expect(views[0]).toMatchObject({
+      surname: '司马',
+      name: '相如',
+      fullName: '司马相如',
+    });
+  });
+
+  it('removes the person, names, and events when the last node is deleted', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二', surname: '陈' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+
+    const deleted = await deleteNodeInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+      nodeId: child.node.id,
+    });
+    expect(deleted.ok).toBe(true);
+
+    const db = getTestDb();
+    const people = await db.select().from(persons);
+    const names = await db.select().from(personNames);
+    const factEvents = await db.select().from(events);
+    expect(people).toHaveLength(1);
+    expect(names.every((row) => row.personId === people[0]?.id)).toBe(true);
+    expect(factEvents.every((row) => row.personId === people[0]?.id)).toBe(
+      true
+    );
+  });
+
+  it('drops every person of a lineage when that lineage is deleted', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const result = await deleteLineageInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+    });
+    expect(result.ok).toBe(true);
+    expect(await getTestDb().select().from(persons)).toEqual([]);
   });
 });

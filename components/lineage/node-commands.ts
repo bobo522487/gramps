@@ -1,11 +1,6 @@
 import type { NodeView } from '@/components/lineage/types';
 
-export type NodeCommandId =
-  | 'add-child'
-  | 'add-sibling'
-  | 'add-spouse'
-  | 'move'
-  | 'delete';
+export type NodeCommandId = 'add-child' | 'add-sibling' | 'move' | 'delete';
 
 export type NodeCommand = {
   id: NodeCommandId;
@@ -38,11 +33,6 @@ export const NODE_COMMANDS: readonly NodeCommand[] = [
     id: 'add-sibling',
     label: '加兄弟',
     isEnabled: (node) => node.role === 'blood' && !isRoot(node),
-  },
-  {
-    id: 'add-spouse',
-    label: '加配偶',
-    isEnabled: (node) => node.role === 'blood',
   },
   {
     id: 'move',

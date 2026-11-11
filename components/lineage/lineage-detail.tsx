@@ -47,6 +47,7 @@ import {
 } from '@/components/lineage/node-create-dialog';
 import { NodeMoveDialog } from '@/components/lineage/node-move-dialog';
 import { PersonInspector } from '@/components/lineage/person-inspector';
+import { sexLabel } from '@/components/lineage/sex';
 import type { FolderOption, NodeView } from '@/components/lineage/types';
 import { useInspectorSelection } from '@/components/lineage/use-inspector-selection';
 import { Badge } from '@/components/ui/badge';
@@ -68,6 +69,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import type { PersonSex } from '@/lib/genealogy/constants';
 import { deleteNodeAction, moveNodeAction } from '@/lib/lineage/actions';
 import { shouldAutoOpenRoot } from '@/lib/lineage/auto-root';
 import {
@@ -88,11 +90,11 @@ type LineageInfo = {
   folderId: string | null;
 };
 
-type CreateState = { mode: NodeCreateMode; target?: NodeView } | null;
-
-function SexLabel({ sex }: { sex: number }) {
-  return sex === 1 ? '女' : '男';
-}
+type CreateState = {
+  mode: NodeCreateMode;
+  target?: NodeView;
+  sex?: PersonSex;
+} | null;
 
 function SpouseChip({
   spouse,
@@ -194,9 +196,7 @@ function NodeRows({
                 </details>
               ) : null}
             </TableCell>
-            <TableCell>
-              <SexLabel sex={node.sex} />
-            </TableCell>
+            <TableCell>{sexLabel(node.sex)}</TableCell>
             <TableCell className="text-muted-foreground">
               {lifeSpan(node)}
             </TableCell>
@@ -397,7 +397,7 @@ function LineageDetailInner({
     [lineage.id, orgId, router, setNotice]
   );
 
-  function openCreate(mode: 'child' | 'sibling' | 'spouse', node: NodeView) {
+  function openCreate(mode: 'child' | 'sibling', node: NodeView) {
     setCreateDialog({ mode, target: node });
   }
 
@@ -417,15 +417,8 @@ function LineageDetailInner({
     if (!node) {
       return;
     }
-    if (id === 'add-child' || id === 'add-sibling' || id === 'add-spouse') {
-      openCreate(
-        id === 'add-child'
-          ? 'child'
-          : id === 'add-sibling'
-            ? 'sibling'
-            : 'spouse',
-        node
-      );
+    if (id === 'add-child' || id === 'add-sibling') {
+      openCreate(id === 'add-child' ? 'child' : 'sibling', node);
       return;
     }
     if (id === 'move') {
@@ -484,12 +477,6 @@ function LineageDetailInner({
             const target = index.byId.get(nodeId);
             if (target) {
               openCreate('child', target);
-            }
-          }}
-          onAddSpouse={(nodeId) => {
-            const target = index.byId.get(nodeId);
-            if (target) {
-              openCreate('spouse', target);
             }
           }}
           onDelete={handleDelete}
@@ -609,16 +596,10 @@ function LineageDetailInner({
               lineageId={lineage.id}
               generationWords={lineage.generationWords}
               canWrite={canWrite}
-              onCreateChild={(parentId) => {
+              onCreateChild={(parentId, sex) => {
                 const target = index.byId.get(parentId);
                 if (target) {
-                  openCreate('child', target);
-                }
-              }}
-              onCreateSpouse={(bloodId) => {
-                const target = index.byId.get(bloodId);
-                if (target) {
-                  openCreate('spouse', target);
+                  setCreateDialog({ mode: 'child', target, sex });
                 }
               }}
               onCreatePerson={() => setCreateDialog({ mode: 'person' })}
@@ -803,6 +784,7 @@ function LineageDetailInner({
           lineageSurname={lineage.surname}
           generationWords={lineage.generationWords}
           target={createDialog.target}
+          initialSex={createDialog.sex}
           onCreated={handleCreated}
           onClose={() => setCreateDialog(null)}
         />

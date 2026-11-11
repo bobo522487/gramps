@@ -11,14 +11,14 @@
  * 跑 Q1（整树）/ Q3（子树）两条查询并断言计划形状与耗时。数字随每次运行重测，
  * 文档里的数字只是最近一次实测快照，不是常量。
  *
- * --parity 是 T39 后半：把 0000_snapshot.json（drizzle-kit 从 schema TS 导出的
- * 结构化镜像，由 CI 的 db:generate 零漂移反向钉住）与本次落库的真实 catalog
+ * --parity 是 T39 后半：把最新一份 drizzle snapshot（schema TS 的结构化镜像，
+ * 由 CI 的 db:generate 零漂移反向钉住）与本次落库的真实 catalog
  * 逐表对比「表集合 / 列集合 / 主键列组 / 外键定义」。只比结构、不比约束名——
  * TS 具名 CHECK、FK 与基线的内联无名约束天然同名不了，命名差异由 B1 评审登记，
  * 约束的**行为**由 T38 正反例的 SQLSTATE 断言覆盖。auth.* 四表按规格决议 ②
  * 由 Better Auth 管理 DDL，仓内只有 TS 镜像，不纳入对比。
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
@@ -183,6 +183,21 @@ async function verifyDdl(sql, withObjectChecks) {
     return false;
   }
 
+  const later = readdirSync(join(repoRoot, 'lib/db/migrations'))
+    .filter((name) => name.endsWith('.sql') && !name.startsWith('0000_'))
+    .sort();
+  for (const name of later) {
+    try {
+      await sql.unsafe(read(`lib/db/migrations/${name}`));
+    } catch (error) {
+      fail(
+        'T37 唯一基线 0 ERROR',
+        `${name} ${error?.code ?? ''} ${error?.message ?? error}`
+      );
+      return false;
+    }
+  }
+
   if (!withObjectChecks) {
     pass('T36 干净库已重建目标态', `${ddl.split('\n').length} 行 DDL 执行成功`);
     return true;
@@ -304,18 +319,24 @@ function sameSet(a, b) {
 /**
  * T39 后半：schema TS ↔ SQL 基线落库 catalog 的直接对比。
  *
- * 用 0000_snapshot.json 作为 TS schema 的结构化镜像（CI 的 db:generate 零漂移
- * 反向钉住它 ≡ TS），对比对象却是本次真实执行 DDL 后的 pg_catalog，而不是
- * snapshot 自身——所以这不是「TS ↔ snapshot」的间接自证。
+ * 用编号最大的 `*_snapshot.json` 作为 TS schema 的结构化镜像（CI 的
+ * db:generate 零漂移反向钉住它 ≡ TS）。对比对象是本次执行完全部迁移后的
+ * pg_catalog，而不是 snapshot 自身——所以这不是「TS ↔ snapshot」的间接自证。
  *
  * 只比结构：TS 具名 CHECK / FK 与基线内联无名约束天然同名不了（B1 评审 Minor
  * ① 已登记），逐名比对只会制造假红；约束的行为由 T38 的 SQLSTATE 断言覆盖。
  * auth.* 四表按规格决议 ② DDL 归 Better Auth，仓内仅 TS 镜像，故排除。
  */
 async function verifyParity(sql) {
-  const snapshot = JSON.parse(
-    read('lib/db/migrations/meta/0000_snapshot.json')
-  );
+  const snapshotName = readdirSync(join(repoRoot, 'lib/db/migrations/meta'))
+    .filter((name) => /^\d+_snapshot\.json$/.test(name))
+    .sort()
+    .at(-1);
+  if (!snapshotName) {
+    fail('T39 parity 快照', 'lib/db/migrations/meta 下没有 snapshot');
+    return false;
+  }
+  const snapshot = JSON.parse(read(`lib/db/migrations/meta/${snapshotName}`));
   const snapTables = Object.entries(snapshot.tables)
     .filter(([key]) => key.startsWith('public.'))
     .map(([, value]) => value)

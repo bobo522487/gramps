@@ -8,7 +8,6 @@ import {
   addChildSchema,
   addPersonSchema,
   addSiblingSchema,
-  addSpouseSchema,
   createLineageSchema,
   createRootNodeSchema,
   deleteLineageSchema,
@@ -21,7 +20,6 @@ import { deleteLineageError, lineageError } from '@/lib/lineage/lineage-errors';
 import {
   addChildInTransaction,
   addSiblingInTransaction,
-  addSpouseInTransaction,
   createRootNodeInTransaction,
   deleteNodeInTransaction,
   moveNodeInTransaction,
@@ -35,10 +33,6 @@ import {
   type LineageUpdates,
   updateLineageInTransaction,
 } from '@/lib/lineage/services';
-
-// 配偶录入尚未接线：node 是纯位置引用，配偶关系要落在 family_*，而四个创建
-// 路径目前只写 person + node。填了配偶却回「已保存」是静默丢数据，改成诚实
-// 报错。schema 与录入弹窗的输入都保留，等 family_* 接线时再撤掉这道守卫。
 
 export const createLineageAction = validatedActionWithUser(
   createLineageSchema,
@@ -116,10 +110,6 @@ export const deleteLineageAction = validatedActionWithUser(
 export const createRootNodeAction = validatedActionWithUser(
   createRootNodeSchema,
   async (data, _, user) => {
-    if (data.spouseName || data.spouseSurname) {
-      return lineageError('not_supported');
-    }
-
     const result = await createRootNodeInTransaction({
       userId: user.id,
       orgId: data.orgId,
@@ -145,10 +135,6 @@ export const createRootNodeAction = validatedActionWithUser(
 export const addChildAction = validatedActionWithUser(
   addChildSchema,
   async (data, _, user) => {
-    if (data.spouseName || data.spouseSurname) {
-      return lineageError('not_supported');
-    }
-
     const result = await addChildInTransaction({
       userId: user.id,
       orgId: data.orgId,
@@ -175,10 +161,6 @@ export const addChildAction = validatedActionWithUser(
 export const addSiblingAction = validatedActionWithUser(
   addSiblingSchema,
   async (data, _, user) => {
-    if (data.spouseName || data.spouseSurname) {
-      return lineageError('not_supported');
-    }
-
     const result = await addSiblingInTransaction({
       userId: user.id,
       orgId: data.orgId,
@@ -205,10 +187,6 @@ export const addSiblingAction = validatedActionWithUser(
 export const addPersonAction = validatedActionWithUser(
   addPersonSchema,
   async (data, _, user) => {
-    if (data.spouseName || data.spouseSurname) {
-      return lineageError('not_supported');
-    }
-
     const params = {
       userId: user.id,
       orgId: data.orgId,
@@ -234,35 +212,12 @@ export const addPersonAction = validatedActionWithUser(
   }
 );
 
-export const addSpouseAction = validatedActionWithUser(
-  addSpouseSchema,
-  async (data, _, user) => {
-    const result = await addSpouseInTransaction({
-      userId: user.id,
-      orgId: data.orgId,
-      lineageId: data.lineageId,
-      anchorId: data.spouseOfId,
-      name: data.name,
-      surname: data.surname,
-      sex: data.sex,
-      details: toNodeDetails(data),
-    });
-
-    if (!result.ok) {
-      return lineageError(result.reason);
-    }
-
-    revalidateWholeConsole();
-    return { success: '配偶已添加', nodeId: result.node.id };
-  }
-);
-
 export const updateNodeAction = validatedActionWithUser(
   updateNodeSchema,
   async (data, _, user) => {
     const updates: NodeUpdates = {
       name: data.name,
-      surname: data.surname,
+      surname: data.surname ?? null,
       sex: data.sex,
       courtesy: data.courtesy,
       isAlive: data.isAlive,

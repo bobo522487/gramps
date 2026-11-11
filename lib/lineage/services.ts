@@ -13,6 +13,7 @@ import {
 } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
 import { ensureDefaultFolderInTx } from '@/lib/folder/services';
+import { deleteUnreferencedPersons } from '@/lib/lineage/delete-facts';
 
 type LineageFailure =
   | 'forbidden'
@@ -185,7 +186,7 @@ export async function deleteLineageInTransaction(params: {
 
   return withOrgWrite(userId, orgId, 'lineage.delete', async (tx) => {
     const [lineage] = await tx
-      .select({ id: lineages.id })
+      .select({ id: lineages.id, projectId: lineages.projectId })
       .from(lineages)
       .where(and(eq(lineages.id, lineageId), eq(lineages.orgId, orgId)))
       .limit(1);
@@ -212,7 +213,13 @@ export async function deleteLineageInTransaction(params: {
     const deletedNodes = await tx
       .delete(nodes)
       .where(and(eq(nodes.orgId, orgId), eq(nodes.lineageId, lineageId)))
-      .returning({ id: nodes.id });
+      .returning({ id: nodes.id, personId: nodes.personId });
+
+    await deleteUnreferencedPersons(
+      tx,
+      { orgId, projectId: lineage.projectId },
+      deletedNodes.flatMap((row) => (row.personId ? [row.personId] : []))
+    );
 
     await tx
       .delete(lineages)

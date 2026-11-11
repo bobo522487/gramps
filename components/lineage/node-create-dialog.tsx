@@ -1,26 +1,27 @@
 'use client';
 
-import { Heart, UserPlus, X } from 'lucide-react';
+import { UserPlus, X } from 'lucide-react';
 import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
 import { generationWord, RANK_LABELS } from '@/components/lineage/derived';
 import {
   type LineageIndex,
   useLineageIndex,
 } from '@/components/lineage/lineage-index-context';
+import { rankSuffix } from '@/components/lineage/sex';
 import type { NodeView } from '@/components/lineage/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ActionState } from '@/lib/auth/types';
+import type { PersonSex } from '@/lib/genealogy/constants';
 import {
   addChildAction,
   addPersonAction,
   addSiblingAction,
-  addSpouseAction,
   createRootNodeAction,
 } from '@/lib/lineage/actions';
 
-export type NodeCreateMode = 'root' | 'child' | 'sibling' | 'spouse' | 'person';
+export type NodeCreateMode = 'root' | 'child' | 'sibling' | 'person';
 
 const COPY: Record<
   NodeCreateMode,
@@ -43,12 +44,6 @@ const COPY: Record<
     description: (target) =>
       `为「${target}」添加同辈兄弟，世次与父辈保持一致。`,
   },
-  spouse: {
-    title: '添加配偶',
-    submit: '添加配偶',
-    description: (target) =>
-      `为「${target}」添加配偶，配偶同世次展示，不参与世系路径。`,
-  },
   person: {
     title: '新增族人',
     submit: '确定录入',
@@ -56,17 +51,25 @@ const COPY: Record<
   },
 };
 
-function nextRank(index: LineageIndex, parentId: string | null, sex: number) {
+function nextRank(
+  index: LineageIndex,
+  parentId: string | null,
+  sex: PersonSex
+) {
   if (!parentId) {
     return '始祖';
   }
   const siblings = (index.childrenByParent.get(parentId) ?? []).filter(
     (node) => node.sex === sex
   );
-  const labels = sex === 1 ? RANK_LABELS.female : RANK_LABELS.male;
+  const labels =
+    sex === 'female'
+      ? RANK_LABELS.female
+      : sex === 'male'
+        ? RANK_LABELS.male
+        : null;
   return (
-    labels[siblings.length] ??
-    `第${siblings.length + 1}${sex === 1 ? '女' : '子'}`
+    labels?.[siblings.length] ?? `第${siblings.length + 1}${rankSuffix(sex)}`
   );
 }
 
@@ -84,6 +87,7 @@ export function NodeCreateDialog({
   lineageSurname,
   generationWords,
   target,
+  initialSex,
   onCreated,
   onClose,
 }: {
@@ -93,6 +97,7 @@ export function NodeCreateDialog({
   lineageSurname: string;
   generationWords: string[] | null;
   target?: NodeView;
+  initialSex?: PersonSex;
   onCreated: (nodeId: string, spouseId?: string) => void;
   onClose: () => void;
 }) {
@@ -101,7 +106,6 @@ export function NodeCreateDialog({
     root: createRootNodeAction,
     child: addChildAction,
     sibling: addSiblingAction,
-    spouse: addSpouseAction,
     person: addPersonAction,
   }[mode];
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
@@ -117,20 +121,12 @@ export function NodeCreateDialog({
     if (mode === 'child') {
       return target?.id ?? '';
     }
-    if (mode === 'spouse') {
-      return '';
-    }
     if (mode === 'person') {
       return target?.id ?? index.roots[0]?.id ?? '';
     }
     return '';
   });
-  const [sex, setSex] = useState(() => {
-    if (mode === 'spouse' && target) {
-      return target.sex === 0 ? 1 : 0;
-    }
-    return 0;
-  });
+  const [sex, setSex] = useState<PersonSex>(initialSex ?? 'male');
 
   useEffect(() => {
     if (!state.nodeId || handled.current === state.nodeId) {
@@ -145,24 +141,20 @@ export function NodeCreateDialog({
       ? 1
       : mode === 'child'
         ? (target?.generation ?? 0) + 1
-        : mode === 'sibling' || mode === 'spouse'
+        : mode === 'sibling'
           ? (target?.generation ?? 1)
           : (index.byId.get(parentId)?.generation ?? 0) + 1;
   const word = generationWord(generationWords, generation);
   const rank =
-    mode === 'spouse'
-      ? '配'
-      : mode === 'child'
-        ? nextRank(index, target?.id ?? null, sex)
-        : mode === 'sibling'
-          ? nextRank(index, target?.parentId ?? null, sex)
-          : mode === 'person'
-            ? nextRank(index, parentId || null, sex)
-            : '始祖';
+    mode === 'child'
+      ? nextRank(index, target?.id ?? null, sex)
+      : mode === 'sibling'
+        ? nextRank(index, target?.parentId ?? null, sex)
+        : mode === 'person'
+          ? nextRank(index, parentId || null, sex)
+          : '始祖';
 
   const copy = COPY[mode];
-  const isSpouseMode = mode === 'spouse';
-  const canCoRecordSpouse = !isSpouseMode;
   const parentOptions = useMemo(
     () =>
       index.blood
@@ -184,11 +176,7 @@ export function NodeCreateDialog({
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/20 px-5 py-4">
           <div className="flex items-center gap-2">
-            {isSpouseMode ? (
-              <Heart size={18} className="text-primary" />
-            ) : (
-              <UserPlus size={18} className="text-primary" />
-            )}
+            <UserPlus size={18} className="text-primary" />
             <div>
               <h2 className="text-sm font-bold text-foreground">
                 {copy.title}
@@ -224,9 +212,6 @@ export function NodeCreateDialog({
           ) : null}
           {mode === 'sibling' && target ? (
             <input type="hidden" name="siblingOfId" value={target.id} />
-          ) : null}
-          {isSpouseMode && target ? (
-            <input type="hidden" name="spouseOfId" value={target.id} />
           ) : null}
           {mode === 'person' ? (
             <input type="hidden" name="parentId" value={parentId} />
@@ -292,8 +277,8 @@ export function NodeCreateDialog({
               <Input
                 id="create-node-name"
                 name="name"
-                defaultValue={isSpouseMode ? '氏' : ''}
-                placeholder={isSpouseMode ? '如：氏、秀英' : '名讳，如：伯康'}
+                defaultValue=""
+                placeholder="名讳，如：伯康"
                 maxLength={60}
                 className="mt-1 h-8 text-xs font-semibold"
                 autoFocus
@@ -305,13 +290,13 @@ export function NodeCreateDialog({
                 htmlFor="create-node-surname"
                 className="text-[11px] text-muted-foreground"
               >
-                姓氏{isSpouseMode ? ' *' : ''}
+                姓氏
               </Label>
               <Input
                 id="create-node-surname"
                 name="surname"
-                defaultValue={isSpouseMode ? '' : lineageSurname}
-                placeholder={isSpouseMode ? '配偶姓氏，如：王' : '姓氏'}
+                defaultValue={lineageSurname}
+                placeholder="姓氏"
                 maxLength={30}
                 className="mt-1 h-8 text-xs"
               />
@@ -321,39 +306,30 @@ export function NodeCreateDialog({
 
           <div>
             <Label className="text-[11px] text-muted-foreground">性别</Label>
-            {isSpouseMode ? (
-              <>
-                <input type="hidden" name="sex" value={sex} />
-                <p className="mt-1 h-8 rounded-md border border-input bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
-                  {sex === 1 ? '女' : '男'}（配偶与本人性别相反）
-                </p>
-              </>
-            ) : (
-              <div className="mt-1 flex h-8 items-center gap-5">
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    name="sex"
-                    value="0"
-                    checked={sex === 0}
-                    onChange={() => setSex(0)}
-                    className="accent-primary"
-                  />
-                  男
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    name="sex"
-                    value="1"
-                    checked={sex === 1}
-                    onChange={() => setSex(1)}
-                    className="accent-primary"
-                  />
-                  女
-                </label>
-              </div>
-            )}
+            <div className="mt-1 flex h-8 items-center gap-5">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="sex"
+                  value="male"
+                  checked={sex === 'male'}
+                  onChange={() => setSex('male')}
+                  className="accent-primary"
+                />
+                男
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="sex"
+                  value="female"
+                  checked={sex === 'female'}
+                  onChange={() => setSex('female')}
+                  className="accent-primary"
+                />
+                女
+              </label>
+            </div>
             <FieldError message={state.fieldErrors?.sex} />
           </div>
 
@@ -384,51 +360,6 @@ export function NodeCreateDialog({
             />
             在世（默认按已故录入）
           </label>
-
-          {canCoRecordSpouse ? (
-            <fieldset className="space-y-2 rounded-lg border border-border p-3">
-              <legend className="px-1 text-[11px] text-muted-foreground">
-                同录配偶（可留空）
-              </legend>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label
-                    htmlFor="create-node-spouse-surname"
-                    className="text-[11px] text-muted-foreground"
-                  >
-                    配偶姓氏
-                  </Label>
-                  <Input
-                    id="create-node-spouse-surname"
-                    name="spouseSurname"
-                    placeholder="如：王"
-                    maxLength={30}
-                    className="mt-1 h-8 text-xs"
-                  />
-                  <FieldError message={state.fieldErrors?.spouseSurname} />
-                </div>
-                <div>
-                  <Label
-                    htmlFor="create-node-spouse-name"
-                    className="text-[11px] text-muted-foreground"
-                  >
-                    配偶名讳
-                  </Label>
-                  <Input
-                    id="create-node-spouse-name"
-                    name="spouseName"
-                    placeholder="如：氏（组合为王氏）"
-                    maxLength={60}
-                    className="mt-1 h-8 text-xs"
-                  />
-                  <FieldError message={state.fieldErrors?.spouseName} />
-                </div>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                配偶姓氏与名讳需同时填写；只填姓氏时可在名讳处填「氏」。
-              </p>
-            </fieldset>
-          ) : null}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

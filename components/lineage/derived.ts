@@ -1,3 +1,4 @@
+import { rankSuffix } from './sex';
 import type { NodeView } from './types';
 
 export type LineageIndex = {
@@ -184,8 +185,14 @@ export function rankLabel(index: LineageIndex, node: NodeView): string {
   if (order < 0) {
     return '';
   }
-  const labels = node.sex === 1 ? RANK_LABELS.female : RANK_LABELS.male;
-  return labels[order] ?? `第${order + 1}${node.sex === 1 ? '女' : '子'}`;
+  const labels =
+    node.sex === 'female'
+      ? RANK_LABELS.female
+      : node.sex === 'male'
+        ? RANK_LABELS.male
+        : null;
+  const suffix = rankSuffix(node.sex);
+  return labels?.[order] ?? `第${order + 1}${suffix}`;
 }
 
 export function generationWord(

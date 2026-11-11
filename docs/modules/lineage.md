@@ -54,10 +54,9 @@ deleteLineageInTransaction(params)
 createRootNodeInTransaction(params)      // 始祖
 addChildInTransaction(params)            // 子女
 addSiblingInTransaction(params)          // 兄弟
-addSpouseInTransaction(params)           // 直接返回 not_supported
 updateNodeInTransaction(params)
 deleteNodeInTransaction(params)
-moveNodeInTransaction(params)            // 直接返回 not_supported
+moveNodeInTransaction(params)            // 空槽一条 UPDATE
 reorderSiblingsInTransaction(params)     // 直接返回 not_supported
 ```
 
@@ -101,10 +100,10 @@ nextPath(tx, orgId, lineageId, parentPath):
 
 `recordNode()` 在**同一事务**内：
 
-1. `INSERT person (sex)`；
-2. `INSERT person_name (kind='given', value=姓+名, is_primary=true)`；
+1. `INSERT person (sex, surname)`；
+2. `INSERT person_name (kind='given', value=名, is_primary=true)`；
 3. `writePersonFacts()`：字号写 `person_name(kind='courtesy')`，生辰/忌辰写 `event(birth|death)`，葬地写 `event(burial)`；
-4. `INSERT node (path, kind='primary', display_name)`。
+4. `INSERT node (path, kind='primary')`。`display_name` 不再写入。
 
 任一步失败整体回滚，不会留下「有 person 没有 node」的孤儿。
 
@@ -113,10 +112,9 @@ nextPath(tx, orgId, lineageId, parentPath):
 `updateNodeInTransaction`：
 
 - 锁定谱系；
-- 更新 `person.sex`；
-- 更新该 person 的 primary `person_name.value`；
-- 调用 `writePersonFacts()` 写入 `courtesy / isAlive / birthText / deathText / birthYear / deathYear / burialPlace`；
-- 更新 `node.display_name`。
+- 更新 `person.sex` 与 `person.surname`；
+- 更新该 person 的 primary `person_name.value`（只写名）；
+- 调用 `writePersonFacts()` 写入 `courtesy / isAlive / birthText / deathText / birthYear / deathYear / burialPlace`。
 
 `isAlive` 由是否存在 `event(kind='death')` 派生：取消“在世”会记录一条死亡事件，即使日期未知。`namePrefix / biography` 没有目标态列，已从表单与 `NodeUpdates` 契约移除。
 
@@ -126,19 +124,20 @@ nextPath(tx, orgId, lineageId, parentPath):
 deleteNodeInTransaction({ userId, orgId, lineageId, nodeId })
 ```
 
-- 始祖（`parentPath === null`）禁止删除 → `root_forbidden`；
-- 删除条件 `path <@ target.path`，一次删除整棵子树；
-- 只删除 `node` 位置行；`person / person_name / event` 事实行不会被级联清理（`node_person_fk` 为 RESTRICT，方向是 node → person）；
-- 返回 `deletedNodes`，前端确认文案见 `lib/lineage/subtree.ts` 的 `buildDeleteConfirmMessage()`。
+- 始祖（`parentPath === null`）禁止删除 → `root_forbidden`，不删事实行；
+- 删除条件 `path <@ target.path`，一次删除整棵子树的 `node`；
+- 同一事务里，再删掉不再被任何 `node.person_id` 引用的 `event`、`person_name`、`person`；
+- 别的节点还指着这个人时，事实行留下。`family_*` 若引用了这个人，`RESTRICT` 会让整个事务回滚，包括刚才删掉的节点；
+- 返回 `deletedNodes`，前端确认文案见 `lib/lineage/subtree.ts` 的 `buildDeleteConfirmMessage()`。删谱系同样先删节点，再清失去引用的人物事实，最后删谱系行。不删 `folder`。
 
 ### 2.7 移动与重排（已知限制）
 
 ```ts
-moveNodeInTransaction(...)          // 直接返回 not_supported
+moveNodeInTransaction(...)          // 空槽：一条 UPDATE
 reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 ```
 
-原因：`node_parent_fk` 是**非 deferrable** 自引用复合外键。移动子树需要同时重写所有后代的 `path`，事务中途会短暂违反父引用。正确实现需要三阶段临时前缀交换与 Phase-B DDL，因此当前不做任何读取或校验，直接返回明确的“暂不支持”，避免把系统限制误报成目标无效。
+移到空闲槽位是一条 `UPDATE`：新前缀接上旧路径切下来的尾巴，`parent_path` 生成列跟着变。目标是自己或自己的子孙时返回 `cycle`。始祖返回 `root_forbidden`。已经在该父节点下则不写。兄弟重排仍会撞上非延迟的路径唯一约束，继续返回 `not_supported`。
 
 ## 3. Server Actions
 
@@ -153,10 +152,9 @@ reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 | `addChildAction` | `addChildInTransaction` | `nodeId` |
 | `addSiblingAction` | `addSiblingInTransaction` | `nodeId` |
 | `addPersonAction` | 有 `parentId` → child，否则 root | `nodeId` |
-| `addSpouseAction` | `addSpouseInTransaction` | 失败（`not_supported`） |
 | `updateNodeAction` | `updateNodeInTransaction` | — |
 | `deleteNodeAction` | `deleteNodeInTransaction` | 删除节点数 |
-| `moveNodeAction` | `moveNodeInTransaction` | 失败（`not_supported`） |
+| `moveNodeAction` | `moveNodeInTransaction` | 新路径；环与始祖失败 |
 
 失败原因由 `lib/lineage/lineage-errors.ts` 统一映射为中文，如：
 
@@ -186,9 +184,9 @@ reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 | `generation` | `path.split('.').length` |
 | `sort` | 路径最后一段的整数值 |
 | `parentId` | 用 `parentPath` 在同树 path→id 映射中反查 |
-| `fullName` | `person_name.value`，回退 `node.display_name` |
-| `surname` / `name` | 全名的「末字为名」显示启发式 |
-| `sex` | `male → 1`，其他 `0` |
+| `fullName` | `surname` 与 primary `person_name.value` 直接拼接 |
+| `surname` / `name` | 列与主名，不切分 |
+| `sex` | `person.sex` 原值（`male` / `female` / `other` / `unknown`），缺失时 `unknown` |
 | `courtesy` | `person_name(kind='courtesy').value` |
 | `birthText` / `deathText` | `event(birth|death).date_text`，`birthYear` / `deathYear` 取自 `date_sort` 前四位 |
 | `burialPlace` | `event(burial).place_text` |
@@ -283,7 +281,7 @@ type LineageIndex = {
 - `BookPersonNode`：显示姓名、世次、生卒、折叠按钮；`memo` 包裹；
 - `GenerationHeaderNode`：世代表头；
 - `BookGenealogyEdge`：父子连线，按布局给出的路径绘制；
-- `GenealogyCanvas` props：`lineageId / generationWords / canWrite / onCreateChild / onCreateSpouse / onCreatePerson / onSelectNode / onEditNode / onNodeContextMenu / onMoveNode / onPrint`；
+- `GenealogyCanvas` props：`lineageId / generationWords / canWrite / onCreateChild / onCreatePerson / onSelectNode / onEditNode / onNodeContextMenu / onMoveNode / onPrint`。`onCreateChild` 带上拖入瓦片的性别。配偶不在本切片；`family_partner` 仍无写入。
 - 交互：点击选中、双击编辑、右键菜单（`NodeContextMenu` + `NODE_COMMANDS`）、拖拽移动（当前会提示未支持）、画布工具栏（缩放/适配/小地图/打印/导图例）。
 
 ### 5.6 检视与命令

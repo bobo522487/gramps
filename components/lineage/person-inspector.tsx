@@ -8,6 +8,7 @@ import {
   type LineageIndex,
   useLineageIndex,
 } from '@/components/lineage/lineage-index-context';
+import { sexLabel } from '@/components/lineage/sex';
 import type { NodeView } from '@/components/lineage/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,7 +33,6 @@ export function PersonInspector({
   onClose,
   onSelectNode,
   onAddChild,
-  onAddSpouse,
   onDelete,
   onDirtyChange,
 }: {
@@ -44,7 +44,6 @@ export function PersonInspector({
   onClose: () => void;
   onSelectNode: (nodeId: string) => void;
   onAddChild: (nodeId: string) => void;
-  onAddSpouse: (nodeId: string) => void;
   onDelete: (target: NodeView) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -62,7 +61,6 @@ export function PersonInspector({
       onClose={onClose}
       onSelectNode={onSelectNode}
       onAddChild={onAddChild}
-      onAddSpouse={onAddSpouse}
       onDelete={onDelete}
       onDirtyChange={onDirtyChange}
     />
@@ -79,7 +77,6 @@ function PersonInspectorForm({
   onClose,
   onSelectNode,
   onAddChild,
-  onAddSpouse,
   onDelete,
   onDirtyChange,
 }: {
@@ -92,7 +89,6 @@ function PersonInspectorForm({
   onClose: () => void;
   onSelectNode: (nodeId: string) => void;
   onAddChild: (nodeId: string) => void;
-  onAddSpouse: (nodeId: string) => void;
   onDelete: (target: NodeView) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -165,7 +161,7 @@ function PersonInspectorForm({
             </h3>
             <span className="text-[10px] text-muted-foreground">
               {node.role === 'spouse' ? '配偶' : rank || '本宗'} ·{' '}
-              {node.sex === 1 ? '女' : '男'} · {node.isAlive ? '在世' : '已故'}
+              {sexLabel(node.sex)} · {node.isAlive ? '在世' : '已故'}
               {dirty ? ' · 未保存' : ''}
             </span>
           </div>
@@ -231,7 +227,7 @@ function PersonInspectorForm({
                   htmlFor="inspector-surname"
                   className="text-[11px] text-muted-foreground"
                 >
-                  姓氏 *
+                  姓氏
                 </Label>
                 <Input
                   id="inspector-surname"
@@ -276,12 +272,14 @@ function PersonInspectorForm({
                 <select
                   id="inspector-sex"
                   name="sex"
-                  defaultValue={String(node.sex)}
+                  defaultValue={node.sex}
                   className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground"
                   disabled={readOnly}
                 >
-                  <option value="0">男</option>
-                  <option value="1">女</option>
+                  <option value="male">男</option>
+                  <option value="female">女</option>
+                  <option value="other">其他</option>
+                  <option value="unknown">不详</option>
                 </select>
                 <FieldError message={state.fieldErrors?.sex} />
               </div>
@@ -356,15 +354,6 @@ function PersonInspectorForm({
                 <h4 className="text-xs font-bold text-muted-foreground">
                   配偶（{spouses.length}）
                 </h4>
-                {canWrite ? (
-                  <button
-                    type="button"
-                    onClick={() => onAddSpouse(node.id)}
-                    className="flex items-center gap-0.5 text-[11px] text-primary hover:underline"
-                  >
-                    <Plus size={12} /> 添配
-                  </button>
-                ) : null}
               </div>
               {spouses.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">

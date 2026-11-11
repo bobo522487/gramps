@@ -133,9 +133,7 @@ test('critical path: sign up, create project, record founder, add child, edit in
     page.locator('header').getByText(/共\s*1\s*位族人/)
   ).toBeVisible();
 
-  // 目标态 person_name 把全名按「姓 + 名」拆分，画布卡片只渲染名：
-  // 「太公」→ 姓「太」/ 名「公」，「二世」→ 姓「二」/ 名「世」。
-  // 完整姓名仍由详情面板承载，下面用「当前选中」再校验一次。
+  // 录入框只填了名、姓留空。名整段写入 person_name，卡片与「当前选中」都显示这段名。
   const rootNode = personNodes.filter({ hasText: '公' });
   const actionBar = page.getByTestId('node-action-bar');
   // 卡片上不再有悬浮操作按钮：选中人丁后从底部快捷条发起。

@@ -58,15 +58,14 @@ const edgeTypes = {
 const TEMPLATE_MIME = 'application/genealogy-template';
 
 type DragTemplate = {
-  sex: number;
+  sex: 'male' | 'female';
 };
 
 export type GenealogyCanvasProps = {
   lineageId: string;
   generationWords: string[] | null;
   canWrite: boolean;
-  onCreateChild: (parentId: string) => void;
-  onCreateSpouse: (bloodId: string) => void;
+  onCreateChild: (parentId: string, sex: 'male' | 'female') => void;
   onCreatePerson: () => void;
   onSelectNode: (nodeId: string | null) => void;
   onEditNode: (nodeId: string) => void;
@@ -80,7 +79,6 @@ function CanvasInner({
   generationWords,
   canWrite,
   onCreateChild,
-  onCreateSpouse,
   onCreatePerson,
   onSelectNode,
   onEditNode,
@@ -489,19 +487,9 @@ function CanvasInner({
       if (!nearest) {
         return;
       }
-      if (template.sex === 1) {
-        onCreateSpouse(nearest.id);
-      } else {
-        onCreateChild(nearest.id);
-      }
+      onCreateChild(nearest.id, template.sex);
     },
-    [
-      index.maxGeneration,
-      layout.persons,
-      onCreateChild,
-      onCreateSpouse,
-      screenToFlowPosition,
-    ]
+    [index.maxGeneration, layout.persons, onCreateChild, screenToFlowPosition]
   );
 
   const maxGeneration = index.maxGeneration;
@@ -633,7 +621,7 @@ function CanvasInner({
                   onDragStart={(event) => {
                     event.dataTransfer.setData(
                       TEMPLATE_MIME,
-                      JSON.stringify({ sex: 0 } satisfies DragTemplate)
+                      JSON.stringify({ sex: 'male' } satisfies DragTemplate)
                     );
                     event.dataTransfer.effectAllowed = 'copy';
                   }}
@@ -649,7 +637,7 @@ function CanvasInner({
                   onDragStart={(event) => {
                     event.dataTransfer.setData(
                       TEMPLATE_MIME,
-                      JSON.stringify({ sex: 1 } satisfies DragTemplate)
+                      JSON.stringify({ sex: 'female' } satisfies DragTemplate)
                     );
                     event.dataTransfer.effectAllowed = 'copy';
                   }}
