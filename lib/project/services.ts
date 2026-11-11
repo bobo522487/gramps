@@ -2,10 +2,7 @@ import 'server-only';
 
 import { and, eq, sql } from 'drizzle-orm';
 import { queryRows } from '@/lib/db/drizzle';
-import {
-  foreignKeyConstraintOf,
-  isForeignKeyViolationOf,
-} from '@/lib/db/errors';
+import { sqlStateOf } from '@/lib/db/errors';
 import { organizations, type Project, projects } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
 import { generatePublicId } from '@/lib/ids';
@@ -119,35 +116,14 @@ export async function updateProjectInTransaction(params: {
 }
 
 /**
- * 基线 DDL 里所有挂在 `project` 上的子表外键，按表名排序，与
- * `lib/db/migrations/0000_target_schema.sql` 一一对应（当前 13 条）。
- * 新增任何引用 `project(organization_id, id)` 的表，都必须在这里登记，
- * 否则删除会走「未登记约束」的报错分支而不是友好提示——这是刻意的：
- * 静默吞掉未知 FK 故障比报错更难查。
- * 该清单须与 `lib/db/migrations/0000_target_schema.sql` 保持一致；漏登记的
- * 报错分支由 `tests/integration/project-delete-errors.test.ts` 的反向用例覆盖。
+ * 删除项目：让数据库的外键约束自己判定「项目里还有内容」。
+ *
+ * `project` 的每一张子表外键都是 `ON DELETE RESTRICT`，有子行时 `DELETE`
+ * 会以 `23001` 失败（插入类 FK 违约是 `23503`）。用一个 SAVEPOINT 把这条
+ * 可能失败的语句隔离出来：命中 RESTRICT 就回滚到 SAVEPOINT，事务恢复到
+ * 可提交状态并返回 `not_empty`。既不预先探查 13 张子表，也不维护约束名清单——
+ * 约束交给数据库，清单交给 `pg_constraint`。
  */
-const PROJECT_CHILD_CONSTRAINTS = [
-  'article_scope_fk',
-  'book_catalog_scope_fk',
-  'book_export_scope_fk',
-  'book_scope_fk',
-  'event_scope_fk',
-  'family_child_scope_fk',
-  'family_partner_scope_fk',
-  'family_scope_fk',
-  'folder_scope_fk',
-  'lineage_scope_fk',
-  'node_scope_fk',
-  'person_name_scope_fk',
-  'person_scope_fk',
-] as const;
-
-/** `xxx_scope_fk` → `xxx`：子表探查与兜底分类共用同一份清单，不另建表名表。 */
-const PROJECT_CHILD_TABLES = PROJECT_CHILD_CONSTRAINTS.map((name) =>
-  name.replace(/_scope_fk$/, '')
-);
-
 export async function deleteProjectInTransaction(params: {
   userId: string;
   orgId: string;
@@ -159,52 +135,26 @@ export async function deleteProjectInTransaction(params: {
   const { userId, orgId, projectId } = params;
 
   return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
-    // Target state has no soft delete: this is a real DELETE and every
-    // project-internal FK is RESTRICT. Any failed statement aborts the
-    // transaction, and a JS catch cannot make COMMIT succeed. So we must not
-    // issue a DELETE that can fail: probe the child tables first and refuse
-    // early.
-    const childChecks = PROJECT_CHILD_TABLES.map(
-      (table) =>
-        sql`exists (select 1 from ${sql.identifier(table)} where organization_id = ${orgId} and project_id = ${projectId})`
-    );
-    const [probe] = await queryRows<{ has_children: boolean }>(
-      tx,
-      sql`select (${sql.join(childChecks, sql` or `)}) as has_children`
-    );
-    if (probe?.has_children) {
-      return { ok: false, reason: 'not_empty' as const };
-    }
-
+    await tx.execute(sql`savepoint delete_project`);
     try {
-      const rows = await tx
-        .delete(projects)
-        .where(and(eq(projects.id, projectId), eq(projects.orgId, orgId)))
-        .returning({ id: projects.id });
-
+      const rows = await queryRows<{ id: string }>(
+        tx,
+        sql`delete from project where organization_id = ${orgId} and id = ${projectId} returning id`
+      );
       if (rows.length === 0) {
+        await tx.execute(sql`release savepoint delete_project`);
         return { ok: false, reason: 'not_found' as const };
       }
+      await tx.execute(sql`release savepoint delete_project`);
+      return { ok: true as const };
     } catch (error) {
-      // 兜底：并发插入子行、未登记的约束、或其它 FK 故障。只把清单内的违约
-      // 翻译成 `not_empty`；宽匹配会把别处的故障伪装成业务提示——用户照着
-      // 提示清空内容后依然删不掉，错误被吞。注意 RESTRICT 违约是 `23001`，
-      // 约束名在 node-postgres 的 `constraint` 上；插入类 FK 违约才是
-      // `23503`，两者在 `lib/db/errors.ts` 里都认。
-      if (isForeignKeyViolationOf(error, PROJECT_CHILD_CONSTRAINTS)) {
+      // RESTRICT 违约后事务进入 aborted 状态；必须先回到 SAVEPOINT 才能继续
+      // 提交。分类只看 SQLSTATE，不猜约束名；其余错误保留原链交给包装器兜底。
+      await tx.execute(sql`rollback to savepoint delete_project`);
+      if (sqlStateOf(error, '23001') || sqlStateOf(error, '23503')) {
         return { ok: false, reason: 'not_empty' as const };
-      }
-      const constraint = foreignKeyConstraintOf(error);
-      if (constraint) {
-        // 未登记的新约束：宁可报错也不猜。补进上面清单即可恢复友好提示。
-        throw new Error(
-          `deleteProject 命中未登记的 project 子表约束 ${constraint}`,
-          { cause: error }
-        );
       }
       throw error;
     }
-
-    return { ok: true as const };
   });
 }

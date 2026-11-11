@@ -201,7 +201,7 @@ flowchart LR
 | 无权限 | Action 返回 `FORBIDDEN`；RSC 直接 `notFound()` 隐藏资源存在性 |
 | 资源不存在 | `NOT_FOUND` / `notFound()` |
 | 唯一约束冲突 | `isUniqueViolation()` → `CONFLICT` |
-| 外键 / 子表引用 | `isForeignKeyViolationOf()` → 友好文案（如项目删除） |
+| 外键 / 子表引用 | 项目删除走 `SAVEPOINT`，按 `sqlStateOf()` 认 `23001` / `23503` → `not_empty` |
 | 数据库 RAISE EXCEPTION | `pgErrorOf()` 按单一 SQLSTATE 表（`42501` / `22023` / `23505` / `23001`）→ `ActionErrorCode` + 中文文案 |
 | Route Handler 未捕获异常 | `withApiLogging` 返回 JSON 500 + `x-request-id`，不泄漏堆栈 |
 | 页面渲染异常 | `app/error.tsx` / `app/global-error.tsx` + `RouteError` |

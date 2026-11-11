@@ -193,8 +193,9 @@ SELECT set_config('app.user_id', $1, true);
 ```mermaid
 flowchart LR
   DelOrg["删除/归档组织"] -->|"RESTRICT"| Proj["project 仍存在 → 拒绝"]
-  DelProj["删除 project"] -->|"先探测 13 个子表引用"| Children["有内容 → 友好报错"]
-  DelProj -->|"无引用"| Delete["DELETE project"]
+  DelProj["删除 project"] -->|"SAVEPOINT 内 DELETE"| Fk["RESTRICT 违约 23001"]
+  Fk -->|"ROLLBACK TO SAVEPOINT"| Children["有内容 → not_empty"]
+  DelProj -->|"无引用，DELETE 成功"| Delete["RELEASE SAVEPOINT → 已删除"]
   DelFolder["删除 folder"] -->|"SET NULL"| Content["lineage/article/book 移到未分类"]
   DelLineage["删除 lineage"] -->|"RESTRICT 检查"| CatalogRef["被 book_catalog 引用 → 拒绝"]
   DelLineage -->|"先删 node 再删 lineage"| NodesGone["人丁位置行被清空（person 保留）"]
@@ -204,7 +205,7 @@ flowchart LR
 
 | 操作 | 结果 |
 | --- | --- |
-| 删 `project` | `lib/project/services.ts` 先探测 13 张子表；有内容返回 `not_empty`，不发出会失败的 `DELETE`，避免数据库外键错误直接暴露给用户 |
+| 删 `project` | `lib/project/services.ts` 在 `SAVEPOINT delete_project` 内直接 `DELETE ... RETURNING`；命中 `23001` / `23503` 就 `ROLLBACK TO SAVEPOINT` 返回 `not_empty`，约束交给数据库、不维护子表清单 |
 | 删 `folder` | `lineage / article / book` 的 `folder_id` 置空（未分类），内容不删 |
 | 删 `lineage` | 先删全部 `node` 再删谱系，返回删除的节点数；被 `book_catalog` 引用时拒绝 |
 | 删 `node` | `path <@ target.path` 整棵子树；`person` 事实行保留 |
@@ -213,7 +214,7 @@ flowchart LR
 三个实测坑：
 
 1. `ON DELETE RESTRICT` 违约的 SQLSTATE 是 **`23001`**，不是 `23503`（后者是 `NO ACTION` / 插入类外键）。
-2. 事务内任一语句失败后整个事务进入 aborted 状态，**即使 JS 已 catch 也无法继续提交**；所以 `deleteProject` 必须先探查再删。
+2. 事务内任一语句失败后整个事务进入 aborted 状态，**即使 JS 已 catch 也无法继续提交**；所以失败语句必须放在 `SAVEPOINT` 里，catch 后先 `ROLLBACK TO SAVEPOINT` 才能让事务继续提交。
 3. `ON DELETE SET NULL` 的复合外键必须带列清单，否则会把 `project_id` 一起置空并报 `23502`。
 
 ## 7. 索引要点

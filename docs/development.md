@@ -219,7 +219,7 @@ pnpm verify:deploy
 | 启动即报环境配置错误 | `instrumentation.ts` 的 `getServerConfig()` 输出会列出具体字段 |
 | 所有组织查询为空 | 是否绕过 `withOrg()`；GUC 是否为 `app.user_id` |
 | 写操作返回 forbidden | Action 权限 vs 事务内角色；检查 `organization_member.role` |
-| 删除项目提示还有内容 | `PROJECT_CHILD_CONSTRAINTS` 中某表有行 |
+| 删除项目提示还有内容 | `DELETE` 命中子表 `ON DELETE RESTRICT`（`23001`），`SAVEPOINT` 回滚后返回 `not_empty` |
 | 谱文保存失败 | `ARTICLE_ERRORS` 文案；检查页 id、图片 pathname 前缀、页数/图片数上限 |
 | 图片 404 | 媒体模式与 pathname 是否匹配；谱文是否仍存在；`parseMediaPathname` 是否通过 |
 | `drizzle-kit` 交互提示 | TS schema 与 snapshot 漂移，先 `db:generate` 提交迁移 |

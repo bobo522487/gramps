@@ -102,10 +102,9 @@ requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
 | 函数 | 用途 |
 | --- | --- |
 | `isUniqueViolation(error)` | `23505` → 冲突 |
-| `isForeignKeyViolation(error)` | `23503` / `23001` → 外键 |
-| `isForeignKeyViolationOf(error, constraints)` | 按约束名精确匹配，删除操作必须用这个 |
-| `sqlStateOf(error, state)` | 任意 SQLSTATE 判断 |
-| `foreignKeyConstraintOf(error)` | 取约束名，供日志 |
+| `isForeignKeyViolation(error)` | `23503` / `23001` → 外键（宽匹配） |
+| `sqlStateOf(error, state)` | 任意 SQLSTATE 判断；删除项目的 `SAVEPOINT` 分支用它认 `23001` / `23503` |
+| `constraintOf(error, state)` | 取约束名，供日志（唯一冲突与邀请 token 撞车共用） |
 | `pgErrorOf(error)` | 按单一 SQLSTATE 表返回 `{ code, message } \| null`，命中后不再逐条判码 |
 | `PG_ERROR_MAP` | `42501` / `22023` / `23505` / `23001` → `ActionErrorCode` + 文案；邀请等域专用文案由覆盖表给出 |
 

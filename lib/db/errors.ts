@@ -70,27 +70,6 @@ export function isForeignKeyViolation(error: unknown): boolean {
 }
 
 /**
- * FK 违约但只看某几条约束名。删除类操作必须用它而不是上面的宽匹配：
- * 一个 `DELETE` 上挂了多种 FK，其中只有一部分代表「还有内容，不能删」，
- * 其余（比如历史遗留的 ON DELETE SET NULL 之外的可空引用）是真正的故障，
- * 宽匹配会把故障伪装成业务提示，用户照着提示清空内容也删不掉。
- *
- * PostgreSQL 在错误报文里带约束名（不是列名），所以这里按约束名精确比对，
- * 不做前缀 / 模糊匹配。node-postgres 把它放在 `constraint` 上；RESTRICT
- * 命中时报 `23001`，插入类外键违约报 `23503`。
- */
-export function isForeignKeyViolationOf(
-  error: unknown,
-  constraints: readonly string[]
-): boolean {
-  const names = new Set(constraints);
-  return errorChain(error).some((value) => {
-    const name = constraintName(value);
-    return isFkViolation(value) && name !== null && names.has(name);
-  });
-}
-
-/**
  * 从错误链里取出**某个** SQLSTATE，没命中返回 null。
  *
  * 存在的理由：调用方拿到的往往不是 `PostgresError` 本身。Drizzle 会把驱动
@@ -101,11 +80,6 @@ export function isForeignKeyViolationOf(
  */
 export function sqlStateOf(error: unknown, sqlState: string): boolean {
   return errorChain(error).some((value) => value.code === sqlState);
-}
-
-/** 从错误链里取出 `23503` / `23001` 的约束名，供日志与兜底文案使用。 */
-export function foreignKeyConstraintOf(error: unknown): string | null {
-  return constraintOf(error, FK_VIOLATION_CODES);
 }
 
 /**
