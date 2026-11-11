@@ -65,7 +65,7 @@
 | 组件库 | Radix UI | 1.8.1 | 无样式可访问原语 |
 | 数据访问 | Drizzle ORM | 0.45.4 | 类型安全 SQL，事务 API |
 | 数据库 | PostgreSQL | 18 | ltree、RLS、SECURITY DEFINER |
-| 驱动 | `postgres.js` / `pg` | 3.4.9 / 8.23.1 | 本地用 postgres.js，Vercel 用 pg Pool |
+| 驱动 | `pg`（node-postgres） | 8.23.1 | 全环境同一驱动；Vercel 额外挂 `attachDatabasePool` |
 | 认证 | Better Auth | 1.7.20 | Drizzle adapter + 自定义 access control |
 | 服务端状态 | TanStack Query | 5.107.1 | RSC 注入 `initialData` |
 | 客户端状态 | Zustand | 5.1.0 | 谱系画布视图状态 |

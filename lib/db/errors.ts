@@ -1,10 +1,8 @@
 type PgError = {
   code?: string;
   message?: string;
-  /** node-postgres (pg) 用 `constraint`。 */
+  /** node-postgres 把约束名放在 `constraint` 上，SQLSTATE 在 `code` 上。 */
   constraint?: string;
-  /** postgres.js 用 `constraint_name`。 */
-  constraint_name?: string;
 };
 
 /**
@@ -19,9 +17,8 @@ function isFkViolation(value: PgError): boolean {
   return typeof value.code === 'string' && FK_VIOLATION_CODES.has(value.code);
 }
 
-/** 两种驱动的约束字段名不同，都要认。 */
 function constraintName(value: PgError): string | null {
-  const name = value.constraint ?? value.constraint_name;
+  const name = value.constraint;
   return typeof name === 'string' && name.length > 0 ? name : null;
 }
 
@@ -77,8 +74,8 @@ export function isForeignKeyViolation(error: unknown): boolean {
  * 宽匹配会把故障伪装成业务提示，用户照着提示清空内容也删不掉。
  *
  * PostgreSQL 在错误报文里带约束名（不是列名），所以这里按约束名精确比对，
- * 不做前缀 / 模糊匹配。字段名随驱动变化：postgres.js 是 `constraint_name`
- * 且 RESTRICT 命中时报 `23001`，node-postgres 是 `constraint` / `23503`。
+ * 不做前缀 / 模糊匹配。node-postgres 把它放在 `constraint` 上；RESTRICT
+ * 命中时报 `23001`，插入类外键违约报 `23503`。
  */
 export function isForeignKeyViolationOf(
   error: unknown,
@@ -106,8 +103,21 @@ export function sqlStateOf(error: unknown, sqlState: string): boolean {
 
 /** 从错误链里取出 `23503` / `23001` 的约束名，供日志与兜底文案使用。 */
 export function foreignKeyConstraintOf(error: unknown): string | null {
+  return constraintOf(error, FK_VIOLATION_CODES);
+}
+
+/**
+ * 取错误链里某个 SQLSTATE（或一组）的约束名。唯一冲突与 FK 违约共用；
+ * 单看 `error.constraint` 不够，Drizzle / Better Auth 会把驱动异常包进
+ * `cause`，所以必须走完整条链。
+ */
+export function constraintOf(
+  error: unknown,
+  sqlState: string | ReadonlySet<string>
+): string | null {
+  const states = typeof sqlState === 'string' ? new Set([sqlState]) : sqlState;
   for (const value of errorChain(error)) {
-    if (isFkViolation(value)) {
+    if (typeof value.code === 'string' && states.has(value.code)) {
       const name = constraintName(value);
       if (name) {
         return name;

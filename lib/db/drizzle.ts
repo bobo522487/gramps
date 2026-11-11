@@ -2,37 +2,29 @@ import 'server-only';
 
 import { attachDatabasePool } from '@vercel/functions';
 import { type SQL, sql } from 'drizzle-orm';
-import { drizzle as drizzleNodePg } from 'drizzle-orm/node-postgres';
-import {
-  drizzle as drizzlePostgres,
-  type PostgresJsDatabase,
-} from 'drizzle-orm/postgres-js';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import postgres from 'postgres';
 import { getServerConfig, isVercel } from '@/lib/config';
 import * as schema from './schema';
 
-type Db = PostgresJsDatabase<typeof schema> & {
-  $client: ReturnType<typeof postgres>;
-};
-
-function createDb(): Db {
+function createDb() {
   const { POSTGRES_URL, APP_POSTGRES_URL } = getServerConfig();
   // APP_POSTGRES_URL points at the dedicated non-owner login role (`app`)
   // when the platform-managed URL uses the database owner.
   const connectionString = APP_POSTGRES_URL ?? POSTGRES_URL;
+  const pool = new Pool({ connectionString, max: 5 });
 
   if (isVercel()) {
     // Vercel Fluid compute: let the platform freeze/resume the pg pool
-    // instead of leaking connections between invocations.
-    const pool = new Pool({ connectionString, max: 5 });
+    // instead of leaking connections between invocations. This is the only
+    // environment branch: the driver itself is identical everywhere.
     attachDatabasePool(pool);
-    // The SQL surface used by the app is driver-agnostic.
-    return drizzleNodePg(pool, { schema }) as unknown as Db;
   }
 
-  return drizzlePostgres(postgres(connectionString), { schema });
+  return drizzle(pool, { schema });
 }
+
+type Db = ReturnType<typeof createDb>;
 
 let instance: Db | null = null;
 
@@ -94,16 +86,13 @@ export async function withOrg<T>(
 type Executor = { execute: (query: SQL) => Promise<unknown> };
 
 /**
- * Normalizes raw SQL results across postgres.js (array) and node-postgres
- * ({ rows }) so auth functions work in both local/CI and Vercel.
+ * Normalizes raw SQL results for callers that execute hand-written SQL.
+ * node-postgres returns `{ rows }`; Drizzle types the result as `unknown`.
  */
 export async function queryRows<T>(
   executor: Executor,
   query: SQL
 ): Promise<T[]> {
   const result = await executor.execute(query);
-  if (Array.isArray(result)) {
-    return result as T[];
-  }
   return (result as { rows: T[] }).rows;
 }

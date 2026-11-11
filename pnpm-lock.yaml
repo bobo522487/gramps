@@ -231,9 +231,6 @@ importers:
       postcss:
         specifier: 8.5.31
         version: 8.5.31
-      postgres:
-        specifier: 3.4.9
-        version: 3.4.9
       radix-ui:
         specifier: 1.8.1
         version: 1.8.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -289,6 +286,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
       typescript:
         specifier: 7.0.2
         version: 7.0.2

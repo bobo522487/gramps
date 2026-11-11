@@ -180,7 +180,7 @@ deleteProjectInTransaction({ userId, orgId, projectId })
 - **更新**：白名单字段（`name / countriesRegions / hallCode / status / importance / notes`），按 `(id, orgId)` 双条件更新；`themeName` 创建后不可变；
 - **删除**：
   1. 先探测 13 个 `project` 子表（`PROJECT_CHILD_CONSTRAINTS`）是否有数据；
-  2. 有数据返回 `not_empty`，**不执行 DELETE**（避免 postgres.js 事务在 COMMIT 时重抛已捕获错误）；
+  2. 有数据返回 `not_empty`，**不执行 DELETE**（事务内任一语句失败后即进入 aborted 状态，catch 也救不回来）；
   3. 无数据才真删；未登记的 FK 约束直接抛错，强制维护清单。
 
 ### 5.2 Action 与文案

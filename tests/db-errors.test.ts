@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
+  constraintOf,
   foreignKeyConstraintOf,
   isForeignKeyViolation,
   isForeignKeyViolationOf,
 } from '@/lib/db/errors';
+import { isTokenHashCollision } from '@/lib/org/invitations';
 
 const CHILD_CONSTRAINTS = ['lineage_scope_fk', 'node_scope_fk'];
 
-/** postgres.js：ON DELETE RESTRICT 命中时是 23001，字段叫 constraint_name。 */
+/** node-postgres：RESTRICT 命中时 SQLSTATE 是 23001，约束名在 constraint。 */
 function restrictError(constraintName: string) {
   return Object.assign(
     new Error('update or delete on table "project" violates RESTRICT setting'),
     {
       code: '23001',
-      constraint_name: constraintName,
-      schema_name: 'public',
-      table_name: 'lineage',
+      constraint: constraintName,
+      schema: 'public',
+      table: 'lineage',
     }
   );
 }
@@ -28,7 +30,7 @@ function wrapped(error: unknown) {
 }
 
 describe('project 子表 FK 违约分类', () => {
-  it('识别 postgres.js 的 23001 + constraint_name（经 Drizzle cause 链）', () => {
+  it('识别 23001 + constraint（经 Drizzle cause 链）', () => {
     const error = wrapped(restrictError('lineage_scope_fk'));
 
     expect(isForeignKeyViolationOf(error, CHILD_CONSTRAINTS)).toBe(true);
@@ -36,7 +38,7 @@ describe('project 子表 FK 违约分类', () => {
     expect(isForeignKeyViolation(error)).toBe(true);
   });
 
-  it('仍识别 node-postgres 的 23503 + constraint', () => {
+  it('仍识别插入类 FK 违约的 23503 + constraint', () => {
     const driver = Object.assign(new Error('foreign key violation'), {
       code: '23503',
       constraint: 'node_scope_fk',
@@ -60,5 +62,37 @@ describe('project 子表 FK 违约分类', () => {
     );
     expect(foreignKeyConstraintOf(new Error('nope'))).toBeNull();
     expect(foreignKeyConstraintOf(null)).toBeNull();
+  });
+});
+
+describe('唯一冲突的约束名', () => {
+  it('从被包裹的错误链里取出 23505 的约束名', () => {
+    const driver = Object.assign(new Error('duplicate key'), {
+      code: '23505',
+      constraint: 'invite_token_hash_key',
+    });
+
+    expect(constraintOf(wrapped(driver), '23505')).toBe(
+      'invite_token_hash_key'
+    );
+    expect(constraintOf(wrapped(driver), '23503')).toBeNull();
+  });
+
+  it('邀请 token 撞车只认自己的约束，不认邮箱唯一冲突', () => {
+    const tokenCollision = wrapped(
+      Object.assign(new Error('duplicate key'), {
+        code: '23505',
+        constraint: 'invite_token_hash_key',
+      })
+    );
+    const emailCollision = wrapped(
+      Object.assign(new Error('duplicate key'), {
+        code: '23505',
+        constraint: 'invite_email_unique',
+      })
+    );
+
+    expect(isTokenHashCollision(tokenCollision)).toBe(true);
+    expect(isTokenHashCollision(emailCollision)).toBe(false);
   });
 });

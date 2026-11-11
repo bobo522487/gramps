@@ -1,19 +1,10 @@
 import 'server-only';
 
 import { attachDatabasePool } from '@vercel/functions';
-import { drizzle as drizzleNodePg } from 'drizzle-orm/node-postgres';
-import {
-  drizzle as drizzlePostgres,
-  type PostgresJsDatabase,
-} from 'drizzle-orm/postgres-js';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import postgres from 'postgres';
 import { getServerConfig, isVercel } from '@/lib/config';
 import * as schema from './schema';
-
-type AuthDb = PostgresJsDatabase<typeof schema> & {
-  $client: ReturnType<typeof postgres>;
-};
 
 // Better Auth must run as auth_service on every connection. The single target
 // baseline deliberately keeps auth.* out of genealogy_app's reach: those four
@@ -21,7 +12,7 @@ type AuthDb = PostgresJsDatabase<typeof schema> & {
 // able to read auth.account.password and auth.session tokens. auth_service is
 // a separate NOLOGIN role provisioned out of band; this startup parameter
 // pins it before any query runs.
-function createAuthDb(): AuthDb {
+function createAuthDb() {
   const config = getServerConfig();
   if (isVercel() && !config.AUTH_POSTGRES_URL) {
     throw new Error(
@@ -29,26 +20,20 @@ function createAuthDb(): AuthDb {
     );
   }
   const connectionString = config.AUTH_POSTGRES_URL ?? config.POSTGRES_URL;
+  const pool = new Pool({
+    connectionString,
+    max: 5,
+    options: '-c role=auth_service',
+  });
 
   if (isVercel()) {
-    const pool = new Pool({
-      connectionString,
-      max: 5,
-      options: '-c role=auth_service',
-    });
     attachDatabasePool(pool);
-    return drizzleNodePg(pool, { schema }) as unknown as AuthDb;
   }
 
-  // postgres.js 3.4 has no `onconnect`; the startup `options` parameter is
-  // sent by both drivers and pins the role before any query runs.
-  return drizzlePostgres(
-    postgres(connectionString, {
-      connection: { options: '-c role=auth_service' },
-    }),
-    { schema }
-  );
+  return drizzle(pool, { schema });
 }
+
+type AuthDb = ReturnType<typeof createAuthDb>;
 
 let instance: AuthDb | null = null;
 
