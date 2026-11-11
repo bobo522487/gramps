@@ -34,7 +34,10 @@ export type ProjectUpdates = Partial<ProjectMutableInput>;
 
 export type ProjectMutationResult =
   | { ok: true; project: Project }
-  | { ok: false; reason: 'forbidden' | 'not_found' | 'conflict' };
+  | {
+      ok: false;
+      reason: 'forbidden' | 'org_archived' | 'not_found' | 'conflict';
+    };
 
 export async function createProjectInTransaction(params: {
   userId: string;
@@ -154,7 +157,11 @@ export async function deleteProjectInTransaction(params: {
   projectId: string;
   ipAddress?: string;
 }): Promise<
-  { ok: true } | { ok: false; reason: 'forbidden' | 'not_found' | 'not_empty' }
+  | { ok: true }
+  | {
+      ok: false;
+      reason: 'forbidden' | 'org_archived' | 'not_found' | 'not_empty';
+    }
 > {
   const { userId, orgId, projectId } = params;
 

@@ -58,7 +58,8 @@ export type NodeFailure =
   | 'root_forbidden'
   | 'cycle'
   | 'invalid_order'
-  | 'not_supported';
+  | 'not_supported'
+  | 'org_archived';
 
 export type NodeMutationResult =
   | { ok: true; node: Node; spouse?: Node }

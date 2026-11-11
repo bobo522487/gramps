@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { queryRows, withOrg } from '@/lib/db/drizzle';
 import { organizations } from '@/lib/db/schema';
 import { withOrgWrite } from '@/lib/db/write';
+import { getTestDb } from '../helpers/db';
 import {
   addMember,
   createOrganization,
@@ -59,6 +60,24 @@ describe('withOrgWrite', () => {
       spy
     );
     expect(result).toEqual({ ok: false, reason: 'forbidden' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('refuses writes to an archived organization', async () => {
+    const { user, organization } = await ownerScope();
+    await getTestDb()
+      .update(organizations)
+      .set({ status: 'closed' })
+      .where(eq(organizations.id, organization.id));
+
+    const spy = vi.fn();
+    const result = await withOrgWrite(
+      user.id,
+      organization.id,
+      'lineage.write',
+      spy
+    );
+    expect(result).toEqual({ ok: false, reason: 'org_archived' });
     expect(spy).not.toHaveBeenCalled();
   });
 

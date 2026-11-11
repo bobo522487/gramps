@@ -1,4 +1,7 @@
-export type ArticleMutationFailure = ArticleErrorCode | 'forbidden';
+export type ArticleMutationFailure =
+  | ArticleErrorCode
+  | 'forbidden'
+  | 'org_archived';
 
 export type ArticleResult<T> =
   | ({ ok: true } & T)

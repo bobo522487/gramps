@@ -6,6 +6,8 @@
  * 错误文案口径见 `docs/contracts/README.md`（单一事实来源）。
  */
 
+import { ORG_ARCHIVED_MESSAGE } from '@/lib/errors';
+
 /** `article.body` 的分页文档包版本（序列化进 `text` 列）。 */
 export const ARTICLE_SCHEMA_VERSION = 1;
 
@@ -72,6 +74,7 @@ export const ARTICLE_ERRORS = {
   // 与 lib/auth/permissions.ts 的 PERMISSION_DENIED_MESSAGES['article.write'] 同串：
   // 同一个权限只有一句拒绝话（见 `docs/contracts/README.md`、constitution 原则 V）。
   forbidden: '你没有撰写谱文的权限',
+  org_archived: ORG_ARCHIVED_MESSAGE,
   not_found: '谱文不存在或已删除',
   page_not_found: '这一页已被删除，你的文字仍保留在本地，请刷新后重新添加一页',
   last_page: '至少要保留一页',

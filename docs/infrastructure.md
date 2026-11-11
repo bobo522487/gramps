@@ -65,11 +65,13 @@ withOrgWrite<T>(userId, orgId, permission, fn)
   → withOrg(userId, async tx => {
       if (!await requireOrgPermission(tx, userId, orgId, permission))
         return { ok: false, reason: 'forbidden' };
+      if (await isOrgArchivedInTx(tx, orgId))
+        return { ok: false, reason: 'org_archived' };
       return fn(tx);
     })
 ```
 
-返回 `T | { ok:false; reason:'forbidden' }`，而不是抛异常，保持 Action 的 `ActionState` 契约。
+返回 `T | { ok:false; reason:'forbidden' | 'org_archived' }`，而不是抛异常，保持 Action 的 `ActionState` 契约。归档组织（`status = 'closed'`）保持只读：页面入口由 `notClosed` 过滤，写事务在这里补同一道闸门。
 
 ### 2.4 结果归一化
 
@@ -86,9 +88,11 @@ queryRows<T>(executor, query): Promise<T[]>
 
 ```ts
 requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
+isOrgArchivedInTx(tx, orgId): Promise<boolean>
 ```
 
 - 在**同一事务**内读取角色并应用权限矩阵；
+- `isOrgArchivedInTx` 让 `withOrgWrite` 对 `status = 'closed'` 的组织返回 `org_archived`，与页面入口的 `notClosed` 保持同一口径；
 - 调用方传业务权限字符串（`project.write` 等），不比较角色名，矩阵只存在于 `lib/auth/access-control.ts`。
 
 ## 4. 错误识别

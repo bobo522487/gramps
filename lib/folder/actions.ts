@@ -4,6 +4,7 @@ import 'server-only';
 
 import { validatedActionWithUser } from '@/lib/auth/middleware';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
+import { ORG_ARCHIVED_MESSAGE } from '@/lib/errors';
 import {
   createFolderInTransaction,
   deleteFolderInTransaction,
@@ -17,6 +18,7 @@ import {
 
 const FOLDER_ERRORS = {
   forbidden: '你没有管理云谱空间的权限',
+  org_archived: ORG_ARCHIVED_MESSAGE,
   not_found: '分类不存在或已删除',
   conflict: '同名分类已存在',
 } as const;

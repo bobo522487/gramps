@@ -157,7 +157,7 @@ sequenceDiagram
 关键点：
 
 - **权限复核在事务内**（`requireOrgPermission`），避免「页面校验通过后角色被改」的窗口；
-- `withOrgWrite` 返回 `{ ok: false, reason: 'forbidden' }` 而不是抛异常，保持 `ActionState` 契约；
+- `withOrgWrite` 返回 `{ ok: false, reason: 'forbidden' | 'org_archived' }` 而不是抛异常，保持 `ActionState` 契约；归档组织（`status='closed'`）保持只读；
 - 每个写入入口都先锁作用域行（如谱系 `SELECT ... FOR UPDATE`），避免并发分配冲突；
 - 事务提交后再失效缓存。
 

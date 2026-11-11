@@ -16,6 +16,7 @@ import { ensureDefaultFolderInTx } from '@/lib/folder/services';
 
 type LineageFailure =
   | 'forbidden'
+  | 'org_archived'
   | 'not_found'
   | 'invalid_folder'
   | 'conflict'
@@ -173,7 +174,10 @@ export async function updateLineageInTransaction(params: {
 
 export type DeleteLineageResult =
   | { ok: true; deletedNodes: number }
-  | { ok: false; reason: 'forbidden' | 'not_found' | 'referenced' };
+  | {
+      ok: false;
+      reason: 'forbidden' | 'org_archived' | 'not_found' | 'referenced';
+    };
 
 export async function deleteLineageInTransaction(params: {
   userId: string;

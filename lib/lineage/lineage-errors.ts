@@ -1,8 +1,10 @@
 import { PERMISSION_DENIED_MESSAGES } from '@/lib/auth/permissions';
+import { ORG_ARCHIVED_MESSAGE } from '@/lib/errors';
 
 /** 家谱事务层返回的失败原因 → 中文文案（Action 层唯一的错误映射点）。 */
 export const LINEAGE_ERRORS = {
   forbidden: '你没有编辑谱系的权限',
+  org_archived: ORG_ARCHIVED_MESSAGE,
   not_found: '谱系不存在或已删除',
   invalid_folder: '分类不存在或类型不匹配',
   conflict: '谱系名称已存在',

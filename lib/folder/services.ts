@@ -14,7 +14,7 @@ import {
 import { withOrgWrite } from '@/lib/db/write';
 import { DEFAULT_FOLDER_NAME } from './constants';
 
-type FolderFailure = 'forbidden' | 'not_found' | 'conflict';
+type FolderFailure = 'forbidden' | 'org_archived' | 'not_found' | 'conflict';
 
 export type FolderMutationResult =
   | { ok: true; folder: Folder }
@@ -202,7 +202,7 @@ export async function renameFolderInTransaction(params: {
 
 export type DeleteFolderResult =
   | { ok: true; deletedFolders: number; unfiledContent: number }
-  | { ok: false; reason: 'forbidden' | 'not_found' };
+  | { ok: false; reason: 'forbidden' | 'org_archived' | 'not_found' };
 
 export async function deleteFolderInTransaction(params: {
   userId: string;
