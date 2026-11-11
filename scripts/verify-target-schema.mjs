@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { loadEnv } from './load-env.mjs';
+import { globalUniqueIssues, indexParityIssues } from './schema-parity.mjs';
 
 loadEnv();
 
@@ -357,6 +358,24 @@ async function verifyParity(sql) {
       join pg_class r on r.oid = con.confrelid
      where n.nspname = 'public' and con.contype = 'f'
   `;
+  // 全局唯一约束与索引是 parity 缺失的两类执行者：差集计算放在
+  // scripts/schema-parity.mjs（纯函数，可离线单测），这里只负责查 catalog。
+  const uniqueConstraints = await sql`
+    select c.relname as tbl, con.conname as name,
+           (select array_agg(a.attname order by x.ord)
+              from unnest(con.conkey) with ordinality x(attnum, ord)
+              join pg_attribute a
+                on a.attrelid = con.conrelid and a.attnum = x.attnum) as cols
+      from pg_constraint con
+      join pg_class c on c.oid = con.conrelid
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and con.contype = 'u'
+  `;
+  const indexes = await sql`
+    select tablename as tbl, indexname as name
+      from pg_indexes
+     where schemaname = 'public'
+  `;
 
   const groupBy = (rows) => {
     const map = new Map();
@@ -440,6 +459,29 @@ async function verifyParity(sql) {
     badTables === 0,
     'T39 parity 逐表结构',
     `${snapTables.length} 张表的列 / 主键 / 外键全部一致`
+  );
+
+  const dbUnique = uniqueConstraints.map((row) => ({
+    table: row.tbl,
+    name: row.name,
+    columns: row.cols ?? [],
+  }));
+  const dbIndexes = indexes.map((row) => ({
+    table: row.tbl,
+    name: row.name,
+  }));
+  const uniqueIssues = globalUniqueIssues(snapshot, dbUnique);
+  const indexIssues = indexParityIssues(snapshot, dbIndexes);
+  for (const issue of uniqueIssues) {
+    check(false, 'T39 parity 全局唯一约束', issue);
+  }
+  for (const issue of indexIssues) {
+    check(false, 'T39 parity 索引', issue);
+  }
+  check(
+    uniqueIssues.length === 0 && indexIssues.length === 0,
+    'T39 parity 唯一约束 / 索引',
+    '13 张内容表的 UNIQUE (id) 与 TS 声明的索引全部落库'
   );
 }
 

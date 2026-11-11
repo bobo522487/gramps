@@ -151,7 +151,7 @@ organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{}'::uuid[]))
 `app.visible_org_array()` 必须写成子查询（InitPlan）而不是裸函数调用，否则逐行求值；`'{}'::uuid[]` 保证 GUC 未设置时 fail-closed。
 
 - `organization` 表自身把谓词里的 `organization_id` 替换为 `id`；
-- 不再需要多级 join 才能判断租户，RLS 可走单列索引；
+- 不再需要多级 join 才能判断租户；但 13 张内容表的索引都以 `project_id` 开头，`organization_id` 没有单列索引，RLS 谓词靠顺序扫描或复合索引过滤，不能假设走单列索引；
 - `app.visible_org_array()` 读取 GUC `app.user_id`：
 
 ```sql
