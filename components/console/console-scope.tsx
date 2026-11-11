@@ -6,7 +6,16 @@ import { fetcher } from '@/lib/fetcher';
 import { queryKeys } from '@/lib/query-keys';
 
 export type ConsoleScope = {
-  org: { id: string; name: string; slug: string; role: string };
+  org: {
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+    /** 组织目录里「云谱空间」旁的数量。只在组织页注入。 */
+    projectCount?: number;
+    /** 组织目录里「团队」旁的数量。只在组织页注入。 */
+    memberCount?: number;
+  };
   project?: { id: string; name: string; ref: string };
 };
 

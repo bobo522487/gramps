@@ -26,20 +26,18 @@ export function ConsoleNavbar() {
         </span>
         <span className="hidden text-sm font-bold sm:inline">云谱</span>
       </Link>
-      {scope ? (
+      {scope?.project ? (
         <>
           <span aria-hidden="true" className="px-0.5 text-muted-foreground">
             /
           </span>
           <OrgPicker />
-          {scope.project ? (
-            <div className="hidden min-w-0 items-center gap-1 sm:flex">
-              <span aria-hidden="true" className="px-0.5 text-muted-foreground">
-                /
-              </span>
-              <ProjectPicker />
-            </div>
-          ) : null}
+          <div className="hidden min-w-0 items-center gap-1 sm:flex">
+            <span aria-hidden="true" className="px-0.5 text-muted-foreground">
+              /
+            </span>
+            <ProjectPicker />
+          </div>
         </>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-1">

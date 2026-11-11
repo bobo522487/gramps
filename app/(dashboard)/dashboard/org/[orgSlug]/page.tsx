@@ -27,6 +27,7 @@ export default async function OrgProjectsPage({
   return (
     <ProjectWorkspace
       orgId={context.organization.id}
+      orgName={context.organization.name}
       projects={views}
       canManage={hasPermission(context.role, 'project.write')}
     />

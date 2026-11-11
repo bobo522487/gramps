@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { eq, inArray } from 'drizzle-orm';
+import { count, eq, inArray } from 'drizzle-orm';
 import { getAuthDb } from '@/lib/db/auth-db';
 import { withOrg } from '@/lib/db/drizzle';
 import { orgMembers, users } from '@/lib/db/schema';
@@ -19,6 +19,19 @@ export type OrgMemberView = {
  * 应用侧读邮箱走 SECURITY DEFINER 函数或 auth_service 连接），按 id 集合
  * 经 auth 连接补齐。T28 拆掉 organization 插件后这就是唯一的成员列表路径。
  */
+export async function countOrgMembers(
+  actorId: string,
+  organizationId: string
+): Promise<number> {
+  return withOrg(actorId, async (tx) => {
+    const rows = await tx
+      .select({ value: count() })
+      .from(orgMembers)
+      .where(eq(orgMembers.organizationId, organizationId));
+    return rows[0]?.value ?? 0;
+  });
+}
+
 export async function listOrgMembers(
   actorId: string,
   organizationId: string

@@ -22,7 +22,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export function OrgPicker() {
+export function OrgPicker({
+  variant = 'navbar',
+}: {
+  variant?: 'navbar' | 'directory';
+} = {}) {
   const scope = useConsoleScope();
   const { data: orgs } = useConsoleOrgs();
   const router = useRouter();
@@ -52,13 +56,35 @@ export function OrgPicker() {
           }
         }}
       >
-        <div className="flex min-w-0 items-center">
+        <div
+          className={
+            variant === 'directory'
+              ? 'flex min-w-0 flex-1 items-center'
+              : 'flex min-w-0 items-center'
+          }
+        >
           <Link
             href={active ? `/dashboard/org/${active.slug}` : '/dashboard'}
-            className="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+            className={
+              variant === 'directory'
+                ? 'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50'
+                : 'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50'
+            }
           >
-            <Boxes className="size-4 shrink-0 text-muted-foreground" />
-            <span className="max-w-[110px] truncate sm:max-w-[180px]">
+            {variant === 'directory' ? (
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sky-500 text-white">
+                <Boxes className="size-3.5" />
+              </span>
+            ) : (
+              <Boxes className="size-4 shrink-0 text-muted-foreground" />
+            )}
+            <span
+              className={
+                variant === 'directory'
+                  ? 'truncate'
+                  : 'max-w-[110px] truncate sm:max-w-[180px]'
+              }
+            >
               {active?.name ?? '组织'}
             </span>
           </Link>

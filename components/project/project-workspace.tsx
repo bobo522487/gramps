@@ -1,14 +1,11 @@
 'use client';
 
-import { FolderKanban, Plus, Search, Trash2 } from 'lucide-react';
+import { Box, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@/components/console/empty-state';
-import { PageHeader } from '@/components/console/page-header';
 import { CreateProjectDialog } from '@/components/project/create-project-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -77,16 +74,37 @@ function DeleteProjectButton({
 
 export function ProjectWorkspace({
   orgId,
+  orgName,
   projects,
   canManage,
 }: {
   orgId: string;
+  orgName: string;
   projects: ProjectView[];
   canManage: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<keyof typeof SORTS>('name');
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (
+        event.key.toLowerCase() !== 'k' ||
+        !(event.metaKey || event.ctrlKey)
+      ) {
+        return;
+      }
+      if (document.querySelector('[role="dialog"]')) {
+        return;
+      }
+      event.preventDefault();
+      searchRef.current?.focus();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -106,57 +124,66 @@ export function ProjectWorkspace({
   }, [projects, query, sort]);
 
   return (
-    <section className="p-4 lg:p-6">
-      <PageHeader
-        icon={FolderKanban}
-        title="云谱空间"
-        description="空间隶属于当前组织，用于承载谱系、谱文与谱书。"
-        badge={<Badge variant="outline">{projects.length}</Badge>}
-        actions={
-          canManage ? (
-            <Button
-              variant="brand"
-              size="xs"
-              onClick={() => setIsNewProjectOpen(true)}
-            >
-              <Plus />
-              新建空间
-            </Button>
-          ) : null
-        }
-      />
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+    <section className="min-h-full bg-background">
+      <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background px-4">
+        <p className="hidden shrink-0 text-sm sm:block">
+          <span className="font-medium">{orgName}</span>
+          <span className="px-1.5 text-muted-foreground">/</span>
+          <span className="text-muted-foreground">云谱空间</span>
+        </p>
+        <div className="relative mx-auto w-full max-w-md">
+          <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索空间"
-            size="sm"
-            aria-label="搜索空间"
-            className="w-48 pl-7"
+            placeholder="搜索云谱空间"
+            aria-label="搜索云谱空间"
+            className="h-9 rounded-lg bg-muted/40 pr-16 pl-8 shadow-none"
           />
+          <kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline">
+            Ctrl K
+          </kbd>
         </div>
-        <Select
-          value={sort}
-          onValueChange={(value) => setSort(value as keyof typeof SORTS)}
-        >
-          <SelectTrigger size="sm" className="w-32" aria-label="空间排序">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="name">名称</SelectItem>
-            <SelectItem value="created">最新</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+        {canManage ? (
+          <Button
+            variant="brand"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setIsNewProjectOpen(true)}
+          >
+            <Plus />
+            新建空间
+          </Button>
+        ) : (
+          <span className="w-8 shrink-0" />
+        )}
+      </header>
 
-      {visible.length === 0 ? (
-        <Card size="dense" className="mt-4">
-          <CardContent>
+      <div className="px-6 py-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-sm font-medium">云谱空间</h1>
+            <p className="text-xs text-muted-foreground">当前组织</p>
+          </div>
+          <Select
+            value={sort}
+            onValueChange={(value) => setSort(value as keyof typeof SORTS)}
+          >
+            <SelectTrigger size="sm" className="w-28" aria-label="空间排序">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name">名称</SelectItem>
+              <SelectItem value="created">最新</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {visible.length === 0 ? (
+          <div className="mt-6 rounded-xl border border-dashed">
             <EmptyState
-              icon={FolderKanban}
+              icon={Box}
               title={
                 projects.length === 0 ? '还没有云谱空间' : '没有匹配的空间'
               }
@@ -178,41 +205,37 @@ export function ProjectWorkspace({
                 ) : null
               }
             />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {visible.map((project) => (
-            <Card key={project.id} size="dense">
-              <CardContent className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <Link
-                    href={`/dashboard/project/${project.ref}`}
-                    className="min-w-0 truncate font-medium hover:text-primary"
-                  >
-                    {project.name}
-                  </Link>
-                  {canManage ? (
+          </div>
+        ) : (
+          <ul className="mt-4 flex flex-wrap gap-3">
+            {visible.map((project) => (
+              <li key={project.id} className="group relative w-72">
+                <Link
+                  href={`/dashboard/project/${project.ref}`}
+                  className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-3 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-600">
+                    <Box className="size-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">
+                      {project.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {project.themeName ?? '云谱空间'}
+                    </span>
+                  </span>
+                </Link>
+                {canManage ? (
+                  <div className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <DeleteProjectButton orgId={orgId} projectId={project.id} />
-                  ) : null}
-                </div>
-                <p className="text-sm">
-                  {project.themeName ?? '未填写主题名'}
-                  {project.hallCode ? ` · ${project.hallCode}` : ''}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {project.surname ? `${project.surname}氏` : '未填写姓氏'} ·{' '}
-                  {project.countriesRegions ?? '未填写地区'} ·{' '}
-                  <span className="font-mono">{project.ref}</span>
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  创建于 {project.createdAt}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <CreateProjectDialog
         orgId={orgId}
