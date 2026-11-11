@@ -17,7 +17,7 @@ import {
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { queryRows, withOrg } from '@/lib/db/drizzle';
-import { sqlStateOf } from '@/lib/db/errors';
+import { pgErrorOf } from '@/lib/db/errors';
 import { getOrgById } from '@/lib/db/queries/organizations';
 import { organizations, orgMembers } from '@/lib/db/schema';
 import { logger } from '@/lib/logger';
@@ -163,14 +163,11 @@ export const deleteOrgAction = validatedActionWithUser(
     try {
       // 归档收敛到 app.archive_organization（B4 收口）：函数体带
       // status = 'active' 条件，不会把 suspended 覆盖成 closed，并做 owner
-      // 守卫。重复归档由函数的 22023 表达，这里映射回原来的友好文案。
+      // 守卫。重复归档由函数的 22023 表达，文案统一交给 mapAuthError()。
       await withOrg(user.id, (tx) =>
         tx.execute(sql`select app.archive_organization(${data.orgId})`)
       );
     } catch (error) {
-      if (sqlStateOf(error, '22023')) {
-        return { error: '组织已归档或已停用，无需重复操作' };
-      }
       return mapAuthError(error);
     }
 
@@ -256,27 +253,13 @@ export const acceptInviteAction = validatedActionWithUser(
 );
 
 /**
- * `app.accept_invite` 的三种业务失败都带自定义 SQLSTATE，逐条映射成人话。
- *
- * 不直接 `mapAuthError`：那一层只认 Better Auth 的 statusCode / error.code，
- * 碰到 `P0001` 之类的原始 SQLSTATE 会一律压成「操作失败，请稍后重试。」——
- * 用户拿着一封过期邀请只会看到一句无从下手的兜底文案。
+ * `app.accept_invite` 的业务失败走 `pgErrorOf()` 的单一 SQLSTATE 表：
+ * 邀请域专用文案集中在 `MESSAGE_OVERRIDES`，这里不再散三条按码分支。
+ * 未命中 SQLSTATE 的错误才回落到 Better Auth / HTTP status 兜底。
  */
 function mapAcceptInviteError(error: unknown) {
-  // 必须走 `sqlStateOf` 而不是读 `error.code`：Drizzle 把驱动异常包成
-  // `DrizzleQueryError(query, params, cause)`，SQLSTATE 只在 `cause` 上。
-  // 直接读顶层 `code` 一律是 undefined，三个分支都命中不了，所有失败都会
-  // 退化成「操作失败，请稍后重试。」——实测踩过。
-  if (sqlStateOf(error, '22023')) {
-    return { error: '邀请无效或已过期，请让管理员重新邀请' };
-  }
-  if (sqlStateOf(error, '42501')) {
-    return { error: '该邀请不是发给当前账号的' };
-  }
-  if (sqlStateOf(error, '23505')) {
-    return { error: '当前账号已是该组织成员' };
-  }
-  return mapAuthError(error);
+  const pg = pgErrorOf(error);
+  return pg ? { error: pg.message, code: pg.code } : mapAuthError(error);
 }
 
 export const removeOrgMember = validatedActionWithUser(

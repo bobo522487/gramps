@@ -53,8 +53,12 @@ describe('auth error messages', () => {
     expect(authErrorMessage(apiError(429))).toBe('操作过于频繁，请稍后再试。');
   });
 
-  it('maps the archived-organization trigger to a Chinese message', () => {
-    const error = Object.assign(new Error('org_archived'), { code: 'P0001' });
+  it('maps the archived-organization SQLSTATE to a Chinese message', () => {
+    const driverError = Object.assign(
+      new Error('组织已归档或已停用，无需重复操作'),
+      { code: '22023' }
+    );
+    const error = new Error('Failed query', { cause: driverError });
     expect(authErrorMessage(error)).toBe('组织已归档，无法继续操作。');
   });
 
@@ -84,11 +88,11 @@ describe('mapAuthError', () => {
     });
   });
 
-  it('maps the last-owner trigger to a conflict without SQL text', () => {
-    const error = Object.assign(
-      new Error('last_owner: cannot remove the last owner'),
-      { code: 'P0001' }
-    );
+  it('maps the last-owner SQLSTATE to a conflict without SQL text', () => {
+    const driverError = Object.assign(new Error('不能移除最后一个所有者'), {
+      code: '22023',
+    });
+    const error = new Error('Failed query', { cause: driverError });
     expect(mapAuthError(error)).toEqual({
       error: '不能移除或降级最后一个所有者。',
       code: 'CONFLICT',

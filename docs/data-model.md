@@ -186,7 +186,7 @@ SELECT set_config('app.user_id', $1, true);
 | `public.handle_new_user()` | `auth.user` 插入后创建个人组织（`trg_auth_user_created`） |
 | `public.generate_public_id()` | 生成 20 位公开 ID |
 
-`archive_organization`、`remove_org_member`、`set_org_member_role` 会以 `RAISE EXCEPTION` 抛出语义化名称（如 `org_archived`、`last_owner`），应用层用 `isRaisedException()` 映射为中文文案。
+`archive_organization`、`remove_org_member`、`set_org_member_role` 等 SECURITY DEFINER 函数失败时抛 `42501` / `22023` / `23505`，应用层用 `lib/db/errors.ts` 的 `pgErrorOf()` 按单一 SQLSTATE 映射表给出中文文案与 `ActionErrorCode`；邀请域专用文案集中在同一张覆盖表里。
 
 ## 6. 删除语义
 

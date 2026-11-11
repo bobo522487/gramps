@@ -106,7 +106,8 @@ requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
 | `isForeignKeyViolationOf(error, constraints)` | 按约束名精确匹配，删除操作必须用这个 |
 | `sqlStateOf(error, state)` | 任意 SQLSTATE 判断 |
 | `foreignKeyConstraintOf(error)` | 取约束名，供日志 |
-| `isRaisedException(error, name)` | `P0001` + 消息包含函数 `RAISE EXCEPTION` 的语义名 |
+| `pgErrorOf(error)` | 按单一 SQLSTATE 表返回 `{ code, message } \| null`，命中后不再逐条判码 |
+| `PG_ERROR_MAP` | `42501` / `22023` / `23505` / `23001` → `ActionErrorCode` + 文案；邀请等域专用文案由覆盖表给出 |
 
 ## 5. 日志与请求上下文
 

@@ -1,3 +1,5 @@
+import type { ActionErrorCode } from '@/lib/errors';
+
 type PgError = {
   code?: string;
   message?: string;
@@ -127,15 +129,84 @@ export function constraintOf(
   return null;
 }
 
+/** Action 层对外的兜底文案：SQL 细节绝不透出到浏览器。 */
+export const FALLBACK_MESSAGE = '操作失败，请稍后重试。';
+export const CONFLICT_MESSAGE = '数据冲突，请刷新后重试。';
+export const PERMISSION_MESSAGE = '你没有执行该操作的权限。';
+export const LAST_OWNER_MESSAGE = '不能移除或降级最后一个所有者。';
+export const ORG_ARCHIVED_MESSAGE = '组织已归档，无法继续操作。';
+
 /**
- * Matches exceptions raised by our SECURITY DEFINER functions, e.g.
- * `RAISE EXCEPTION 'invalid_invitation'` (SQLSTATE P0001).
+ * SECURITY DEFINER 函数只用 4 个 SQLSTATE 表达业务失败；这里是唯一映射表。
+ * 键必须逐字对齐 `lib/db/migrations/0000_target_schema.sql` 里实际抛出的码，
+ * 基线里没有任何自定义 SQLSTATE，不要再按语义名去找错误。
  */
-export function isRaisedException(error: unknown, name: string): boolean {
-  return errorChain(error).some(
-    (value) =>
-      value.code === 'P0001' &&
-      typeof value.message === 'string' &&
-      value.message.includes(name)
-  );
+export const PG_ERROR_MAP: Record<
+  string,
+  { code: ActionErrorCode; message: string }
+> = {
+  '42501': { code: 'FORBIDDEN', message: PERMISSION_MESSAGE },
+  '22023': { code: 'CONFLICT', message: CONFLICT_MESSAGE },
+  '23505': { code: 'CONFLICT', message: CONFLICT_MESSAGE },
+  '23001': { code: 'CONFLICT', message: CONFLICT_MESSAGE },
+};
+
+/**
+ * 同一个 SQLSTATE 承载多种业务语义，靠驱动消息里的关键词细分文案。
+ * 消息判断只放在这里，调用方不再各自拼一串 sqlStateOf 分支。
+ */
+const MESSAGE_OVERRIDES: ReadonlyArray<{
+  sqlState: string;
+  needles: readonly string[];
+  message: string;
+}> = [
+  {
+    sqlState: '22023',
+    needles: ['不能移除最后一个所有者'],
+    message: LAST_OWNER_MESSAGE,
+  },
+  {
+    sqlState: '22023',
+    needles: ['组织已归档'],
+    message: ORG_ARCHIVED_MESSAGE,
+  },
+  {
+    sqlState: '22023',
+    needles: ['邀请无效或已过期'],
+    message: '邀请无效或已过期，请让管理员重新邀请',
+  },
+  {
+    sqlState: '42501',
+    needles: ['邀请邮箱与当前账号不匹配', '未认证'],
+    message: '该邀请不是发给当前账号的',
+  },
+  {
+    sqlState: '23505',
+    needles: ['当前账号已是该组织成员'],
+    message: '当前账号已是该组织成员',
+  },
+];
+
+/**
+ * 把错误链里第一个已知 SQLSTATE 转成 Action 错误码 + 中文文案。
+ * 未命中返回 null，让调用方继续走 Better Auth / HTTP status 兜底。
+ */
+export function pgErrorOf(
+  error: unknown
+): { code: ActionErrorCode; message: string } | null {
+  for (const value of errorChain(error)) {
+    const base =
+      typeof value.code === 'string' ? PG_ERROR_MAP[value.code] : undefined;
+    if (!base) {
+      continue;
+    }
+    const message = typeof value.message === 'string' ? value.message : '';
+    const override = MESSAGE_OVERRIDES.find(
+      (entry) =>
+        entry.sqlState === value.code &&
+        entry.needles.some((needle) => message.includes(needle))
+    );
+    return { code: base.code, message: override?.message ?? base.message };
+  }
+  return null;
 }
