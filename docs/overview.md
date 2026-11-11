@@ -57,7 +57,7 @@
 
 | 层 | 选型 | 版本 | 说明 |
 | --- | --- | --- | --- |
-| 运行时 | Node.js | 24.22.2（`.nvmrc`） | Vercel Fluid Compute 兼容 |
+| 运行时 | Node.js | 26.13.0（`.nvmrc`） | Vercel Fluid Compute 兼容 |
 | 框架 | Next.js App Router | 16.4.6 | RSC + Server Actions + Route Handlers |
 | UI | React | 19.3.1 | 服务端组件优先 |
 | 语言 | TypeScript | 7.0.2 | `strict` |

@@ -180,6 +180,30 @@ PR #13 合并后，main 的 `Migrate production database` job 红了一次。读
 
 **切换后仍待补**：应用侧 `pnpm verify:deploy` + `/api/health` + 关键路径 E2E 要在真实应用实例上跑（本地演练只覆盖数据层）；托管侧恢复点（Neon 分支 / PITR）上生产前补一次。
 
+### 2.3 Node.js 运行时升级的部署与回滚
+
+> 触发条件与影响面：把 `package.json` 的 `engines.node` 从 `>=24.0.0 <25` 放宽到 `>=26.0.0 <27`、并把 `.nvmrc` 钉到 `26.13.0` 后，下一次部署会自动把构建与 Functions 运行时切到 Node.js 26（Vercel 只暴露大版本，minor/patch 自动滚动）。Node 26 内置 Undici 8，全局 `fetch()` 经 ALPN 默认走 HTTP/2，可能影响 `lib/fetcher.ts` 等上游调用；ABI 137→147 要求重装（或重建）所有原生二进制。
+
+**前置检查**
+- 本地与 CI 都用 Node 26.13.0（`.nvmrc` / `node-version-file` 一致）；`pnpm install`、`pnpm build`、`pnpm test:e2e` 全绿。
+- Vercel Project Settings 的 Node.js Version 与 `engines.node` 不冲突（engines 优先）。
+
+**编号步骤**
+1. 合并运行时升级 PR。
+2. 看构建日志确认 Node 大版本是 `26.x`。
+3. 部署后 `/api/health` 返回 200，并跑 `pnpm verify:deploy`。
+4. 观察 `lib/fetcher.ts` 的上游调用（关键读取路径）是否正常。
+
+**验证**
+- 构建日志显示 `26.x`；健康检查 200；关键路径 E2E 通过。
+
+**回滚阈值与数据兼容性**
+- 如果 H2 上游不兼容（连接挂起或协议错误），先加 `VERCEL_FETCH_DISABLE_H2=1` 重新部署，强制回退 HTTP/1.1。
+- 仍失败就把 `engines.node` 退回 `>=24.0.0 <25`、`.nvmrc` 退回 `24.22.2` 并重新部署。无数据迁移，所以无数据兼容问题。
+
+**记录与复盘**
+- 升级与任何回滚都写进 CHANGELOG，并在 `docs/adr/README.md` 的 §3 留档（本仓库为 ADR 0021）。
+
 ## 3. 故障处置
 
 每个场景给「判断 → 处置 → 验证」，不重复上文的三条铁律。表与列名以 `lib/db/schema/` 为准。
