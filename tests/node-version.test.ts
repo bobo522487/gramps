@@ -49,7 +49,12 @@ test('开发文档与 CHANGELOG 只写 26，不残留 24', () => {
 
   for (const path of ['README.md', 'docs/development.md', 'docs/overview.md']) {
     const text = read(path);
-    for (const stale of ['24.22.1', '>=24.0.0 <25', 'v24.x', 'Node.js 24 LTS']) {
+    for (const stale of [
+      '24.22.1',
+      '>=24.0.0 <25',
+      'v24.x',
+      'Node.js 24 LTS',
+    ]) {
       expect(text).not.toContain(stale);
     }
   }
