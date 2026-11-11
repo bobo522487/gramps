@@ -180,13 +180,16 @@ async function recordNode(
   input: CreateInput
 ): Promise<Extract<NodeMutationResult, { ok: true }>> {
   const { orgId, projectId, lineageId } = ctx;
-  const displayName = input.surname
-    ? `${input.surname}${input.name}`
-    : input.name;
+  const surname = input.surname.trim();
 
   const [person] = await tx
     .insert(persons)
-    .values({ orgId, projectId, sex: input.sex })
+    .values({
+      orgId,
+      projectId,
+      sex: input.sex,
+      surname: surname || null,
+    })
     .returning({ id: persons.id });
   if (!person) {
     throw new Error('failed to insert person');
@@ -197,7 +200,7 @@ async function recordNode(
     projectId,
     personId: person.id,
     kind: 'given',
-    value: displayName,
+    value: input.name,
     isPrimary: true,
   });
 
@@ -217,7 +220,6 @@ async function recordNode(
       personId: person.id,
       path,
       kind: 'primary',
-      displayName,
     })
     .returning();
   if (!node) {
@@ -373,14 +375,12 @@ export async function updateNodeInTransaction(params: {
       return { ok: false, reason: 'not_found' as const };
     }
 
-    const displayName = updates.surname
-      ? `${updates.surname}${updates.name}`
-      : updates.name;
+    const surname = updates.surname.trim();
 
     if (current.personId) {
       await tx
         .update(persons)
-        .set({ sex: updates.sex })
+        .set({ sex: updates.sex, surname: surname || null })
         .where(
           and(
             eq(persons.projectId, lineage.projectId),
@@ -389,7 +389,7 @@ export async function updateNodeInTransaction(params: {
         );
       await tx
         .update(personNames)
-        .set({ value: displayName })
+        .set({ value: updates.name })
         .where(
           and(
             eq(personNames.projectId, lineage.projectId),
@@ -408,19 +408,7 @@ export async function updateNodeInTransaction(params: {
       );
     }
 
-    const [node] = await tx
-      .update(nodes)
-      .set({ displayName })
-      .where(
-        and(
-          eq(nodes.id, nodeId),
-          eq(nodes.projectId, lineage.projectId),
-          eq(nodes.lineageId, lineageId)
-        )
-      )
-      .returning();
-
-    return { ok: true as const, node };
+    return { ok: true as const, node: current };
   });
 }
 

@@ -101,10 +101,10 @@ nextPath(tx, orgId, lineageId, parentPath):
 
 `recordNode()` 在**同一事务**内：
 
-1. `INSERT person (sex)`；
-2. `INSERT person_name (kind='given', value=姓+名, is_primary=true)`；
+1. `INSERT person (sex, surname)`；
+2. `INSERT person_name (kind='given', value=名, is_primary=true)`；
 3. `writePersonFacts()`：字号写 `person_name(kind='courtesy')`，生辰/忌辰写 `event(birth|death)`，葬地写 `event(burial)`；
-4. `INSERT node (path, kind='primary', display_name)`。
+4. `INSERT node (path, kind='primary')`。`display_name` 不再写入。
 
 任一步失败整体回滚，不会留下「有 person 没有 node」的孤儿。
 
@@ -113,10 +113,9 @@ nextPath(tx, orgId, lineageId, parentPath):
 `updateNodeInTransaction`：
 
 - 锁定谱系；
-- 更新 `person.sex`；
-- 更新该 person 的 primary `person_name.value`；
-- 调用 `writePersonFacts()` 写入 `courtesy / isAlive / birthText / deathText / birthYear / deathYear / burialPlace`；
-- 更新 `node.display_name`。
+- 更新 `person.sex` 与 `person.surname`；
+- 更新该 person 的 primary `person_name.value`（只写名）；
+- 调用 `writePersonFacts()` 写入 `courtesy / isAlive / birthText / deathText / birthYear / deathYear / burialPlace`。
 
 `isAlive` 由是否存在 `event(kind='death')` 派生：取消“在世”会记录一条死亡事件，即使日期未知。`namePrefix / biography` 没有目标态列，已从表单与 `NodeUpdates` 契约移除。
 
@@ -186,8 +185,8 @@ reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 | `generation` | `path.split('.').length` |
 | `sort` | 路径最后一段的整数值 |
 | `parentId` | 用 `parentPath` 在同树 path→id 映射中反查 |
-| `fullName` | `person_name.value`，回退 `node.display_name` |
-| `surname` / `name` | 全名的「末字为名」显示启发式 |
+| `fullName` | `surname` 与 primary `person_name.value` 直接拼接 |
+| `surname` / `name` | 列与主名，不切分 |
 | `sex` | `person.sex` 原值（`male` / `female` / `other` / `unknown`），缺失时 `unknown` |
 | `courtesy` | `person_name(kind='courtesy').value` |
 | `birthText` / `deathText` | `event(birth|death).date_text`，`birthYear` / `deathYear` 取自 `date_sort` 前四位 |

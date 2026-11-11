@@ -45,6 +45,7 @@ export type NodeProjectionInput = {
   kind: string;
   displayName: string | null;
   sex: string | null;
+  surname?: string | null;
   primaryName: string | null;
   courtesy?: string | null;
   birthText?: string | null;
@@ -83,9 +84,8 @@ const emptyFacts: PersonFacts = {
  * - `sort` is the trailing four-digit segment, which is the sibling order;
  * - `parentId` is resolved from the generated `parent_path` back to the row
  *   with that exact path in the same tree;
- * - `fullName` comes from the primary `person_name.value`, falling back to the
- *   node's own `display_name`; the surname/given split is a display heuristic
- *   until the client has a dedicated name editor;
+ * - `surname` is `person.surname` and `name` is the primary `person_name.value`;
+ *   `fullName` is those two strings joined, with no last-character split;
  * - `sex` is the target `person.sex` value, or `unknown` when the row has none;
  * - the remaining identity fields have no target-model column yet and are
  *   filled with neutral values so the UI contract stays stable.
@@ -94,9 +94,9 @@ export function toNodeViewRows(rows: NodeProjectionInput[]): NodeViewRow[] {
   const idByPath = new Map(rows.map((row) => [row.path, row.id]));
   return rows.map((row) => {
     const segments = row.path.split('.');
-    const fullName = row.primaryName ?? row.displayName ?? '';
-    const surname = fullName.length > 1 ? fullName.slice(0, -1) : '';
-    const name = fullName ? fullName.slice(-1) : '';
+    const surname = row.surname?.trim() ?? '';
+    const name = row.primaryName ?? '';
+    const fullName = `${surname}${name}`;
     return {
       id: row.id,
       parentId: row.parentPath ? (idByPath.get(row.parentPath) ?? null) : null,
@@ -171,6 +171,7 @@ export async function getNodes(
         displayName: nodes.displayName,
         personId: nodes.personId,
         sex: persons.sex,
+        surname: persons.surname,
         primaryName: personNames.value,
         createdAt: nodes.createdAt,
       })

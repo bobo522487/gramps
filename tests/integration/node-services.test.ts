@@ -1,6 +1,7 @@
+import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { getNodes } from '@/lib/db/queries/nodes';
-import { nodes } from '@/lib/db/schema';
+import { nodes, personNames, persons } from '@/lib/db/schema';
 import {
   addChildInTransaction,
   addSiblingInTransaction,
@@ -122,7 +123,14 @@ describe('node creation paths', () => {
 
     expect(result.node.path).toBe('0010');
     expect(result.node.parentPath).toBeNull();
-    expect(result.node.displayName).toBe('陈实');
+    expect(result.node.displayName).toBeNull();
+    const [person] = await getTestDb().select().from(persons);
+    const [given] = await getTestDb()
+      .select()
+      .from(personNames)
+      .where(eq(personNames.isPrimary, true));
+    expect(person?.surname).toBe('陈');
+    expect(given?.value).toBe('实');
 
     const rows = await getTestDb().select().from(nodes);
     expect(rows).toHaveLength(1);
@@ -237,10 +245,18 @@ describe('node mutation paths', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.node.displayName).toBe('陈元英');
+    expect(result.node.displayName).toBeNull();
+    const [renamed] = await getTestDb()
+      .select()
+      .from(personNames)
+      .where(eq(personNames.isPrimary, true));
+    expect(renamed?.value).toBe('元英');
 
     const [view] = await getNodes(ctx.user.id, ctx.orgId, ctx.lineage.id);
     expect(view).toMatchObject({
+      surname: '陈',
+      name: '元英',
+      fullName: '陈元英',
       courtesy: '伯',
       isAlive: false,
       birthText: '光绪二十年',
@@ -371,5 +387,29 @@ describe('node mutation paths', () => {
         orderedIds: [],
       })
     ).toEqual({ ok: false, reason: 'not_supported' });
+  });
+
+  it('stores the surname on person and the given name on person_name', async () => {
+    const ctx = await setup();
+    const created = await createRootNodeInTransaction(
+      createParams(ctx, { surname: '司马', name: '相如' })
+    );
+    if (!created.ok) throw new Error('create failed');
+    const db = getTestDb();
+    const [person] = await db.select().from(persons);
+    const [given] = await db
+      .select()
+      .from(personNames)
+      .where(eq(personNames.isPrimary, true));
+    expect(person?.surname).toBe('司马');
+    expect(given?.value).toBe('相如');
+    expect(created.node.displayName).toBeNull();
+
+    const views = await getNodes(ctx.user.id, ctx.orgId, ctx.lineage.id);
+    expect(views[0]).toMatchObject({
+      surname: '司马',
+      name: '相如',
+      fullName: '司马相如',
+    });
   });
 });

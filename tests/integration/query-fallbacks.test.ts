@@ -78,15 +78,23 @@ describe('toNodeViewRows display heuristics', () => {
     expect(row?.deathText).toBeNull();
   });
 
-  it('uses displayName when primaryName is absent and resolves parentPath', () => {
+  it('joins the surname column with the given name and resolves parentPath', () => {
     const [parent, child] = toNodeViewRows([
-      { ...base, id: 'root', path: '0010', displayName: '陈实', sex: 'male' },
+      {
+        ...base,
+        id: 'root',
+        path: '0010',
+        surname: '陈',
+        primaryName: '实',
+        sex: 'male',
+      },
       {
         ...base,
         id: 'child',
         path: '0010.0010',
         parentPath: '0010',
-        primaryName: '陈二',
+        surname: '陈',
+        primaryName: '二',
         sex: 'female',
         birthText: '光绪二十年',
         deathText: '一九六八年',
@@ -96,7 +104,8 @@ describe('toNodeViewRows display heuristics', () => {
         id: 'orphan',
         path: '0020',
         parentPath: '0999',
-        primaryName: '陈三',
+        surname: '陈',
+        primaryName: '三',
       },
     ]);
     expect(parent?.surname).toBe('陈');
