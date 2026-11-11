@@ -10,15 +10,15 @@ import {
 } from '@/lib/auth/errors';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
 import {
-  checkOrgPermission,
-  getOrgRole,
   hasPermission,
+  isOrgRole,
+  permissionDeniedMessage,
 } from '@/lib/auth/permissions';
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { queryRows, withOrg } from '@/lib/db/drizzle';
 import { sqlStateOf } from '@/lib/db/errors';
-import { getOrgById } from '@/lib/db/queries/organizations';
+import { getOrgWithRoleById } from '@/lib/db/queries/organizations';
 import { organizations, orgMembers } from '@/lib/db/schema';
 import { logger } from '@/lib/logger';
 import { hashInviteToken, issueInvitation } from '@/lib/org/invitations';
@@ -112,16 +112,12 @@ export const createOrgAction = validatedActionWithUser(
 export const renameOrgAction = validatedActionWithUser(
   renameOrgSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
+    const actor = await getOrgWithRoleById(user.id, data.orgId);
+    if (!actor) {
       return { error: '组织不存在或已归档' };
     }
 
-    const denied = await checkOrgPermission(
-      user.id,
-      data.orgId,
-      'org.settings'
-    );
+    const denied = permissionDeniedMessage(actor.role, 'org.settings');
     if (denied) {
       return { error: denied };
     }
@@ -146,16 +142,12 @@ export const renameOrgAction = validatedActionWithUser(
 export const deleteOrgAction = validatedActionWithUser(
   deleteOrgSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
+    const actor = await getOrgWithRoleById(user.id, data.orgId);
+    if (!actor) {
       return { error: '组织不存在或已归档' };
     }
 
-    const denied = await checkOrgPermission(
-      user.id,
-      data.orgId,
-      'org.settings'
-    );
+    const denied = permissionDeniedMessage(actor.role, 'org.settings');
     if (denied) {
       return { error: denied };
     }
@@ -182,22 +174,17 @@ export const deleteOrgAction = validatedActionWithUser(
 export const inviteOrgMember = validatedActionWithUser(
   inviteOrgMemberSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
+    const actor = await getOrgWithRoleById(user.id, data.orgId);
+    if (!actor) {
       return { error: '组织不存在或已归档' };
     }
 
-    const denied = await checkOrgPermission(
-      user.id,
-      data.orgId,
-      'member.invite'
-    );
+    const denied = permissionDeniedMessage(actor.role, 'member.invite');
     if (denied) {
       return { error: denied };
     }
 
-    const actorRole = await getOrgRole(user.id, data.orgId);
-    if (actorRole === 'admin' && data.role === 'admin') {
+    if (actor.role === 'admin' && data.role === 'admin') {
       return { error: '管理员不能管理其他管理员' };
     }
 
@@ -282,15 +269,22 @@ function mapAcceptInviteError(error: unknown) {
 export const removeOrgMember = validatedActionWithUser(
   removeOrgMemberSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
+    const actor = await getOrgWithRoleById(user.id, data.orgId);
+    if (!actor) {
       return { error: '组织不存在或已归档' };
     }
 
-    const role = await getOrgRole(user.id, data.orgId);
-    if (!role || !hasPermission(role, 'member.manage')) {
-      return { error: '只有所有者或管理员可以移除成员' };
+    const denied = permissionDeniedMessage(actor.role, 'member.manage');
+    if (denied) {
+      return {
+        error:
+          denied === '你不是该组织的成员'
+            ? denied
+            : '只有所有者或管理员可以移除成员',
+      };
     }
+
+    const role = isOrgRole(actor.role) ? actor.role : null;
 
     const member = await findMember(user.id, data.orgId, data.memberId);
     if (!member) {
@@ -326,12 +320,12 @@ export const removeOrgMember = validatedActionWithUser(
 export const updateOrgMemberRole = validatedActionWithUser(
   updateOrgMemberRoleSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
+    const actor = await getOrgWithRoleById(user.id, data.orgId);
+    if (!actor) {
       return { error: '组织不存在或已归档' };
     }
 
-    const role = await getOrgRole(user.id, data.orgId);
+    const role = isOrgRole(actor.role) ? actor.role : null;
     if (!role || !hasPermission(role, 'member.manage')) {
       return { error: '你没有调整该成员角色的权限' };
     }

@@ -177,6 +177,10 @@ export function rankLabel(index: LineageIndex, node: NodeView): string {
   if (!node.parentId) {
     return '始祖';
   }
+  // 性别未知（-1）时不编排行，避免把失考的人丁写成「长子 / 长女」。
+  if (node.sex !== 0 && node.sex !== 1) {
+    return '';
+  }
   const siblings = (index.childrenByParent.get(node.parentId) ?? []).filter(
     (candidate) => candidate.sex === node.sex
   );

@@ -7,9 +7,9 @@ import {
 import { parseMediaPathname } from '@/lib/article/media/path';
 import { blobReadWriteToken } from '@/lib/article/media/token';
 import { getSessionUser } from '@/lib/auth/context';
-import { getOrgRole, hasPermission } from '@/lib/auth/permissions';
+import { hasPermission, isOrgRole } from '@/lib/auth/permissions';
 import { getMediaMode } from '@/lib/config';
-import { getArticleScope } from '@/lib/db/queries/articles';
+import { getArticleScopeForWriter } from '@/lib/db/queries/articles';
 import { logger } from '@/lib/logger';
 
 /**
@@ -49,16 +49,16 @@ async function issueUploadToken(request: Request): Promise<Response> {
         if (!parts) {
           throw new UploadRefused('invalid_target');
         }
-        const role = await getOrgRole(user.id, parts.orgId);
-        if (!role || !hasPermission(role, 'article.write')) {
-          throw new UploadRefused('forbidden');
-        }
-        const article = await getArticleScope(
+        const article = await getArticleScopeForWriter(
           user.id,
           parts.orgId,
           parts.articleId
         );
-        if (!article) {
+        if (
+          !article ||
+          !isOrgRole(article.role) ||
+          !hasPermission(article.role, 'article.write')
+        ) {
           throw new UploadRefused('not_found');
         }
         return {

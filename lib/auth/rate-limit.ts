@@ -5,9 +5,31 @@
 
 import { headers } from 'next/headers';
 
+/**
+ * 只信任由最近一层可信代理写入的地址：
+ * - `x-real-ip` 由平台/入口代理覆盖，优先使用；
+ * - 否则取 `X-Forwarded-For` 的最后一个 hop。追加型代理会把客户端自带值
+ *   放在左边，取最左值等于让客户端自己决定限流 key。
+ */
+export function clientIpFromHeaders(
+  realIp: string | null,
+  forwardedFor: string | null
+): string {
+  const direct = realIp?.trim();
+  if (direct) {
+    return direct;
+  }
+  const hops =
+    forwardedFor
+      ?.split(',')
+      .map((hop) => hop.trim())
+      .filter(Boolean) ?? [];
+  return hops.at(-1) ?? 'unknown';
+}
+
 export async function getClientIp(): Promise<string> {
   const h = await headers();
-  return h.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown';
+  return clientIpFromHeaders(h.get('x-real-ip'), h.get('x-forwarded-for'));
 }
 
 export type RateLimitResult = {

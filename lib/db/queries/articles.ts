@@ -9,6 +9,7 @@ import {
   bookCatalogs,
   books,
   folders,
+  organizations,
   orgMembers,
 } from '../schema';
 
@@ -251,9 +252,9 @@ export async function getArticleScope(
 }
 
 /**
- * Membership and article scope in one transaction (and one round trip).
- * The media read proxy calls this once per image instead of resolving the
- * role and the article separately.
+ * Membership, organization status and article scope in one transaction
+ * (and one round trip). The media read proxy calls this once per image instead
+ * of resolving the role and the article separately.
  */
 export async function getArticleScopeForMember(
   userId: string,
@@ -273,6 +274,54 @@ export async function getArticleScopeForMember(
       .innerJoin(
         orgMembers,
         and(eq(orgMembers.organizationId, orgId), eq(orgMembers.userId, userId))
+      )
+      .innerJoin(
+        organizations,
+        and(
+          eq(organizations.id, orgId),
+          sql`${organizations.status} <> 'closed'`
+        )
+      )
+      .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
+      .limit(1);
+    return rows[0] ?? null;
+  });
+}
+
+export type ArticleWriterScope = ArticleScope & { role: string };
+
+/**
+ * Same scope as `getArticleScopeForMember`, plus the caller's role, so upload
+ * channels can check `article.write` without a second transaction. Archived
+ * organizations are excluded here too: the page routes already block them,
+ * and the media channels must not become a side door.
+ */
+export async function getArticleScopeForWriter(
+  userId: string,
+  orgId: string,
+  articleId: string
+): Promise<ArticleWriterScope | null> {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({
+        id: articles.id,
+        orgId: articles.orgId,
+        projectId: articles.projectId,
+        folderId: articles.folderId,
+        title: articles.title,
+        role: orgMembers.role,
+      })
+      .from(articles)
+      .innerJoin(
+        orgMembers,
+        and(eq(orgMembers.organizationId, orgId), eq(orgMembers.userId, userId))
+      )
+      .innerJoin(
+        organizations,
+        and(
+          eq(organizations.id, orgId),
+          sql`${organizations.status} <> 'closed'`
+        )
       )
       .where(and(eq(articles.id, articleId), eq(articles.orgId, orgId)))
       .limit(1);

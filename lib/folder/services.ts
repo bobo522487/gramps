@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
+import { isUniqueViolation } from '@/lib/db/errors';
 import {
   articles,
   books,
@@ -150,44 +151,53 @@ export async function renameFolderInTransaction(params: {
 }): Promise<FolderMutationResult> {
   const { userId, orgId, folderId, name } = params;
 
-  return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
-    const [target] = await tx
-      .select({ id: folders.id, projectId: folders.projectId })
-      .from(folders)
-      .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
-      .limit(1);
-    if (!target) {
-      return { ok: false, reason: 'not_found' as const };
-    }
+  try {
+    return await withOrgWrite(userId, orgId, 'project.write', async (tx) => {
+      const [target] = await tx
+        .select({ id: folders.id, projectId: folders.projectId })
+        .from(folders)
+        .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
+        .limit(1);
+      if (!target) {
+        return { ok: false, reason: 'not_found' as const };
+      }
 
-    const [duplicate] = await tx
-      .select({ id: folders.id })
-      .from(folders)
-      .where(
-        and(
-          eq(folders.orgId, orgId),
-          eq(folders.projectId, target.projectId),
-          eq(folders.name, name),
-          ne(folders.id, folderId)
+      const [duplicate] = await tx
+        .select({ id: folders.id })
+        .from(folders)
+        .where(
+          and(
+            eq(folders.orgId, orgId),
+            eq(folders.projectId, target.projectId),
+            eq(folders.name, name),
+            ne(folders.id, folderId)
+          )
         )
-      )
-      .limit(1);
-    if (duplicate) {
+        .limit(1);
+      if (duplicate) {
+        return { ok: false, reason: 'conflict' as const };
+      }
+
+      const [folder] = await tx
+        .update(folders)
+        .set({ name })
+        .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
+        .returning();
+
+      if (!folder) {
+        return { ok: false, reason: 'not_found' as const };
+      }
+
+      return { ok: true as const, folder };
+    });
+  } catch (error) {
+    // 预检查挡不住并发改名：两个事务都通过 SELECT 后，后提交者会撞
+    // folder_name_unique。必须在事务外捕获，事务内 catch 也救不回已中止的事务。
+    if (isUniqueViolation(error)) {
       return { ok: false, reason: 'conflict' as const };
     }
-
-    const [folder] = await tx
-      .update(folders)
-      .set({ name })
-      .where(and(eq(folders.id, folderId), eq(folders.orgId, orgId)))
-      .returning();
-
-    if (!folder) {
-      return { ok: false, reason: 'not_found' as const };
-    }
-
-    return { ok: true as const, folder };
-  });
+    throw error;
+  }
 }
 
 export type DeleteFolderResult =

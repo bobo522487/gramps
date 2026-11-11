@@ -69,7 +69,18 @@ export async function checkOrgPermission(
   permission: OrgPermission
 ): Promise<string | null> {
   const role = await getOrgRole(userId, orgId);
-  if (!role) {
+  return permissionDeniedMessage(role, permission);
+}
+
+/**
+ * Same matrix as `checkOrgPermission`, for callers that already loaded the
+ * actor's role in another query (avoids a second transaction).
+ */
+export function permissionDeniedMessage(
+  role: string | null,
+  permission: OrgPermission
+): string | null {
+  if (!role || !isOrgRole(role)) {
     return '你不是该组织的成员';
   }
   return hasPermission(role, permission)

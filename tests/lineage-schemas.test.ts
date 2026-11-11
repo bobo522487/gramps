@@ -40,8 +40,8 @@ describe('node creation schemas', () => {
     });
 
     expect(parsed.name).toBe('元英');
-    // 表单仍传 0/1，边界处映射到目标态 person.sex 文本值域。
-    expect(parsed.sex).toBe('female');
+    // 表单仍传 0/1，边界处映射到目标态 person.sex 文本值域：0=男、1=女。
+    expect(parsed.sex).toBe('male');
     expect(parsed.isAlive).toBe(true);
     expect(parsed.birthYear).toBe(1894);
     expect(parsed.deathYear).toBe(1968);
@@ -172,11 +172,22 @@ describe('node creation schemas', () => {
       burialPlace: '合葬村东',
     });
 
-    expect(parsed.sex).toBe('male');
+    expect(parsed.sex).toBe('female');
     expect(parsed.isAlive).toBe(true);
     expect(parsed.birthYear).toBeNull();
     expect(parsed.burialPlace).toBe('合葬村东');
     expect('spouseName' in parsed).toBe(false);
+  });
+
+  it('maps the unknown flag to the unknown sex value', () => {
+    const parsed = createRootNodeSchema.parse({
+      orgId,
+      lineageId,
+      requestId,
+      name: '无名',
+      sex: '-1',
+    });
+    expect(parsed.sex).toBe('unknown');
   });
 
   it('rejects malformed years', () => {

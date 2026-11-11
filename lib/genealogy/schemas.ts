@@ -55,14 +55,20 @@ const clearableText = (max: number, message: string) =>
  * The form still posts the legacy 0/1 flag so the UI stays unchanged, while
  * the target-model `person.sex` is the four-value text domain. Mapping here
  * keeps the boundary honest: every Server Action receives a `PersonSex`.
+ *
+ * 历史约定必须与 UI 一致：0=男、1=女（见录入弹窗与详情面板），-1=未知。
+ * 之前的映射把 0/1 写反，读取端又反了一次，界面看起来正常但库里的性别是反的。
  */
 const sex = z.preprocess(
   (value) => {
     if (value === 0 || value === '0') {
-      return 'female';
+      return 'male';
     }
     if (value === 1 || value === '1') {
-      return 'male';
+      return 'female';
+    }
+    if (value === -1 || value === '-1') {
+      return 'unknown';
     }
     return value === '' || value === null ? undefined : value;
   },

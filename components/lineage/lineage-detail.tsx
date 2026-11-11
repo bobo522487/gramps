@@ -91,7 +91,7 @@ type LineageInfo = {
 type CreateState = { mode: NodeCreateMode; target?: NodeView } | null;
 
 function SexLabel({ sex }: { sex: number }) {
-  return sex === 1 ? '女' : '男';
+  return sex === 1 ? '女' : sex === 0 ? '男' : '未知';
 }
 
 function SpouseChip({

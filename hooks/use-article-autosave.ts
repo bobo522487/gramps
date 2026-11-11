@@ -9,6 +9,12 @@ import {
 } from '@/lib/article/actions';
 import type { ArticleContent, ArticlePageDoc } from '@/lib/article/doc';
 import {
+  SAVE_DEADLINE_MS,
+  saveErrorMessage,
+  TIMED_OUT,
+  withDeadline,
+} from '@/lib/article/save-deadline';
+import {
   createSaveState,
   hasUnsettled,
   inFlightPageIds,
@@ -33,13 +39,6 @@ import {
  */
 
 const AUTOSAVE_DELAY_MS = 2000;
-
-/**
- * 一次保存请求的等待上限（FR-014：发起后不迟于 3 秒给出「已保存」或「保存失败」，
- * 不许长期停在「保存中」）。超时只改状态，不取消请求——真回来的那份结果
- * 会因为「已经不是发出去的那一版」而被丢弃。
- */
-const SAVE_DEADLINE_MS = 3000;
 
 /** `saveNow` 最多补几轮：防止用户一直在打字导致永远走不完。 */
 const SAVE_ROUNDS = 3;
@@ -100,6 +99,10 @@ export function useArticleAutosave({
   // `saveNow` 是 async 的，不能读渲染期的 `state` 闭包（那会是在途请求之前的旧值）。
   const stateRef = useRef(state);
   stateRef.current = state;
+  // 供「在途期间又有新输入」时补排自动保存，避免自引用进 useCallback 依赖。
+  const submitPageRef = useRef<(pageId: string) => Promise<boolean>>(
+    async () => false
+  );
 
   const clearTimer = useCallback((pageId: string) => {
     const timer = timers.current.get(pageId);
@@ -119,37 +122,60 @@ export function useArticleAutosave({
     };
   }, []);
 
+  // 状态与 stateRef 必须同时更新：saveNow 在事件回调里读 ref，不能等下一次渲染。
+  const updateState = useCallback(
+    (update: (current: SaveState) => SaveState) => {
+      const next = update(stateRef.current);
+      stateRef.current = next;
+      setState(next);
+    },
+    []
+  );
+
   const runSubmit = useCallback(
     async (pageId: string, doc: ArticlePageDoc): Promise<boolean> => {
-      const result = await withDeadline(
-        saveArticlePageAction({ orgId, articleId, pageId, doc }),
-        SAVE_DEADLINE_MS
-      );
-      if (result === TIMED_OUT) {
+      // 真实请求与超时提示分开：超时不取消请求，也不提前释放 inFlight。
+      // 否则重试会并发发出第二个写请求，旧请求后提交就把新内容覆盖了。
+      const request = saveArticlePageAction({ orgId, articleId, pageId, doc });
+      const outcome = await withDeadline(request, SAVE_DEADLINE_MS);
+      if (outcome === TIMED_OUT) {
         // 顶栏不许卡在「保存中」（FR-014）：到点就翻成失败，用户可重试（FR-015）。
         setNotice('这一页的保存没有及时响应，可以点「立即保存」重试。');
-        setState((current) => setPageStatus(current, pageId, 'error'));
+        updateState((current) => setPageStatus(current, pageId, 'error'));
+        const late = await request.catch(() => null);
+        const lateSaved = late && 'data' in late ? late.data : undefined;
+        if (lateSaved && docsRef.current[pageId] === doc) {
+          // 请求最终成功且期间没有新输入：收敛为已保存。
+          setNotice(null);
+          setPages((current) => ({ ...current, [pageId]: lateSaved.page.doc }));
+          updateState((current) =>
+            markSaved(current, pageId, lateSaved.savedAt)
+          );
+        } else if (docsRef.current[pageId] !== doc) {
+          // 期间又敲了字：保持待提交，交给下一轮重试。
+          updateState((current) => setPageStatus(current, pageId, 'dirty'));
+        }
         return false;
       }
-      const saved = 'data' in result ? result.data : undefined;
+      const saved = 'data' in outcome ? outcome.data : undefined;
       if (!saved) {
         // 失败要带原因（FR-015）：服务端返回的就是中文文案，直接冒到顶栏。
-        setNotice(errorMessage(result));
-        setState((current) => setPageStatus(current, pageId, 'error'));
+        setNotice(saveErrorMessage(outcome));
+        updateState((current) => setPageStatus(current, pageId, 'error'));
         return false;
       }
       if (docsRef.current[pageId] !== doc) {
         // 请求在途时用户又敲了字：这份回显是旧版本，盖上去就是吞输入。
         // 保持「待提交」，下一轮把新的发出去（FR-014、FR-017）。
-        setState((current) => setPageStatus(current, pageId, 'dirty'));
+        updateState((current) => setPageStatus(current, pageId, 'dirty'));
         return true;
       }
       // 只对齐这一页：服务端可能因白名单清洗改过节点，其余页保持用户手里的版本。
       setPages((current) => ({ ...current, [pageId]: saved.page.doc }));
-      setState((current) => markSaved(current, pageId, saved.savedAt));
+      updateState((current) => markSaved(current, pageId, saved.savedAt));
       return true;
     },
-    [articleId, orgId]
+    [articleId, orgId, updateState]
   );
 
   const submitPage = useCallback(
@@ -162,24 +188,40 @@ export function useArticleAutosave({
       if (!doc) {
         return false;
       }
-      setState((current) => setPageStatus(current, pageId, 'saving'));
+      updateState((current) => setPageStatus(current, pageId, 'saving'));
       const task = runSubmit(pageId, doc).finally(() => {
         if (inFlight.current.get(pageId) === settled) {
           inFlight.current.delete(pageId);
+        }
+        // 在途期间用户又敲了字：runSubmit 已把状态置回 dirty，
+        // 但触发它的定时器已经用掉，这里补排一次，别让最后一笔改动停在未保存。
+        if (
+          docsRef.current[pageId] !== doc &&
+          stateRef.current.pages[pageId] === 'dirty'
+        ) {
+          clearTimer(pageId);
+          timers.current.set(
+            pageId,
+            window.setTimeout(() => {
+              timers.current.delete(pageId);
+              void submitPageRef.current(pageId);
+            }, AUTOSAVE_DELAY_MS)
+          );
         }
       });
       const settled = task;
       inFlight.current.set(pageId, settled);
       return settled;
     },
-    [runSubmit]
+    [clearTimer, runSubmit, updateState]
   );
+  submitPageRef.current = submitPage;
 
   const saveCurrentPage = useCallback(async () => {
     clearTimer(currentPageId);
-    setState((current) => setPageStatus(current, currentPageId, 'dirty'));
+    updateState((current) => setPageStatus(current, currentPageId, 'dirty'));
     return submitPage(currentPageId);
-  }, [clearTimer, currentPageId, submitPage]);
+  }, [clearTimer, currentPageId, submitPage, updateState]);
 
   const saveNow = useCallback(async (): Promise<boolean> => {
     for (const [pageId, timer] of timers.current) {
@@ -233,7 +275,7 @@ export function useArticleAutosave({
     const result = await addArticlePageAction({ orgId, articleId });
     const added = 'data' in result ? result.data : undefined;
     if (!added) {
-      setNotice(errorMessage(result));
+      setNotice(saveErrorMessage(result));
       return;
     }
     setNotice(null);
@@ -254,7 +296,7 @@ export function useArticleAutosave({
       });
       const reordered = 'data' in result ? result.data : undefined;
       if (!reordered) {
-        setNotice(errorMessage(result));
+        setNotice(saveErrorMessage(result));
         return;
       }
       setNotice(null);
@@ -298,7 +340,7 @@ export function useArticleAutosave({
         setPageIds(previous);
         setState((current) => createSaveState(previous, current));
         stateRef.current = createSaveState(previous, stateRef.current);
-        setNotice(errorMessage(result));
+        setNotice(saveErrorMessage(result));
       }
     },
     [articleId, orgId, pageIds]
@@ -335,34 +377,4 @@ export function useArticleAutosave({
     notice,
     setNotice,
   };
-}
-
-/** 超时哨兵：与 Action 的返回值区分开，不需要额外的异常类型。 */
-const TIMED_OUT = Symbol('save-timeout');
-type Timeout = typeof TIMED_OUT;
-
-function withDeadline<T>(task: Promise<T>, ms: number): Promise<T | Timeout> {
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(() => resolve(TIMED_OUT), ms);
-    task.then(
-      (value) => {
-        window.clearTimeout(timer);
-        resolve(value);
-      },
-      () => {
-        window.clearTimeout(timer);
-        resolve(TIMED_OUT);
-      }
-    );
-  });
-}
-
-function errorMessage(result: unknown): string {
-  if (typeof result === 'object' && result !== null && 'error' in result) {
-    const error = (result as { error?: unknown }).error;
-    if (typeof error === 'string') {
-      return error;
-    }
-  }
-  return '操作没有保存成功，请重试。';
 }

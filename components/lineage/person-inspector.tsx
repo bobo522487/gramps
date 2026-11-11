@@ -165,7 +165,8 @@ function PersonInspectorForm({
             </h3>
             <span className="text-[10px] text-muted-foreground">
               {node.role === 'spouse' ? '配偶' : rank || '本宗'} ·{' '}
-              {node.sex === 1 ? '女' : '男'} · {node.isAlive ? '在世' : '已故'}
+              {node.sex === 1 ? '女' : node.sex === 0 ? '男' : '未知'} ·{' '}
+              {node.isAlive ? '在世' : '已故'}
               {dirty ? ' · 未保存' : ''}
             </span>
           </div>
@@ -282,6 +283,7 @@ function PersonInspectorForm({
                 >
                   <option value="0">男</option>
                   <option value="1">女</option>
+                  <option value="-1">未知</option>
                 </select>
                 <FieldError message={state.fieldErrors?.sex} />
               </div>

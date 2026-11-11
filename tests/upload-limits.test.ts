@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { checkUploadLimits } from '@/lib/article/media/upload-guards';
+import {
+  checkUploadLimits,
+  declaredBodyTooLarge,
+} from '@/lib/article/media/upload-guards';
 
 const MAX = 10 * 1024 * 1024;
 
@@ -51,5 +54,21 @@ describe('checkUploadLimits', () => {
     if (result.ok) {
       expect(result.file).toBeInstanceOf(File);
     }
+  });
+});
+
+describe('declaredBodyTooLarge', () => {
+  it('没有 Content-Length 时不拦截（chunked 请求）', () => {
+    expect(declaredBodyTooLarge(null, MAX)).toBe(false);
+    expect(declaredBodyTooLarge('', MAX)).toBe(false);
+  });
+
+  it('声明长度超过上限加 multipart 余量时拦截', () => {
+    expect(declaredBodyTooLarge(String(MAX + 1), MAX)).toBe(false);
+    expect(declaredBodyTooLarge(String(MAX + 1024 * 1024), MAX)).toBe(true);
+  });
+
+  it('非法 Content-Length 不拦截', () => {
+    expect(declaredBodyTooLarge('not-a-number', MAX)).toBe(false);
   });
 });

@@ -65,6 +65,32 @@ export async function getOrgWithRoleBySlug(userId: string, slug: string) {
 }
 
 /**
+ * Same lookup by internal id, so actions that already have the UUID do not
+ * need `getOrgById` + `getOrgRole` (two transactions) just to learn the role.
+ */
+export async function getOrgWithRoleById(userId: string, orgId: string) {
+  return withOrg(userId, async (tx) => {
+    const rows = await tx
+      .select({
+        organization: organizations,
+        role: orgMembers.role,
+      })
+      .from(organizations)
+      .innerJoin(
+        orgMembers,
+        and(
+          eq(orgMembers.organizationId, organizations.id),
+          eq(orgMembers.userId, userId)
+        )
+      )
+      .where(and(eq(organizations.id, orgId), notClosed))
+      .limit(1);
+
+    return rows[0] ?? null;
+  });
+}
+
+/**
  * Organizations where the user is the only owner. Target state has no soft
  * delete, so the filters left are the membership pair, the owner count and
  * the closed gate.

@@ -10,11 +10,14 @@ import {
   parseMediaPathname,
   sniffImageContentType,
 } from '@/lib/article/media/path';
-import { checkUploadLimits } from '@/lib/article/media/upload-guards';
+import {
+  checkUploadLimits,
+  declaredBodyTooLarge,
+} from '@/lib/article/media/upload-guards';
 import { getSessionUser } from '@/lib/auth/context';
-import { getOrgRole, hasPermission } from '@/lib/auth/permissions';
+import { hasPermission, isOrgRole } from '@/lib/auth/permissions';
 import { getMediaMode } from '@/lib/config';
-import { getArticleScope } from '@/lib/db/queries/articles';
+import { getArticleScopeForWriter } from '@/lib/db/queries/articles';
 
 /**
  * Upload channel for the local filesystem driver only; on Vercel the client
@@ -36,6 +39,13 @@ async function uploadMedia(request: Request): Promise<Response> {
   const user = await getSessionUser();
   if (!user) {
     return json(401, 'unauthorized');
+  }
+
+  // 先看声明的请求体大小，避免 formData() 把超大 multipart 整个读进内存。
+  if (
+    declaredBodyTooLarge(request.headers.get('content-length'), MAX_IMAGE_BYTES)
+  ) {
+    return json(413, 'image_too_large');
   }
 
   const form = await request.formData().catch(() => null);
@@ -71,12 +81,12 @@ async function uploadMedia(request: Request): Promise<Response> {
     return json(400, 'invalid_target');
   }
 
-  const role = await getOrgRole(user.id, orgId);
-  if (!role || !hasPermission(role, 'article.write')) {
-    return json(404, 'not_found');
-  }
-  const article = await getArticleScope(user.id, orgId, articleId);
-  if (!article) {
+  const article = await getArticleScopeForWriter(user.id, orgId, articleId);
+  if (
+    !article ||
+    !isOrgRole(article.role) ||
+    !hasPermission(article.role, 'article.write')
+  ) {
     return json(404, 'not_found');
   }
 

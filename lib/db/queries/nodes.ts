@@ -109,7 +109,8 @@ export function toNodeViewRows(rows: NodeProjectionInput[]): NodeViewRow[] {
       name,
       surname,
       fullName,
-      sex: row.sex === 'male' ? 1 : 0,
+      // 视图沿用历史 0/1：0=男、1=女；other/unknown 用 -1，不能再伪装成男性。
+      sex: row.sex === 'male' ? 0 : row.sex === 'female' ? 1 : -1,
       courtesy: row.courtesy ?? null,
       namePrefix: null,
       isAlive: row.isAlive ?? true,
