@@ -125,10 +125,11 @@ nextPath(tx, orgId, lineageId, parentPath):
 deleteNodeInTransaction({ userId, orgId, lineageId, nodeId })
 ```
 
-- 始祖（`parentPath === null`）禁止删除 → `root_forbidden`；
-- 删除条件 `path <@ target.path`，一次删除整棵子树；
-- 只删除 `node` 位置行；`person / person_name / event` 事实行不会被级联清理（`node_person_fk` 为 RESTRICT，方向是 node → person）；
-- 返回 `deletedNodes`，前端确认文案见 `lib/lineage/subtree.ts` 的 `buildDeleteConfirmMessage()`。
+- 始祖（`parentPath === null`）禁止删除 → `root_forbidden`，不删事实行；
+- 删除条件 `path <@ target.path`，一次删除整棵子树的 `node`；
+- 同一事务里，再删掉不再被任何 `node.person_id` 引用的 `event`、`person_name`、`person`；
+- 别的节点还指着这个人时，事实行留下。`family_*` 若引用了这个人，`RESTRICT` 会让整个事务回滚，包括刚才删掉的节点；
+- 返回 `deletedNodes`，前端确认文案见 `lib/lineage/subtree.ts` 的 `buildDeleteConfirmMessage()`。删谱系同样先删节点，再清失去引用的人物事实，最后删谱系行。不删 `folder`。
 
 ### 2.7 移动与重排（已知限制）
 

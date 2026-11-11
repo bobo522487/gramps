@@ -197,8 +197,8 @@ flowchart LR
   DelProj -->|"无引用"| Delete["DELETE project"]
   DelFolder["删除 folder"] -->|"SET NULL"| Content["lineage/article/book 移到未分类"]
   DelLineage["删除 lineage"] -->|"RESTRICT 检查"| CatalogRef["被 book_catalog 引用 → 拒绝"]
-  DelLineage -->|"先删 node 再删 lineage"| NodesGone["人丁位置行被清空（person 保留）"]
-  DelNode["删除 node"] -->|"path <@ 子树"| Subtree["整棵子树删除（person 事实保留）"]
+  DelLineage -->|"先删 node 再删 lineage"| NodesGone["人丁位置行被清空，无人引用的 person 一并删除"]
+  DelNode["删除 node"] -->|"path <@ 子树"| Subtree["整棵子树删除，无人引用的 person 一并删除"]
   DelSeries["删除谱系/谱文"] -->|"RESTRICT"| Catalog["被 book_catalog 引用 → 拒绝"]
 ```
 
@@ -206,8 +206,8 @@ flowchart LR
 | --- | --- |
 | 删 `project` | `lib/project/services.ts` 先探测 13 张子表；有内容返回 `not_empty`，不发出会失败的 `DELETE`，避免数据库外键错误直接暴露给用户 |
 | 删 `folder` | `lineage / article / book` 的 `folder_id` 置空（未分类），内容不删 |
-| 删 `lineage` | 先删全部 `node` 再删谱系，返回删除的节点数；被 `book_catalog` 引用时拒绝 |
-| 删 `node` | `path <@ target.path` 整棵子树；`person` 事实行保留 |
+| 删 `lineage` | 先删全部 `node`，再删不再被节点引用的 `event` / `person_name` / `person`，最后删谱系；被 `book_catalog` 引用时拒绝 |
+| 删 `node` | `path <@ target.path` 整棵子树；同一事务清掉不再被任何节点引用的人物事实 |
 | 删 `article` | 被 `book_catalog` 引用时拒绝；提交后尽力删除图片字节 |
 
 三个实测坑：

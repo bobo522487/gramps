@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { DbTransaction } from '@/lib/db/drizzle';
 import { type Node, nodes, personNames, persons } from '@/lib/db/schema';
 import type { PersonSex } from '@/lib/genealogy/constants';
+import { deleteUnreferencedPersons } from './delete-facts';
 import { withLineageWrite } from './lineage-write';
 import { writePersonFacts } from './person-facts';
 
@@ -421,7 +422,7 @@ export async function deleteNodeInTransaction(params: {
 }): Promise<DeleteNodeResult> {
   const { userId, orgId, lineageId, nodeId } = params;
 
-  return withLineageWrite({ userId, orgId, lineageId }, async (tx) => {
+  return withLineageWrite({ userId, orgId, lineageId }, async (tx, lineage) => {
     const target = await loadNode(tx, orgId, lineageId, nodeId);
     if (!target) {
       return { ok: false, reason: 'not_found' as const };
@@ -441,7 +442,13 @@ export async function deleteNodeInTransaction(params: {
           sql`${nodes.path} <@ ${target.path}::ltree`
         )
       )
-      .returning({ id: nodes.id });
+      .returning({ id: nodes.id, personId: nodes.personId });
+
+    await deleteUnreferencedPersons(
+      tx,
+      { orgId, projectId: lineage.projectId },
+      deleted.flatMap((row) => (row.personId ? [row.personId] : []))
+    );
 
     return { ok: true as const, node: target, deletedNodes: deleted.length };
   });

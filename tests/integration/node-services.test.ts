@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { getNodes } from '@/lib/db/queries/nodes';
-import { nodes, personNames, persons } from '@/lib/db/schema';
+import { events, nodes, personNames, persons } from '@/lib/db/schema';
+import { deleteLineageInTransaction } from '@/lib/lineage/services';
 import {
   addChildInTransaction,
   addSiblingInTransaction,
@@ -411,5 +412,45 @@ describe('node mutation paths', () => {
       name: '相如',
       fullName: '司马相如',
     });
+  });
+
+  it('removes the person, names, and events when the last node is deleted', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const child = await addChildInTransaction({
+      ...createParams(ctx, { name: '二', surname: '陈' }),
+      parentId: root.node.id,
+    });
+    if (!child.ok) throw new Error('child failed');
+
+    const deleted = await deleteNodeInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+      nodeId: child.node.id,
+    });
+    expect(deleted.ok).toBe(true);
+
+    const db = getTestDb();
+    const people = await db.select().from(persons);
+    const names = await db.select().from(personNames);
+    const factEvents = await db.select().from(events);
+    expect(people).toHaveLength(1);
+    expect(names.every((row) => row.personId === people[0]?.id)).toBe(true);
+    expect(factEvents.every((row) => row.personId === people[0]?.id)).toBe(true);
+  });
+
+  it('drops every person of a lineage when that lineage is deleted', async () => {
+    const ctx = await setup();
+    const root = await createRootNodeInTransaction(createParams(ctx));
+    if (!root.ok) throw new Error('root failed');
+    const result = await deleteLineageInTransaction({
+      userId: ctx.user.id,
+      orgId: ctx.orgId,
+      lineageId: ctx.lineage.id,
+    });
+    expect(result.ok).toBe(true);
+    expect(await getTestDb().select().from(persons)).toEqual([]);
   });
 });
