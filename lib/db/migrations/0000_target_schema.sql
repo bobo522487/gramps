@@ -236,6 +236,8 @@ CREATE TABLE folder (
   seq             integer NOT NULL DEFAULT 0 CHECK (seq >= 0),
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  -- 全局唯一：同一 id 不能跨项目复用，否则单列 join 会串数据
+  CONSTRAINT folder_id_global UNIQUE (id),
   CONSTRAINT folder_name_unique UNIQUE (project_id, name),
   CONSTRAINT folder_scope_fk FOREIGN KEY (organization_id, project_id)
     REFERENCES project (organization_id, id) ON DELETE RESTRICT
@@ -252,6 +254,7 @@ CREATE TABLE person (
                   CHECK (sex IN ('male','female','other','unknown')),
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT person_id_global UNIQUE (id),
   CONSTRAINT person_scope_fk FOREIGN KEY (organization_id, project_id)
     REFERENCES project (organization_id, id) ON DELETE RESTRICT
 );
@@ -267,6 +270,7 @@ CREATE TABLE person_name (
   is_primary      boolean NOT NULL DEFAULT false,
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT person_name_id_global UNIQUE (id),
   CONSTRAINT person_name_unique UNIQUE (project_id, person_id, kind, value),
   CONSTRAINT person_name_person_fk FOREIGN KEY (project_id, person_id)
     REFERENCES person (project_id, id) ON DELETE RESTRICT,
@@ -283,6 +287,7 @@ CREATE TABLE family (
   id              uuid NOT NULL DEFAULT uuidv7(),
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT family_id_global UNIQUE (id),
   CONSTRAINT family_scope_fk FOREIGN KEY (organization_id, project_id)
     REFERENCES project (organization_id, id) ON DELETE RESTRICT
 );
@@ -299,6 +304,7 @@ CREATE TABLE family_partner (
   rank            smallint CHECK (rank > 0),
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT family_partner_id_global UNIQUE (id),
   CONSTRAINT family_partner_unique UNIQUE (project_id, family_id, person_id),
   -- 四列母亲 FK 的引用目标
   CONSTRAINT family_partner_role_unique UNIQUE (project_id, family_id, person_id, role),
@@ -328,6 +334,7 @@ CREATE TABLE family_child (
   birth_order_label text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT family_child_id_global UNIQUE (id),
   CONSTRAINT family_child_unique UNIQUE (project_id, family_id, person_id),
   -- MATCH SIMPLE 遇任一列 NULL 会跳过整条 FK，必须强制成对
   CONSTRAINT family_child_mother_pair
@@ -366,6 +373,7 @@ CREATE TABLE event (
   summary         text,
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT event_id_global UNIQUE (id),
   CONSTRAINT event_one_subject CHECK (num_nonnulls(person_id, family_id) = 1),
   CONSTRAINT event_person_kinds
     CHECK (kind NOT IN ('birth','death','burial','migration','office','exam')
@@ -399,6 +407,7 @@ CREATE TABLE lineage (
   seq              integer NOT NULL DEFAULT 0 CHECK (seq >= 0),
   created_at       timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT lineage_id_global UNIQUE (id),
   CONSTRAINT lineage_name_unique UNIQUE (project_id, name),
   CONSTRAINT lineage_folder_fk FOREIGN KEY (project_id, folder_id)
     REFERENCES folder (project_id, id) ON DELETE SET NULL (folder_id),
@@ -424,6 +433,7 @@ CREATE TABLE node (
   display_name    text,
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT node_id_global UNIQUE (id),
   -- [.] 放进字符类，不依赖 standard_conforming_strings
   CONSTRAINT node_path_format CHECK (path::text ~ '^[0-9]{4}([.][0-9]{4})*$'),
   -- 非延迟：既是整树有序扫的索引，又是自引用 FK 的目标
@@ -463,6 +473,7 @@ CREATE TABLE article (
   lineage_id         uuid,
   created_at         timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT article_id_global UNIQUE (id),
   CONSTRAINT article_folder_fk FOREIGN KEY (project_id, folder_id)
     REFERENCES folder (project_id, id) ON DELETE SET NULL (folder_id),
   CONSTRAINT article_person_fk FOREIGN KEY (project_id, subject_person_id)
@@ -486,6 +497,7 @@ CREATE TABLE book (
   compiler_text   text,
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT book_id_global UNIQUE (id),
   CONSTRAINT book_folder_fk FOREIGN KEY (project_id, folder_id)
     REFERENCES folder (project_id, id) ON DELETE SET NULL (folder_id),
   CONSTRAINT book_scope_fk FOREIGN KEY (organization_id, project_id)
@@ -507,6 +519,7 @@ CREATE TABLE book_catalog (
   lineage_id      uuid,
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT book_catalog_id_global UNIQUE (id),
   CONSTRAINT book_catalog_path_format CHECK (path::text ~ '^[0-9]{4}([.][0-9]{4})*$'),
   CONSTRAINT book_catalog_path_unique UNIQUE (project_id, book_id, path),
   CONSTRAINT book_catalog_one_content CHECK (num_nonnulls(article_id, lineage_id) <= 1),
@@ -541,6 +554,7 @@ CREATE TABLE book_export (
                   CHECK (format IN ('pdf','typst','epub','html','other')),
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (project_id, id),
+  CONSTRAINT book_export_id_global UNIQUE (id),
   CONSTRAINT book_export_cutoff CHECK (fact_cutoff <= exported_at),
   CONSTRAINT book_export_book_fk FOREIGN KEY (project_id, book_id)
     REFERENCES book (project_id, id) ON DELETE RESTRICT,

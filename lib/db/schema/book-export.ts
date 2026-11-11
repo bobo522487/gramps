@@ -6,6 +6,7 @@ import {
   pgTable,
   primaryKey,
   text,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { books } from './content';
@@ -45,6 +46,7 @@ export const bookExports = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('book_export_id_global').on(t.id),
     check('book_export_cutoff', sql`${t.factCutoff} <= ${t.exportedAt}`),
     check(
       'book_export_artifact_uri_not_blank',

@@ -6,6 +6,7 @@ import {
   pgTable,
   primaryKey,
   text,
+  unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
@@ -42,6 +43,7 @@ export const events = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('event_id_global').on(t.id),
     check(
       'event_one_subject',
       sql`num_nonnulls(${t.personId}, ${t.familyId}) = 1`

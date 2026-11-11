@@ -91,6 +91,7 @@ export const folders = pgTable(
     // removes the 42830 hazard logged in A′: `lineage_folder_fk` references
     // folder (project_id, id), which a single-column `id` key could not serve.
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('folder_id_global').on(t.id),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
