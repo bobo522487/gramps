@@ -18,6 +18,27 @@ const projectId = '00000000-0000-4000-8000-000000000004';
 const requestId = '00000000-0000-4000-8000-000000000005';
 
 describe('node creation schemas', () => {
+  it('accepts a person sex and rejects the legacy 0/1 flag', () => {
+    const parsed = createRootNodeSchema.parse({
+      orgId,
+      lineageId,
+      requestId,
+      name: '元英',
+      surname: '陈',
+      sex: 'male',
+    });
+    expect(parsed.sex).toBe('male');
+
+    const rejected = createRootNodeSchema.safeParse({
+      orgId,
+      lineageId,
+      requestId,
+      name: '元英',
+      sex: '0',
+    });
+    expect(rejected.success).toBe(false);
+  });
+
   it('parses creation details and co-recorded spouse fields', () => {
     const parsed = createRootNodeSchema.parse({
       orgId,
@@ -25,7 +46,7 @@ describe('node creation schemas', () => {
       requestId,
       name: '元英',
       surname: '陈',
-      sex: '0',
+      sex: 'male',
       courtesy: '子安',
       namePrefix: '公',
       isAlive: 'on',
@@ -40,8 +61,7 @@ describe('node creation schemas', () => {
     });
 
     expect(parsed.name).toBe('元英');
-    // 表单仍传 0/1，边界处映射到目标态 person.sex 文本值域。
-    expect(parsed.sex).toBe('female');
+    expect(parsed.sex).toBe('male');
     expect(parsed.isAlive).toBe(true);
     expect(parsed.birthYear).toBe(1894);
     expect(parsed.deathYear).toBe(1968);
@@ -57,7 +77,7 @@ describe('node creation schemas', () => {
       lineageId,
       requestId,
       name: '无名',
-      sex: 0,
+      sex: 'male',
     });
     expect(parsed.isAlive).toBe(false);
     expect(parsed.surname).toBeUndefined();
@@ -72,7 +92,7 @@ describe('node creation schemas', () => {
       lineageId,
       requestId,
       name: '元英',
-      sex: 0,
+      sex: 'male',
       spouseName: '氏',
     });
     expect(missingSurname.success).toBe(false);
@@ -89,7 +109,7 @@ describe('node creation schemas', () => {
       parentId,
       requestId,
       name: '元华',
-      sex: 0,
+      sex: 'male',
       spouseSurname: '王',
     });
     expect(missingName.success).toBe(false);
@@ -105,7 +125,7 @@ describe('node creation schemas', () => {
       parentId,
       requestId,
       name: '元英',
-      sex: 0,
+      sex: 'male',
       spouseName: '氏',
       spouseSurname: '林',
     });
@@ -118,7 +138,7 @@ describe('node creation schemas', () => {
       siblingOfId: parentId,
       requestId,
       name: '元华',
-      sex: 0,
+      sex: 'male',
       spouseName: '氏',
       spouseSurname: '黄',
     });
@@ -133,7 +153,7 @@ describe('node creation schemas', () => {
       parentId,
       requestId,
       name: '元英',
-      sex: 0,
+      sex: 'male',
     });
     expect(withParent.parentId).toBe(parentId);
 
@@ -143,7 +163,7 @@ describe('node creation schemas', () => {
       parentId: '',
       requestId,
       name: '始祖',
-      sex: 0,
+      sex: 'male',
     });
     expect(withoutParent.parentId).toBeUndefined();
 
@@ -153,7 +173,7 @@ describe('node creation schemas', () => {
       parentId: 'not-a-uuid',
       requestId,
       name: '元英',
-      sex: 0,
+      sex: 'male',
     });
     expect(invalid.success).toBe(false);
   });
@@ -166,13 +186,13 @@ describe('node creation schemas', () => {
       requestId,
       name: '氏',
       surname: '王',
-      sex: '1',
+      sex: 'female',
       isAlive: '1',
       birthYear: '',
       burialPlace: '合葬村东',
     });
 
-    expect(parsed.sex).toBe('male');
+    expect(parsed.sex).toBe('female');
     expect(parsed.isAlive).toBe(true);
     expect(parsed.birthYear).toBeNull();
     expect(parsed.burialPlace).toBe('合葬村东');
@@ -185,7 +205,7 @@ describe('node creation schemas', () => {
       lineageId,
       requestId,
       name: '元英',
-      sex: 0,
+      sex: 'male',
       birthYear: '0',
     });
     expect(parsed.success).toBe(false);
@@ -202,12 +222,12 @@ describe('node creation schemas', () => {
       {
         label: '始祖',
         schema: createRootNodeSchema,
-        input: { orgId, lineageId, name: '元英', sex: 0 },
+        input: { orgId, lineageId, name: '元英', sex: 'male' },
       },
       {
         label: '子女',
         schema: addChildSchema,
-        input: { orgId, lineageId, parentId, name: '元英', sex: 0 },
+        input: { orgId, lineageId, parentId, name: '元英', sex: 'male' },
       },
       {
         label: '兄弟',
@@ -217,13 +237,13 @@ describe('node creation schemas', () => {
           lineageId,
           siblingOfId: parentId,
           name: '元英',
-          sex: 0,
+          sex: 'male',
         },
       },
       {
         label: '族人',
         schema: addPersonSchema,
-        input: { orgId, lineageId, parentId, name: '元英', sex: 0 },
+        input: { orgId, lineageId, parentId, name: '元英', sex: 'male' },
       },
       {
         label: '配偶',
@@ -234,7 +254,7 @@ describe('node creation schemas', () => {
           spouseOfId: parentId,
           name: '氏',
           surname: '王',
-          sex: 1,
+          sex: 'female',
         },
       },
     ];

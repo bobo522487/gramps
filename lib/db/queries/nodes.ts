@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { and, asc, eq, inArray } from 'drizzle-orm';
+import type { PersonSex } from '@/lib/genealogy/constants';
 import { withOrg } from '../drizzle';
 import { events, lineages, nodes, personNames, persons } from '../schema';
 
@@ -24,7 +25,7 @@ export type NodeViewRow = {
   name: string;
   surname: string;
   fullName: string;
-  sex: number;
+  sex: PersonSex;
   courtesy: string | null;
   namePrefix: string | null;
   isAlive: boolean;
@@ -85,7 +86,7 @@ const emptyFacts: PersonFacts = {
  * - `fullName` comes from the primary `person_name.value`, falling back to the
  *   node's own `display_name`; the surname/given split is a display heuristic
  *   until the client has a dedicated name editor;
- * - `sex` maps the target `person.sex` domain onto the legacy 0/1 view flag;
+ * - `sex` is the target `person.sex` value, or `unknown` when the row has none;
  * - the remaining identity fields have no target-model column yet and are
  *   filled with neutral values so the UI contract stays stable.
  */
@@ -109,7 +110,13 @@ export function toNodeViewRows(rows: NodeProjectionInput[]): NodeViewRow[] {
       name,
       surname,
       fullName,
-      sex: row.sex === 'male' ? 1 : 0,
+      sex:
+        row.sex === 'male' ||
+        row.sex === 'female' ||
+        row.sex === 'other' ||
+        row.sex === 'unknown'
+          ? row.sex
+          : 'unknown',
       courtesy: row.courtesy ?? null,
       namePrefix: null,
       isAlive: row.isAlive ?? true,

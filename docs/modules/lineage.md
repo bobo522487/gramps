@@ -188,7 +188,7 @@ reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 | `parentId` | 用 `parentPath` 在同树 path→id 映射中反查 |
 | `fullName` | `person_name.value`，回退 `node.display_name` |
 | `surname` / `name` | 全名的「末字为名」显示启发式 |
-| `sex` | `male → 1`，其他 `0` |
+| `sex` | `person.sex` 原值（`male` / `female` / `other` / `unknown`），缺失时 `unknown` |
 | `courtesy` | `person_name(kind='courtesy').value` |
 | `birthText` / `deathText` | `event(birth|death).date_text`，`birthYear` / `deathYear` 取自 `date_sort` 前四位 |
 | `burialPlace` | `event(burial).place_text` |

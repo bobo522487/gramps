@@ -58,7 +58,7 @@ const edgeTypes = {
 const TEMPLATE_MIME = 'application/genealogy-template';
 
 type DragTemplate = {
-  sex: number;
+  sex: 'male' | 'female';
 };
 
 export type GenealogyCanvasProps = {
@@ -489,7 +489,7 @@ function CanvasInner({
       if (!nearest) {
         return;
       }
-      if (template.sex === 1) {
+      if (template.sex === 'female') {
         onCreateSpouse(nearest.id);
       } else {
         onCreateChild(nearest.id);
@@ -633,7 +633,7 @@ function CanvasInner({
                   onDragStart={(event) => {
                     event.dataTransfer.setData(
                       TEMPLATE_MIME,
-                      JSON.stringify({ sex: 0 } satisfies DragTemplate)
+                      JSON.stringify({ sex: 'male' } satisfies DragTemplate)
                     );
                     event.dataTransfer.effectAllowed = 'copy';
                   }}
@@ -649,7 +649,7 @@ function CanvasInner({
                   onDragStart={(event) => {
                     event.dataTransfer.setData(
                       TEMPLATE_MIME,
-                      JSON.stringify({ sex: 1 } satisfies DragTemplate)
+                      JSON.stringify({ sex: 'female' } satisfies DragTemplate)
                     );
                     event.dataTransfer.effectAllowed = 'copy';
                   }}

@@ -7,11 +7,13 @@ import {
   type LineageIndex,
   useLineageIndex,
 } from '@/components/lineage/lineage-index-context';
+import { rankSuffix, sexLabel } from '@/components/lineage/sex';
 import type { NodeView } from '@/components/lineage/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ActionState } from '@/lib/auth/types';
+import type { PersonSex } from '@/lib/genealogy/constants';
 import {
   addChildAction,
   addPersonAction,
@@ -56,17 +58,25 @@ const COPY: Record<
   },
 };
 
-function nextRank(index: LineageIndex, parentId: string | null, sex: number) {
+function nextRank(
+  index: LineageIndex,
+  parentId: string | null,
+  sex: PersonSex
+) {
   if (!parentId) {
     return '始祖';
   }
   const siblings = (index.childrenByParent.get(parentId) ?? []).filter(
     (node) => node.sex === sex
   );
-  const labels = sex === 1 ? RANK_LABELS.female : RANK_LABELS.male;
+  const labels =
+    sex === 'female'
+      ? RANK_LABELS.female
+      : sex === 'male'
+        ? RANK_LABELS.male
+        : null;
   return (
-    labels[siblings.length] ??
-    `第${siblings.length + 1}${sex === 1 ? '女' : '子'}`
+    labels?.[siblings.length] ?? `第${siblings.length + 1}${rankSuffix(sex)}`
   );
 }
 
@@ -125,11 +135,11 @@ export function NodeCreateDialog({
     }
     return '';
   });
-  const [sex, setSex] = useState(() => {
+  const [sex, setSex] = useState<PersonSex>(() => {
     if (mode === 'spouse' && target) {
-      return target.sex === 0 ? 1 : 0;
+      return target.sex === 'male' ? 'female' : 'male';
     }
-    return 0;
+    return 'male';
   });
 
   useEffect(() => {
@@ -325,7 +335,7 @@ export function NodeCreateDialog({
               <>
                 <input type="hidden" name="sex" value={sex} />
                 <p className="mt-1 h-8 rounded-md border border-input bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
-                  {sex === 1 ? '女' : '男'}（配偶与本人性别相反）
+                  {sexLabel(sex)}（配偶与本人性别相反）
                 </p>
               </>
             ) : (
@@ -334,9 +344,9 @@ export function NodeCreateDialog({
                   <input
                     type="radio"
                     name="sex"
-                    value="0"
-                    checked={sex === 0}
-                    onChange={() => setSex(0)}
+                    value="male"
+                    checked={sex === 'male'}
+                    onChange={() => setSex('male')}
                     className="accent-primary"
                   />
                   男
@@ -345,9 +355,9 @@ export function NodeCreateDialog({
                   <input
                     type="radio"
                     name="sex"
-                    value="1"
-                    checked={sex === 1}
-                    onChange={() => setSex(1)}
+                    value="female"
+                    checked={sex === 'female'}
+                    onChange={() => setSex('female')}
                     className="accent-primary"
                   />
                   女

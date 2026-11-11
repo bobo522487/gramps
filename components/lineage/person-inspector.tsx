@@ -8,6 +8,7 @@ import {
   type LineageIndex,
   useLineageIndex,
 } from '@/components/lineage/lineage-index-context';
+import { sexLabel } from '@/components/lineage/sex';
 import type { NodeView } from '@/components/lineage/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -165,7 +166,7 @@ function PersonInspectorForm({
             </h3>
             <span className="text-[10px] text-muted-foreground">
               {node.role === 'spouse' ? '配偶' : rank || '本宗'} ·{' '}
-              {node.sex === 1 ? '女' : '男'} · {node.isAlive ? '在世' : '已故'}
+              {sexLabel(node.sex)} · {node.isAlive ? '在世' : '已故'}
               {dirty ? ' · 未保存' : ''}
             </span>
           </div>
@@ -276,12 +277,14 @@ function PersonInspectorForm({
                 <select
                   id="inspector-sex"
                   name="sex"
-                  defaultValue={String(node.sex)}
+                  defaultValue={node.sex}
                   className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground"
                   disabled={readOnly}
                 >
-                  <option value="0">男</option>
-                  <option value="1">女</option>
+                  <option value="male">男</option>
+                  <option value="female">女</option>
+                  <option value="other">其他</option>
+                  <option value="unknown">不详</option>
                 </select>
                 <FieldError message={state.fieldErrors?.sex} />
               </div>

@@ -47,6 +47,7 @@ import {
 } from '@/components/lineage/node-create-dialog';
 import { NodeMoveDialog } from '@/components/lineage/node-move-dialog';
 import { PersonInspector } from '@/components/lineage/person-inspector';
+import { sexLabel } from '@/components/lineage/sex';
 import type { FolderOption, NodeView } from '@/components/lineage/types';
 import { useInspectorSelection } from '@/components/lineage/use-inspector-selection';
 import { Badge } from '@/components/ui/badge';
@@ -90,8 +91,8 @@ type LineageInfo = {
 
 type CreateState = { mode: NodeCreateMode; target?: NodeView } | null;
 
-function SexLabel({ sex }: { sex: number }) {
-  return sex === 1 ? '女' : '男';
+function SexLabel({ sex }: { sex: NodeView['sex'] }) {
+  return sexLabel(sex);
 }
 
 function SpouseChip({

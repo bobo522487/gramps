@@ -73,7 +73,7 @@ describe('toNodeViewRows display heuristics', () => {
     expect(row?.spouseOfId).toBeNull();
     expect(row?.role).toBe('blood');
     expect(row?.generation).toBe(1);
-    expect(row?.sex).toBe(0);
+    expect(row?.sex).toBe('unknown');
     expect(row?.birthText).toBeNull();
     expect(row?.deathText).toBeNull();
   });
@@ -101,11 +101,11 @@ describe('toNodeViewRows display heuristics', () => {
     ]);
     expect(parent?.surname).toBe('陈');
     expect(parent?.name).toBe('实');
-    expect(parent?.sex).toBe(1);
+    expect(parent?.sex).toBe('male');
     expect(child?.parentId).toBe('root');
     expect(child?.generation).toBe(2);
     expect(child?.sort).toBe(10);
-    expect(child?.sex).toBe(0);
+    expect(child?.sex).toBe('female');
     expect(child?.birthText).toBe('光绪二十年');
     expect(child?.deathText).toBe('一九六八年');
     expect(child?.fullName).toBe('陈二');

@@ -23,7 +23,7 @@ function node(
     surname,
     // Write-side invariant: fullName = surname + name.
     fullName: `${surname}${overrides.name}`,
-    sex: 0,
+    sex: 'male',
     courtesy: null,
     namePrefix: null,
     isAlive: false,
@@ -188,7 +188,7 @@ describe('lineage blood order is branch depth-first (R30)', () => {
       generation: 2,
       role: 'spouse',
       spouseOfId: 'a',
-      sex: 1,
+      sex: 'female',
     });
     const index = buildLineageIndex([root, elder, wife]);
     expect(index.blood.map((p) => p.id)).toEqual(['r', 'a']);

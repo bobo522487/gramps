@@ -2,6 +2,8 @@
 // into client bundles, and Biome's noRestrictedImports forbids reaching into the
 // database layer from here. Server rows satisfy these shapes structurally.
 
+import type { PersonSex } from '@/lib/genealogy/constants';
+
 export type NodeView = {
   id: string;
   parentId: string | null;
@@ -12,7 +14,7 @@ export type NodeView = {
   name: string;
   surname: string;
   fullName: string;
-  sex: number;
+  sex: PersonSex;
   courtesy: string | null;
   namePrefix: string | null;
   isAlive: boolean;
@@ -49,7 +51,7 @@ type NodeRow = {
   name: string;
   surname: string;
   fullName: string;
-  sex: number;
+  sex: PersonSex;
   courtesy: string | null;
   namePrefix: string | null;
   isAlive: boolean;

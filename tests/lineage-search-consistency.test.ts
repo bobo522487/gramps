@@ -28,7 +28,7 @@ function node(
     surname,
     // Write-side invariant: fullName = surname + name.
     fullName: `${surname}${overrides.name}`,
-    sex: 0,
+    sex: 'male',
     courtesy: null,
     namePrefix: null,
     isAlive: false,

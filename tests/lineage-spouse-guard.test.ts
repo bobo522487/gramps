@@ -69,7 +69,7 @@ function payload(extra: Record<string, string> = {}): FormData {
   fd.set('orgId', ORG_ID);
   fd.set('lineageId', LINEAGE_ID);
   fd.set('name', '张三');
-  fd.set('sex', '1');
+  fd.set('sex', 'male');
   fd.set('spouseName', '李四');
   fd.set('spouseSurname', '李');
   for (const [key, value] of Object.entries(extra)) {

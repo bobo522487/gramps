@@ -51,23 +51,8 @@ const clearableText = (max: number, message: string) =>
       .transform((value) => (value === undefined ? undefined : value || null))
   );
 
-/**
- * The form still posts the legacy 0/1 flag so the UI stays unchanged, while
- * the target-model `person.sex` is the four-value text domain. Mapping here
- * keeps the boundary honest: every Server Action receives a `PersonSex`.
- */
-const sex = z.preprocess(
-  (value) => {
-    if (value === 0 || value === '0') {
-      return 'female';
-    }
-    if (value === 1 || value === '1') {
-      return 'male';
-    }
-    return value === '' || value === null ? undefined : value;
-  },
-  z.enum(PERSON_SEX_VALUES, { error: '请选择性别' })
-);
+/** 表单与 `person.sex` 使用同一套四值，不再把 0/1 翻译成相反的性别。 */
+const sex = z.enum(PERSON_SEX_VALUES, { error: '请选择性别' });
 
 const clearableYear = z.preprocess(
   (value) =>
