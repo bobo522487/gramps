@@ -58,7 +58,7 @@
 | 层 | 选型 | 版本 | 说明 |
 | --- | --- | --- | --- |
 | 运行时 | Node.js | 24.22.1（`.nvmrc`） | Vercel Fluid Compute 兼容 |
-| 框架 | Next.js App Router | 16.4.3 | RSC + Server Actions + Route Handlers |
+| 框架 | Next.js App Router | 16.4.6 | RSC + Server Actions + Route Handlers |
 | UI | React | 19.3.1 | 服务端组件优先 |
 | 语言 | TypeScript | 7.0.2 | `strict` |
 | 样式 | Tailwind CSS | 4.3.3 | `@tailwindcss/postcss` |
