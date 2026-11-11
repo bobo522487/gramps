@@ -40,10 +40,7 @@ getMediaMode(): 'blob' | 'fs'   // 只看 BLOB_READ_WRITE_TOKEN
 
 ### 2.1 驱动选择
 
-| 环境 | 驱动 | 说明 |
-| --- | --- | --- |
-| 本地 / CI | `postgres.js` | `drizzle-orm/postgres-js` |
-| Vercel | `pg.Pool`（max 5）+ `attachDatabasePool` | Fluid Compute 冻结/恢复连接池，避免跨请求泄漏 |
+全环境统一使用 `pg.Pool`（`drizzle-orm/node-postgres`，max 5）。Vercel 上额外调用 `attachDatabasePool` 适配 Fluid Compute 的冻结/恢复，这是唯一的平台分支；驱动本身没有分支。本地、CI 与生产走同一条代码路径，由 `tests/db-driver.test.ts` 守住。
 
 `db` 通过 `Proxy` 延迟初始化：导入模块不连接，首次查询才连接。这让 typecheck / build / 单测在无 `POSTGRES_URL` 时也能运行。
 
@@ -80,9 +77,8 @@ withOrgWrite<T>(userId, orgId, permission, fn)
 queryRows<T>(executor, query): Promise<T[]>
 ```
 
-- postgres.js 返回数组；
 - node-postgres 返回 `{ rows }`；
-- 认证相关原生 SQL 用它抹平差异。
+- 手写 SQL 统一用它取行，不直接下标 `execute()` 的返回值。
 
 ## 3. 权限守卫
 
@@ -100,7 +96,7 @@ requireOrgPermission(tx, userId, orgId, permission): Promise<boolean>
 [`lib/db/errors.ts`](../lib/db/errors.ts) 解决三个现实问题：
 
 1. Drizzle / Better Auth 会把驱动异常多层包裹，SQLSTATE 在 `cause` / `body.cause` 深处；
-2. postgres.js 与 node-postgres 的字段名不同（`constraint_name` vs `constraint`）；
+2. node-postgres 把约束名放在 `constraint` 上；
 3. `ON DELETE RESTRICT` 在 PG18 报 `23001`，而不是很多人以为的 `23503`。
 
 | 函数 | 用途 |

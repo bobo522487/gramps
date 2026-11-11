@@ -213,7 +213,7 @@ flowchart LR
 三个实测坑：
 
 1. `ON DELETE RESTRICT` 违约的 SQLSTATE 是 **`23001`**，不是 `23503`（后者是 `NO ACTION` / 插入类外键）。
-2. postgres.js 会记住事务内第一条失败 query，并在 COMMIT 重抛，**即使 JS 已 catch**；所以 `deleteProject` 必须先探查再删。
+2. 事务内任一语句失败后整个事务进入 aborted 状态，**即使 JS 已 catch 也无法继续提交**；所以 `deleteProject` 必须先探查再删。
 3. `ON DELETE SET NULL` 的复合外键必须带列清单，否则会把 `project_id` 一起置空并报 `23502`。
 
 ## 7. 索引要点

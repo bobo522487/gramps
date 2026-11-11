@@ -2,7 +2,8 @@ import 'server-only';
 
 import { createHash, randomBytes } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { withOrg } from '@/lib/db/drizzle';
+import { queryRows, withOrg } from '@/lib/db/drizzle';
+import { constraintOf } from '@/lib/db/errors';
 import { invitations } from '@/lib/db/schema';
 
 /** 邀请链接有效期。与旧插件配置的 7 天一致（`SEVEN_DAYS_IN_SECONDS`）。 */
@@ -116,13 +117,7 @@ export async function issueInvitation(params: {
  * 新的随机 token 反复制造同一个邮箱冲突，最后报出一个与真实原因无关的错。
  */
 export function isTokenHashCollision(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-  const value = error as { code?: unknown; constraint_name?: unknown };
-  return (
-    value.code === '23505' && value.constraint_name === 'invite_token_hash_key'
-  );
+  return constraintOf(error, '23505') === 'invite_token_hash_key';
 }
 
 export type InvitationPreview = {
@@ -144,14 +139,17 @@ export async function previewInvitation(
 ): Promise<InvitationPreview | null> {
   const tokenHash = hashInviteToken(token);
   const rows = await withOrg(actorId, (tx) =>
-    tx.execute(
+    queryRows<{
+      organization_name?: string;
+      role?: string;
+      expires_at?: string;
+    }>(
+      tx,
       sql`select organization_name, role, expires_at
             from app.invite_join_preview(${tokenHash})`
     )
   );
-  const row = rows[0] as
-    | { organization_name?: string; role?: string; expires_at?: string }
-    | undefined;
+  const row = rows[0];
   if (!row?.organization_name) {
     return null;
   }

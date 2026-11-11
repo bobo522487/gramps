@@ -160,12 +160,10 @@ export async function deleteProjectInTransaction(params: {
 
   return withOrgWrite(userId, orgId, 'project.write', async (tx) => {
     // Target state has no soft delete: this is a real DELETE and every
-    // project-internal FK is RESTRICT. postgres.js remembers the first failed
-    // query inside a transaction (`uncaughtError`) and rethrows it at COMMIT
-    // EVEN if the JS catch swallows it — a savepoint restores the server-side
-    // aborted state but not that driver bookkeeping. So we must not issue a
-    // DELETE that can fail: probe the child tables first and refuse early.
-    // This also works on the node-postgres path used on Vercel.
+    // project-internal FK is RESTRICT. Any failed statement aborts the
+    // transaction, and a JS catch cannot make COMMIT succeed. So we must not
+    // issue a DELETE that can fail: probe the child tables first and refuse
+    // early.
     const childChecks = PROJECT_CHILD_TABLES.map(
       (table) =>
         sql`exists (select 1 from ${sql.identifier(table)} where organization_id = ${orgId} and project_id = ${projectId})`
@@ -190,9 +188,9 @@ export async function deleteProjectInTransaction(params: {
     } catch (error) {
       // 兜底：并发插入子行、未登记的约束、或其它 FK 故障。只把清单内的违约
       // 翻译成 `not_empty`；宽匹配会把别处的故障伪装成业务提示——用户照着
-      // 提示清空内容后依然删不掉，错误被吞。注意 RESTRICT 违约是 `23001`
-      // 且 postgres.js 给 `constraint_name`，插入类 FK 违约才是 `23503` /
-      // `constraint`，两者在 `lib/db/errors.ts` 里都认。
+      // 提示清空内容后依然删不掉，错误被吞。注意 RESTRICT 违约是 `23001`，
+      // 约束名在 node-postgres 的 `constraint` 上；插入类 FK 违约才是
+      // `23503`，两者在 `lib/db/errors.ts` 里都认。
       if (isForeignKeyViolationOf(error, PROJECT_CHILD_CONSTRAINTS)) {
         return { ok: false, reason: 'not_empty' as const };
       }

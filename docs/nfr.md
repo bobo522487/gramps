@@ -28,7 +28,8 @@
 | 依赖方向 | `biome.json` 的 `noRestrictedImports` 按目录切互斥分区，每个分区自带该目录被禁的全部 import：客户端禁 `drizzle-orm` / `@/lib/db/*` / schema；`lib/db/**` 禁 `next/*`；`lib/db/queries/**` 禁 `@/lib/*/actions`；`lib/*/services.ts` 与 `lib/*/*-services.ts` 禁 `next/headers` / `next/navigation`；`@tiptap/**` 与 `prosemirror-*` 只允许 `lib/article/**`、`components/article/editor/**`，其余每个分区都要重复写一次这条禁令（Biome 2.x 对同名规则不合并 options，详见 `docs/architecture.md` §9）。组数会随规则增减，以配置为准 | `biome.json`，`tests/docs-guard.test.ts` 交叉探针逐分区验证既拦得住也无误伤 | `pnpm check`、`pnpm test` |
 | 会话与密码 | 会话 7 天过期、滑动续期 1 天；`cookieCache.enabled: false`（每次校验查库）；密码 8–100；邀请 7 天过期；邮箱验证关闭、改邮箱关闭、组织不可删 | `lib/auth/better-auth.ts` | `tests/integration/better-auth.test.ts` |
 | 限流 | 登录 10 次 / 15 分钟（IP + 邮箱）、注册 5 次 / 1 小时（IP）、改密 5 次 / 15 分钟（IP + 用户）、删号 3 次 / 1 小时（IP + 用户）。进程内滑动窗口，**重启清零、多实例不共享，不是安全边界** | `lib/auth/rate-limit.ts`；`lib/auth/actions/session.ts`、`lib/auth/actions/account.ts` | `tests/rate-limit.test.ts` |
-| 数据库连接池 | 仅 Vercel 上 `new Pool({ max: 5 })` + `attachDatabasePool`；本地与 CI 走 `postgres.js` 直连，不受这层保护 | `lib/db/drizzle.ts` | **无自动执行者**；靠 Neon 连接数指标 |
+| 数据库驱动 | 全环境只用 `pg.Pool` + `drizzle-orm/node-postgres`；仅 Vercel 上额外 `attachDatabasePool` | `lib/db/drizzle.ts`、`lib/db/auth-db.ts` | `tests/db-driver.test.ts` |
+| 数据库连接池 | `max: 5`；上限随实例数变，没有检查能拦住它 | `lib/db/drizzle.ts` | **无自动执行者**；靠 Neon 连接数指标 |
 | 安全响应头 | HSTS `max-age=63072000; includeSubDomains`、`X-Frame-Options: DENY`、`nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`、`Permissions-Policy` 关摄像头/麦克风/定位、移除 `x-powered-by`；**CSP 仅 Report-Only** | `next.config.ts` | `pnpm verify:deploy` → `scripts/verify-deployment.mjs` |
 | 日志级别 | `debug < info < warn < error`；`LOG_LEVEL` 只在 `lib/config.ts` 校验，启动时由 `instrumentation.ts` 注入；未配置时生产 `info` / 开发 `debug` | `lib/config.ts`、`lib/logger.ts`、`instrumentation.ts` | 配置校验失败则启动抛错 |
 

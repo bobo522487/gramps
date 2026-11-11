@@ -95,7 +95,7 @@ describe('deleteProjectInTransaction', () => {
 
   it('returns not_empty without issuing a failing DELETE when children exist', async () => {
     const ctx = await setup(true);
-    // 回归：postgres.js 会记住事务内第一条失败 query 并在 COMMIT 重抛，
+    // 回归：事务里第一条失败语句会让整个事务进入 aborted 状态，
     // 所以这里必须靠子表探查提前返回，不能让 DELETE 触发 RESTRICT。
     expect(await deleteProjectInTransaction(ctx)).toEqual({
       ok: false,
