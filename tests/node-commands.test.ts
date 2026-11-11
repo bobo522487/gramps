@@ -38,11 +38,10 @@ const ids = (n: NodeView, canWrite = true) =>
   enabledCommands(n, canWrite).map((command) => command.id);
 
 describe('NODE_COMMANDS', () => {
-  it('按固定顺序给出五条命令', () => {
+  it('按固定顺序给出四条命令', () => {
     expect(NODE_COMMANDS.map((command) => command.id)).toEqual([
       'add-child',
       'add-sibling',
-      'add-spouse',
       'move',
       'delete',
     ]);
@@ -56,18 +55,12 @@ describe('NODE_COMMANDS', () => {
 });
 
 describe('enabledCommands', () => {
-  it('始祖只能加子女与配偶', () => {
-    expect(ids(root)).toEqual(['add-child', 'add-spouse']);
+  it('始祖只能加子女', () => {
+    expect(ids(root)).toEqual(['add-child']);
   });
 
-  it('非始祖血亲可用全部五条', () => {
-    expect(ids(son)).toEqual([
-      'add-child',
-      'add-sibling',
-      'add-spouse',
-      'move',
-      'delete',
-    ]);
+  it('非始祖血亲可用其余四条', () => {
+    expect(ids(son)).toEqual(['add-child', 'add-sibling', 'move', 'delete']);
   });
 
   it('配偶节点只能删除（服务端对配偶父级返回 invalid_parent）', () => {

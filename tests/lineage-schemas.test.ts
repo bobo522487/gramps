@@ -4,7 +4,6 @@ import {
   addChildSchema,
   addPersonSchema,
   addSiblingSchema,
-  addSpouseSchema,
   createFolderSchema,
   createLineageSchema,
   createRootNodeSchema,
@@ -39,7 +38,7 @@ describe('node creation schemas', () => {
     expect(rejected.success).toBe(false);
   });
 
-  it('parses creation details and co-recorded spouse fields', () => {
+  it('parses creation details', () => {
     const parsed = createRootNodeSchema.parse({
       orgId,
       lineageId,
@@ -56,8 +55,6 @@ describe('node creation schemas', () => {
       deathYear: '1968',
       burialPlace: '村东祖坟',
       biography: '勤俭持家，耕读传家。',
-      spouseName: '氏',
-      spouseSurname: '王',
     });
 
     expect(parsed.name).toBe('元英');
@@ -67,8 +64,21 @@ describe('node creation schemas', () => {
     expect(parsed.deathYear).toBe(1968);
     expect(parsed.courtesy).toBe('子安');
     expect(parsed.burialPlace).toBe('村东祖坟');
-    expect(parsed.spouseName).toBe('氏');
-    expect(parsed.spouseSurname).toBe('王');
+  });
+
+  it('does not accept a co-recorded spouse', () => {
+    const parsed = createRootNodeSchema.parse({
+      orgId,
+      lineageId,
+      requestId,
+      name: '元英',
+      surname: '陈',
+      sex: 'male',
+      spouseName: '氏',
+      spouseSurname: '王',
+    });
+    expect(parsed).not.toHaveProperty('spouseName');
+    expect(parsed).not.toHaveProperty('spouseSurname');
   });
 
   it('defaults the living status to deceased and keeps optional fields empty', () => {
@@ -81,44 +91,10 @@ describe('node creation schemas', () => {
     });
     expect(parsed.isAlive).toBe(false);
     expect(parsed.surname).toBeUndefined();
-    expect(parsed.spouseName).toBeUndefined();
-    expect(parsed.spouseSurname).toBeUndefined();
     expect(parsed.birthYear).toBeUndefined();
   });
 
-  it('requires spouse surname and given name to be provided together', () => {
-    const missingSurname = createRootNodeSchema.safeParse({
-      orgId,
-      lineageId,
-      requestId,
-      name: '元英',
-      sex: 'male',
-      spouseName: '氏',
-    });
-    expect(missingSurname.success).toBe(false);
-    if (!missingSurname.success) {
-      expect(missingSurname.error.issues[0]?.path).toEqual(['spouseSurname']);
-      expect(missingSurname.error.issues[0]?.message).toBe(
-        '请同时填写配偶的姓氏与名讳'
-      );
-    }
-
-    const missingName = addChildSchema.safeParse({
-      orgId,
-      lineageId,
-      parentId,
-      requestId,
-      name: '元华',
-      sex: 'male',
-      spouseSurname: '王',
-    });
-    expect(missingName.success).toBe(false);
-    if (!missingName.success) {
-      expect(missingName.error.issues[0]?.path).toEqual(['spouseName']);
-    }
-  });
-
-  it('accepts a spouse pair on child and sibling creation', () => {
+  it('accepts a child and a sibling', () => {
     const child = addChildSchema.parse({
       orgId,
       lineageId,
@@ -126,11 +102,8 @@ describe('node creation schemas', () => {
       requestId,
       name: '元英',
       sex: 'male',
-      spouseName: '氏',
-      spouseSurname: '林',
     });
     expect(child.parentId).toBe(parentId);
-    expect(child.spouseSurname).toBe('林');
 
     const sibling = addSiblingSchema.parse({
       orgId,
@@ -139,11 +112,8 @@ describe('node creation schemas', () => {
       requestId,
       name: '元华',
       sex: 'male',
-      spouseName: '氏',
-      spouseSurname: '黄',
     });
     expect(sibling.siblingOfId).toBe(parentId);
-    expect(sibling.spouseName).toBe('氏');
   });
 
   it('parses a general person with or without a parent', () => {
@@ -176,27 +146,6 @@ describe('node creation schemas', () => {
       sex: 'male',
     });
     expect(invalid.success).toBe(false);
-  });
-
-  it('parses spouse details without a second co-recorded spouse', () => {
-    const parsed = addSpouseSchema.parse({
-      orgId,
-      lineageId,
-      spouseOfId: parentId,
-      requestId,
-      name: '氏',
-      surname: '王',
-      sex: 'female',
-      isAlive: '1',
-      birthYear: '',
-      burialPlace: '合葬村东',
-    });
-
-    expect(parsed.sex).toBe('female');
-    expect(parsed.isAlive).toBe(true);
-    expect(parsed.birthYear).toBeNull();
-    expect(parsed.burialPlace).toBe('合葬村东');
-    expect('spouseName' in parsed).toBe(false);
   });
 
   it('rejects malformed years', () => {
@@ -244,18 +193,6 @@ describe('node creation schemas', () => {
         label: '族人',
         schema: addPersonSchema,
         input: { orgId, lineageId, parentId, name: '元英', sex: 'male' },
-      },
-      {
-        label: '配偶',
-        schema: addSpouseSchema,
-        input: {
-          orgId,
-          lineageId,
-          spouseOfId: parentId,
-          name: '氏',
-          surname: '王',
-          sex: 'female',
-        },
       },
     ];
 

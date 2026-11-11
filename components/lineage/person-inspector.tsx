@@ -33,7 +33,6 @@ export function PersonInspector({
   onClose,
   onSelectNode,
   onAddChild,
-  onAddSpouse,
   onDelete,
   onDirtyChange,
 }: {
@@ -45,7 +44,6 @@ export function PersonInspector({
   onClose: () => void;
   onSelectNode: (nodeId: string) => void;
   onAddChild: (nodeId: string) => void;
-  onAddSpouse: (nodeId: string) => void;
   onDelete: (target: NodeView) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -63,7 +61,6 @@ export function PersonInspector({
       onClose={onClose}
       onSelectNode={onSelectNode}
       onAddChild={onAddChild}
-      onAddSpouse={onAddSpouse}
       onDelete={onDelete}
       onDirtyChange={onDirtyChange}
     />
@@ -80,7 +77,6 @@ function PersonInspectorForm({
   onClose,
   onSelectNode,
   onAddChild,
-  onAddSpouse,
   onDelete,
   onDirtyChange,
 }: {
@@ -93,7 +89,6 @@ function PersonInspectorForm({
   onClose: () => void;
   onSelectNode: (nodeId: string) => void;
   onAddChild: (nodeId: string) => void;
-  onAddSpouse: (nodeId: string) => void;
   onDelete: (target: NodeView) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
@@ -359,15 +354,6 @@ function PersonInspectorForm({
                 <h4 className="text-xs font-bold text-muted-foreground">
                   配偶（{spouses.length}）
                 </h4>
-                {canWrite ? (
-                  <button
-                    type="button"
-                    onClick={() => onAddSpouse(node.id)}
-                    className="flex items-center gap-0.5 text-[11px] text-primary hover:underline"
-                  >
-                    <Plus size={12} /> 添配
-                  </button>
-                ) : null}
               </div>
               {spouses.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">

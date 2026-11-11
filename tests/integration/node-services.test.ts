@@ -2,11 +2,9 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { getNodes } from '@/lib/db/queries/nodes';
 import { events, nodes, personNames, persons } from '@/lib/db/schema';
-import { deleteLineageInTransaction } from '@/lib/lineage/services';
 import {
   addChildInTransaction,
   addSiblingInTransaction,
-  addSpouseInTransaction,
   createRootNodeInTransaction,
   deleteNodeInTransaction,
   moveNodeInTransaction,
@@ -14,6 +12,7 @@ import {
   toNodeDetails,
   updateNodeInTransaction,
 } from '@/lib/lineage/node-services';
+import { deleteLineageInTransaction } from '@/lib/lineage/services';
 import { getTestDb } from '../helpers/db';
 import {
   createLineage,
@@ -204,20 +203,6 @@ describe('node creation paths', () => {
         }) as Parameters<typeof addSiblingInTransaction>[0]
       )
     ).toEqual({ ok: false, reason: 'not_found' });
-  });
-
-  it('reports spouses as unsupported without writing a fake node', async () => {
-    const ctx = await setup();
-    const root = await createRootNodeInTransaction(createParams(ctx));
-    if (!root.ok) throw new Error('root creation failed');
-
-    expect(
-      await addSpouseInTransaction({
-        ...createParams(ctx),
-        anchorId: root.node.id,
-      })
-    ).toEqual({ ok: false, reason: 'not_supported' });
-    expect(await getTestDb().select().from(nodes)).toHaveLength(1);
   });
 });
 
@@ -495,7 +480,9 @@ describe('node mutation paths', () => {
     const factEvents = await db.select().from(events);
     expect(people).toHaveLength(1);
     expect(names.every((row) => row.personId === people[0]?.id)).toBe(true);
-    expect(factEvents.every((row) => row.personId === people[0]?.id)).toBe(true);
+    expect(factEvents.every((row) => row.personId === people[0]?.id)).toBe(
+      true
+    );
   });
 
   it('drops every person of a lineage when that lineage is deleted', async () => {

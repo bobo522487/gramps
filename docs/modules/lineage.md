@@ -54,7 +54,6 @@ deleteLineageInTransaction(params)
 createRootNodeInTransaction(params)      // 始祖
 addChildInTransaction(params)            // 子女
 addSiblingInTransaction(params)          // 兄弟
-addSpouseInTransaction(params)           // 直接返回 not_supported
 updateNodeInTransaction(params)
 deleteNodeInTransaction(params)
 moveNodeInTransaction(params)            // 空槽一条 UPDATE
@@ -153,7 +152,6 @@ reorderSiblingsInTransaction(...)   // 直接返回 not_supported
 | `addChildAction` | `addChildInTransaction` | `nodeId` |
 | `addSiblingAction` | `addSiblingInTransaction` | `nodeId` |
 | `addPersonAction` | 有 `parentId` → child，否则 root | `nodeId` |
-| `addSpouseAction` | `addSpouseInTransaction` | 失败（`not_supported`） |
 | `updateNodeAction` | `updateNodeInTransaction` | — |
 | `deleteNodeAction` | `deleteNodeInTransaction` | 删除节点数 |
 | `moveNodeAction` | `moveNodeInTransaction` | 新路径；环与始祖失败 |
@@ -283,7 +281,7 @@ type LineageIndex = {
 - `BookPersonNode`：显示姓名、世次、生卒、折叠按钮；`memo` 包裹；
 - `GenerationHeaderNode`：世代表头；
 - `BookGenealogyEdge`：父子连线，按布局给出的路径绘制；
-- `GenealogyCanvas` props：`lineageId / generationWords / canWrite / onCreateChild / onCreateSpouse / onCreatePerson / onSelectNode / onEditNode / onNodeContextMenu / onMoveNode / onPrint`；
+- `GenealogyCanvas` props：`lineageId / generationWords / canWrite / onCreateChild / onCreatePerson / onSelectNode / onEditNode / onNodeContextMenu / onMoveNode / onPrint`。`onCreateChild` 带上拖入瓦片的性别。配偶不在本切片；`family_partner` 仍无写入。
 - 交互：点击选中、双击编辑、右键菜单（`NodeContextMenu` + `NODE_COMMANDS`）、拖拽移动（当前会提示未支持）、画布工具栏（缩放/适配/小地图/打印/导图例）。
 
 ### 5.6 检视与命令

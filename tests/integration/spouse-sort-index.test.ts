@@ -10,9 +10,8 @@ import { getTestSql } from '../helpers/db';
  * idx_node_spouse_sort 部分索引，并用 200 行配偶夹具 EXPLAIN 验证计划命中。
  *
  * 目标态（附录 A.4）把这些全部退役：
- * - 婚姻关系落 family + family_partner，node 不再有配偶边；写入层
- *   addSpouseInTransaction 显式返回 invalid_target，不写挂在父节点下的
- *   「假配偶」（docs/data-model.md §8「配偶录入」）。
+ * - 婚姻关系落 family + family_partner，node 不再有配偶边。配偶写入已不存在；
+ *   本文件只断言 path / display_name 列仍在。
  * - 世代由 nlevel(path) 派生、排序由末段稀疏号派生，都不再存列。
  * - 层级索引用 node_path_gist（gist(project_id, path)）+ node_path_unique。
  *

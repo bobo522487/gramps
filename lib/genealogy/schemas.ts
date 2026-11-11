@@ -132,82 +132,38 @@ const nodeDetailsFields = {
   burialPlace: optionalText(100, '葬地不能超过 100 个字符'),
 };
 
-const optionalSpouseFields = {
-  spouseName: optionalText(60, '配偶名讳不能超过 60 个字符'),
-  spouseSurname: optionalText(30, '配偶姓氏不能超过 30 个字符'),
-};
-
-function requireSpousePair(
-  value: { spouseName?: string; spouseSurname?: string },
-  ctx: z.RefinementCtx
-) {
-  const hasName = Boolean(value.spouseName);
-  const hasSurname = Boolean(value.spouseSurname);
-  if (hasName === hasSurname) {
-    return;
-  }
-  ctx.addIssue({
-    code: 'custom',
-    path: hasName ? ['spouseSurname'] : ['spouseName'],
-    message: '请同时填写配偶的姓氏与名讳',
-  });
-}
-
-export const createRootNodeSchema = z
-  .object({
-    orgId,
-    lineageId,
-    requestId,
-    ...nodeNameFields,
-    ...nodeDetailsFields,
-    ...optionalSpouseFields,
-  })
-  .superRefine(requireSpousePair);
-
-export const addChildSchema = z
-  .object({
-    orgId,
-    lineageId,
-    parentId: nodeId,
-    requestId,
-    ...nodeNameFields,
-    ...nodeDetailsFields,
-    ...optionalSpouseFields,
-  })
-  .superRefine(requireSpousePair);
-
-export const addSiblingSchema = z
-  .object({
-    orgId,
-    lineageId,
-    siblingOfId: nodeId,
-    requestId,
-    ...nodeNameFields,
-    ...nodeDetailsFields,
-    ...optionalSpouseFields,
-  })
-  .superRefine(requireSpousePair);
-
-export const addPersonSchema = z
-  .object({
-    orgId,
-    lineageId,
-    parentId: optionalUuid('父节点无效'),
-    requestId,
-    ...nodeNameFields,
-    ...nodeDetailsFields,
-    ...optionalSpouseFields,
-  })
-  .superRefine(requireSpousePair);
-
-export const addSpouseSchema = z.object({
+export const createRootNodeSchema = z.object({
   orgId,
   lineageId,
-  spouseOfId: nodeId,
   requestId,
-  name: text('姓名', 60),
-  surname: text('姓氏', 30),
-  sex,
+  ...nodeNameFields,
+  ...nodeDetailsFields,
+});
+
+export const addChildSchema = z.object({
+  orgId,
+  lineageId,
+  parentId: nodeId,
+  requestId,
+  ...nodeNameFields,
+  ...nodeDetailsFields,
+});
+
+export const addSiblingSchema = z.object({
+  orgId,
+  lineageId,
+  siblingOfId: nodeId,
+  requestId,
+  ...nodeNameFields,
+  ...nodeDetailsFields,
+});
+
+export const addPersonSchema = z.object({
+  orgId,
+  lineageId,
+  parentId: optionalUuid('父节点无效'),
+  requestId,
+  ...nodeNameFields,
   ...nodeDetailsFields,
 });
 

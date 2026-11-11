@@ -7,6 +7,7 @@
 
 ## [未发布]
 
+- **谱系性别、姓名与删除（2026-11-11）**：性别不再经 0/1 双反转，界面与 `person.sex` 使用同一套 `male` / `female` / `other` / `unknown`。姓写入 `person.surname`，名写入 `person_name.value`，读路径不再按最后一个字切分。删除节点或谱系时，同一事务清掉不再被节点引用的人物、名字与事件。空槽移树改为一条 `UPDATE`。配偶录入入口删除，不写入 `family`。决策见 ADR 0023。
 - **数据库驱动统一（2026-11-11）**：运行时从「本地 / CI 用 `postgres.js`、Vercel 用 `pg`」收敛为全环境 `pg.Pool` + `drizzle-orm/node-postgres`，删除驱动分支、`as unknown as Db` 强转与双形状兼容代码；`postgres` 降为 devDependency（测试与运维脚本仍在用）。同时修掉两处只在生产驱动下暴露的差异：邀请预览改走 `queryRows` 取 `{ rows }`，邀请 token 撞车改读 `constraint`。守卫见 `tests/db-driver.test.ts`，决策见 `docs/adr/README.md` 的 ADR 0022。
 - **Node.js 运行时升级（2026-11-11）**：运行时锚点从 Node.js 24 LTS 切到 Node.js 26.13.0 LTS（Lithium）。`.nvmrc` 钉到 `26.13.0`，`package.json` 的 `engines.node` 改为 `>=26.0.0 <27`；CI 两个 workflow 经 `node-version-file: .nvmrc` 自动继承版本，无需改文件。新增护栏 `tests/node-version.test.ts` 断言锚点、ABI 147 与文档不残留 24。类型侧 `@types/node` 对齐到 26.6.6，锁文件随 pnpm 12.18.0 重生；部署与回滚口径见 `docs/runbooks/README.md` §2.3，决策见 `docs/adr/README.md` 的 ADR 0021。
 - **依赖维护升级（2026-11-11）**：Biome 2.6.6、Vitest / coverage 5.1.0、Vite 8.3.7、Playwright 1.65.0、dotenv 18.0.10；TipTap 全组 3.33.1、TanStack Query 5.107.1、Zustand 5.1.0、lucide-react 1.71.0、`@xyflow/react` 12.12.1；Better Auth 1.7.20、`@vercel/blob` 2.9.0、`@vercel/functions` 3.11.1。工具链同步 pnpm 12.18.0；运行时版本以本次 Node.js 升级为准，版本表见 `docs/overview.md` §4 / `docs/development.md` §1。

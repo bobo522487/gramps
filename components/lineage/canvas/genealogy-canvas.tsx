@@ -65,8 +65,7 @@ export type GenealogyCanvasProps = {
   lineageId: string;
   generationWords: string[] | null;
   canWrite: boolean;
-  onCreateChild: (parentId: string) => void;
-  onCreateSpouse: (bloodId: string) => void;
+  onCreateChild: (parentId: string, sex: 'male' | 'female') => void;
   onCreatePerson: () => void;
   onSelectNode: (nodeId: string | null) => void;
   onEditNode: (nodeId: string) => void;
@@ -80,7 +79,6 @@ function CanvasInner({
   generationWords,
   canWrite,
   onCreateChild,
-  onCreateSpouse,
   onCreatePerson,
   onSelectNode,
   onEditNode,
@@ -489,19 +487,9 @@ function CanvasInner({
       if (!nearest) {
         return;
       }
-      if (template.sex === 'female') {
-        onCreateSpouse(nearest.id);
-      } else {
-        onCreateChild(nearest.id);
-      }
+      onCreateChild(nearest.id, template.sex);
     },
-    [
-      index.maxGeneration,
-      layout.persons,
-      onCreateChild,
-      onCreateSpouse,
-      screenToFlowPosition,
-    ]
+    [index.maxGeneration, layout.persons, onCreateChild, screenToFlowPosition]
   );
 
   const maxGeneration = index.maxGeneration;

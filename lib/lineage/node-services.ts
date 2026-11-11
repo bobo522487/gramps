@@ -22,9 +22,8 @@ import { writePersonFacts } from './person-facts';
  * stable, but the fields the target model cannot store are no longer written.
  *
  * Registered degradations (see implementation plan §3.2, stage C follow-ups):
- * - spouse pairing: `node` has no spouse edge; the relationship belongs in
- *   `family` / `family_partner`, whose write layer is not part of A′. The
- *   co-created-spouse input is accepted but not persisted.
+ * - spouse pairing is not in this slice. `family_partner` still has no writer,
+ *   and the create form no longer accepts a co-recorded spouse.
  * - sibling reorder still returns `not_supported`. A free-slot subtree move
  *   is one UPDATE; `parent_path` is generated from the new path.
  * - the create-idempotency key was retired with the target-model `node`;
@@ -39,12 +38,6 @@ export type NodeCreateDetails = {
   birthYear?: number | null;
   deathYear?: number | null;
   burialPlace?: string | null;
-};
-
-/** Kept for form compatibility; no target-model column in A′. */
-export type OptionalSpouse = {
-  name: string;
-  surname: string;
 };
 
 /** 谱系写入的失败原因；`lib/lineage/lineage-errors.ts` 逐个映射成中文文案。 */
@@ -192,7 +185,6 @@ export type NodeCreateParams = {
   surname?: string;
   sex: PersonSex;
   details?: NodeCreateDetails;
-  spouse?: OptionalSpouse;
   ipAddress?: string;
 };
 
@@ -284,19 +276,6 @@ export async function addSiblingInTransaction(
       details: params.details,
       parentPath: sibling.parentPath,
     });
-  });
-}
-
-/**
- * Spouse pairing needs `family_partner`; that write layer does not exist yet.
- * Fail with an explicit `not_supported` before doing any reads, so the UI no
- * longer blames the user's chosen anchor.
- */
-export async function addSpouseInTransaction(
-  params: Omit<NodeCreateParams, 'spouse'> & { anchorId: string }
-): Promise<NodeMutationResult> {
-  return withLineageWrite(params, async () => {
-    return { ok: false, reason: 'not_supported' as const };
   });
 }
 
