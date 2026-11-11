@@ -91,10 +91,6 @@ type LineageInfo = {
 
 type CreateState = { mode: NodeCreateMode; target?: NodeView } | null;
 
-function SexLabel({ sex }: { sex: NodeView['sex'] }) {
-  return sexLabel(sex);
-}
-
 function SpouseChip({
   spouse,
   onSelect,
@@ -196,7 +192,7 @@ function NodeRows({
               ) : null}
             </TableCell>
             <TableCell>
-              <SexLabel sex={node.sex} />
+              {sexLabel(node.sex)}
             </TableCell>
             <TableCell className="text-muted-foreground">
               {lifeSpan(node)}
