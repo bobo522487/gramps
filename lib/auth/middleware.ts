@@ -29,6 +29,7 @@ function validationState(error: z.ZodError, formData: FormData): ActionState {
   // Echo the email so React's automatic form reset keeps it on screen
   const email = formData.get('email');
   return {
+    code: 'VALIDATION',
     error: error.issues[0].message,
     fieldErrors: toFieldErrors(error),
     ...(typeof email === 'string' ? { email } : {}),
@@ -105,6 +106,7 @@ export function validatedActionWithUserObject<S extends z.ZodType, T>(
     const result = schema.safeParse(payload);
     if (!result.success) {
       return {
+        code: 'VALIDATION',
         error: result.error.issues[0].message,
         fieldErrors: toFieldErrors(result.error),
       };

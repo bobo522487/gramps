@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -98,6 +100,7 @@ describe('validatedActionWithUserObject', () => {
 
     expect(seen).not.toHaveBeenCalled();
     expect(result).toMatchObject({
+      code: 'VALIDATION',
       error: '组织 ID 无效',
       fieldErrors: { orgId: '组织 ID 无效' },
     });
@@ -141,5 +144,41 @@ describe('validatedActionWithUser（FormData 通道不受影响）', () => {
 
     expect(seen).toHaveBeenCalledTimes(1);
     expect(seen.mock.calls[0][0]).toEqual({ orgId: ORG_ID, name: '谱序' });
+  });
+
+  it('FormData 校验失败也带 VALIDATION 码', async () => {
+    mocks.getSessionUser.mockResolvedValue(USER);
+    const flat = z.object({ name: z.string().min(1, '名称必填') });
+    const seen = vi.fn(
+      async (
+        _data: z.infer<typeof flat>,
+        _formData: FormData,
+        _user: SessionUser
+      ) => ({ success: '已改名' })
+    );
+    const action = validatedActionWithUser(flat, seen);
+
+    const formData = new FormData();
+    formData.set('name', '');
+
+    const result = await action({}, formData);
+
+    expect(seen).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      code: 'VALIDATION',
+      error: '名称必填',
+    });
+  });
+});
+
+describe('校验失败码的静态守卫', () => {
+  it('两条校验路径都显式给 code', () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, '../lib/auth/middleware.ts'),
+      'utf8'
+    );
+    expect(
+      (source.match(/code: 'VALIDATION'/g) ?? []).length
+    ).toBeGreaterThanOrEqual(2);
   });
 });
