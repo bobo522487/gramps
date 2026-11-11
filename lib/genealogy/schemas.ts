@@ -172,7 +172,7 @@ export const updateNodeSchema = z.object({
   lineageId,
   nodeId,
   name: text('姓名', 60),
-  surname: text('姓氏', 30),
+  surname: clearableText(30, '姓氏不能超过 30 个字符'),
   sex,
   courtesy: clearableText(60, '字号不能超过 60 个字符'),
   isAlive: booleanField,

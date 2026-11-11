@@ -227,7 +227,7 @@ function PersonInspectorForm({
                   htmlFor="inspector-surname"
                   className="text-[11px] text-muted-foreground"
                 >
-                  姓氏 *
+                  姓氏
                 </Label>
                 <Input
                   id="inspector-surname"

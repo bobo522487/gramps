@@ -217,7 +217,7 @@ export const updateNodeAction = validatedActionWithUser(
   async (data, _, user) => {
     const updates: NodeUpdates = {
       name: data.name,
-      surname: data.surname,
+      surname: data.surname ?? null,
       sex: data.sex,
       courtesy: data.courtesy,
       isAlive: data.isAlive,

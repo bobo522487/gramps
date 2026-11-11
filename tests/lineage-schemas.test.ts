@@ -8,6 +8,7 @@ import {
   createLineageSchema,
   createRootNodeSchema,
   updateLineageSchema,
+  updateNodeSchema,
 } from '@/lib/genealogy/schemas';
 
 const orgId = '00000000-0000-4000-8000-000000000001';
@@ -282,5 +283,20 @@ describe('updateLineageSchema', () => {
       surname: '王',
     });
     expect(parsed).not.toHaveProperty('surname');
+  });
+});
+
+describe('updateNodeSchema', () => {
+  it('stores a blank surname as null', () => {
+    const parsed = updateNodeSchema.parse({
+      orgId,
+      lineageId,
+      nodeId: parentId,
+      name: '太公',
+      surname: '   ',
+      sex: 'male',
+    });
+    expect(parsed.surname).toBeNull();
+    expect(parsed.name).toBe('太公');
   });
 });

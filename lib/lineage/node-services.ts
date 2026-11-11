@@ -281,7 +281,7 @@ export async function addSiblingInTransaction(
 
 export type NodeUpdates = {
   name: string;
-  surname: string;
+  surname: string | null;
   sex: PersonSex;
   courtesy?: string | null;
   isAlive?: boolean;
@@ -308,12 +308,12 @@ export async function updateNodeInTransaction(params: {
       return { ok: false, reason: 'not_found' as const };
     }
 
-    const surname = updates.surname.trim();
+    const surname = updates.surname?.trim() || null;
 
     if (current.personId) {
       await tx
         .update(persons)
-        .set({ sex: updates.sex, surname: surname || null })
+        .set({ sex: updates.sex, surname })
         .where(
           and(
             eq(persons.projectId, lineage.projectId),
