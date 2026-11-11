@@ -22,7 +22,8 @@ import { enumValues, scopedUuid, timestamptz } from './shared';
 /**
  * A person fact, independent of the lineage tree (appendix A.3).
  *
- * The target shape is intentionally tiny: a person is an identity plus `sex`.
+ * The target shape is intentionally tiny: a person is an identity, `sex`, and
+ * an optional `surname`. Given names live in `person_name`.
  * Names live in `person_name`, dated facts in `event`, and tree placement in
  * `node`. All four tables share the `(project_id, id)` composite key, so every
  * cross-table reference carries `project_id` and cannot cross projects.
@@ -34,6 +35,7 @@ export const persons = pgTable(
     orgId: uuid('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
     sex: text('sex').$type<PersonSex>().notNull().default('unknown'),
+    surname: text('surname'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (t) => [
@@ -46,6 +48,10 @@ export const persons = pgTable(
     check(
       'person_sex_check',
       sql`${t.sex} in ${enumValues(PERSON_SEX_VALUES)}`
+    ),
+    check(
+      'person_surname_present',
+      sql`${t.surname} IS NULL OR btrim(${t.surname}) <> ''`
     ),
   ]
 );

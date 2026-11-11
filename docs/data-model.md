@@ -76,7 +76,7 @@ erDiagram
 
 | 表 | 关键列 | 约束 |
 | --- | --- | --- |
-| `person` | `sex`（male/female/unknown/other） | `ck_person_sex` |
+| `person` | `sex`（male/female/unknown/other）；`surname` 可空，有值则不能为空白 | `ck_person_sex`；姓非空白 |
 | `person_name` | `person_id`、`kind`（given/courtesy/art/milk/genealogy/posthumous/other）、`value`、`is_primary` | `(project_id, person_id, kind, value)` 唯一；每人仅一个 primary 的部分唯一索引；非空值检查 |
 | `family` | — | 婚姻单元 |
 | `family_partner` | `family_id`、`person_id`、`role`（husband/wife/concubine/partner/unknown）、`role_label`、`rank` | `(project_id, family_id, person_id)` 唯一；`(…, role)` 唯一；`(…, role, rank)` 唯一；rank > 0 |

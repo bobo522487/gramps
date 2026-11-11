@@ -56,6 +56,7 @@ ADR 记的是**理由**，不是现状。「我们用了 A」写在架构与接�
 | `0020` | 目标数据模型整体重建：单一全量 SQL 基线、事实层升主数据源、`ltree` 生成列闭包、无软删 `RESTRICT`、业务与认证角色分离 | `accepted` | 2026-11-09 | 单向门 | 一次性停服切换、无 down 迁移，推翻了四条已发布决策 |
 | `0021` | 运行时统一钉 Node.js 26.13.0 LTS（Lithium），engines 放宽到 `>=26.0.0 <27`，pnpm 随 main 维护升级到 12.18.0 | `accepted` | 2026-11-11 | 双向门 | 大版本切换会让 Vercel 静默改构建运行时、ABI 137→147 要求重装原生二进制，取舍需留档 |
 | `0022` | 运行时数据库驱动统一为 node-postgres（`pg`），删除 postgres.js 分支、强转与双形状兼容代码 | `accepted` | 2026-11-11 | 双向门 | 开发 / CI 首次与生产走同一条驱动路径；删掉了 `as unknown as Db`、结果形状与错误字段的运行时猜测 |
+| `0023` | `person.surname` 存录入的姓，`person_name.value`（kind=given）只存名；已应用的 `0000` 不回改，用下一号迁移加列 | `accepted` | 2026-11-11 | 单向门 | 回改 `0000` 会让已迁移库拒绝启动；按末字拆旧全名会写错复姓 |
 
 **本目录为什么只有索引**：目标态规格在 `docs/data-model.md`，DDL 在 `lib/db/migrations/0000_target_schema.sql`，运维后果在 `docs/runbooks/README.md`——一次决策能说的「为什么」，这三处已经各说了一遍，再写一份就是第三份副本。完整推演（选项对比、代价、何时重估）留在提交信息里：`git log --all --grep='ADR 0020'`。旧体系那 17 份独立决策文件同理，在 `git log --diff-filter=D --name-only -- docs/` 里可取回。
 

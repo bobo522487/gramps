@@ -1,0 +1,2 @@
+ALTER TABLE "person" ADD COLUMN "surname" text;--> statement-breakpoint
+ALTER TABLE "person" ADD CONSTRAINT "person_surname_present" CHECK ("person"."surname" IS NULL OR btrim("person"."surname") <> '');
