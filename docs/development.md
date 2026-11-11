@@ -9,13 +9,13 @@
 | 工具 | 版本 | 说明 |
 | --- | --- | --- |
 | Node.js | `>=26.0.0 <27` | `.nvmrc` 固定 26.13.0 |
-| pnpm | `12.15.0` | `packageManager` 字段固定 |
+| pnpm | `12.18.0` | `packageManager` 字段固定 |
 | PostgreSQL | 18 | 本地 Docker 或远程 Neon |
 | Docker | 可选 | `pnpm db:setup` 本地库需要 |
 
 ```bash
 node -v      # v26.x
-pnpm -v      # 12.15.0
+pnpm -v      # 12.18.0
 ```
 
 ## 2. 首次启动

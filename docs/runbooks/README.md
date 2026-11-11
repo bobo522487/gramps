@@ -199,7 +199,7 @@ PR #13 合并后，main 的 `Migrate production database` job 红了一次。读
 
 **回滚阈值与数据兼容性**
 - 如果 H2 上游不兼容（连接挂起或协议错误），先加 `VERCEL_FETCH_DISABLE_H2=1` 重新部署，强制回退 HTTP/1.1。
-- 仍失败就把 `engines.node` 退回 `>=24.0.0 <25`、`.nvmrc` 退回 `24.22.1` 并重新部署。无数据迁移，所以无数据兼容问题。
+- 仍失败就把 `engines.node` 退回 `>=24.0.0 <25`、`.nvmrc` 退回 `24.22.2` 并重新部署。无数据迁移，所以无数据兼容问题。
 
 **记录与复盘**
 - 升级与任何回滚都写进 CHANGELOG，并在 `docs/adr/README.md` 的 §3 留档（本仓库为 ADR 0021）。

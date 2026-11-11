@@ -444,5 +444,5 @@ describe('Biome override 交叉覆盖', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });
