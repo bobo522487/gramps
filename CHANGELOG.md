@@ -7,6 +7,7 @@
 
 ## [未发布]
 
+- **依赖维护升级（2026-11-11）**：Biome 2.6.6、Vitest / coverage 5.1.0、Vite 8.3.7、Playwright 1.65.0、dotenv 18.0.10；TipTap 全组 3.33.1、TanStack Query 5.107.1、Zustand 5.1.0、lucide-react 1.71.0、`@xyflow/react` 12.12.1；Better Auth 1.7.20、`@vercel/blob` 2.9.0、`@vercel/functions` 3.11.1。工具链同步 pnpm 12.18.0 与 Node 24.22.2，版本表见 `docs/overview.md` §4 / `docs/development.md` §1。
 - **Next.js 安全补丁升级（2026-11-11）**：`next` 16.4.3 → 16.4.6。16.4.5 修复了 7 条 moderate 级公告（`use cache` 跨租户缓存泄露 / 缓存污染、图片优化 SVG 校验绕过、Edge 路由 HttpOnly Cookie 暴露等），16.4.6 另含 Turbopack dev GC 与 Route Handler 响应压缩修复。版本表同步 `docs/overview.md` §4。
 - **文档护栏回归修复（2026-11-10）**：审查发现 `biome.json` 为让各依赖方向 override 互斥而排除的目录，反而使编辑器依赖禁令在这些目录失活——Biome 2.x 对同名 `noRestrictedImports` 不合并 options、后匹配组整体替换。改为按目录切互斥分区、每区自带该目录被禁的全部 import，`tests/docs-guard.test.ts` 用交叉探针逐分区验证「拦得住且无误伤」。护栏扫描范围从 `docs/` 扩到根级治理文档的链接、`scripts/` 与 `.github/` 的退役短语与反引号路径，扫描清单与根级文档都收进 `scripts/doc-manifest.json`；新删的三份文档登记进退役清单。ADR 索引的溯源口径由「正文」统一为提交信息与 PR 描述（该目录按设计只存索引），并同步 `docs/adr/README.md` 的机检说明。
 - **文档去重与门禁前置（2026-11-10）**：覆盖率阈值、环境变量清单各自只收成一份真相源，`docs/development.md`、`docs/infrastructure.md`、`docs/architecture.md` 改为指路到配置与模板；`docs/data-model.md` 合并重复的删除语义与 RLS 两节并重编号；五组依赖方向硬规则改由 `tests/docs-guard.test.ts` 端到端验证，组数不再写死。`pnpm docs:check` 前置到提交前门禁且默认即失败，文档里的命令口径统一（CI 保留历史开关作 no-op 兼容）。

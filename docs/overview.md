@@ -57,7 +57,7 @@
 
 | 层 | 选型 | 版本 | 说明 |
 | --- | --- | --- | --- |
-| 运行时 | Node.js | 24.22.1（`.nvmrc`） | Vercel Fluid Compute 兼容 |
+| 运行时 | Node.js | 24.22.2（`.nvmrc`） | Vercel Fluid Compute 兼容 |
 | 框架 | Next.js App Router | 16.4.6 | RSC + Server Actions + Route Handlers |
 | UI | React | 19.3.1 | 服务端组件优先 |
 | 语言 | TypeScript | 7.0.2 | `strict` |
@@ -66,14 +66,14 @@
 | 数据访问 | Drizzle ORM | 0.45.4 | 类型安全 SQL，事务 API |
 | 数据库 | PostgreSQL | 18 | ltree、RLS、SECURITY DEFINER |
 | 驱动 | `postgres.js` / `pg` | 3.4.9 / 8.23.1 | 本地用 postgres.js，Vercel 用 pg Pool |
-| 认证 | Better Auth | 1.7.12 | Drizzle adapter + 自定义 access control |
-| 服务端状态 | TanStack Query | 5.104.5 | RSC 注入 `initialData` |
-| 客户端状态 | Zustand | 5.0.16 | 谱系画布视图状态 |
-| 谱系画布 | `@xyflow/react` | 12.12.0 | 自定义节点 / 边 / 布局 |
-| 富文本 | TipTap | 3.32.2 | StarterKit + 自定义图片、字号、对齐扩展 |
-| 对象存储 | `@vercel/blob` | 2.8.2 | 生产图片直传 |
+| 认证 | Better Auth | 1.7.20 | Drizzle adapter + 自定义 access control |
+| 服务端状态 | TanStack Query | 5.107.1 | RSC 注入 `initialData` |
+| 客户端状态 | Zustand | 5.1.0 | 谱系画布视图状态 |
+| 谱系画布 | `@xyflow/react` | 12.12.1 | 自定义节点 / 边 / 布局 |
+| 富文本 | TipTap | 3.33.1 | StarterKit + 自定义图片、字号、对齐扩展 |
+| 对象存储 | `@vercel/blob` | 2.9.0 | 生产图片直传 |
 | 校验 | Zod | 4.6.7 | 所有 Action 边界 |
-| 质量 | Biome / Vitest / Playwright | 2.6.3 / 5.0.5 / 1.64.1 | lint+format / 单测+集成 / E2E |
+| 质量 | Biome / Vitest / Playwright | 2.6.6 / 5.1.0 / 1.65.0 | lint+format / 单测+集成 / E2E |
 
 ## 5. 架构风格与不可协商原则
 

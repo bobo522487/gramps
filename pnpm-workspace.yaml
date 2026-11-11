@@ -2,6 +2,49 @@ allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
 
+# pnpm 12.18 默认执行 minimumReleaseAge（24h）供应链冷却。下列版本在本次维护
+# 升级中已显式审查并信任，允许在冷却期内安装；后续新增条目时同步复核。
+minimumReleaseAgeExclude:
+  - "@better-auth/core@1.7.20"
+  - "@better-auth/drizzle-adapter@1.7.20"
+  - "@better-auth/kysely-adapter@1.7.20"
+  - "@better-auth/memory-adapter@1.7.20"
+  - "@better-auth/mongo-adapter@1.7.20"
+  - "@better-auth/prisma-adapter@1.7.20"
+  - "@better-auth/telemetry@1.7.20"
+  - "@tiptap/core@3.33.1"
+  - "@tiptap/extension-blockquote@3.33.1"
+  - "@tiptap/extension-bold@3.33.1"
+  - "@tiptap/extension-bubble-menu@3.33.1"
+  - "@tiptap/extension-bullet-list@3.33.1"
+  - "@tiptap/extension-code-block@3.33.1"
+  - "@tiptap/extension-code@3.33.1"
+  - "@tiptap/extension-document@3.33.1"
+  - "@tiptap/extension-dropcursor@3.33.1"
+  - "@tiptap/extension-floating-menu@3.33.1"
+  - "@tiptap/extension-gapcursor@3.33.1"
+  - "@tiptap/extension-hard-break@3.33.1"
+  - "@tiptap/extension-heading@3.33.1"
+  - "@tiptap/extension-horizontal-rule@3.33.1"
+  - "@tiptap/extension-image@3.33.1"
+  - "@tiptap/extension-italic@3.33.1"
+  - "@tiptap/extension-link@3.33.1"
+  - "@tiptap/extension-list-item@3.33.1"
+  - "@tiptap/extension-list-keymap@3.33.1"
+  - "@tiptap/extension-list@3.33.1"
+  - "@tiptap/extension-ordered-list@3.33.1"
+  - "@tiptap/extension-paragraph@3.33.1"
+  - "@tiptap/extension-strike@3.33.1"
+  - "@tiptap/extension-text-style@3.33.1"
+  - "@tiptap/extension-text@3.33.1"
+  - "@tiptap/extension-underline@3.33.1"
+  - "@tiptap/extensions@3.33.1"
+  - "@tiptap/pm@3.33.1"
+  - "@tiptap/react@3.33.1"
+  - "@tiptap/starter-kit@3.33.1"
+  - better-auth@1.7.20
+  - lucide-react@1.71.0
+
 # 依赖安全覆盖：把生产依赖树里的 4 个已知漏洞（1 critical / 3 high）锁到修复版本。
 # 见代码审查报告；CI 的 `pnpm audit --prod --audit-level high` 挡住任何回退。
 overrides:
