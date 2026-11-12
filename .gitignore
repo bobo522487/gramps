@@ -23,6 +23,9 @@ next-env.d.ts
 /blob-report/
 /playwright/.cache/
 
+# Firecrawl 抓取产物，含页面快照，不入仓
+.firecrawl/
+
 # 环境变量与密钥；模板 .env.example 必须入仓
 .env*
 !.env.example

@@ -292,7 +292,9 @@ test('auth journey: invite, sign out, sign in, accept invitation', async ({
       `/dashboard/org/${ownerSlug}/team`
     );
     expect(teamResponse?.status()).toBe(200);
-    await expect(inviteePage.getByText(inviteeEmail)).toBeVisible();
+    await expect(
+      inviteePage.getByRole('cell', { name: inviteeEmail })
+    ).toBeVisible();
   } finally {
     await inviteeContext.close();
   }

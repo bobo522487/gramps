@@ -6,6 +6,7 @@ import {
 import { ConsoleFrame } from '@/components/console/console-frame';
 import { requireOrgContext } from '@/lib/auth/context';
 import { getProjects } from '@/lib/db/queries/projects';
+import { countOrgMembers } from '@/lib/org/members';
 import { queryKeys } from '@/lib/query-keys';
 
 export default async function OrgWorkspaceLayout({
@@ -17,7 +18,10 @@ export default async function OrgWorkspaceLayout({
 }) {
   const { orgSlug } = await params;
   const context = await requireOrgContext(orgSlug);
-  const projects = await getProjects(context.user.id, context.organization.id);
+  const [projects, memberCount] = await Promise.all([
+    getProjects(context.user.id, context.organization.id),
+    countOrgMembers(context.user.id, context.organization.id),
+  ]);
   const projectFallback = projects.map((project) => ({
     id: project.id,
     name: project.name,
@@ -40,6 +44,8 @@ export default async function OrgWorkspaceLayout({
             name: context.organization.name,
             slug: context.organization.slug,
             role: context.role,
+            projectCount: projects.length,
+            memberCount,
           },
         }}
       >

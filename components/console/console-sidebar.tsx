@@ -13,44 +13,89 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useConsoleScope } from '@/components/console/console-scope';
+import { orgDirectoryItems } from '@/components/console/org-directory';
+import { OrgPicker } from '@/components/console/org-picker';
+import { UserMenu } from '@/components/console/user-menu';
+import { ThemeToggle } from '@/components/theme-toggle';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
+import { useSessionUser } from '@/hooks/use-session-user';
 
 type NavItem = {
   href: string;
   icon: LucideIcon;
   label: string;
   exact?: boolean;
+  count?: number;
 };
 
-function SidebarNavGroup({ items }: { items: NavItem[] }) {
+function SidebarNavGroup({
+  items,
+  label,
+  directory = false,
+}: {
+  items: NavItem[];
+  label?: string;
+  directory?: boolean;
+}) {
   const pathname = usePathname();
   if (items.length === 0) {
     return null;
   }
   return (
-    <SidebarGroup>
-      <SidebarMenu>
+    <SidebarGroup className={directory ? 'px-2 py-0' : undefined}>
+      {label ? (
+        <SidebarGroupLabel className="h-auto py-1.5 pr-2 pl-5 text-[11px] font-[550] tracking-[0.05em] text-[#6a7184] uppercase">
+          {label}
+        </SidebarGroupLabel>
+      ) : null}
+      <SidebarMenu className={directory ? 'gap-0' : undefined}>
         {items.map((item) => {
           const active = item.exact
             ? pathname === item.href
             : pathname.startsWith(item.href);
           return (
-            <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
+            <SidebarMenuItem
+              key={item.href}
+              className={directory ? 'my-0.5' : undefined}
+            >
+              <SidebarMenuButton
+                asChild
+                isActive={active}
+                tooltip={item.label}
+                className={
+                  directory
+                    ? 'h-8 rounded-md pr-1 pl-3 text-[13px] font-semibold leading-[18px] text-[#374151] hover:bg-[#e7e7e9] hover:text-[#1f293a] data-[active=true]:bg-[#f0f3ff] data-[active=true]:font-semibold data-[active=true]:text-[#1f293a] [&_svg]:stroke-[1.33]'
+                    : undefined
+                }
+              >
                 <Link href={item.href}>
                   <item.icon />
                   <span>{item.label}</span>
                 </Link>
               </SidebarMenuButton>
+              {item.count === undefined ? null : (
+                <SidebarMenuBadge
+                  className={
+                    directory
+                      ? 'mr-1.5 text-[12px] font-medium leading-[18px] text-[#6a7184]'
+                      : undefined
+                  }
+                >
+                  {item.count}
+                </SidebarMenuBadge>
+              )}
             </SidebarMenuItem>
           );
         })}
@@ -59,30 +104,39 @@ function SidebarNavGroup({ items }: { items: NavItem[] }) {
   );
 }
 
+function DirectoryUser() {
+  const { data: user } = useSessionUser();
+  return (
+    <div className="flex min-w-0 items-center gap-0.5">
+      <UserMenu avatarClassName="size-6" />
+      <div className="min-w-0 flex-1 px-1">
+        <div className="truncate text-[13px] font-medium leading-[18px] text-[#1f293a]">
+          {user?.name || '账号'}
+        </div>
+        <div className="truncate text-[12px] font-medium leading-[14px] text-[#6a7184]">
+          {user?.email}
+        </div>
+      </div>
+      <ThemeToggle size="icon-sm" className="size-8 shrink-0" />
+    </div>
+  );
+}
+
 export function ConsoleSidebar() {
   const scope = useConsoleScope();
   const activeOrg = scope?.org ?? null;
   const activeProject = scope?.project ?? null;
+  const showDirectory = Boolean(activeOrg && !activeProject);
 
   const orgItems: NavItem[] = activeOrg
-    ? [
-        {
-          href: `/dashboard/org/${activeOrg.slug}`,
-          icon: Boxes,
-          label: '项目',
-          exact: true,
-        },
-        {
-          href: `/dashboard/org/${activeOrg.slug}/team`,
-          icon: Users,
-          label: '团队',
-        },
-        {
-          href: `/dashboard/org/${activeOrg.slug}/settings`,
-          icon: Settings,
-          label: '组织设置',
-        },
-      ]
+    ? orgDirectoryItems(activeOrg).map((item) => ({
+        ...item,
+        icon: item.href.endsWith('/team')
+          ? Users
+          : item.href.endsWith('/settings')
+            ? Settings
+            : Boxes,
+      }))
     : [];
 
   const projectItems: NavItem[] = activeProject
@@ -121,17 +175,32 @@ export function ConsoleSidebar() {
   return (
     <Sidebar
       collapsible="icon"
-      className="top-12 bottom-auto h-[calc(100svh-3rem)]"
+      className={
+        showDirectory ? undefined : 'top-12 bottom-auto h-[calc(100svh-3rem)]'
+      }
     >
-      {activeOrg ? null : (
+      {showDirectory ? (
+        <SidebarHeader className="h-14 flex-row items-center gap-0 border-b px-2 py-0 group-data-[collapsible=icon]:hidden">
+          <OrgPicker variant="directory" />
+        </SidebarHeader>
+      ) : activeOrg ? null : (
         <SidebarHeader className="gap-0.5 px-4 py-3 group-data-[collapsible=icon]:hidden">
           <span className="truncate text-xs font-semibold">云谱控制台</span>
           <span className="truncate text-xs text-muted-foreground">账号</span>
         </SidebarHeader>
       )}
-      <SidebarContent>
-        <SidebarNavGroup items={items} />
+      <SidebarContent className={showDirectory ? 'pt-2' : undefined}>
+        <SidebarNavGroup
+          items={items}
+          label={showDirectory ? '组织' : undefined}
+          directory={showDirectory}
+        />
       </SidebarContent>
+      {showDirectory ? (
+        <SidebarFooter className="border-t px-2 py-1.5 group-data-[collapsible=icon]:hidden">
+          <DirectoryUser />
+        </SidebarFooter>
+      ) : null}
       <SidebarRail />
     </Sidebar>
   );

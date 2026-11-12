@@ -16,13 +16,18 @@ import {
 import { useSessionUser } from '@/hooks/use-session-user';
 import { signOut } from '@/lib/auth/actions/session';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 
 const ACCOUNT_ITEMS = [
   { href: '/dashboard/general', icon: UserCog, label: '通用' },
   { href: '/dashboard/security', icon: Shield, label: '安全' },
 ];
 
-export function UserMenu() {
+export function UserMenu({
+  avatarClassName,
+}: {
+  avatarClassName?: string;
+} = {}) {
   const { data: user } = useSessionUser();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -37,7 +42,7 @@ export function UserMenu() {
   }
 
   if (!user) {
-    return <Avatar className="size-8" />;
+    return <Avatar className={cn('size-8', avatarClassName)} />;
   }
 
   const initials = (user.name || user.email)
@@ -55,7 +60,7 @@ export function UserMenu() {
           className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           aria-label="账号菜单"
         >
-          <Avatar className="size-8">
+          <Avatar className={cn('size-8', avatarClassName)}>
             <AvatarImage alt={user.name || user.email} />
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>

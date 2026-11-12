@@ -1,6 +1,6 @@
 'use client';
 
-import { Boxes, Check, ChevronsUpDown, Plus } from 'lucide-react';
+import { Boxes, Check, ChevronsUpDown, FolderKanban, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -22,7 +22,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export function OrgPicker() {
+export function OrgPicker({
+  variant = 'navbar',
+}: {
+  variant?: 'navbar' | 'directory';
+} = {}) {
   const scope = useConsoleScope();
   const { data: orgs } = useConsoleOrgs();
   const router = useRouter();
@@ -52,13 +56,35 @@ export function OrgPicker() {
           }
         }}
       >
-        <div className="flex min-w-0 items-center">
+        <div
+          className={
+            variant === 'directory'
+              ? 'flex min-w-0 flex-1 items-center'
+              : 'flex min-w-0 items-center'
+          }
+        >
           <Link
             href={active ? `/dashboard/org/${active.slug}` : '/dashboard'}
-            className="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+            className={
+              variant === 'directory'
+                ? 'flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 pr-2 pl-1.5 text-[14px] font-[550] leading-5 text-black outline-none hover:bg-[#e7e7e9] focus-visible:ring-2 focus-visible:ring-ring/50'
+                : 'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50'
+            }
           >
-            <Boxes className="size-4 shrink-0 text-muted-foreground" />
-            <span className="max-w-[110px] truncate sm:max-w-[180px]">
+            {variant === 'directory' ? (
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <FolderKanban className="size-4" />
+              </span>
+            ) : (
+              <Boxes className="size-4 shrink-0 text-muted-foreground" />
+            )}
+            <span
+              className={
+                variant === 'directory'
+                  ? 'truncate'
+                  : 'max-w-[110px] truncate sm:max-w-[180px]'
+              }
+            >
               {active?.name ?? '组织'}
             </span>
           </Link>
