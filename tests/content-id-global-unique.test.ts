@@ -1,9 +1,20 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 const root = resolve(import.meta.dirname, '..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
+const SNAPSHOT_DIR = 'lib/db/migrations/meta';
+const snapshotNames = readdirSync(resolve(root, SNAPSHOT_DIR))
+  .filter((name) => /^\d+_snapshot\.json$/.test(name))
+  .sort();
+const snapshots = snapshotNames.map((name) => ({
+  name,
+  value: JSON.parse(read(`${SNAPSHOT_DIR}/${name}`)) as {
+    tables: Record<string, { uniqueConstraints?: Record<string, unknown> }>;
+  },
+}));
+const snapshot = snapshots[0].value;
 
 const ddl = read('lib/db/migrations/0000_target_schema.sql');
 const tsSchemas = [
@@ -17,12 +28,6 @@ const tsSchemas = [
 ]
   .map(read)
   .join('\n');
-const snapshot = JSON.parse(
-  read('lib/db/migrations/meta/0000_snapshot.json')
-) as {
-  tables: Record<string, { uniqueConstraints?: Record<string, unknown> }>;
-};
-
 const CONTENT_TABLES = [
   'folder',
   'person',
@@ -67,6 +72,20 @@ describe('13 张 (project_id, id) 内容表的 id 全局唯一', () => {
           `${table}_id_global`
         ]
       ).toEqual(expectedUnique(table));
+    }
+  });
+
+  test('整条 drizzle 快照链都继承 <table>_id_global，db:generate 不产生重复迁移', () => {
+    expect(snapshotNames.length).toBeGreaterThan(0);
+    for (const { name, value } of snapshots) {
+      for (const table of CONTENT_TABLES) {
+        expect(
+          value.tables[`public.${table}`]?.uniqueConstraints?.[
+            `${table}_id_global`
+          ],
+          `${name} 缺 public.${table}.${table}_id_global`
+        ).toEqual(expectedUnique(table));
+      }
     }
   });
 
