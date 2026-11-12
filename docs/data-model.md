@@ -151,7 +151,7 @@ organization_id = ANY (coalesce((SELECT app.visible_org_array()), '{}'::uuid[]))
 `app.visible_org_array()` 必须写成子查询（InitPlan）而不是裸函数调用，否则逐行求值；`'{}'::uuid[]` 保证 GUC 未设置时 fail-closed。
 
 - `organization` 表自身把谓词里的 `organization_id` 替换为 `id`；
-- 不再需要多级 join 才能判断租户，RLS 可走单列索引；
+- 不再需要多级 join 才能判断租户；但 13 张内容表的索引都以 `project_id` 开头，`organization_id` 没有单列索引，RLS 谓词靠顺序扫描或复合索引过滤，不能假设走单列索引；
 - `app.visible_org_array()` 读取 GUC `app.user_id`：
 
 ```sql
@@ -186,15 +186,16 @@ SELECT set_config('app.user_id', $1, true);
 | `public.handle_new_user()` | `auth.user` 插入后创建个人组织（`trg_auth_user_created`） |
 | `public.generate_public_id()` | 生成 20 位公开 ID |
 
-`archive_organization`、`remove_org_member`、`set_org_member_role` 会以 `RAISE EXCEPTION` 抛出语义化名称（如 `org_archived`、`last_owner`），应用层用 `isRaisedException()` 映射为中文文案。
+`archive_organization`、`remove_org_member`、`set_org_member_role` 等 SECURITY DEFINER 函数失败时抛 `42501` / `22023` / `23505`，应用层用 `lib/db/errors.ts` 的 `pgErrorOf()` 按单一 SQLSTATE 映射表给出中文文案与 `ActionErrorCode`；邀请域专用文案集中在同一张覆盖表里。
 
 ## 6. 删除语义
 
 ```mermaid
 flowchart LR
   DelOrg["删除/归档组织"] -->|"RESTRICT"| Proj["project 仍存在 → 拒绝"]
-  DelProj["删除 project"] -->|"先探测 13 个子表引用"| Children["有内容 → 友好报错"]
-  DelProj -->|"无引用"| Delete["DELETE project"]
+  DelProj["删除 project"] -->|"SAVEPOINT 内 DELETE"| Fk["RESTRICT 违约 23001"]
+  Fk -->|"ROLLBACK TO SAVEPOINT"| Children["有内容 → not_empty"]
+  DelProj -->|"无引用，DELETE 成功"| Delete["RELEASE SAVEPOINT → 已删除"]
   DelFolder["删除 folder"] -->|"SET NULL"| Content["lineage/article/book 移到未分类"]
   DelLineage["删除 lineage"] -->|"RESTRICT 检查"| CatalogRef["被 book_catalog 引用 → 拒绝"]
   DelLineage -->|"先删 node 再删 lineage"| NodesGone["人丁位置行被清空，无人引用的 person 一并删除"]
@@ -204,7 +205,7 @@ flowchart LR
 
 | 操作 | 结果 |
 | --- | --- |
-| 删 `project` | `lib/project/services.ts` 先探测 13 张子表；有内容返回 `not_empty`，不发出会失败的 `DELETE`，避免数据库外键错误直接暴露给用户 |
+| 删 `project` | `lib/project/services.ts` 在 `SAVEPOINT delete_project` 内直接 `DELETE ... RETURNING`；命中 `23001` / `23503` 就 `ROLLBACK TO SAVEPOINT` 返回 `not_empty`，约束交给数据库、不维护子表清单 |
 | 删 `folder` | `lineage / article / book` 的 `folder_id` 置空（未分类），内容不删 |
 | 删 `lineage` | 先删全部 `node`，再删不再被节点引用的 `event` / `person_name` / `person`，最后删谱系；被 `book_catalog` 引用时拒绝 |
 | 删 `node` | `path <@ target.path` 整棵子树；同一事务清掉不再被任何节点引用的人物事实 |
@@ -213,7 +214,7 @@ flowchart LR
 三个实测坑：
 
 1. `ON DELETE RESTRICT` 违约的 SQLSTATE 是 **`23001`**，不是 `23503`（后者是 `NO ACTION` / 插入类外键）。
-2. 事务内任一语句失败后整个事务进入 aborted 状态，**即使 JS 已 catch 也无法继续提交**；所以 `deleteProject` 必须先探查再删。
+2. 事务内任一语句失败后整个事务进入 aborted 状态，**即使 JS 已 catch 也无法继续提交**；所以失败语句必须放在 `SAVEPOINT` 里，catch 后先 `ROLLBACK TO SAVEPOINT` 才能让事务继续提交。
 3. `ON DELETE SET NULL` 的复合外键必须带列清单，否则会把 `project_id` 一起置空并报 `23502`。
 
 ## 7. 索引要点

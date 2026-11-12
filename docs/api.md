@@ -212,6 +212,8 @@ const [state, action, pending] = useActionState(createProjectAction, {});
 | Server Action | `ActionState` | 恒为返回值、永不 throw；`error` / `success` 是中文文案，`code` 是稳定机器码，`fieldErrors` 是字段级错误 |
 | Route Handler | 英文 JSON + 显式状态码 | 非 2xx 形如 `{ "error": "Unauthorized" }`；`x-request-id` 进响应头与日志；未捕获异常由 `withApiLogging` 转 JSON 500 |
 
+三条校验失败路径（FormData 无用户 / FormData 带用户 / JSON 对象入参）都返回 `code: 'VALIDATION'`，由 `lib/auth/middleware.ts` 统一给出；`code` 的取值范围见 `lib/errors.ts` 的 `ActionErrorCode`。
+
 三层原则：Action 不 throw；用户看中文、日志与客户端看机器码；不泄露内部细节。
 
 > 目标态与现状冲突时，裁决顺序见 `CONTRIBUTING.md` §2「权威口径」。

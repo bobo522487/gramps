@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   constraintOf,
-  foreignKeyConstraintOf,
   isForeignKeyViolation,
-  isForeignKeyViolationOf,
+  sqlStateOf,
 } from '@/lib/db/errors';
 import { isTokenHashCollision } from '@/lib/org/invitations';
-
-const CHILD_CONSTRAINTS = ['lineage_scope_fk', 'node_scope_fk'];
 
 /** node-postgres：RESTRICT 命中时 SQLSTATE 是 23001，约束名在 constraint。 */
 function restrictError(constraintName: string) {
@@ -29,39 +26,40 @@ function wrapped(error: unknown) {
   });
 }
 
-describe('project 子表 FK 违约分类', () => {
-  it('识别 23001 + constraint（经 Drizzle cause 链）', () => {
+describe('SAVEPOINT 删除按 SQLSTATE 分类', () => {
+  it('识别 23001（经 Drizzle cause 链）并取出约束名供日志', () => {
     const error = wrapped(restrictError('lineage_scope_fk'));
 
-    expect(isForeignKeyViolationOf(error, CHILD_CONSTRAINTS)).toBe(true);
-    expect(foreignKeyConstraintOf(error)).toBe('lineage_scope_fk');
+    expect(sqlStateOf(error, '23001')).toBe(true);
     expect(isForeignKeyViolation(error)).toBe(true);
+    expect(constraintOf(error, '23001')).toBe('lineage_scope_fk');
   });
 
-  it('仍识别插入类 FK 违约的 23503 + constraint', () => {
+  it('仍识别插入类 FK 违约的 23503', () => {
     const driver = Object.assign(new Error('foreign key violation'), {
       code: '23503',
       constraint: 'node_scope_fk',
     });
     const error = wrapped(driver);
 
-    expect(isForeignKeyViolationOf(error, CHILD_CONSTRAINTS)).toBe(true);
-    expect(foreignKeyConstraintOf(error)).toBe('node_scope_fk');
+    expect(sqlStateOf(error, '23503')).toBe(true);
+    expect(constraintOf(error, '23503')).toBe('node_scope_fk');
   });
 
-  it('未登记的约束不算 not_empty，但要能取出名字用于报错', () => {
+  it('未登记的约束名也照样按 SQLSTATE 判定 not_empty', () => {
     const error = wrapped(restrictError('new_child_scope_fk'));
 
-    expect(isForeignKeyViolationOf(error, CHILD_CONSTRAINTS)).toBe(false);
-    expect(foreignKeyConstraintOf(error)).toBe('new_child_scope_fk');
+    // SAVEPOINT 分支只看 SQLSTATE，不再核对约束名清单；未来新增子表无需登记。
+    expect(sqlStateOf(error, '23001')).toBe(true);
+    expect(constraintOf(error, '23001')).toBe('new_child_scope_fk');
   });
 
-  it('非 FK 错误返回 false / null', () => {
-    expect(isForeignKeyViolationOf(new Error('nope'), CHILD_CONSTRAINTS)).toBe(
-      false
-    );
-    expect(foreignKeyConstraintOf(new Error('nope'))).toBeNull();
-    expect(foreignKeyConstraintOf(null)).toBeNull();
+  it('非 FK 错误不命中 23001 / 23503，且取不出约束名', () => {
+    expect(sqlStateOf(new Error('nope'), '23001')).toBe(false);
+    expect(sqlStateOf(new Error('nope'), '23503')).toBe(false);
+    expect(isForeignKeyViolation(new Error('nope'))).toBe(false);
+    expect(constraintOf(new Error('nope'), '23001')).toBeNull();
+    expect(constraintOf(null, '23001')).toBeNull();
   });
 });
 

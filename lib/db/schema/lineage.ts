@@ -38,6 +38,7 @@ export const lineages = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('lineage_id_global').on(t.id),
     unique('lineage_name_unique').on(t.projectId, t.name),
     foreignKey({
       columns: [t.projectId, t.folderId],
@@ -87,6 +88,7 @@ export const nodes = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('node_id_global').on(t.id),
     // `[.]` inside a character class, so the pattern does not depend on
     // standard_conforming_strings.
     check(

@@ -591,7 +591,15 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "book_export_id_global": {
+          "name": "book_export_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "book_export_cutoff": {
@@ -829,7 +837,15 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "article_id_global": {
+          "name": "article_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "ck_article_kind": {
@@ -1096,6 +1112,13 @@
             "book_id",
             "lineage_id"
           ]
+        },
+        "book_catalog_id_global": {
+          "name": "book_catalog_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
         }
       },
       "policies": {},
@@ -1230,7 +1253,15 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "book_id_global": {
+          "name": "book_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1464,7 +1495,15 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "event_id_global": {
+          "name": "event_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "event_one_subject": {
@@ -1552,7 +1591,15 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "family_id_global": {
+          "name": "family_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1759,6 +1806,13 @@
             "family_id",
             "person_id"
           ]
+        },
+        "family_child_id_global": {
+          "name": "family_child_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
         }
       },
       "policies": {},
@@ -1960,6 +2014,13 @@
             "role",
             "rank"
           ]
+        },
+        "family_partner_id_global": {
+          "name": "family_partner_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
         }
       },
       "policies": {},
@@ -2136,6 +2197,13 @@
           "columns": [
             "project_id",
             "name"
+          ]
+        },
+        "lineage_id_global": {
+          "name": "lineage_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
           ]
         }
       },
@@ -2381,6 +2449,13 @@
             "project_id",
             "lineage_id",
             "path"
+          ]
+        },
+        "node_id_global": {
+          "name": "node_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
           ]
         }
       },
@@ -2948,6 +3023,13 @@
             "kind",
             "value"
           ]
+        },
+        "person_name_id_global": {
+          "name": "person_name_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
         }
       },
       "policies": {},
@@ -3028,7 +3110,15 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "person_id_global": {
+          "name": "person_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "person_sex_check": {
@@ -3138,6 +3228,13 @@
           "columns": [
             "project_id",
             "name"
+          ]
+        },
+        "folder_id_global": {
+          "name": "folder_id_global",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id"
           ]
         }
       },

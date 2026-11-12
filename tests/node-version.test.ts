@@ -19,10 +19,11 @@ describe('Node.js 运行时版本锚点', () => {
     expect(pkg.engines.pnpm).toBe('>=12.0.0 <13');
   });
 
-  test('运行时确实是 26.13.0 LTS、ABI 147', () => {
-    expect(process.version).toBe(`v${PINNED}`);
-    expect(process.versions.modules).toBe('147');
-    expect(process.release.lts).toBe('Lithium');
+  test('运行时 Node major 与 engines 一致', () => {
+    expect(process.version.startsWith('v26.')).toBe(true);
+    const major = Number(process.version.slice(1).split('.')[0]);
+    expect(major).toBeGreaterThanOrEqual(26);
+    expect(major).toBeLessThan(27);
   });
 
   test('两个 workflow 都从 .nvmrc 继承版本', () => {

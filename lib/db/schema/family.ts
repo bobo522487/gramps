@@ -51,6 +51,7 @@ export const families = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('family_id_global').on(t.id),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
@@ -82,6 +83,7 @@ export const familyPartners = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('family_partner_id_global').on(t.id),
     unique('family_partner_unique').on(t.projectId, t.familyId, t.personId),
     unique('family_partner_role_unique').on(
       t.projectId,
@@ -146,6 +148,7 @@ export const familyChildren = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('family_child_id_global').on(t.id),
     unique('family_child_unique').on(t.projectId, t.familyId, t.personId),
     check(
       'family_child_mother_pair',

@@ -8,7 +8,7 @@
 // 所有清单（文档集 / 退役路径 / 子目录 / 文档头字段）只有一份真相源：
 // scripts/doc-manifest.json。tests/docs-consistency.test.ts 读同一份文件。
 // --root <dir> 让 tests/docs-guard.test.ts 能在临时 fixture 上做端到端验证。
-// --strict 保留为 CI 兼容参数：护栏现在默认严格，有任何 issue 都失败。
+// 护栏默认严格，有任何 issue 都失败；不提供任何严格性开关。
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
@@ -152,8 +152,8 @@ for (const file of linked) {
 // 2. 每份文档头部四项（CONTRIBUTING.md §3）。
 // 只约束「文档集」：docs/ 根级文档 + 允许子目录各一份 README。
 // 字段清单与子目录清单都来自 scripts/doc-manifest.json，这里不另抄一份。
-// ADR 正文有自己的模板（`docs/adr/README.md` §5），feature 工作产物用
-// `.specify/templates/`；把它们纳入会误报。
+// ADR 正文有自己的模板（`docs/adr/README.md` §5），实施计划写在仓库根级；
+// 两者都不属于文档集，把它们纳入会误报。
 const HEADER_FIELDS = MANIFEST.headerFields;
 const SUBDIR_README = new RegExp(
   `^(${MANIFEST.subdirs.join('|')})[/]README\\.md$`

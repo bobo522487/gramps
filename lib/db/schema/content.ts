@@ -46,6 +46,7 @@ export const articles = pgTable(
   (t) => [
     // Target state (appendix A.5): composite key, no soft delete, no updated_at.
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('article_id_global').on(t.id),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
@@ -108,6 +109,7 @@ export const books = pgTable(
     // Target state (appendix A.5). The composite key is also what finally makes
     // `book_export_book_fk` executable — that FK targets `book (project_id, id)`.
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('book_id_global').on(t.id),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
@@ -145,6 +147,7 @@ export const bookCatalogs = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('book_catalog_id_global').on(t.id),
     check(
       'book_catalog_path_format',
       sql`${t.path}::text ~ '^[0-9]{4}([.][0-9]{4})*$'`

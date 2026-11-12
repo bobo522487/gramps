@@ -178,10 +178,7 @@ deleteProjectInTransaction({ userId, orgId, projectId })
 
 - **创建**：校验组织存在；`ref` 每次尝试重新生成（`generatePublicId()`），`onConflictDoNothing`，最多 3 次；
 - **更新**：白名单字段（`name / countriesRegions / hallCode / status / importance / notes`），按 `(id, orgId)` 双条件更新；`themeName` 创建后不可变；
-- **删除**：
-  1. 先探测 13 个 `project` 子表（`PROJECT_CHILD_CONSTRAINTS`）是否有数据；
-  2. 有数据返回 `not_empty`，**不执行 DELETE**（事务内任一语句失败后即进入 aborted 状态，catch 也救不回来）；
-  3. 无数据才真删；未登记的 FK 约束直接抛错，强制维护清单。
+- **删除**：在 `SAVEPOINT delete_project` 内直接 `DELETE ... RETURNING`；子表 `RESTRICT` 违约（`23001` / `23503`）时先 `ROLLBACK TO SAVEPOINT` 恢复事务再返回 `not_empty`，空项目则 `RELEASE SAVEPOINT`。约束交给数据库判定，不预先探查子表、不维护约束名清单，新增子表无需登记。
 
 ### 5.2 Action 与文案
 

@@ -40,6 +40,7 @@ export const persons = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('person_id_global').on(t.id),
     foreignKey({
       columns: [t.orgId, t.projectId],
       foreignColumns: [projects.orgId, projects.id],
@@ -75,6 +76,7 @@ export const personNames = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.id] }),
+    unique('person_name_id_global').on(t.id),
     unique('person_name_unique').on(t.projectId, t.personId, t.kind, t.value),
     foreignKey({
       columns: [t.projectId, t.personId],

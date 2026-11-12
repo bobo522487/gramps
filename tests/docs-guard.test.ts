@@ -19,11 +19,33 @@ function read(path: string): string {
 }
 
 function gate(rootDir?: string): { status: number; stdout: string } {
-  const args = rootDir
-    ? [GATE, '--root', rootDir, '--strict']
-    : [GATE, '--strict'];
+  const args = rootDir ? [GATE, '--root', rootDir] : [GATE];
   const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
   return { status: result.status ?? 1, stdout: result.stdout ?? '' };
+}
+
+// 只放一份缺文档头四项的根级文档；其它违规都排除掉，让断言精确命中 header。
+function badHeaderFixture(): string {
+  const tmp = mkdtempSync(join(tmpdir(), 'docs-guard-header-'));
+  for (const dir of ['docs', 'scripts']) {
+    mkdirSync(join(tmp, dir), { recursive: true });
+  }
+  writeFileSync(
+    join(tmp, 'scripts/doc-manifest.json'),
+    readFileSync(join(root, 'scripts/doc-manifest.json'))
+  );
+  const header = [
+    '> **回答什么问题**：fixture',
+    '> **读者**：护栏',
+    '> **长度上限**：1 页',
+    '> **不写什么**：无',
+  ].join('\n');
+  writeFileSync(
+    join(tmp, 'docs/README.md'),
+    ['# 文档入口', '', header, '', '- [坏文档](bad.md)', ''].join('\n')
+  );
+  writeFileSync(join(tmp, 'docs/bad.md'), '# 缺头的文档\n\n正文。\n');
+  return tmp;
 }
 
 // fixture 里的坏样本用拼接构造，避免护栏扫到本测试文件自身。
@@ -100,7 +122,7 @@ describe('documentation guard', () => {
       expect(result.stdout).toContain('retired-path');
       // Context7: 抛错调用必须包在函数里，不能直接传 execFileSync 的结果。
       expect(() =>
-        execFileSync(process.execPath, [GATE, '--root', tmp, '--strict'], {
+        execFileSync(process.execPath, [GATE, '--root', tmp], {
           stdio: 'pipe',
         })
       ).toThrow();
@@ -144,6 +166,33 @@ describe('documentation guard', () => {
     const result = gate();
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('0 issue(s)');
+  });
+});
+
+describe('删掉空操作参数与重复原则', () => {
+  test('护栏不传 --strict 也会让坏文档失败', () => {
+    const tmp = badHeaderFixture();
+    try {
+      const result = gate(tmp);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain('[header]');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('CI 与护栏不再传空操作参数', () => {
+    // 用拼接构造，避免断言里的字面量被护栏当成退役参数扫到本测试自身。
+    expect(read('.github/workflows/ci.yml')).not.toContain(
+      ['--', 'strict'].join('')
+    );
+    expect(read('scripts/check-docs.mjs')).not.toContain('保留为 CI 兼容参数');
+  });
+
+  test('同一条原则只在 constitution 里写一次', () => {
+    const adr = read('docs/adr/README.md');
+    expect(adr).not.toContain('写在文档里但拦不住的规则等于没有规则');
+    expect(adr).toContain('.specify/memory/constitution.md');
   });
 });
 

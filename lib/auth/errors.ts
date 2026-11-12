@@ -1,12 +1,13 @@
 import type { ActionState } from '@/lib/auth/types';
-import { isRaisedException, isUniqueViolation } from '@/lib/db/errors';
+import {
+  CONFLICT_MESSAGE,
+  FALLBACK_MESSAGE,
+  isUniqueViolation,
+  LAST_OWNER_MESSAGE,
+  PERMISSION_MESSAGE,
+  pgErrorOf,
+} from '@/lib/db/errors';
 import type { ActionErrorCode } from '@/lib/errors';
-
-const FALLBACK_MESSAGE = '操作失败，请稍后重试。';
-const CONFLICT_MESSAGE = '数据冲突，请刷新后重试。';
-const PERMISSION_MESSAGE = '你没有执行该操作的权限。';
-const LAST_OWNER_MESSAGE = '不能移除或降级最后一个所有者。';
-const ORG_ARCHIVED_MESSAGE = '组织已归档，无法继续操作。';
 
 export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   INVALID_EMAIL_OR_PASSWORD: '邮箱或密码不正确，请重试。',
@@ -78,11 +79,9 @@ function statusCode(status: number): ActionErrorCode {
  * SQL text, stacks and driver details never reach the browser.
  */
 export function authErrorMessage(error: unknown): string {
-  if (isRaisedException(error, 'last_owner')) {
-    return LAST_OWNER_MESSAGE;
-  }
-  if (isRaisedException(error, 'org_archived')) {
-    return ORG_ARCHIVED_MESSAGE;
+  const pg = pgErrorOf(error);
+  if (pg) {
+    return pg.message;
   }
 
   const code = errorCode(error);
@@ -106,8 +105,9 @@ export function authErrorMessage(error: unknown): string {
 }
 
 export function mapAuthError(error: unknown): ActionState {
-  if (isRaisedException(error, 'last_owner')) {
-    return { error: LAST_OWNER_MESSAGE, code: 'CONFLICT' };
+  const pg = pgErrorOf(error);
+  if (pg) {
+    return { error: pg.message, code: pg.code };
   }
 
   const status = errorStatus(error);

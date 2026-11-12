@@ -2,24 +2,20 @@
 
 import 'server-only';
 
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import {
   authErrorMessage,
   isSlugConflict,
   mapAuthError,
 } from '@/lib/auth/errors';
 import { validatedActionWithUser } from '@/lib/auth/middleware';
-import {
-  checkOrgPermission,
-  getOrgRole,
-  hasPermission,
-} from '@/lib/auth/permissions';
+import { checkOrgPermission, getOrgRole } from '@/lib/auth/permissions';
 import { getServerConfig } from '@/lib/config';
 import { revalidateWholeConsole } from '@/lib/console/revalidate';
 import { queryRows, withOrg } from '@/lib/db/drizzle';
-import { sqlStateOf } from '@/lib/db/errors';
+import { pgErrorOf } from '@/lib/db/errors';
 import { getOrgById } from '@/lib/db/queries/organizations';
-import { organizations, orgMembers } from '@/lib/db/schema';
+import { organizations } from '@/lib/db/schema';
 import { logger } from '@/lib/logger';
 import { hashInviteToken, issueInvitation } from '@/lib/org/invitations';
 import {
@@ -33,27 +29,6 @@ import {
 } from '@/lib/org/schemas';
 
 const SLUG_ATTEMPTS = 3;
-
-/**
- * 成员寻址按 `user_id`（T28 拆插件后成员表无代理主键，附录 A.1）。动作入参
- * 沿用表单字段名 `memberId`，承载的就是 userId——与集成测试的既有口径一致。
- * `role` 一并选出，供「不能移除自己 / 不能动所有者」这类判断使用。
- */
-async function findMember(actorId: string, orgId: string, userId: string) {
-  return withOrg(actorId, async (tx) => {
-    const rows = await tx
-      .select({
-        userId: orgMembers.userId,
-        role: orgMembers.role,
-      })
-      .from(orgMembers)
-      .where(
-        and(eq(orgMembers.userId, userId), eq(orgMembers.organizationId, orgId))
-      )
-      .limit(1);
-    return rows[0] ?? null;
-  });
-}
 
 export const createOrgAction = validatedActionWithUser(
   createOrgSchema,
@@ -112,23 +87,9 @@ export const createOrgAction = validatedActionWithUser(
 export const renameOrgAction = validatedActionWithUser(
   renameOrgSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
-      return { error: '组织不存在或已归档' };
-    }
-
-    const denied = await checkOrgPermission(
-      user.id,
-      data.orgId,
-      'org.settings'
-    );
-    if (denied) {
-      return { error: denied };
-    }
-
     try {
-      // 写走 app.rename_organization：SECDEF 以属主身份落库，函数体里再做一次
-      // owner 守卫与 active 前置，防绕过应用层直接调用。
+      // 重命名走 SECDEF 的 app.rename_organization：owner 守卫、active 前置、
+      // 组织存在性都在函数体内单事务原子判定，应用层不再分别预检。
       await withOrg(user.id, (tx) =>
         tx.execute(
           sql`select app.rename_organization(${data.orgId}, ${data.name})`
@@ -146,31 +107,14 @@ export const renameOrgAction = validatedActionWithUser(
 export const deleteOrgAction = validatedActionWithUser(
   deleteOrgSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
-      return { error: '组织不存在或已归档' };
-    }
-
-    const denied = await checkOrgPermission(
-      user.id,
-      data.orgId,
-      'org.settings'
-    );
-    if (denied) {
-      return { error: denied };
-    }
-
     try {
       // 归档收敛到 app.archive_organization（B4 收口）：函数体带
-      // status = 'active' 条件，不会把 suspended 覆盖成 closed，并做 owner
-      // 守卫。重复归档由函数的 22023 表达，这里映射回原来的友好文案。
+      // status = 'active' 条件、owner 守卫；重复归档由 22023 表达，
+      // 文案统一交给 mapAuthError()。单事务，不再分别预检 org / 权限。
       await withOrg(user.id, (tx) =>
         tx.execute(sql`select app.archive_organization(${data.orgId})`)
       );
     } catch (error) {
-      if (sqlStateOf(error, '22023')) {
-        return { error: '组织已归档或已停用，无需重复操作' };
-      }
       return mapAuthError(error);
     }
 
@@ -256,62 +200,25 @@ export const acceptInviteAction = validatedActionWithUser(
 );
 
 /**
- * `app.accept_invite` 的三种业务失败都带自定义 SQLSTATE，逐条映射成人话。
- *
- * 不直接 `mapAuthError`：那一层只认 Better Auth 的 statusCode / error.code，
- * 碰到 `P0001` 之类的原始 SQLSTATE 会一律压成「操作失败，请稍后重试。」——
- * 用户拿着一封过期邀请只会看到一句无从下手的兜底文案。
+ * `app.accept_invite` 的业务失败走 `pgErrorOf()` 的单一 SQLSTATE 表：
+ * 邀请域专用文案集中在 `MESSAGE_OVERRIDES`，这里不再散三条按码分支。
+ * 未命中 SQLSTATE 的错误才回落到 Better Auth / HTTP status 兜底。
  */
 function mapAcceptInviteError(error: unknown) {
-  // 必须走 `sqlStateOf` 而不是读 `error.code`：Drizzle 把驱动异常包成
-  // `DrizzleQueryError(query, params, cause)`，SQLSTATE 只在 `cause` 上。
-  // 直接读顶层 `code` 一律是 undefined，三个分支都命中不了，所有失败都会
-  // 退化成「操作失败，请稍后重试。」——实测踩过。
-  if (sqlStateOf(error, '22023')) {
-    return { error: '邀请无效或已过期，请让管理员重新邀请' };
-  }
-  if (sqlStateOf(error, '42501')) {
-    return { error: '该邀请不是发给当前账号的' };
-  }
-  if (sqlStateOf(error, '23505')) {
-    return { error: '当前账号已是该组织成员' };
-  }
-  return mapAuthError(error);
+  const pg = pgErrorOf(error);
+  return pg ? { error: pg.message, code: pg.code } : mapAuthError(error);
 }
 
 export const removeOrgMember = validatedActionWithUser(
   removeOrgMemberSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
-      return { error: '组织不存在或已归档' };
-    }
-
-    const role = await getOrgRole(user.id, data.orgId);
-    if (!role || !hasPermission(role, 'member.manage')) {
-      return { error: '只有所有者或管理员可以移除成员' };
-    }
-
-    const member = await findMember(user.id, data.orgId, data.memberId);
-    if (!member) {
-      return { error: '该成员不在此组织中' };
-    }
-    if (member.userId === user.id) {
-      return { error: '不能移除自己，请先转让所有权' };
-    }
-    if (member.role === 'owner') {
-      return { error: '不能移除最后一个所有者' };
-    }
-    if (role === 'admin' && member.role === 'admin') {
-      return { error: '管理员不能管理其他管理员' };
-    }
-
     try {
-      // 权限矩阵已在上面检查过；写走 SECDEF 函数，函数体再守一次 actor 角色、
-      // last-owner 与 admin 不能管 admin。
+      // actor 角色、last-owner、不能移除自己、admin 不能管 admin 全部由
+      // app.remove_org_member 在单事务内原子判定。成员寻址按 userId，
+      // 动作入参 memberId 承载的就是 userId（附录 A.1）。
       await withOrg(user.id, (tx) =>
         tx.execute(
-          sql`select app.remove_org_member(${data.orgId}, ${member.userId})`
+          sql`select app.remove_org_member(${data.orgId}, ${data.memberId})`
         )
       );
     } catch (error) {
@@ -326,37 +233,12 @@ export const removeOrgMember = validatedActionWithUser(
 export const updateOrgMemberRole = validatedActionWithUser(
   updateOrgMemberRoleSchema,
   async (data, _, user) => {
-    const org = await getOrgById(user.id, data.orgId);
-    if (!org) {
-      return { error: '组织不存在或已归档' };
-    }
-
-    const role = await getOrgRole(user.id, data.orgId);
-    if (!role || !hasPermission(role, 'member.manage')) {
-      return { error: '你没有调整该成员角色的权限' };
-    }
-
-    const member = await findMember(user.id, data.orgId, data.memberId);
-    if (!member) {
-      return { error: '该成员不在此组织中' };
-    }
-    if (member.role === 'owner') {
-      return { error: '不能修改所有者的角色' };
-    }
-    if (
-      role === 'admin' &&
-      (member.role === 'admin' || data.role === 'admin')
-    ) {
-      return { error: '管理员不能管理其他管理员' };
-    }
-    if (member.role === data.role) {
-      return { error: '该成员已经是此角色' };
-    }
-
     try {
+      // 权限、owner 保护、admin 不能管 admin、目标角色合法性全部由
+      // app.set_org_member_role 在单事务内原子判定，应用层不再预检。
       await withOrg(user.id, (tx) =>
         tx.execute(
-          sql`select app.set_org_member_role(${data.orgId}, ${member.userId}, ${data.role})`
+          sql`select app.set_org_member_role(${data.orgId}, ${data.memberId}, ${data.role})`
         )
       );
     } catch (error) {

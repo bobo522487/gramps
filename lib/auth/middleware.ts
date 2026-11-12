@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { z } from 'zod';
 import { getSessionUser } from '@/lib/auth/context';
+import { mapAuthError } from '@/lib/auth/errors';
 import type { SessionUser } from '@/lib/auth/types';
 import { actionError } from '@/lib/errors';
 import { runWithRequestContext } from '@/lib/server/request-context';
@@ -29,6 +30,7 @@ function validationState(error: z.ZodError, formData: FormData): ActionState {
   // Echo the email so React's automatic form reset keeps it on screen
   const email = formData.get('email');
   return {
+    code: 'VALIDATION',
     error: error.issues[0].message,
     fieldErrors: toFieldErrors(error),
     ...(typeof email === 'string' ? { email } : {}),
@@ -42,6 +44,29 @@ function inRequestContext<T>(action: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ request_id: randomUUID() }, action);
 }
 
+// Next.js 用带 NEXT_ digest 的异常实现 redirect/notFound 控制流；它们不是错误，
+// 兜底映射会把它们吞成 INTERNAL 返回值，导航就断了。判据只看 digest 前缀。
+function isNextControlFlowError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'digest' in error &&
+    typeof error.digest === 'string' &&
+    error.digest.startsWith('NEXT_')
+  );
+}
+
+async function guardAction<T>(run: () => Promise<T>): Promise<T | ActionState> {
+  try {
+    return await run();
+  } catch (error) {
+    if (isNextControlFlowError(error)) {
+      throw error;
+    }
+    return mapAuthError(error);
+  }
+}
+
 export function validatedAction<S extends z.ZodType, T>(
   schema: S,
   action: ValidatedActionFunction<S, T>
@@ -52,7 +77,9 @@ export function validatedAction<S extends z.ZodType, T>(
       return validationState(result.error, formData);
     }
 
-    return inRequestContext(() => action(result.data, formData));
+    return guardAction(() =>
+      inRequestContext(() => action(result.data, formData))
+    );
   };
 }
 
@@ -77,7 +104,9 @@ export function validatedActionWithUser<S extends z.ZodType, T>(
       return validationState(result.error, formData);
     }
 
-    return inRequestContext(() => action(result.data, formData, user));
+    return guardAction(() =>
+      inRequestContext(() => action(result.data, formData, user))
+    );
   };
 }
 
@@ -105,11 +134,12 @@ export function validatedActionWithUserObject<S extends z.ZodType, T>(
     const result = schema.safeParse(payload);
     if (!result.success) {
       return {
+        code: 'VALIDATION',
         error: result.error.issues[0].message,
         fieldErrors: toFieldErrors(result.error),
       };
     }
 
-    return inRequestContext(() => action(result.data, user));
+    return guardAction(() => inRequestContext(() => action(result.data, user)));
   };
 }

@@ -97,4 +97,4 @@ grep -rn '0020' docs/ tests/ lib/db/migrations/
 
 编号唯一性与「不存正文」靠 PR 评审加上面第一条命令；退役路径与旧文档名由 `scripts/check-docs.mjs` 依 `scripts/doc-manifest.json` 的 `retiredPhrases` 扫描拦截，其余措辞是否回潮靠 PR 评审。
 
-写在文档里但拦不住的规则等于没有规则：本文件可机检的部分是 §3 编号唯一性与 `scripts/check-docs.mjs` 的退役路径黑名单；其余（「只存索引、不存正文」「只记为什么」「未决策不登记」）靠评审。
+本文件可机检的部分是 §3 编号唯一性与 `scripts/check-docs.mjs` 的退役路径黑名单；其余（「只存索引、不存正文」「只记为什么」「未决策不登记」）靠评审。「没有执行者的原则等于没有原则」只在 `.specify/memory/constitution.md` 写一次，本文件不再重抄。
