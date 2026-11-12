@@ -56,7 +56,7 @@ function SidebarNavGroup({
   return (
     <SidebarGroup className={directory ? 'px-2 py-0' : undefined}>
       {label ? (
-        <SidebarGroupLabel className="h-8 pl-5 text-[11px] font-medium tracking-normal text-[#6a7184]">
+        <SidebarGroupLabel className="h-auto py-1.5 pr-2 pl-5 text-[11px] font-[550] tracking-[0.05em] text-[#6a7184] uppercase">
           {label}
         </SidebarGroupLabel>
       ) : null}
@@ -76,7 +76,7 @@ function SidebarNavGroup({
                 tooltip={item.label}
                 className={
                   directory
-                    ? 'h-8 rounded-md text-[13px] font-semibold text-[#374151] data-[active=true]:bg-[#e7e7e9] data-[active=true]:text-[#1f293a]'
+                    ? 'h-8 rounded-md pr-1 pl-3 text-[13px] font-semibold leading-[18px] text-[#374151] hover:bg-[#e7e7e9] hover:text-[#1f293a] data-[active=true]:bg-[#f0f3ff] data-[active=true]:font-semibold data-[active=true]:text-[#1f293a] [&_svg]:stroke-[1.33]'
                     : undefined
                 }
               >
@@ -88,7 +88,9 @@ function SidebarNavGroup({
               {item.count === undefined ? null : (
                 <SidebarMenuBadge
                   className={
-                    directory ? 'font-normal text-[#6a7184]' : undefined
+                    directory
+                      ? 'mr-1.5 text-[12px] font-medium leading-[18px] text-[#6a7184]'
+                      : undefined
                   }
                 >
                   {item.count}
@@ -108,10 +110,12 @@ function DirectoryUser() {
     <div className="flex min-w-0 items-center gap-0.5">
       <UserMenu avatarClassName="size-6" />
       <div className="min-w-0 flex-1 px-1">
-        <div className="truncate text-sm text-[#1f293a]">
+        <div className="truncate text-[13px] font-medium leading-[18px] text-[#1f293a]">
           {user?.name || '账号'}
         </div>
-        <div className="truncate text-xs text-[#6a7184]">{user?.email}</div>
+        <div className="truncate text-[12px] font-medium leading-[14px] text-[#6a7184]">
+          {user?.email}
+        </div>
       </div>
       <ThemeToggle size="icon-sm" className="size-8 shrink-0" />
     </div>

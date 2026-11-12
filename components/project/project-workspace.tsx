@@ -142,22 +142,22 @@ export function ProjectWorkspace({
   return (
     <section className="min-h-full bg-background">
       <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background px-2 sm:px-4">
-        <p className="hidden min-w-0 flex-1 truncate text-sm sm:block">
-          <span className="text-muted-foreground">{orgName}</span>
-          <span className="px-1.5 text-muted-foreground">/</span>
-          <span className="font-semibold">云谱空间</span>
+        <p className="hidden min-w-0 flex-1 truncate text-[13px] leading-[18px] font-medium sm:block">
+          <span className="text-[#6a7184]">{orgName}</span>
+          <span className="px-1.5 text-[#6a7184]">/</span>
+          <span className="font-bold text-[#1f293a]">云谱空间</span>
         </p>
         <div className="relative w-full max-w-[420px] flex-none">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-[#9aa2af]" />
           <Input
             ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="搜索云谱空间"
             aria-label="搜索云谱空间"
-            className="h-9 rounded-lg border-[#e7e7e9] bg-white pr-16 pl-8 text-sm shadow-none"
+            className="h-9 rounded-lg border-[#e7e7e9] bg-white pr-16 pl-8 text-[14px] font-medium shadow-none placeholder:font-medium placeholder:text-[#9aa2af] md:text-[14px]"
           />
-          <kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline">
+          <kbd className="pointer-events-none absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded-md border border-[#e7e7e9] bg-white px-1.5 py-0.5 text-[12px] leading-[18px] font-bold text-[#4a5268] shadow-[0_1px_0_0_#e7e7e9] sm:inline">
             Ctrl K
           </kbd>
         </div>
@@ -166,14 +166,18 @@ export function ProjectWorkspace({
 
       <div className="mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         <div className="flex items-center gap-2">
-          <h1 className="min-w-0 flex-1 truncate text-[13px] leading-5 font-semibold">
+          <h1 className="min-w-0 flex-1 truncate text-[13px] leading-5 font-semibold text-[#374151]">
             云谱空间
           </h1>
           <Select
             value={sort}
             onValueChange={(value) => setSort(value as keyof typeof SORTS)}
           >
-            <SelectTrigger size="sm" className="w-28" aria-label="空间排序">
+            <SelectTrigger
+              size="sm"
+              className="h-8 w-28 text-[13px] font-medium"
+              aria-label="空间排序"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -185,7 +189,7 @@ export function ProjectWorkspace({
             <Button
               variant="brand"
               size="sm"
-              className="h-8 shrink-0 rounded-lg px-2.5 font-semibold"
+              className="h-8 shrink-0 rounded-lg px-2.5 text-[13px] font-medium"
               onClick={() => setIsNewProjectOpen(true)}
             >
               <Plus />
@@ -237,10 +241,10 @@ export function ProjectWorkspace({
                       <Box className="size-6" />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pr-12">
-                      <span className="block truncate text-sm font-medium">
+                      <span className="block truncate text-[14px] leading-5 font-medium text-[#1f293a]">
                         {project.name}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block h-[18px] truncate text-[12px] leading-[18px] font-medium text-[#6a7184]">
                         {project.themeName ?? '云谱空间'}
                       </span>
                     </span>

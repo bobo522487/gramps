@@ -67,7 +67,7 @@ export function OrgPicker({
             href={active ? `/dashboard/org/${active.slug}` : '/dashboard'}
             className={
               variant === 'directory'
-                ? 'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50'
+                ? 'flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 pr-2 pl-1.5 text-[14px] font-[550] leading-5 text-black outline-none hover:bg-[#e7e7e9] focus-visible:ring-2 focus-visible:ring-ring/50'
                 : 'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50'
             }
           >
