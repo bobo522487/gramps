@@ -30,7 +30,6 @@ describe('ProjectWorkspace directory', () => {
 
     expect(html).toContain('陈氏');
     expect(html).toContain('搜索云谱空间');
-    expect(html).toContain('当前组织');
     expect(html).toContain('颍川陈氏');
     expect(html).toContain('陈氏宗谱');
     expect(html).toContain('href="/dashboard/project/chenref"');

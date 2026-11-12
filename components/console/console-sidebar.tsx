@@ -54,19 +54,22 @@ function SidebarNavGroup({
     return null;
   }
   return (
-    <SidebarGroup>
+    <SidebarGroup className={directory ? 'px-2 py-0' : undefined}>
       {label ? (
         <SidebarGroupLabel className="h-8 pl-5 text-[11px] font-medium tracking-normal text-[#6a7184]">
           {label}
         </SidebarGroupLabel>
       ) : null}
-      <SidebarMenu>
+      <SidebarMenu className={directory ? 'gap-0' : undefined}>
         {items.map((item) => {
           const active = item.exact
             ? pathname === item.href
             : pathname.startsWith(item.href);
           return (
-            <SidebarMenuItem key={item.href}>
+            <SidebarMenuItem
+              key={item.href}
+              className={directory ? 'my-0.5' : undefined}
+            >
               <SidebarMenuButton
                 asChild
                 isActive={active}
@@ -102,12 +105,15 @@ function SidebarNavGroup({
 function DirectoryUser() {
   const { data: user } = useSessionUser();
   return (
-    <div className="flex min-w-0 items-center gap-2 px-1">
-      <UserMenu />
-      <span className="min-w-0 flex-1 truncate text-xs text-[#6a7184]">
-        {user?.email}
-      </span>
-      <ThemeToggle size="icon-sm" />
+    <div className="flex min-w-0 items-center gap-0.5">
+      <UserMenu avatarClassName="size-6" />
+      <div className="min-w-0 flex-1 px-1">
+        <div className="truncate text-sm text-[#1f293a]">
+          {user?.name || '账号'}
+        </div>
+        <div className="truncate text-xs text-[#6a7184]">{user?.email}</div>
+      </div>
+      <ThemeToggle size="icon-sm" className="size-8 shrink-0" />
     </div>
   );
 }
@@ -170,7 +176,7 @@ export function ConsoleSidebar() {
       }
     >
       {showDirectory ? (
-        <SidebarHeader className="px-2 py-3 group-data-[collapsible=icon]:hidden">
+        <SidebarHeader className="h-14 flex-row items-center gap-0 border-b px-2 py-0 group-data-[collapsible=icon]:hidden">
           <OrgPicker variant="directory" />
         </SidebarHeader>
       ) : activeOrg ? null : (
@@ -179,7 +185,7 @@ export function ConsoleSidebar() {
           <span className="truncate text-xs text-muted-foreground">账号</span>
         </SidebarHeader>
       )}
-      <SidebarContent>
+      <SidebarContent className={showDirectory ? 'pt-2' : undefined}>
         <SidebarNavGroup
           items={items}
           label={showDirectory ? '组织' : undefined}
@@ -187,7 +193,7 @@ export function ConsoleSidebar() {
         />
       </SidebarContent>
       {showDirectory ? (
-        <SidebarFooter className="border-t group-data-[collapsible=icon]:hidden">
+        <SidebarFooter className="border-t px-2 py-1.5 group-data-[collapsible=icon]:hidden">
           <DirectoryUser />
         </SidebarFooter>
       ) : null}

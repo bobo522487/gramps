@@ -1,6 +1,6 @@
 'use client';
 
-import { Boxes, Check, ChevronsUpDown, Plus } from 'lucide-react';
+import { Boxes, Check, ChevronsUpDown, FolderKanban, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -72,8 +72,8 @@ export function OrgPicker({
             }
           >
             {variant === 'directory' ? (
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-sky-500 text-white">
-                <Boxes className="size-3.5" />
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <FolderKanban className="size-4" />
               </span>
             ) : (
               <Boxes className="size-4 shrink-0 text-muted-foreground" />

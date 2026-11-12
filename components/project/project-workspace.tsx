@@ -31,6 +31,22 @@ export type ProjectView = {
   createdAtIso: string;
 };
 
+const TILES = [
+  { bg: '#e0f5ff', fg: '#004869' },
+  { bg: '#ffe1f6', fg: '#68024c' },
+  { bg: '#feede1', fg: '#5d2702' },
+  { bg: '#e8eeff', fg: '#3366ff' },
+  { bg: '#e7f8ee', fg: '#067647' },
+];
+
+function tileFor(id: string) {
+  let hash = 0;
+  for (const char of id) {
+    hash = (hash + char.charCodeAt(0)) % TILES.length;
+  }
+  return TILES[hash] ?? TILES[0];
+}
+
 const SORTS = {
   name: (a: ProjectView, b: ProjectView) =>
     a.name.localeCompare(b.name, 'zh-CN'),
@@ -125,47 +141,34 @@ export function ProjectWorkspace({
 
   return (
     <section className="min-h-full bg-background">
-      <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background px-4">
-        <p className="hidden shrink-0 text-sm sm:block">
-          <span className="font-medium">{orgName}</span>
+      <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background px-2 sm:px-4">
+        <p className="hidden min-w-0 flex-1 truncate text-sm sm:block">
+          <span className="text-muted-foreground">{orgName}</span>
           <span className="px-1.5 text-muted-foreground">/</span>
-          <span className="text-muted-foreground">云谱空间</span>
+          <span className="font-semibold">云谱空间</span>
         </p>
-        <div className="relative mx-auto w-full max-w-[308px]">
-          <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <div className="relative w-full max-w-[420px] flex-none">
+          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="搜索云谱空间"
             aria-label="搜索云谱空间"
-            className="h-8 rounded-md border-[#e7e7e9] bg-white pr-14 pl-8 text-sm shadow-none"
+            className="h-9 rounded-lg border-[#e7e7e9] bg-white pr-16 pl-8 text-sm shadow-none"
           />
           <kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline">
             Ctrl K
           </kbd>
         </div>
-        {canManage ? (
-          <Button
-            variant="brand"
-            size="sm"
-            className="h-8 shrink-0 rounded-lg px-2.5 font-semibold"
-            onClick={() => setIsNewProjectOpen(true)}
-          >
-            <Plus />
-            新建空间
-          </Button>
-        ) : (
-          <span className="w-8 shrink-0" />
-        )}
+        <div className="hidden flex-1 sm:block" />
       </header>
 
-      <div className="px-6 py-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-sm font-medium">云谱空间</h1>
-            <p className="text-xs text-muted-foreground">当前组织</p>
-          </div>
+      <div className="mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
+        <div className="flex items-center gap-2">
+          <h1 className="min-w-0 flex-1 truncate text-[13px] leading-5 font-semibold">
+            云谱空间
+          </h1>
           <Select
             value={sort}
             onValueChange={(value) => setSort(value as keyof typeof SORTS)}
@@ -178,6 +181,17 @@ export function ProjectWorkspace({
               <SelectItem value="created">最新</SelectItem>
             </SelectContent>
           </Select>
+          {canManage ? (
+            <Button
+              variant="brand"
+              size="sm"
+              className="h-8 shrink-0 rounded-lg px-2.5 font-semibold"
+              onClick={() => setIsNewProjectOpen(true)}
+            >
+              <Plus />
+              新建空间
+            </Button>
+          ) : null}
         </div>
 
         {visible.length === 0 ? (
@@ -207,32 +221,41 @@ export function ProjectWorkspace({
             />
           </div>
         ) : (
-          <ul className="mt-4 flex flex-wrap gap-3">
-            {visible.map((project) => (
-              <li key={project.id} className="group relative w-[369px]">
-                <Link
-                  href={`/dashboard/project/${project.ref}`}
-                  className="flex h-[66px] items-center gap-3 rounded-xl bg-[#f9f9fa] px-3 outline-none hover:bg-[#f3f3f4] focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#e8eeff] text-[#3366ff]">
-                    <Box className="size-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">
-                      {project.name}
+          <ul className="mt-4 flex flex-col gap-3">
+            {visible.map((project) => {
+              const tile = tileFor(project.id);
+              return (
+                <li key={project.id} className="group relative">
+                  <Link
+                    href={`/dashboard/project/${project.ref}`}
+                    className="flex h-16 items-stretch overflow-hidden rounded-xl border border-[#e7e7e9] outline-none hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    <span
+                      className="flex w-16 shrink-0 items-center justify-center"
+                      style={{ backgroundColor: tile.bg, color: tile.fg }}
+                    >
+                      <Box className="size-6" />
                     </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {project.themeName ?? '云谱空间'}
+                    <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pr-12">
+                      <span className="block truncate text-sm font-medium">
+                        {project.name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {project.themeName ?? '云谱空间'}
+                      </span>
                     </span>
-                  </span>
-                </Link>
-                {canManage ? (
-                  <div className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    <DeleteProjectButton orgId={orgId} projectId={project.id} />
-                  </div>
-                ) : null}
-              </li>
-            ))}
+                  </Link>
+                  {canManage ? (
+                    <div className="absolute top-1/2 right-3 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      <DeleteProjectButton
+                        orgId={orgId}
+                        projectId={project.id}
+                      />
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
