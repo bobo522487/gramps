@@ -9,8 +9,8 @@ import { ConsoleSidebar } from '@/components/console/console-sidebar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 /**
- * Two-row frame: a full-width navbar on top, then the sidebar and the
- * independently scrolling content region.
+ * Organization directory is a full-height sidebar. Other scopes keep a
+ * navbar row above the sidebar and the scrolling content region.
  */
 export function ConsoleFrame({
   scope,
@@ -19,12 +19,27 @@ export function ConsoleFrame({
   scope: ConsoleScope | null;
   children: React.ReactNode;
 }) {
+  const directory = Boolean(scope?.org && !scope.project);
+
   return (
     <ConsoleScopeProvider scope={scope}>
-      <SidebarProvider className="grid h-dvh min-h-0 grid-rows-[auto_minmax(0,1fr)] print:block print:h-auto">
-        <div className="contents print:hidden">
-          <ConsoleNavbar />
-        </div>
+      <SidebarProvider
+        className={
+          directory
+            ? 'grid h-dvh min-h-0 grid-rows-[auto_minmax(0,1fr)] print:block print:h-auto [&_[data-slot=sidebar-inner]]:bg-white'
+            : 'grid h-dvh min-h-0 grid-rows-[auto_minmax(0,1fr)] print:block print:h-auto'
+        }
+        style={
+          directory
+            ? ({ '--sidebar-width': '18rem' } as React.CSSProperties)
+            : undefined
+        }
+      >
+        {directory ? null : (
+          <div className="contents print:hidden">
+            <ConsoleNavbar />
+          </div>
+        )}
         <div className="flex min-h-0 min-w-0">
           <div className="contents print:hidden">
             <ConsoleSidebar />

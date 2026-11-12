@@ -15,7 +15,8 @@ import { usePathname } from 'next/navigation';
 import { useConsoleScope } from '@/components/console/console-scope';
 import { orgDirectoryItems } from '@/components/console/org-directory';
 import { OrgPicker } from '@/components/console/org-picker';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { UserMenu } from '@/components/console/user-menu';
+import { ThemeToggle } from '@/components/theme-toggle';
 import {
   Sidebar,
   SidebarContent,
@@ -42,9 +43,11 @@ type NavItem = {
 function SidebarNavGroup({
   items,
   label,
+  directory = false,
 }: {
   items: NavItem[];
   label?: string;
+  directory?: boolean;
 }) {
   const pathname = usePathname();
   if (items.length === 0) {
@@ -53,7 +56,7 @@ function SidebarNavGroup({
   return (
     <SidebarGroup>
       {label ? (
-        <SidebarGroupLabel className="text-[11px] tracking-wide text-muted-foreground">
+        <SidebarGroupLabel className="h-8 pl-5 text-[11px] font-medium tracking-normal text-[#6a7184]">
           {label}
         </SidebarGroupLabel>
       ) : null}
@@ -68,7 +71,11 @@ function SidebarNavGroup({
                 asChild
                 isActive={active}
                 tooltip={item.label}
-                className="data-[active=true]:bg-sky-100 data-[active=true]:text-foreground"
+                className={
+                  directory
+                    ? 'h-8 rounded-md text-[13px] font-semibold text-[#374151] data-[active=true]:bg-[#e7e7e9] data-[active=true]:text-[#1f293a]'
+                    : undefined
+                }
               >
                 <Link href={item.href}>
                   <item.icon />
@@ -76,7 +83,13 @@ function SidebarNavGroup({
                 </Link>
               </SidebarMenuButton>
               {item.count === undefined ? null : (
-                <SidebarMenuBadge>{item.count}</SidebarMenuBadge>
+                <SidebarMenuBadge
+                  className={
+                    directory ? 'font-normal text-[#6a7184]' : undefined
+                  }
+                >
+                  {item.count}
+                </SidebarMenuBadge>
               )}
             </SidebarMenuItem>
           );
@@ -88,24 +101,14 @@ function SidebarNavGroup({
 
 function DirectoryUser() {
   const { data: user } = useSessionUser();
-  if (!user) {
-    return null;
-  }
-  const initials = (user.name || user.email).slice(0, 2).toUpperCase();
   return (
-    <Link
-      href="/dashboard/general"
-      className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
-      <Avatar size="sm" className="bg-sky-500 text-white">
-        <AvatarFallback className="bg-sky-500 text-[10px] text-white">
-          {initials}
-        </AvatarFallback>
-      </Avatar>
-      <span className="truncate text-xs text-muted-foreground">
-        {user.email}
+    <div className="flex min-w-0 items-center gap-2 px-1">
+      <UserMenu />
+      <span className="min-w-0 flex-1 truncate text-xs text-[#6a7184]">
+        {user?.email}
       </span>
-    </Link>
+      <ThemeToggle size="icon-sm" />
+    </div>
   );
 }
 
@@ -162,7 +165,9 @@ export function ConsoleSidebar() {
   return (
     <Sidebar
       collapsible="icon"
-      className="top-12 bottom-auto h-[calc(100svh-3rem)]"
+      className={
+        showDirectory ? undefined : 'top-12 bottom-auto h-[calc(100svh-3rem)]'
+      }
     >
       {showDirectory ? (
         <SidebarHeader className="px-2 py-3 group-data-[collapsible=icon]:hidden">
@@ -178,6 +183,7 @@ export function ConsoleSidebar() {
         <SidebarNavGroup
           items={items}
           label={showDirectory ? '组织' : undefined}
+          directory={showDirectory}
         />
       </SidebarContent>
       {showDirectory ? (

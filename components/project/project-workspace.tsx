@@ -131,15 +131,15 @@ export function ProjectWorkspace({
           <span className="px-1.5 text-muted-foreground">/</span>
           <span className="text-muted-foreground">云谱空间</span>
         </p>
-        <div className="relative mx-auto w-full max-w-md">
-          <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <div className="relative mx-auto w-full max-w-[308px]">
+          <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="搜索云谱空间"
             aria-label="搜索云谱空间"
-            className="h-9 rounded-lg bg-muted/40 pr-16 pl-8 shadow-none"
+            className="h-8 rounded-md border-[#e7e7e9] bg-white pr-14 pl-8 text-sm shadow-none"
           />
           <kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline">
             Ctrl K
@@ -149,7 +149,7 @@ export function ProjectWorkspace({
           <Button
             variant="brand"
             size="sm"
-            className="shrink-0"
+            className="h-8 shrink-0 rounded-lg px-2.5 font-semibold"
             onClick={() => setIsNewProjectOpen(true)}
           >
             <Plus />
@@ -209,12 +209,12 @@ export function ProjectWorkspace({
         ) : (
           <ul className="mt-4 flex flex-wrap gap-3">
             {visible.map((project) => (
-              <li key={project.id} className="group relative w-72">
+              <li key={project.id} className="group relative w-[369px]">
                 <Link
                   href={`/dashboard/project/${project.ref}`}
-                  className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-3 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="flex h-[66px] items-center gap-3 rounded-xl bg-[#f9f9fa] px-3 outline-none hover:bg-[#f3f3f4] focus-visible:ring-2 focus-visible:ring-ring/50"
                 >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-600">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#e8eeff] text-[#3366ff]">
                     <Box className="size-4" />
                   </span>
                   <span className="min-w-0">
